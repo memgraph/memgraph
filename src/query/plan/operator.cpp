@@ -2791,15 +2791,13 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties =
-    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
-             std::map<storage::PropertyId, storage::PropertyValue> properties) {
-      {
-        value.ClearProperties()
-      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-      { value.SetProperty(property_id, property_value) };
-      { value.UpdateProperties(properties) };
-    };
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
+};
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -4660,7 +4658,12 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
                 utils::GetReadableSize(*memory_limit));
-    utils::LimitedMemoryResource limited_mem{memory, *memory_limit};
+    // Only allocations which can leak memory are
+    // our own mgp object allocations. Jemalloc can track
+    // memory correctly, but some memory may not be released
+    // immediately, so we want to give user info on leak still
+    // considering our allocations
+    utils::MemoryTrackingResource memory_tracking_resource{memory, *memory_limit};
     // if we are already tracking, no harm no faul
     // if we are not tracking, we need to start now, with unlimited memory
     // for query, but limited for procedure
@@ -4683,7 +4686,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // memory. Here we need to update tracking
     memgraph::memory::CreateOrContinueProcedureTracking(transaction_id, procedure_id, *memory_limit);
 
-    mgp_memory proc_memory{&limited_mem};
+    mgp_memory proc_memory{&memory_tracking_resource};
     MG_ASSERT(result->signature == &proc.results);
 
     utils::OnScopeExit on_scope_exit{[transaction_id = transaction_id]() {
@@ -4694,7 +4697,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
-    size_t leaked_bytes = limited_mem.GetAllocatedBytes();
+    auto leaked_bytes = memory_tracking_resource.GetAllocatedBytes();
     if (leaked_bytes > 0U) {
       spdlog::warn("Query procedure '{}' leaked {} *tracked* bytes", fully_qualified_procedure_name, leaked_bytes);
     }

@@ -2406,6 +2406,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
+    object->procedure_id_ = procedure_id_;
     object->void_procedure_ = void_procedure_;
     return object;
   }
