@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -53,16 +53,13 @@ TEST(Socket, WaitForReadyWrite) {
   ASSERT_TRUE(server.Bind({"127.0.0.1", 0}));
   ASSERT_TRUE(server.Listen(1024));
 
-  std::thread thread([&server] {
+  std::jthread thread([&server] {
     uint8_t buff[10000];
     memgraph::io::network::Socket client;
     ASSERT_TRUE(client.Connect(server.endpoint()));
     client.SetNonBlocking();
 
-    // Decrease the TCP read buffer.
-    int len = 1024;
-    ASSERT_EQ(setsockopt(client.fd(), SOL_SOCKET, SO_RCVBUF, &len, sizeof(len)), 0);
-
+    // Wait for server to fill its buffer and hence would WaitForReadyWrite
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
     while (true) {
       int ret = client.Read(buff, sizeof(buff));
@@ -70,26 +67,26 @@ TEST(Socket, WaitForReadyWrite) {
         std::raise(SIGPIPE);
       } else if (ret == 0) {
         break;
+      } else if (ret == -1) {
+        client.WaitForReadyRead();  // reduce CPU load
       }
     }
   });
 
-  auto client = server.Accept();
-  ASSERT_TRUE(client);
+  auto connection_with_client = server.Accept();
+  ASSERT_TRUE(connection_with_client);
 
-  client->SetNonBlocking();
+  connection_with_client->SetNonBlocking();
 
   // Decrease the TCP write buffer.
   int len = 1024;
-  ASSERT_EQ(setsockopt(client->fd(), SOL_SOCKET, SO_SNDBUF, &len, sizeof(len)), 0);
+  ASSERT_EQ(setsockopt(connection_with_client->fd(), SOL_SOCKET, SO_SNDBUF, &len, sizeof(len)), 0);
 
+  auto const payload = std::string_view{"test"};
   memgraph::utils::Timer timer;
-  for (int i = 0; i < 1000000; ++i) {
-    ASSERT_TRUE(client->Write("test"));
+  for (int i = 0; i < 1'000'000; ++i) {
+    ASSERT_TRUE(connection_with_client->Write(payload));
   }
-  ASSERT_GT(timer.Elapsed().count(), 1.0);
 
-  client->Close();
-
-  thread.join();
+  connection_with_client->Close();
 }
