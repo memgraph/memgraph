@@ -73,8 +73,9 @@ void QueriesMemoryControl::TrackAllocOnCurrentThread(size_t size) {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
   auto transaction_id_to_tracker =
       transaction_id_to_tracker_accessor.find(thread_id_to_transaction_id_elem->transaction_id);
-  auto &query_tracker = transaction_id_to_tracker->tracker;
 
+  MG_ASSERT(transaction_id_to_tracker != transaction_id_to_tracker_accessor.end(), "Tracker for thread not found");
+  auto &query_tracker = transaction_id_to_tracker->tracker;
   query_tracker.TrackAlloc(size);
 }
 
@@ -91,8 +92,9 @@ void QueriesMemoryControl::TrackFreeOnCurrentThread(size_t size) {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
   auto transaction_id_to_tracker =
       transaction_id_to_tracker_accessor.find(thread_id_to_transaction_id_elem->transaction_id);
-  auto &query_tracker = transaction_id_to_tracker->tracker;
 
+  MG_ASSERT(transaction_id_to_tracker != transaction_id_to_tracker_accessor.end(), "Tracker for thread not found");
+  auto &query_tracker = transaction_id_to_tracker->tracker;
   query_tracker.TrackFree(size);
 }
 
