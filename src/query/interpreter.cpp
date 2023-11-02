@@ -3014,19 +3014,23 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
   switch (info_query->info_type_) {
     case DatabaseInfoQuery::InfoType::INDEX: {
-      header = {"index type", "label", "property"};
+      header = {"index type", "label", "property", "count"};
       handler = [storage = current_db.db_acc_->get()->storage(), dba] {
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
         auto info = dba->ListAllIndices();
+        auto storage_acc = storage->Access();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.label.size() + info.label_property.size());
         for (const auto &item : info.label) {
-          results.push_back({TypedValue(label_index_mark), TypedValue(storage->LabelToName(item)), TypedValue()});
+          results.push_back({TypedValue(label_index_mark), TypedValue(storage->LabelToName(item)), TypedValue(),
+                             TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item)))});
         }
         for (const auto &item : info.label_property) {
-          results.push_back({TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(item.first)),
-                             TypedValue(storage->PropertyToName(item.second))});
+          results.push_back(
+              {TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(item.first)),
+               TypedValue(storage->PropertyToName(item.second)),
+               TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, item.second)))});
         }
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();
@@ -3753,7 +3757,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         std::visit([](auto &execution_memory) -> utils::MemoryResource * { return &execution_memory; },
                    query_execution->execution_memory);
     frame_change_collector_.reset();
-    frame_change_collector_.emplace(memory_resource);
+    frame_change_collector_.emplace();
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                           current_db_, memory_resource, &query_execution->notifications, username_,
