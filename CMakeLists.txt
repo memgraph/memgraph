@@ -296,7 +296,7 @@ if (MG_ENTERPRISE)
   add_definitions(-DMG_ENTERPRISE)
 endif()
 
-set(ENABLE_JEMALLOC ON)
+option(ENABLE_JEMALLOC "Use jemalloc" ON)
 
 if (ASAN)
   message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
