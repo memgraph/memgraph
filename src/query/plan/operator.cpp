@@ -2642,12 +2642,9 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
           throw QueryRuntimeException(
               "Path not deleted due to not having enough permission on all edges and vertices on the path!");
         }
-        buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
-        buffer_.edges.insert(buffer_.edges.begin(), path.edges().begin(), path.edges().end());
-#else
-        buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
-        buffer_.edges.insert(buffer_.edges.begin(), path.edges().begin(), path.edges().end());
 #endif
+        buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
+        buffer_.edges.insert(buffer_.edges.begin(), path.edges().begin(), path.edges().end());
       }
       case TypedValue::Type::Null:
         break;
