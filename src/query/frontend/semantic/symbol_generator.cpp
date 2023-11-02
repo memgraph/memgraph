@@ -519,6 +519,10 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
     throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
   }
 
+  if (scope.num_if_operators) {
+    throw utils::NotYetImplemented("IF operator cannot be used with exists, but only during matching!");
+  }
+
   scope.in_exists = true;
 
   const auto &symbol = CreateAnonymousSymbol();
