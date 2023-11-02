@@ -23,6 +23,8 @@ DEFINE_uint64(bolt_port, 7687, "Bolt port");
 DEFINE_uint64(timeout, 120, "Timeout seconds");
 DEFINE_bool(multi_db, false, "Run test in multi db environment");
 
+// Test checks path of throwing error from different thread
+// than main thread which started test
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Global Memory Limit In Multi-Thread For Procedures For Local Allocators");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -45,11 +47,11 @@ int main(int argc, char **argv) {
     client->DiscardAll();
   }
 
-  MG_ASSERT(
-      client->Execute("CALL libglobal_memory_limit_proc_thread.thread() YIELD allocated RETURN "
-                      "allocated"));
   bool error{false};
   try {
+    client->Execute(
+        "CALL libglobal_memory_limit_thread_proc.thread() YIELD allocated_all RETURN allocated_all QUERY MEMORY LIMIT "
+        "100MB;");
     auto result_rows = client->FetchAll();
     if (result_rows) {
       auto row = *result_rows->begin();

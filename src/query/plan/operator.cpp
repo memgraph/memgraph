@@ -2789,15 +2789,13 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties =
-    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
-             std::map<storage::PropertyId, storage::PropertyValue> properties) {
-      {
-        value.ClearProperties()
-      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-      { value.SetProperty(property_id, property_value) };
-      { value.UpdateProperties(properties) };
-    };
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
+};
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -4657,23 +4655,12 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
                 utils::GetReadableSize(*memory_limit));
-    utils::LimitedMemoryResource limited_mem(memory, *memory_limit);
-    mgp_memory proc_memory{&limited_mem};
-    MG_ASSERT(result->signature == &proc.results);
-    // TODO: What about cross library boundary exceptions? OMG C++?!
-    proc.cb(&proc_args, &graph, result, &proc_memory);
-    size_t leaked_bytes = limited_mem.GetAllocatedBytes();
-    if (leaked_bytes > 0U) {
-      spdlog::warn("Query procedure '{}' leaked {} *tracked* bytes", fully_qualified_procedure_name, leaked_bytes);
-    }
-  } else {
-    // TODO: Add a tracking MemoryResource without limits, so that we report
-    // memory leaks in procedure.
-    mgp_memory proc_memory{memory};
-    MG_ASSERT(result->signature == &proc.results);
-    // TODO: What about cross library boundary exceptions? OMG C++?!
-    proc.cb(&proc_args, &graph, result, &proc_memory);
   }
+
+  mgp_memory proc_memory{memory};
+  MG_ASSERT(result->signature == &proc.results);
+  // TODO: What about cross library boundary exceptions? OMG C++?!
+  proc.cb(&proc_args, &graph, result, &proc_memory);
 }
 
 }  // namespace

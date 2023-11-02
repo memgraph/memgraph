@@ -159,3 +159,15 @@ workloads:
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_edge_create"
     args: ["--bolt-port", *bolt_port]
     <<: *disk_450_MiB_limit_cluster
+
+  - name: "Memory control for create from multi thread proc"
+    binary: "tests/e2e/memory/memgraph__e2e__memory_limit_global_multi_thread_proc_create"
+    proc: "tests/e2e/memory/procedures/"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_cluster
+
+  - name: "Memory control for memory limit global thread alloc"
+    binary: "tests/e2e/memory/memgraph__e2e__memory_limit_global_thread_alloc_proc"
+    proc: "tests/e2e/memory/procedures/"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_cluster

@@ -13,7 +13,7 @@
 #include <cassert>
 #include <exception>
 #include <functional>
-#include <mgp.hpp>
+
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "mg_procedure.h"
+#include "mgp.hpp"
 #include "utils/on_scope_exit.hpp"
 
 enum mgp_error Alloc(mgp_memory *memory, void *ptr) {
@@ -36,6 +37,7 @@ void *ptr_;
 
 void AllocFunc(mgp_memory *memory, mgp_graph *graph) {
   try {
+    [[maybe_unused]] const enum mgp_error tracking_error = mgp_track_current_thread_allocations(graph);
     enum mgp_error alloc_err { mgp_error::MGP_ERROR_NO_ERROR };
     alloc_err = Alloc(memory, ptr_);
     if (alloc_err != mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
@@ -45,8 +47,10 @@ void AllocFunc(mgp_memory *memory, mgp_graph *graph) {
       assert(false);
     }
   } catch (const std::exception &e) {
+    [[maybe_unused]] const enum mgp_error untracking_error = mgp_untrack_current_thread_allocations(graph);
     assert(false);
   }
+  [[maybe_unused]] const enum mgp_error untracking_error = mgp_untrack_current_thread_allocations(graph);
 }
 
 void Thread(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {

@@ -31,3 +31,11 @@ target_link_libraries(memgraph__e2e__memory__limit_accumulation gflags mgclient 
 
 add_executable(memgraph__e2e__memory__limit_edge_create memory_limit_edge_create.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_edge_create gflags mgclient mg-utils mg-io)
+
+
+# global memory limit
+add_executable(memgraph__e2e__memory_limit_global_multi_thread_proc_create memory_limit_global_multi_thread_proc_create.cpp)
+target_link_libraries(memgraph__e2e__memory_limit_global_multi_thread_proc_create gflags mgclient mg-utils mg-io)
+
+add_executable(memgraph__e2e__memory_limit_global_thread_alloc_proc memory_limit_global_thread_alloc_proc.cpp)
+target_link_libraries(memgraph__e2e__memory_limit_global_thread_alloc_proc gflags mgclient mg-utils mg-io)
