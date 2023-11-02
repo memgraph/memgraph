@@ -208,7 +208,7 @@ Feature: Delete
             """
             MATCH (n) DETACH DELETE n SET n.prop = 1 WITH n RETURN n
             """
-            Then an error should be raised
+        Then an error should be raised
 
 
 
