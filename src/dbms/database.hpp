@@ -147,11 +147,9 @@ class Database {
   /**
    * @brief Returns the PlanCache vector raw pointer
    *
-   * @return uutils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<CachedPlan>>, utils::SpinLock>
+   * @return utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<CachedPlan>>, utils::RWSpinLock>
    */
-  utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlan>>, utils::SpinLock> *plan_cache() {
-    return &plan_cache_;
-  }
+  query::PlanCacheLRU *plan_cache() { return &plan_cache_; }
 
  private:
   std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
@@ -160,8 +158,7 @@ class Database {
   query::stream::Streams streams_;                  //!< Streams associated with the storage
 
   // TODO: Move to a better place
-  utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::CachedPlan>>, utils::SpinLock>
-      plan_cache_;  //!< Plan cache associated with the storage
+  query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
 };
 
 }  // namespace memgraph::dbms

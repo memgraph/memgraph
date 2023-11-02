@@ -17,6 +17,11 @@
 
 namespace memgraph::utils {
 
+/// A simple LRU cache implementation.
+/// It is not thread-safe.
+/// You should check if the key exists (with exists() method) before calling get() method.
+/// @throws BasicException if the key does not exist in the cache.
+
 template <class TKey, class TVal>
 class LRUCache {
  public:
@@ -30,29 +35,29 @@ class LRUCache {
     }
     item_list.push_front(std::make_pair(key, val));
     item_map.insert(std::make_pair(key, item_list.begin()));
-    clean();
+    try_clean();
   };
-  bool exist(const TKey &key) { return (item_map.count(key) > 0); };
-  TVal get(const TKey &key) {
-    if (!exist(key)) {
-      return nullptr;
+  bool exists(const TKey &key) { return (item_map.count(key) > 0); };
+  TVal &get(const TKey &key) {
+    if (!exists(key)) {
+      throw BasicException("Key does not exist in cache.");
     }
     auto it = item_map.find(key);
     item_list.splice(item_list.begin(), item_list, it->second);
     return it->second->second;
   };
-  void clear() {
+  void reset() {
     item_list.clear();
     item_map.clear();
   };
   size_t size() { return item_map.size(); };
 
  private:
-  void clean() {
+  void try_clean() {
     while (item_map.size() > cache_size) {
-      auto last_it = item_list.end();
-      last_it--;
-      item_map.erase(last_it->first);
+      auto last_it_elem_it = item_list.end();
+      last_it_elem_it--;
+      item_map.erase(last_it_elem_it->first);
       item_list.pop_back();
     }
   };

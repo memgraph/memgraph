@@ -128,10 +128,10 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
                                                  std::move(symbol_table));
 }
 
-std::shared_ptr<CachedPlan> CypherQueryToPlan(
-    uint64_t hash, AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-    utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<CachedPlan>>, utils::SpinLock> *plan_cache,
-    DbAccessor *db_accessor, const std::vector<Identifier *> &predefined_identifiers) {
+std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
+                                              const Parameters &parameters, PlanCacheLRU *plan_cache,
+                                              DbAccessor *db_accessor,
+                                              const std::vector<Identifier *> &predefined_identifiers) {
   if (plan_cache) {
     auto existing_plan = plan_cache->WithLock([&](auto &cache) { return cache.get(hash); });
     if (existing_plan != nullptr) {
