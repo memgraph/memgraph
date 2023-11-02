@@ -84,9 +84,11 @@ void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, L
 
 TEST_F(StorageUniqueConstraints, ChangeProperties) {
   {
-    auto res = storage->CreateUniqueConstraint(label, {prop1, prop2, prop3}, {});
+    auto unique_acc = storage->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
@@ -166,9 +168,11 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
 
 TEST_F(StorageUniqueConstraints, ChangeLabels) {
   {
-    auto res = storage->CreateUniqueConstraint(label, {prop1, prop2, prop3}, {});
+    auto unique_acc = storage->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   // In the first part of the test, each transaction tries to add the same label

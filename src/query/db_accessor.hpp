@@ -17,6 +17,7 @@
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "memory/query_memory_control.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -372,6 +373,16 @@ class DbAccessor final {
 
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
+  void TrackCurrentThreadAllocations() {
+    memgraph::memory::StartTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
+  }
+
+  void UntrackCurrentThreadAllocations() {
+    memgraph::memory::StopTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
+  }
+
+  std::optional<uint64_t> GetTransactionId() { return accessor_->GetTransactionId(); }
+
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
@@ -395,10 +406,6 @@ class DbAccessor final {
 
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
-  void PrefetchOutEdges(const VertexAccessor &vertex) const { accessor_->PrefetchOutEdges(vertex.impl_); }
-
-  void PrefetchInEdges(const VertexAccessor &vertex) const { accessor_->PrefetchInEdges(vertex.impl_); }
-
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
     auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
@@ -415,6 +422,12 @@ class DbAccessor final {
   storage::Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) {
     auto changed_edge = accessor_->EdgeSetTo(&edge->impl_, &new_to->impl_);
     if (changed_edge.HasError()) return storage::Result<EdgeAccessor>(changed_edge.GetError());
+    return EdgeAccessor(*changed_edge);
+  }
+
+  storage::Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, storage::EdgeTypeId new_edge_type) {
+    auto changed_edge = accessor_->EdgeChangeType(&edge->impl_, new_edge_type);
+    if (changed_edge.HasError()) return storage::Result<EdgeAccessor>{changed_edge.GetError()};
     return EdgeAccessor(*changed_edge);
   }
 
@@ -436,8 +449,6 @@ class DbAccessor final {
       VertexAccessor *vertex_accessor) {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
-    accessor_->PrefetchOutEdges(vertex_accessor->impl_);
-    accessor_->PrefetchInEdges(vertex_accessor->impl_);
     auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
     if (res.HasError()) {
       return res.GetError();
@@ -483,9 +494,6 @@ class DbAccessor final {
     edges_impl.reserve(edges.size());
 
     for (auto &vertex_accessor : nodes) {
-      accessor_->PrefetchOutEdges(vertex_accessor.impl_);
-      accessor_->PrefetchInEdges(vertex_accessor.impl_);
-
       nodes_impl.push_back(&vertex_accessor.impl_);
     }
 
@@ -533,7 +541,7 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::StorageDataManipulationError, void> Commit() { return accessor_->Commit(); }
+  utils::BasicResult<storage::StorageManipulationError, void> Commit() { return accessor_->Commit(); }
 
   void Abort() { accessor_->Abort(); }
 
@@ -554,20 +562,12 @@ class DbAccessor final {
     return accessor_->GetIndexStats(label, property);
   }
 
-  std::vector<std::pair<storage::LabelId, storage::PropertyId>> ClearLabelPropertyIndexStats() {
-    return accessor_->ClearLabelPropertyIndexStats();
-  }
-
-  std::vector<storage::LabelId> ClearLabelIndexStats() { return accessor_->ClearLabelIndexStats(); }
-
   std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteLabelPropertyIndexStats(
-      const std::span<std::string> labels) {
-    return accessor_->DeleteLabelPropertyIndexStats(labels);
+      const storage::LabelId &label) {
+    return accessor_->DeleteLabelPropertyIndexStats(label);
   }
 
-  std::vector<storage::LabelId> DeleteLabelIndexStats(const std::span<std::string> labels) {
-    return accessor_->DeleteLabelIndexStats(labels);
-  }
+  bool DeleteLabelIndexStats(const storage::LabelId &label) { return accessor_->DeleteLabelIndexStats(label); }
 
   void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
     accessor_->SetIndexStats(label, stats);
@@ -602,6 +602,44 @@ class DbAccessor final {
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
   const std::string &id() const { return accessor_->id(); }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::LabelId label) {
+    return accessor_->CreateIndex(label);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::LabelId label,
+                                                                             storage::PropertyId property) {
+    return accessor_->CreateIndex(label, property);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label) {
+    return accessor_->DropIndex(label);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label,
+                                                                           storage::PropertyId property) {
+    return accessor_->DropIndex(label, property);
+  }
+
+  utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+      storage::LabelId label, storage::PropertyId property) {
+    return accessor_->CreateExistenceConstraint(label, property);
+  }
+
+  utils::BasicResult<storage::StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+      storage::LabelId label, storage::PropertyId property) {
+    return accessor_->DropExistenceConstraint(label, property);
+  }
+
+  utils::BasicResult<storage::StorageUniqueConstraintDefinitionError, storage::UniqueConstraints::CreationStatus>
+  CreateUniqueConstraint(storage::LabelId label, const std::set<storage::PropertyId> &properties) {
+    return accessor_->CreateUniqueConstraint(label, properties);
+  }
+
+  storage::UniqueConstraints::DeletionStatus DropUniqueConstraint(storage::LabelId label,
+                                                                  const std::set<storage::PropertyId> &properties) {
+    return accessor_->DropUniqueConstraint(label, properties);
+  }
 };
 
 class SubgraphDbAccessor final {
@@ -612,6 +650,14 @@ class SubgraphDbAccessor final {
   explicit SubgraphDbAccessor(DbAccessor db_accessor, Graph *graph);
 
   static SubgraphDbAccessor *MakeSubgraphDbAccessor(DbAccessor *db_accessor, Graph *graph);
+
+  void TrackThreadAllocations(const char *thread_id);
+
+  void TrackCurrentThreadAllocations();
+
+  void UntrackThreadAllocations(const char *thread_id);
+
+  void UntrackCurrentThreadAllocations();
 
   storage::PropertyId NameToProperty(std::string_view name);
 
@@ -625,10 +671,6 @@ class SubgraphDbAccessor final {
 
   const std::string &EdgeTypeToName(storage::EdgeTypeId type) const;
 
-  void PrefetchOutEdges(const SubgraphVertexAccessor &vertex) const { db_accessor_.PrefetchOutEdges(vertex.impl_); }
-
-  void PrefetchInEdges(const SubgraphVertexAccessor &vertex) const { db_accessor_.PrefetchInEdges(vertex.impl_); }
-
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge);
 
   storage::Result<EdgeAccessor> InsertEdge(SubgraphVertexAccessor *from, SubgraphVertexAccessor *to,
@@ -637,6 +679,8 @@ class SubgraphDbAccessor final {
   storage::Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from);
 
   storage::Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, SubgraphVertexAccessor *new_to);
+
+  storage::Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, storage::EdgeTypeId new_edge_type);
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       SubgraphVertexAccessor *vertex_accessor);

@@ -2069,6 +2069,27 @@ class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor
   friend class AstStorage;
 };
 
+struct IndexHint {
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+
+  enum class IndexType { LABEL, LABEL_PROPERTY };
+
+  memgraph::query::IndexHint::IndexType index_type_;
+  memgraph::query::LabelIx label_;
+  std::optional<memgraph::query::PropertyIx> property_{std::nullopt};
+
+  IndexHint Clone(AstStorage *storage) const {
+    IndexHint object;
+    object.index_type_ = index_type_;
+    object.label_ = storage->GetLabelIx(label_.name);
+    if (property_) {
+      object.property_ = storage->GetPropertyIx(property_->name);
+    }
+    return object;
+  }
+};
+
 class CypherQuery : public memgraph::query::Query, public utils::Visitable<HierarchicalTreeVisitor> {
  public:
   static const utils::TypeInfo kType;
@@ -2093,6 +2114,11 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   memgraph::query::SingleQuery *single_query_{nullptr};
   /// Contains remaining queries that should form and union with `single_query_`.
   std::vector<memgraph::query::CypherUnion *> cypher_unions_;
+  /// Index hint
+  /// Suggestion: If we’re going to have multiple pre-query directives (not only index_hints_), they need to be
+  /// contained within a dedicated class/struct
+  std::vector<memgraph::query::IndexHint> index_hints_;
+  /// Memory limit
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
 
@@ -2102,6 +2128,10 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
     object->cypher_unions_.resize(cypher_unions_.size());
     for (auto i5 = 0; i5 < cypher_unions_.size(); ++i5) {
       object->cypher_unions_[i5] = cypher_unions_[i5] ? cypher_unions_[i5]->Clone(storage) : nullptr;
+    }
+    object->index_hints_.resize(index_hints_.size());
+    for (auto i6 = 0; i6 < index_hints_.size(); ++i6) {
+      object->index_hints_[i6] = index_hints_[i6].Clone(storage);
     }
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
@@ -2897,19 +2927,37 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {AuthQuery::Privilege::
                                                           AuthQuery::Privilege::MULTI_DATABASE_EDIT,
                                                           AuthQuery::Privilege::MULTI_DATABASE_USE};
 
-class InfoQuery : public memgraph::query::Query {
+class DatabaseInfoQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { STORAGE, INDEX, CONSTRAINT, BUILD };
+  enum class InfoType { INDEX, CONSTRAINT };
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  memgraph::query::InfoQuery::InfoType info_type_;
+  memgraph::query::DatabaseInfoQuery::InfoType info_type_;
 
-  InfoQuery *Clone(AstStorage *storage) const override {
-    InfoQuery *object = storage->Create<InfoQuery>();
+  DatabaseInfoQuery *Clone(AstStorage *storage) const override {
+    DatabaseInfoQuery *object = storage->Create<DatabaseInfoQuery>();
+    object->info_type_ = info_type_;
+    return object;
+  }
+};
+
+class SystemInfoQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class InfoType { STORAGE, BUILD };
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::SystemInfoQuery::InfoType info_type_;
+
+  SystemInfoQuery *Clone(AstStorage *storage) const override {
+    SystemInfoQuery *object = storage->Create<SystemInfoQuery>();
     object->info_type_ = info_type_;
     return object;
   }

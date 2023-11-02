@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <type_traits>
 
 #include "utils/exceptions.hpp"
 
@@ -20,6 +21,7 @@ namespace memgraph::utils {
 class OutOfMemoryException : public utils::BasicException {
  public:
   explicit OutOfMemoryException(const std::string &msg) : utils::BasicException(msg) {}
+  SPECIALIZE_GET_EXCEPTION_NAME(OutOfMemoryException)
 };
 
 class MemoryTracker final {
@@ -40,9 +42,20 @@ class MemoryTracker final {
   MemoryTracker() = default;
   ~MemoryTracker() = default;
 
+  MemoryTracker(MemoryTracker &&other) noexcept
+      : amount_(other.amount_.load(std::memory_order_acquire)),
+        peak_(other.peak_.load(std::memory_order_acquire)),
+        hard_limit_(other.hard_limit_.load(std::memory_order_acquire)),
+        maximum_hard_limit_(other.maximum_hard_limit_) {
+    other.maximum_hard_limit_ = 0;
+    other.amount_.store(0, std::memory_order_acquire);
+    other.peak_.store(0, std::memory_order_acquire);
+    other.hard_limit_.store(0, std::memory_order_acquire);
+  }
+
   MemoryTracker(const MemoryTracker &) = delete;
   MemoryTracker &operator=(const MemoryTracker &) = delete;
-  MemoryTracker(MemoryTracker &&) = delete;
+
   MemoryTracker &operator=(MemoryTracker &&) = delete;
 
   void Alloc(int64_t size);
@@ -57,6 +70,8 @@ class MemoryTracker final {
   void SetHardLimit(int64_t limit);
   void TryRaiseHardLimit(int64_t limit);
   void SetMaximumHardLimit(int64_t limit);
+
+  void ResetTrackings();
 
   // By creating an object of this class, every allocation in its scope that goes over
   // the set hard limit produces an OutOfMemoryException.

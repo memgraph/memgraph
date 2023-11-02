@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,6 +62,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "IndexDoesNotExist"sv;
     case NotificationCode::NONEXISTENT_CONSTRAINT:
       return "ConstraintDoesNotExist"sv;
+    case NotificationCode::PLAN_HINTING:
+      return "PlanHinting"sv;
     case NotificationCode::REGISTER_REPLICA:
       return "RegisterReplica"sv;
     case NotificationCode::REPLICA_PORT_WARNING:

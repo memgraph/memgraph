@@ -112,25 +112,36 @@ antlrcpp::Any CypherMainVisitor::visitProfileQuery(MemgraphCypher::ProfileQueryC
   return profile_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitInfoQuery(MemgraphCypher::InfoQueryContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 2, "InfoQuery should have exactly two children!");
-  auto *info_query = storage_->Create<InfoQuery>();
+antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::DatabaseInfoQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 2, "DatabaseInfoQuery should have exactly two children!");
+  auto *info_query = storage_->Create<DatabaseInfoQuery>();
+  query_ = info_query;
+  if (ctx->indexInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::INDEX;
+    return info_query;
+  }
+  if (ctx->constraintInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::CONSTRAINT;
+    return info_query;
+  }
+  // Should never get here
+  throw utils::NotYetImplemented("Database info query: '{}'", ctx->getText());
+}
+
+antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfoQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 2, "SystemInfoQuery should have exactly two children!");
+  auto *info_query = storage_->Create<SystemInfoQuery>();
   query_ = info_query;
   if (ctx->storageInfo()) {
-    info_query->info_type_ = InfoQuery::InfoType::STORAGE;
+    info_query->info_type_ = SystemInfoQuery::InfoType::STORAGE;
     return info_query;
-  } else if (ctx->indexInfo()) {
-    info_query->info_type_ = InfoQuery::InfoType::INDEX;
-    return info_query;
-  } else if (ctx->constraintInfo()) {
-    info_query->info_type_ = InfoQuery::InfoType::CONSTRAINT;
-    return info_query;
-  } else if (ctx->buildInfo()) {
-    info_query->info_type_ = InfoQuery::InfoType::BUILD;
-    return info_query;
-  } else {
-    throw utils::NotYetImplemented("Info query: '{}'", ctx->getText());
   }
+  if (ctx->buildInfo()) {
+    info_query->info_type_ = SystemInfoQuery::InfoType::BUILD;
+    return info_query;
+  }
+  // Should never get here
+  throw utils::NotYetImplemented("System info query: '{}'", ctx->getText());
 }
 
 antlrcpp::Any CypherMainVisitor::visitConstraintQuery(MemgraphCypher::ConstraintQueryContext *ctx) {
@@ -189,6 +200,20 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
       throw SemanticException("Invalid combination of UNION and UNION ALL.");
     }
     cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
+  }
+
+  if (auto *index_hints_ctx = ctx->indexHints()) {
+    for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
+      auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
+      if (!index_hint_ctx->propertyKeyName()) {
+        cypher_query->index_hints_.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
+        continue;
+      }
+      cypher_query->index_hints_.emplace_back(
+          IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
+                    .label_ = label,
+                    .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
+    }
   }
 
   if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {

@@ -27,23 +27,17 @@ class Storage;
 struct Constraints;
 struct Indices;
 struct EdgesVertexAccessorResult;
+using edge_store = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
 
 class VertexAccessor final {
  private:
   friend class Storage;
 
  public:
-  VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
-                 Config::Items config, bool for_deleted = false)
-      : vertex_(vertex),
-        transaction_(transaction),
-        indices_(indices),
-        constraints_(constraints),
-        config_(config),
-        for_deleted_(for_deleted) {}
+  VertexAccessor(Vertex *vertex, Storage *storage, Transaction *transaction, bool for_deleted = false)
+      : vertex_(vertex), storage_(storage), transaction_(transaction), for_deleted_(for_deleted) {}
 
-  static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                              Constraints *constraints, Config::Items config, View view);
+  static std::optional<VertexAccessor> Create(Vertex *vertex, Storage *storage, Transaction *transaction, View view);
 
   static bool IsVisible(Vertex const *vertex, Transaction const *transaction, View view);
 
@@ -89,6 +83,13 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
+  auto BuildResultOutEdges(edge_store const &out_edges) const;
+
+  auto BuildResultInEdges(edge_store const &out_edges) const;
+
+  auto BuildResultWithDisk(edge_store const &in_memory_edges, std::vector<EdgeAccessor> const &disk_edges, View view,
+                           const std::string &mode) const;
+
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
@@ -113,10 +114,8 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
   Vertex *vertex_;
+  Storage *storage_;
   Transaction *transaction_;
-  Indices *indices_;
-  Constraints *constraints_;
-  Config::Items config_;
 
   // if the accessor was created for a deleted vertex.
   // Accessor behaves differently for some methods based on this
@@ -127,6 +126,9 @@ class VertexAccessor final {
   // return an error if it's called for a deleted vertex.
   bool for_deleted_{false};
 };
+
+static_assert(std::is_trivially_copyable<memgraph::storage::VertexAccessor>::value,
+              "storage::VertexAccessor must be trivially copyable!");
 
 struct EdgesVertexAccessorResult {
   std::vector<EdgeAccessor> edges;

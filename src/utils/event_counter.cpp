@@ -54,9 +54,11 @@
   M(ForeachOperator, Operator, "Number of times Foreach operator was used.")                                         \
   M(EvaluatePatternFilterOperator, Operator, "Number of times EvaluatePatternFilter operator was used.")             \
   M(ApplyOperator, Operator, "Number of times ApplyOperator operator was used.")                                     \
+  M(IndexedJoinOperator, Operator, "Number of times IndexedJoin operator was used.")                                 \
+  M(HashJoinOperator, Operator, "Number of times HashJoin operator was used.")                                       \
                                                                                                                      \
   M(ActiveLabelIndices, Index, "Number of active label indices in the system.")                                      \
-  M(ActiveLabelPropertyIndices, Index, "Number of active label property indices in the system<.")                    \
+  M(ActiveLabelPropertyIndices, Index, "Number of active label property indices in the system.")                     \
                                                                                                                      \
   M(StreamsCreated, Stream, "Number of Streams created.")                                                            \
   M(MessagesConsumed, Stream, "Number of consumed streamed messages.")                                               \
@@ -74,7 +76,10 @@
   M(ActiveTransactions, Transaction, "Number of active transactions.")                                               \
   M(CommitedTransactions, Transaction, "Number of committed transactions.")                                          \
   M(RollbackedTransactions, Transaction, "Number of rollbacked transactions.")                                       \
-  M(FailedQuery, Transaction, "Number of times executing a query failed.")
+  M(FailedQuery, Transaction, "Number of times executing a query failed.")                                           \
+  M(FailedPrepare, Transaction, "Number of times preparing a query failed.")                                         \
+  M(FailedPull, Transaction, "Number of times executing a prepared query failed.")                                   \
+  M(SuccessfulQuery, Transaction, "Number of successful queries.")
 
 namespace memgraph::metrics {
 // define every Event as an index in the array of counters

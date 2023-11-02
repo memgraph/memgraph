@@ -974,7 +974,7 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down():
 
 
 def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
-    # Goal of this test is to check that main cannot create new indexes/constraints if a sync replica is down.
+    # Goal of this test is to check creation of new indexes/constraints when a sync replica is down.
     # 0/ Start main and sync replicas.
     # 1/ Check status of replicas.
     # 2/ Add some indexes to main and check it is propagated to the sync_replicas.
@@ -1052,9 +1052,10 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
     # 5/
     expected_data = {
         ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 2, 0, "ready"),
+        ("sync_replica2", "127.0.0.1:10002", "sync", 6, 0, "ready"),
     }
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
     actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
     assert actual_data == expected_data
 

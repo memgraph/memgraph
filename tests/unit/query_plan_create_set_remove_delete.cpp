@@ -301,7 +301,6 @@ TYPED_TEST(QueryPlanTest, CreateExpand) {
     }
 
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-      dba.PrefetchOutEdges(vertex);
       auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
       MG_ASSERT(maybe_edges.HasValue());
       for (auto edge : maybe_edges->edges) {
@@ -1130,7 +1129,6 @@ TYPED_TEST(QueryPlanTest, SetProperty) {
 
   EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 2);
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-    dba.PrefetchOutEdges(vertex);
     auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
     ASSERT_TRUE(maybe_edges.HasValue());
     for (auto edge : maybe_edges->edges) {
@@ -1185,7 +1183,6 @@ TYPED_TEST(QueryPlanTest, SetProperties) {
 
     EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 1);
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-      dba.PrefetchOutEdges(vertex);
       auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(maybe_edges.HasValue());
       for (auto edge : maybe_edges->edges) {
@@ -1366,7 +1363,6 @@ TYPED_TEST(QueryPlanTest, RemoveProperty) {
 
   EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 2);
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-    dba.PrefetchOutEdges(vertex);
     auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
     ASSERT_TRUE(maybe_edges.HasValue());
     for (auto edge : maybe_edges->edges) {
@@ -1767,7 +1763,6 @@ TYPED_TEST(QueryPlanTest, SetPropertiesFromMapWithCaching) {
   expected_properties.emplace(dba.NameToProperty("prop2"), memgraph::storage::PropertyValue(44));
   expected_properties.emplace(dba.NameToProperty("new_prop1"), memgraph::storage::PropertyValue(43));
   expected_properties.emplace(dba.NameToProperty("new_prop2"), memgraph::storage::PropertyValue(44));
-  EXPECT_EQ(context.evaluation_context.property_lookups_cache.size(), 0);
   EXPECT_EQ(new_properties.HasError(), false);
   EXPECT_EQ(*new_properties, expected_properties);
 }

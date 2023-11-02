@@ -482,7 +482,6 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
       // If we have a saved iterable from a previous pull
       // we need to use the same iterable
       if (!maybe_edge_iterable) {
-        dba_->PrefetchOutEdges(vertex);
         maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(vertex.OutEdges(storage::View::OLD));
       }
       auto &maybe_edges = *maybe_edge_iterable;

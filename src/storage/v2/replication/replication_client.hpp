@@ -11,10 +11,13 @@
 
 #pragma once
 
+#include "replication/config.hpp"
+#include "replication/epoch.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/replication/config.hpp"
+#include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
@@ -50,8 +53,9 @@ class ReplicaStream {
   void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
   /// @throw rpc::RpcFailedException
-  void AppendOperation(durability::StorageGlobalOperation operation, LabelId label,
-                       const std::set<PropertyId> &properties, uint64_t timestamp);
+  void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
+                       const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                       const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
   /// @throw rpc::RpcFailedException
   replication::AppendDeltasRes Finalize();
@@ -66,7 +70,8 @@ class ReplicationClient {
   friend class ReplicaStream;
 
  public:
-  ReplicationClient(Storage *storage, replication::ReplicationClientConfig const &config);
+  ReplicationClient(Storage *storage, const memgraph::replication::ReplicationClientConfig &config,
+                    const memgraph::replication::ReplicationEpoch *epoch);
 
   ReplicationClient(ReplicationClient const &) = delete;
   ReplicationClient &operator=(ReplicationClient const &) = delete;
@@ -75,7 +80,7 @@ class ReplicationClient {
 
   virtual ~ReplicationClient();
 
-  auto Mode() const -> replication::ReplicationMode { return mode_; }
+  auto Mode() const -> memgraph::replication::ReplicationMode { return mode_; }
   auto Name() const -> std::string const & { return name_; }
   auto Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
   auto State() const -> replication::ReplicaState { return replica_state_.load(); }
@@ -96,7 +101,6 @@ class ReplicationClient {
   virtual void RecoverReplica(uint64_t replica_commit) = 0;
 
   auto GetStorage() -> Storage * { return storage_; }
-  auto GetEpochId() const -> std::string const &;
   auto LastCommitTimestamp() const -> uint64_t;
   void InitializeClient();
   void HandleRpcFailure();
@@ -110,7 +114,7 @@ class ReplicationClient {
   std::chrono::seconds replica_check_frequency_;
 
   std::optional<ReplicaStream> replica_stream_;
-  replication::ReplicationMode mode_{replication::ReplicationMode::SYNC};
+  memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
 
   utils::SpinLock client_lock_;
   // This thread pool is used for background tasks so we don't
@@ -131,6 +135,8 @@ class ReplicationClient {
 
   utils::Scheduler replica_checker_;
   Storage *storage_;
+
+  memgraph::replication::ReplicationEpoch const *repl_epoch_;
 };
 
 }  // namespace memgraph::storage
