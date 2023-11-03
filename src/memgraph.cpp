@@ -213,7 +213,7 @@ int main(int argc, char **argv) {
                 << " is too low, increase to at least " << kMgVmMaxMapCount << std::endl;
     }
   } else {
-    std::cout << "Can't get info on vm.max_map_count, check that is too low, vm.max_map_count is at least "
+    std::cout << "Can't get info on vm.max_map_count, check whether it is too low, vm.max_map_count is at least "
               << kMgVmMaxMapCount << std::endl;
   }
 
