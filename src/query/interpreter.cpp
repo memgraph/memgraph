@@ -1612,8 +1612,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
   auto use_monotonic_memory =
       !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
-  spdlog::trace("PrepareCypher has {} encountered all shortest paths and will {} use of monotonic memory",
-                IsAllShortestPathsQuery(clauses) ? "" : "not", use_monotonic_memory ? "" : "not");
 
   MG_ASSERT(current_db.execution_db_accessor_, "Cypher query expects a current DB transaction");
   auto *dba =
@@ -3714,8 +3712,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // Setup QueryExecution
     // its MemoryResource is mostly used for allocations done on Frame and storing `row`s
     if (usePool) {
-      spdlog::trace("PrepareCypher has {} encountered all shortest paths, QueryExecution will use PoolResource",
-                    hasAllShortestPaths ? "" : "not");
       query_executions_.emplace_back(QueryExecution::Create(utils::PoolResource(128, kExecutionPoolMaxBlockSize)));
     } else {
       query_executions_.emplace_back(QueryExecution::Create(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
