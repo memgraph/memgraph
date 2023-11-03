@@ -1158,3 +1158,15 @@ Feature: Functions
         Then the result should be:
             | A_COUNT | B_COUNT |
             | 3       | 15      |
+
+    Scenario: Exists is forbidden within reduce:
+      Given an empty graph
+      And having executed:
+        """
+        CREATE ()
+        """
+      When executing query:
+        """
+        MATCH () WHERE reduce(a=exists(()),b in []|a) RETURN 1;
+        """
+      Then an error should be raised

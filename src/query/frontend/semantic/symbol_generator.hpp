@@ -84,6 +84,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(Any &) override;
   bool PreVisit(None &) override;
   bool PreVisit(Reduce &) override;
+  bool PostVisit(Reduce &) override;
   bool PreVisit(Extract &) override;
   bool PreVisit(Exists & /*exists*/) override;
   bool PostVisit(Exists & /*exists*/) override;
@@ -123,6 +124,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_match{false};
     bool in_foreach{false};
     bool in_exists{false};
+    bool in_reduce{false};
     bool in_set_property{false};
     bool in_call_subquery{false};
     bool has_return{false};
