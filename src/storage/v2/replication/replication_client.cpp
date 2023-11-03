@@ -15,6 +15,7 @@
 #include <type_traits>
 
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
 namespace memgraph::storage {
@@ -25,16 +26,13 @@ static auto CreateClientContext(const memgraph::replication::ReplicationClientCo
                       : communication::ClientContext{};
 }
 
-ReplicationClient::ReplicationClient(Storage *storage, const memgraph::replication::ReplicationClientConfig &config,
-                                     const memgraph::replication::ReplicationEpoch *epoch)
+ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
     : name_{config.name},
       rpc_context_{CreateClientContext(config)},
       rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
                   &rpc_context_},
       replica_check_frequency_{config.replica_check_frequency},
-      mode_{config.mode},
-      storage_{storage},
-      repl_epoch_{epoch} {}
+      mode_{config.mode} {}
 
 ReplicationClient::~ReplicationClient() {
   auto endpoint = rpc_client_.Endpoint();
@@ -42,20 +40,17 @@ ReplicationClient::~ReplicationClient() {
   thread_pool_.Shutdown();
 }
 
-uint64_t ReplicationClient::LastCommitTimestamp() const {
-  return storage_->repl_storage_state_.last_commit_timestamp_.load();
-}
-
-void ReplicationClient::InitializeClient() {
+void ReplicationClient::InitializeClient(Storage *storage) {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
-  auto stream{rpc_client_.Stream<replication::HeartbeatRpc>(
-      storage_->id(), storage_->repl_storage_state_.last_commit_timestamp_, std::string{repl_epoch_->id()})};
+  auto &replStorageState = storage->repl_storage_state_;
+  auto stream{rpc_client_.Stream<replication::HeartbeatRpc>(storage->id(), replStorageState.last_commit_timestamp_,
+                                                            std::string{replStorageState.epoch_.id()})};
 
   const auto replica = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
-  if (replica.epoch_id != repl_epoch_->id() && replica.current_commit_timestamp != kTimestampInitialId) {
-    auto const &history = storage_->repl_storage_state_.history;
+  if (replica.epoch_id != replStorageState.epoch_.id() && replica.current_commit_timestamp != kTimestampInitialId) {
+    auto const &history = replStorageState.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
       return main_epoch_info.first == replica.epoch_id;
     });
@@ -77,8 +72,8 @@ void ReplicationClient::InitializeClient() {
 
   current_commit_timestamp = replica.current_commit_timestamp;
   spdlog::trace("Current timestamp on replica {}: {}", name_, current_commit_timestamp);
-  spdlog::trace("Current timestamp on main: {}", storage_->repl_storage_state_.last_commit_timestamp_.load());
-  if (current_commit_timestamp == storage_->repl_storage_state_.last_commit_timestamp_.load()) {
+  spdlog::trace("Current timestamp on main: {}", replStorageState.last_commit_timestamp_.load());
+  if (current_commit_timestamp == replStorageState.last_commit_timestamp_.load()) {
     spdlog::debug("Replica '{}' up to date", name_);
     std::unique_lock client_guard{client_lock_};
     replica_state_.store(replication::ReplicaState::READY);
@@ -88,24 +83,24 @@ void ReplicationClient::InitializeClient() {
       std::unique_lock client_guard{client_lock_};
       replica_state_.store(replication::ReplicaState::RECOVERY);
     }
-    thread_pool_.AddTask([=, this] { this->RecoverReplica(current_commit_timestamp); });
+    thread_pool_.AddTask([=, this] { this->RecoverReplica(current_commit_timestamp, storage); });
   }
 }
 
-TimestampInfo ReplicationClient::GetTimestampInfo() {
+TimestampInfo ReplicationClient::GetTimestampInfo(Storage *storage) {
   TimestampInfo info;
   info.current_timestamp_of_replica = 0;
   info.current_number_of_timestamp_behind_master = 0;
 
   try {
-    auto stream{rpc_client_.Stream<replication::TimestampRpc>(storage_->id())};
+    auto stream{rpc_client_.Stream<replication::TimestampRpc>(storage->id())};
     const auto response = stream.AwaitResponse();
     const auto is_success = response.success;
     if (!is_success) {
       replica_state_.store(replication::ReplicaState::INVALID);
-      HandleRpcFailure();
+      HandleRpcFailure(storage);
     }
-    auto main_time_stamp = storage_->repl_storage_state_.last_commit_timestamp_.load();
+    auto main_time_stamp = storage->repl_storage_state_.last_commit_timestamp_.load();
     info.current_timestamp_of_replica = response.current_commit_timestamp;
     info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
   } catch (const rpc::RpcFailedException &) {
@@ -113,28 +108,28 @@ TimestampInfo ReplicationClient::GetTimestampInfo() {
       std::unique_lock client_guard(client_lock_);
       replica_state_.store(replication::ReplicaState::INVALID);
     }
-    HandleRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably won't
-                         // block
+    HandleRpcFailure(storage);  // mutex already unlocked, if the new enqueued task dispatches immediately it probably
+                                // won't block
   }
 
   return info;
 }
 
-void ReplicationClient::HandleRpcFailure() {
+void ReplicationClient::HandleRpcFailure(Storage *storage) {
   spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
-  TryInitializeClientAsync();
+  TryInitializeClientAsync(storage);
 }
 
-void ReplicationClient::TryInitializeClientAsync() {
-  thread_pool_.AddTask([this] {
+void ReplicationClient::TryInitializeClientAsync(Storage *storage) {
+  thread_pool_.AddTask([=, this] {
     rpc_client_.Abort();
-    this->TryInitializeClientSync();
+    this->TryInitializeClientSync(storage);
   });
 }
 
-void ReplicationClient::TryInitializeClientSync() {
+void ReplicationClient::TryInitializeClientSync(Storage *storage) {
   try {
-    InitializeClient();
+    InitializeClient(storage);
   } catch (const rpc::VersionMismatchRpcFailedException &) {
     std::unique_lock client_guard{client_lock_};
     replica_state_.store(replication::ReplicaState::INVALID);
@@ -150,7 +145,7 @@ void ReplicationClient::TryInitializeClientSync() {
   }
 }
 
-void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_seq_num) {
+void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_seq_num, Storage *storage) {
   std::unique_lock guard(client_lock_);
   const auto status = replica_state_.load();
   switch (status) {
@@ -169,22 +164,22 @@ void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_s
       replica_state_.store(replication::ReplicaState::RECOVERY);
       return;
     case replication::ReplicaState::INVALID:
-      HandleRpcFailure();
+      HandleRpcFailure(storage);
       return;
     case replication::ReplicaState::READY:
       MG_ASSERT(!replica_stream_);
       try {
-        replica_stream_.emplace(ReplicaStream{storage_, rpc_client_, current_wal_seq_num});
+        replica_stream_.emplace(ReplicaStream{storage, rpc_client_, current_wal_seq_num});
         replica_state_.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
         replica_state_.store(replication::ReplicaState::INVALID);
-        HandleRpcFailure();
+        HandleRpcFailure(storage);
       }
       return;
   }
 }
 
-bool ReplicationClient::FinalizeTransactionReplication() {
+bool ReplicationClient::FinalizeTransactionReplication(Storage *storage) {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -193,7 +188,7 @@ bool ReplicationClient::FinalizeTransactionReplication() {
     return false;
   }
 
-  auto task = [this]() {
+  auto task = [=, this]() {
     MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
     try {
       auto response = replica_stream_->Finalize();
@@ -201,7 +196,7 @@ bool ReplicationClient::FinalizeTransactionReplication() {
       std::unique_lock client_guard(client_lock_);
       if (!response.success || replica_state_ == replication::ReplicaState::RECOVERY) {
         replica_state_.store(replication::ReplicaState::RECOVERY);
-        thread_pool_.AddTask([&, this] { this->RecoverReplica(response.current_commit_timestamp); });
+        thread_pool_.AddTask([=, this] { this->RecoverReplica(response.current_commit_timestamp, storage); });
       } else {
         replica_state_.store(replication::ReplicaState::READY);
         return true;
@@ -212,7 +207,7 @@ bool ReplicationClient::FinalizeTransactionReplication() {
         std::unique_lock client_guard(client_lock_);
         replica_state_.store(replication::ReplicaState::INVALID);
       }
-      HandleRpcFailure();
+      HandleRpcFailure(storage);
     }
     return false;
   };
@@ -225,7 +220,7 @@ bool ReplicationClient::FinalizeTransactionReplication() {
   return task();
 }
 
-void ReplicationClient::FrequentCheck() {
+void ReplicationClient::FrequentCheck(Storage *storage) {
   const auto is_success = std::invoke([this]() {
     try {
       auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
@@ -246,23 +241,23 @@ void ReplicationClient::FrequentCheck() {
     return;
   }
   if (replica_state_.load() == replication::ReplicaState::INVALID) {
-    TryInitializeClientAsync();
+    TryInitializeClientAsync(storage);
   }
 }
 
-void ReplicationClient::Start() {
+void ReplicationClient::Start(Storage *storage) {
   auto const &endpoint = rpc_client_.Endpoint();
   spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
 
-  TryInitializeClientSync();
+  TryInitializeClientSync(storage);
 
   // Help the user to get the most accurate replica state possible.
   if (replica_check_frequency_ > std::chrono::seconds(0)) {
-    replica_checker_.Run("Replica Checker", replica_check_frequency_, [this] { this->FrequentCheck(); });
+    replica_checker_.Run("Replica Checker", replica_check_frequency_, [=, this] { this->FrequentCheck(storage); });
   }
 }
 
-void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback) {
+void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback, Storage *storage) {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -272,13 +267,13 @@ void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaS
   }
 
   try {
-    callback(*replica_stream_);
+    callback(*replica_stream_);  // failure state what if not streaming (std::nullopt)
   } catch (const rpc::RpcFailedException &) {
     {
       std::unique_lock client_guard{client_lock_};
       replica_state_.store(replication::ReplicaState::INVALID);
     }
-    HandleRpcFailure();
+    HandleRpcFailure(storage);
   }
 }
 
@@ -317,5 +312,4 @@ void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operati
 
 replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
 
-auto ReplicationClient::GetStorageId() const -> std::string { return storage_->id(); }
 }  // namespace memgraph::storage

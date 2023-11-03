@@ -355,11 +355,10 @@ class Storage {
 
   virtual void PrepareForNewEpoch() = 0;
 
-  virtual auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
-                                       const memgraph::replication::ReplicationEpoch *current_epoch)
+  virtual auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
       -> std::unique_ptr<ReplicationClient> = 0;
 
-  auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(); }
+  auto ReplicasInfo() { return repl_storage_state_.ReplicasInfo(this); }
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
   }
@@ -384,7 +383,7 @@ class Storage {
   Config config_;
 
   // Transaction engine
-  utils::SpinLock engine_lock_;
+  mutable utils::SpinLock engine_lock_;
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
