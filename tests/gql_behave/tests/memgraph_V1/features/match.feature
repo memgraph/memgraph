@@ -698,4 +698,4 @@ Feature: Match
             """
         Then the result should be
             | date(n.time) |
-            | 2023-10-05   |
+            | 2021-10-05   |
