@@ -90,7 +90,7 @@ class StreamsTestFixture : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db_{
       [&]() {

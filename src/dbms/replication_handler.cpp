@@ -47,8 +47,8 @@ bool ReplicationHandler::SetReplicationRoleMain() {
     return false;
   };
   auto const replica_handler = [this](RoleReplicaData const &) {
+    // STEP 1) bring down all REPLICA servers
     dbms_handler_.ForEach([](Database *db) {
-      // STEP 1) bring down all REPLICA servers
       auto *storage = db->storage();
       // Remember old epoch + storage timestamp association
       storage->PrepareForNewEpoch();
@@ -128,7 +128,7 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
       break;
   }
 
-  bool ok = true;
+  bool all_clients_good = true;
 
   if (!allow_mt_repl && dbms_handler_.All().size() > 1) {
     spdlog::warn("Multi-tenant replication is currently not supported!");
@@ -142,18 +142,19 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
     // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
     if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
-    ok &= storage->repl_storage_state_.replication_clients_.WithLock([storage, &config](auto &clients) -> bool {
-      auto client = storage->CreateReplicationClient(config, &storage->repl_storage_state_.epoch_);
-      client->Start();
+    all_clients_good &=
+        storage->repl_storage_state_.replication_clients_.WithLock([storage, &config](auto &clients) -> bool {
+          auto client = storage->CreateReplicationClient(config, &storage->repl_storage_state_.epoch_);
+          client->Start();
 
-      if (client->State() == storage::replication::ReplicaState::INVALID) {
-        return false;
-      }
-      clients.push_back(std::move(client));
-      return true;
-    });
+          if (client->State() == storage::replication::ReplicaState::INVALID) {
+            return false;
+          }
+          clients.push_back(std::move(client));
+          return true;
+        });
   });
-  if (!ok) return RegisterReplicaError::CONNECTION_FAILED;  // TODO: this happen to 1 or many...what to do
+  if (!all_clients_good) return RegisterReplicaError::CONNECTION_FAILED;  // TODO: this happen to 1 or many...what to do
   return {};
 }
 
@@ -192,7 +193,7 @@ void RestoreReplication(const replication::ReplicationState &repl_state, storage
   /// MAIN
   auto const recover_main = [&storage](RoleMainData const &mainData) {
     for (const auto &config : mainData.registered_replicas_) {
-      spdlog::info("Replica {} restored for {}.", config.name, storage.id());
+      spdlog::info("Replica {} restoration started for {}.", config.name, storage.id());
 
       auto register_replica = [&storage](const memgraph::replication::ReplicationClientConfig &config)
           -> memgraph::utils::BasicResult<RegisterReplicaError> {

@@ -78,7 +78,7 @@ class StorageModeMultiTxTest : public ::testing::Test {
   memgraph::storage::Config config{.durability.storage_directory = data_directory,
                                    .disk.main_storage_directory = data_directory / "disk"};
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {

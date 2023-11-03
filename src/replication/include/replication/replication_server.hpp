@@ -54,8 +54,6 @@ class ReplicationServer {
   bool Start();
 
  protected:
-  //  static void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
-
   communication::ServerContext rpc_server_context_;
 
  public:

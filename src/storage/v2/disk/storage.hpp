@@ -172,11 +172,13 @@ class DiskStorage final : public Storage {
                                                            const std::set<PropertyId> &properties) override;
   };
 
+  using Storage::Access;
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
-                                            bool is_main = true) override;
+                                            bool is_main) override;
 
+  using Storage::UniqueAccess;
   std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
-                                                  bool is_main = true) override;
+                                                  bool is_main) override;
 
   /// Flushing methods
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache(Transaction *transaction);
@@ -279,8 +281,8 @@ class DiskStorage final : public Storage {
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
-  // NOLINTNEXTLINE(google-default-arguments)
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main = true) override;
+  using Storage::CreateTransaction;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) override;
 
   void SetEdgeImportMode(EdgeImportMode edge_import_status);
 

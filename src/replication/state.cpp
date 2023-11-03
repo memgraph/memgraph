@@ -22,7 +22,7 @@ namespace memgraph::replication {
 
 auto BuildReplicaKey(std::string_view name) -> std::string {
   auto key = std::string{durability::kReplicationReplicaPrefix};
-  key.append(name.begin(), name.end());
+  key.append(name);
   return key;
 }
 
@@ -50,6 +50,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   }
   replication_data_ = std::move(replicationData).GetValue();
 }
+
 bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config) {
   if (!ShouldPersist()) return true;
 
@@ -73,10 +74,12 @@ bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &conf
 
   return true;
 }
-bool ReplicationState::TryPersistRoleMain(std::string const &new_epoch) {
+
+bool ReplicationState::TryPersistRoleMain(std::string new_epoch) {
   if (!ShouldPersist()) return true;
 
-  auto data = durability::ReplicationRoleEntry{.role = durability::MainRole{.epoch = ReplicationEpoch{new_epoch}}};
+  auto data =
+      durability::ReplicationRoleEntry{.role = durability::MainRole{.epoch = ReplicationEpoch{std::move(new_epoch)}}};
 
   if (durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
     role_persisted = RolePersisted::YES;
@@ -201,7 +204,8 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   // If any replicas are persisted then Role must be persisted
   if (role_persisted != RolePersisted::YES) {
     DMG_ASSERT(IsMain(), "MAIN is expected");
-    if (!TryPersistRoleMain(std::string(std::get<RoleMainData>(replication_data_).epoch_.id()))) return false;
+    auto epoch_str = std::string(std::get<RoleMainData>(replication_data_).epoch_.id());
+    if (!TryPersistRoleMain(std::move(epoch_str))) return false;
   }
 
   auto data = durability::ReplicationReplicaEntry{.config = config};
@@ -211,6 +215,7 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   spdlog::error("Error when saving replica {} in settings.", config.name);
   return false;
 }
+
 bool ReplicationState::SetReplicationRoleMain() {
   auto new_epoch = utils::GenerateUUID();
   if (!TryPersistRoleMain(new_epoch)) {
@@ -219,6 +224,7 @@ bool ReplicationState::SetReplicationRoleMain() {
   replication_data_ = RoleMainData{.epoch_ = ReplicationEpoch{new_epoch}};
   return true;
 }
+
 bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config) {
   if (!TryPersistRoleReplica(config)) {
     return false;
@@ -226,6 +232,7 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   replication_data_ = RoleReplicaData{config, std::make_unique<ReplicationServer>(config)};
   return true;
 }
+
 auto ReplicationState::RegisterReplica(const ReplicationClientConfig &config) -> RegisterReplicaError {
   auto const replica_handler = [](RoleReplicaData const &) -> RegisterReplicaError {
     return RegisterReplicaError::NOT_MAIN;

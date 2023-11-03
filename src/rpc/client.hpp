@@ -89,6 +89,7 @@ class Client {
       utils::TypeId res_id{utils::TypeId::UNKNOWN};
       slk::Load(&res_id, &res_reader);
 
+      // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
       rpc::Version version;
       slk::Load(&version, &res_reader);
 

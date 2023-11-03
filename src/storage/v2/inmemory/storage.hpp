@@ -315,11 +315,13 @@ class InMemoryStorage final : public Storage {
     Transaction &GetTransaction() { return transaction_; }
   };
 
+  using Storage::Access;
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
-                                            bool is_main = true) override;
+                                            bool is_main) override;
 
+  using Storage::UniqueAccess;
   std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
-                                                  bool is_main = true) override;
+                                                  bool is_main) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) override;
 
@@ -331,8 +333,8 @@ class InMemoryStorage final : public Storage {
 
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>(bool)> cb);
 
-  // NOLINTNEXTLINE(google-default-arguments)
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main = true) override;
+  using Storage::CreateTransaction;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) override;
 
   auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
                                const memgraph::replication::ReplicationEpoch *current_epoch)

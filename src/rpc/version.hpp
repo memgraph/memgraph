@@ -22,8 +22,6 @@ using Version = uint64_t;
 // probability of accidental match/conformance with pre 2.13 versions
 constexpr auto v1 = Version{2023'10'30'0'2'13};
 
-constexpr auto bad = Version{9999'10'30'0'2'13};
-
 constexpr auto current_version = v1;
 
 }  // namespace memgraph::rpc

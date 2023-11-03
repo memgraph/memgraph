@@ -46,6 +46,7 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
 void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
   // This value did not exist in V1, hence default DurabilityVersion::V1
   DurabilityVersion version = j.value(kVersion, DurabilityVersion::V1);
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   ReplicationRole role;
   j.at(kReplicationRole).get_to(role);
   switch (role) {
@@ -58,6 +59,7 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
     }
     case ReplicationRole::REPLICA: {
       std::string ip_address;
+      // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
       uint16_t port;
       j.at(kIpAddress).get_to(ip_address);
       j.at(kPort).get_to(port);

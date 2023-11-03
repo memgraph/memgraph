@@ -39,7 +39,7 @@ int main(int argc, char **argv) {
 
   memgraph::storage::Config db_config;
   memgraph::storage::UpdatePaths(db_config, data_directory);
-  memgraph::replication::ReplicationState repl_state(ReplicationStateHelper(db_config));
+  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(db_config));
 
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
 #ifdef MG_ENTERPRISE

@@ -64,7 +64,7 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
     }
     auto *inmem_storage = dynamic_cast<storage::InMemoryStorage *>(acc.get()->storage());
     if (!inmem_storage || inmem_storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-      spdlog::error("Database \"{}\"  is not IN_MEMORY_TRANSACTIONAL.", db_name);
+      spdlog::error("Database \"{}\" is not IN_MEMORY_TRANSACTIONAL.", db_name);
       return std::nullopt;
     }
     return std::optional{std::move(acc)};
@@ -130,7 +130,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   auto maybe_epoch_id = decoder.ReadString();
   MG_ASSERT(maybe_epoch_id, "Invalid replication message");
 
-  auto *storage = reinterpret_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   auto &repl_storage_state = storage->repl_storage_state_;
   if (*maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
     auto prev_epoch = storage->repl_storage_state_.epoch_.SetEpoch(*maybe_epoch_id);
@@ -186,7 +186,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
 
   storage::replication::Decoder decoder(req_reader);
 
-  auto *storage = reinterpret_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->snapshot_directory_);
 
   const auto maybe_snapshot_path = decoder.ReadFile(storage->snapshot_directory_);
@@ -265,7 +265,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
 
   storage::replication::Decoder decoder(req_reader);
 
-  auto *storage = reinterpret_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->wal_directory_);
 
   for (auto i = 0; i < wal_file_number; ++i) {
@@ -287,7 +287,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   storage::replication::Decoder decoder(req_reader);
 
-  auto *storage = reinterpret_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->wal_directory_);
 
   LoadWal(storage, &decoder);

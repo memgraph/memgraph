@@ -92,7 +92,7 @@ struct Config {
   friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };
 
-inline auto ReplicationStateHelper(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
+inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
   if (!config.durability.restore_replication_state_on_startup) {
     spdlog::warn(
         "Replication configuration will NOT be stored. When the server restarts, replication state will be "

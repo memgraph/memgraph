@@ -309,14 +309,19 @@ class Storage {
 
   void FreeMemory() { FreeMemory({}); }
 
-  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
-                                           bool is_main = true) = 0;
+  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level, bool is_main) = 0;
   std::unique_ptr<Accessor> Access(bool is_main = true) { return Access(std::optional<IsolationLevel>{}, is_main); }
+  std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) {
+    return Access(std::move(override_isolation_level), true);
+  }
 
   virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
-                                                 bool is_main = true) = 0;
+                                                 bool is_main) = 0;
   std::unique_ptr<Accessor> UniqueAccess(bool is_main = true) {
     return UniqueAccess(std::optional<IsolationLevel>{}, is_main);
+  }
+  std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) {
+    return UniqueAccess(std::move(override_isolation_level), true);
   }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
@@ -344,9 +349,11 @@ class Storage {
     return GetInfo(force_dir);
   }
 
-  // NOLINTNEXTLINE(google-default-arguments)
-  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                        bool is_main = true) = 0;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
+    return CreateTransaction(isolation_level, storage_mode, true);
+  }
+
+  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) = 0;
 
   virtual void PrepareForNewEpoch() = 0;
 

@@ -39,7 +39,7 @@ auto CreateServerContext(const memgraph::replication::ReplicationServerConfig &c
                       : communication::ServerContext{};
 }
 
-static void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   FrequentHeartbeatReq req;
   memgraph::slk::Load(&req, req_reader);
   FrequentHeartbeatRes res{true};
@@ -50,7 +50,7 @@ static void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_
 // because there is no need for more processing threads - each replica can
 // have only a single main server. Also, the single-threaded guarantee
 // simplifies the rest of the implementation.
-constexpr auto kReplictionServerThreads = 1;
+constexpr auto kReplicationServerThreads = 1;
 }  // namespace
 
 constexpr utils::TypeInfo FrequentHeartbeatReq::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_REQ, "FrequentHeartbeatReq",
@@ -75,7 +75,7 @@ void FrequentHeartbeatRes::Load(FrequentHeartbeatRes *self, memgraph::slk::Reade
 ReplicationServer::ReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
       rpc_server_{io::network::Endpoint{config.ip_address, config.port}, &rpc_server_context_,
-                  kReplictionServerThreads} {
+                  kReplicationServerThreads} {
   rpc_server_.Register<FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received FrequentHeartbeatRpc");
     FrequentHeartbeatHandler(req_reader, res_builder);

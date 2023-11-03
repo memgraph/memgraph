@@ -45,6 +45,7 @@ void Session::Execute() {
   // Load the request ID.
   utils::TypeId req_id{utils::TypeId::UNKNOWN};
   slk::Load(&req_id, &req_reader);
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   rpc::Version version;
   slk::Load(&version, &req_reader);
 

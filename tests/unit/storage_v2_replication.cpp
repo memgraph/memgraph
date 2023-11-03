@@ -102,7 +102,7 @@ class ReplicationTest : public ::testing::Test {
 
 struct MinMemgraph {
   MinMemgraph(const memgraph::storage::Config &conf)
-      : repl_state{ReplicationStateHelper(conf)},
+      : repl_state{ReplicationStateRootPath(conf)},
         dbms{conf, repl_state
 #ifdef MG_ENTERPRISE
              ,

@@ -66,7 +66,7 @@ struct ReplicationState {
   bool IsReplica() const { return GetRole() == ReplicationRole::REPLICA; }
 
   bool ShouldPersist() const { return nullptr != durability_; }
-  bool TryPersistRoleMain(std::string const &new_epoch);
+  bool TryPersistRoleMain(std::string new_epoch);
   bool TryPersistRoleReplica(const ReplicationServerConfig &config);
   bool TryPersistUnregisterReplica(std::string_view name);
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config);

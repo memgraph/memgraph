@@ -52,7 +52,7 @@ class TestEnvironment : public ::testing::Environment {
     auth =
         std::make_unique<memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>>(
             storage_directory / "auth");
-    repl_state_.emplace(memgraph::storage::ReplicationStateHelper(storage_conf));
+    repl_state_.emplace(memgraph::storage::ReplicationStateRootPath(storage_conf));
     ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, *repl_state_);
   }
 

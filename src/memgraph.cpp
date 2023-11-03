@@ -355,7 +355,7 @@ int main(int argc, char **argv) {
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   auth_glue(&auth_, auth_handler, auth_checker);
 
-  memgraph::replication::ReplicationState repl_state(ReplicationStateHelper(db_config));
+  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(db_config));
 
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
 #ifdef MG_ENTERPRISE

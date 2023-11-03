@@ -50,7 +50,7 @@ struct ReplicationHandler {
       -> utils::BasicResult<RegisterReplicaError>;
 
   // as MAIN, remove a REPLICA connection
-  auto UnregisterReplica(std::string_view registered_config) -> UnregisterReplicaResult;
+  auto UnregisterReplica(std::string_view name) -> UnregisterReplicaResult;
 
   // Helper pass-through (TODO: remove)
   auto GetRole() const -> memgraph::replication::ReplicationRole;

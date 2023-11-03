@@ -76,7 +76,7 @@ class InterpreterTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateHelper(config)};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
@@ -1134,7 +1134,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
       config2.force_on_disk = true;
     }
 
-    memgraph::replication::ReplicationState repl_state2{memgraph::storage::ReplicationStateHelper(config2)};
+    memgraph::replication::ReplicationState repl_state2{memgraph::storage::ReplicationStateRootPath(config2)};
     memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2, repl_state2);
     auto db_acc_opt = db_gk2.access();
     ASSERT_TRUE(db_acc_opt) << "Failed to access db2";

@@ -34,7 +34,7 @@ template <typename StorageType>
 class InfoTest : public testing::Test {
  protected:
   void SetUp() {
-    repl_state.emplace(memgraph::storage::ReplicationStateHelper(config));
+    repl_state.emplace(memgraph::storage::ReplicationStateRootPath(config));
     db_gk.emplace(config, *repl_state);
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
