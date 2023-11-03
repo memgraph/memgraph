@@ -1608,7 +1608,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber());
+  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this);
 
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
@@ -1759,7 +1759,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
 
   append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
     wal_file_->AppendDelta(delta, parent, timestamp);
-    repl_storage_state_.AppendDelta(delta, parent, timestamp);
+    repl_storage_state_.AppendDelta(delta, parent, timestamp, this);
   });
 
   // Add a delta that indicates that the transaction is fully written to the WAL
@@ -1767,7 +1767,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
-  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp);
+  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this);
 }
 
 bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp) {
@@ -1775,7 +1775,7 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
     return true;
   }
 
-  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber());
+  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this);
 
   for (const auto &md_delta : transaction.md_deltas) {
     switch (md_delta.action) {
@@ -1846,7 +1846,7 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
-  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp);
+  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -1854,7 +1854,8 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 LabelPropertyIndexStats property_stats,
                                                 uint64_t final_commit_timestamp) {
   wal_file_->AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
-  repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+  repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp,
+                                      this);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -1972,10 +1973,9 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
-                                              const memgraph::replication::ReplicationEpoch *current_epoch)
+auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
     -> std::unique_ptr<ReplicationClient> {
-  return std::make_unique<InMemoryReplicationClient>(this, config, current_epoch);
+  return std::make_unique<InMemoryReplicationClient>(config);
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,

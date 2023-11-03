@@ -16,48 +16,51 @@
 
 namespace memgraph::storage {
 
-void ReplicationStorageState::InitializeTransaction(uint64_t seq_num) {
-  replication_clients_.WithLock([&](auto &clients) {
+void ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage) {
+  replication_clients_.WithLock([=](auto &clients) {
     for (auto &client : clients) {
-      client->StartTransactionReplication(seq_num);
+      client->StartTransactionReplication(seq_num, storage);
     }
   });
 }
 
-void ReplicationStorageState::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp) {
+void ReplicationStorageState::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp,
+                                          Storage *storage) {
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, vertex, timestamp); });
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, vertex, timestamp); }, storage);
     }
   });
 }
 
-void ReplicationStorageState::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp) {
+void ReplicationStorageState::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp, Storage *storage) {
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, edge, timestamp); });
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, edge, timestamp); }, storage);
     }
   });
 }
 void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                                               const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                                               const LabelPropertyIndexStats &property_stats,
-                                              uint64_t final_commit_timestamp) {
+                                              uint64_t final_commit_timestamp, Storage *storage) {
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) {
-        stream.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
-      });
+      client->IfStreamingTransaction(
+          [&](auto &stream) {
+            stream.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+          },
+          storage);
     }
   });
 }
 
-bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp) {
+bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage) {
   return replication_clients_.WithLock([=](auto &clients) {
     bool finalized_on_all_replicas = true;
     for (ReplicationClientPtr &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); });
-      const auto finalized = client->FinalizeTransactionReplication();
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); }, storage);
+      const auto finalized = client->FinalizeTransactionReplication(storage);
 
       if (client->Mode() == memgraph::replication::ReplicationMode::SYNC) {
         finalized_on_all_replicas = finalized && finalized_on_all_replicas;
@@ -78,12 +81,12 @@ std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaStat
   });
 }
 
-std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo() const {
-  return replication_clients_.WithReadLock([](auto const &clients) {
+std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo(Storage *storage) const {
+  return replication_clients_.WithReadLock([=](auto const &clients) {
     std::vector<ReplicaInfo> replica_infos;
     replica_infos.reserve(clients.size());
-    auto const asReplicaInfo = [](ReplicationClientPtr const &client) -> ReplicaInfo {
-      return {client->Name(), client->Mode(), client->Endpoint(), client->State(), client->GetTimestampInfo()};
+    auto const asReplicaInfo = [=](ReplicationClientPtr const &client) -> ReplicaInfo {
+      return {client->Name(), client->Mode(), client->Endpoint(), client->State(), client->GetTimestampInfo(storage)};
     };
     std::transform(clients.begin(), clients.end(), std::back_inserter(replica_infos), asReplicaInfo);
     return replica_infos;

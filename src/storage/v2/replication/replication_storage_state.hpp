@@ -37,17 +37,18 @@ class ReplicationClient;
 
 struct ReplicationStorageState {
   // Only MAIN can send
-  void InitializeTransaction(uint64_t seq_num);
-  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
-  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
+  void InitializeTransaction(uint64_t seq_num, Storage *storage);
+  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp, Storage *storage);
+  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp, Storage *storage);
   void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                        const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                       const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp);
-  bool FinalizeTransaction(uint64_t timestamp);
+                       const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp,
+                       Storage *storage);
+  bool FinalizeTransaction(uint64_t timestamp, Storage *storage);
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;
-  auto ReplicasInfo() const -> std::vector<ReplicaInfo>;
+  auto ReplicasInfo(Storage *storage) const -> std::vector<ReplicaInfo>;
 
   // History
   void TrackLatestHistory();
