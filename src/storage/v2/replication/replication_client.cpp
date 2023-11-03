@@ -174,8 +174,7 @@ void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_s
     case replication::ReplicaState::READY:
       MG_ASSERT(!replica_stream_);
       try {
-        replica_stream_.emplace(
-            ReplicaStream{this, storage_->repl_storage_state_.last_commit_timestamp_.load(), current_wal_seq_num});
+        replica_stream_.emplace(ReplicaStream{storage_, rpc_client_, current_wal_seq_num});
         replica_state_.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
         replica_state_.store(replication::ReplicaState::INVALID);
@@ -284,25 +283,23 @@ void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaS
 }
 
 ////// ReplicaStream //////
-ReplicaStream::ReplicaStream(ReplicationClient *self, const uint64_t previous_commit_timestamp,
-                             const uint64_t current_seq_num)
-    : self_(self),
-      stream_(self_->rpc_client_.Stream<replication::AppendDeltasRpc>(self->GetStorageId(), previous_commit_timestamp,
-                                                                      current_seq_num)) {
+ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const uint64_t current_seq_num)
+    : storage_{storage},
+      stream_(rpc_client.Stream<replication::AppendDeltasRpc>(
+          storage->id(), storage->repl_storage_state_.last_commit_timestamp_.load(), current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
-
-  encoder.WriteString(self->repl_epoch_->id());
+  encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }
 
 void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  auto *storage = self_->GetStorage();
-  EncodeDelta(&encoder, storage->name_id_mapper_.get(), storage->config_.items, delta, vertex, final_commit_timestamp);
+  EncodeDelta(&encoder, storage_->name_id_mapper_.get(), storage_->config_.items, delta, vertex,
+              final_commit_timestamp);
 }
 
 void ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeDelta(&encoder, self_->GetStorage()->name_id_mapper_.get(), delta, edge, final_commit_timestamp);
+  EncodeDelta(&encoder, storage_->name_id_mapper_.get(), delta, edge, final_commit_timestamp);
 }
 
 void ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
@@ -314,8 +311,8 @@ void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operati
                                     const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeOperation(&encoder, self_->GetStorage()->name_id_mapper_.get(), operation, label, properties, stats,
-                  property_stats, timestamp);
+  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, label, properties, stats, property_stats,
+                  timestamp);
 }
 
 replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }

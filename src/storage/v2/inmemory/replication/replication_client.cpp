@@ -25,7 +25,7 @@ template <typename>
 // contained in the internal buffer and the file.
 class CurrentWalHandler {
  public:
-  explicit CurrentWalHandler(ReplicationClient *self);
+  explicit CurrentWalHandler(Storage *storage, rpc::Client &rpc_client);
   void AppendFilename(const std::string &filename);
 
   void AppendSize(size_t size);
@@ -38,13 +38,12 @@ class CurrentWalHandler {
   replication::CurrentWalRes Finalize();
 
  private:
-  ReplicationClient *self_;
   rpc::Client::StreamHandler<replication::CurrentWalRpc> stream_;
 };
 
 ////// CurrentWalHandler //////
-CurrentWalHandler::CurrentWalHandler(ReplicationClient *self)
-    : self_(self), stream_(self_->rpc_client_.Stream<replication::CurrentWalRpc>(self->GetStorageId())) {}
+CurrentWalHandler::CurrentWalHandler(Storage *storage, rpc::Client &rpc_client)
+    : stream_(rpc_client.Stream<replication::CurrentWalRpc>(storage->id())) {}
 
 void CurrentWalHandler::AppendFilename(const std::string &filename) {
   replication::Encoder encoder(stream_.GetBuilder());
@@ -137,7 +136,7 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit) {
                   storage->wal_file_->DisableFlushing();
                   transaction_guard.unlock();
                   spdlog::debug("Sending current wal file");
-                  auto streamHandler = CurrentWalHandler{this};
+                  auto streamHandler = CurrentWalHandler{storage_, rpc_client_};
                   replica_commit = ReplicateCurrentWal(streamHandler, *storage->wal_file_);
                   storage->wal_file_->EnableFlushing();
                 } else {

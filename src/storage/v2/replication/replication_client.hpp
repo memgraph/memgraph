@@ -42,7 +42,7 @@ class ReplicationClient;
 // Handler used for transferring the current transaction.
 class ReplicaStream {
  public:
-  explicit ReplicaStream(ReplicationClient *self, uint64_t previous_commit_timestamp, uint64_t current_seq_num);
+  explicit ReplicaStream(Storage *storage, rpc::Client &rpc_client, const uint64_t current_seq_num);
 
   /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
@@ -62,7 +62,7 @@ class ReplicaStream {
   replication::AppendDeltasRes Finalize();
 
  private:
-  ReplicationClient *self_;
+  Storage *storage_;
   rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
 };
 
