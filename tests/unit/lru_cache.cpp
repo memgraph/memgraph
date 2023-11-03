@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "utils/lru_cache.hpp"
+#include <optional>
 #include "gtest/gtest.h"
 
 TEST(LRUCacheTest, BasicTest) {
@@ -17,23 +18,28 @@ TEST(LRUCacheTest, BasicTest) {
   cache.put(1, 1);
   cache.put(2, 2);
 
-  int value;
-  EXPECT_TRUE(cache.get(1, value));
-  EXPECT_EQ(value, 1);
+  std::optional<int> value;
+  value = cache.get(1);
+  EXPECT_TRUE(value.has_value());
+  EXPECT_EQ(value.value(), 1);
 
   cache.put(3, 3);
 
-  EXPECT_FALSE(cache.get(2, value));
+  value = cache.get(2);
+  EXPECT_FALSE(value.has_value());
 
   cache.put(4, 4);
 
-  EXPECT_FALSE(cache.get(1, value));
+  value = cache.get(1);
+  EXPECT_FALSE(value.has_value());
 
-  EXPECT_TRUE(cache.get(3, value));
-  EXPECT_EQ(value, 3);
+  value = cache.get(3);
+  EXPECT_TRUE(value.has_value());
+  EXPECT_EQ(value.value(), 3);
 
-  EXPECT_TRUE(cache.get(4, value));
-  EXPECT_EQ(value, 4);
+  value = cache.get(4);
+  EXPECT_TRUE(value.has_value());
+  EXPECT_EQ(value.value(), 4);
 
   EXPECT_EQ(cache.size(), 2);
 }
@@ -44,12 +50,14 @@ TEST(LRUCacheTest, DuplicatePutTest) {
   cache.put(2, 2);
   cache.put(1, 10);
 
-  int value;
-  EXPECT_TRUE(cache.get(1, value));
-  EXPECT_EQ(value, 10);
+  std::optional<int> value;
+  value = cache.get(1);
+  EXPECT_TRUE(value.has_value());
+  EXPECT_EQ(value.value(), 10);
 
-  EXPECT_TRUE(cache.get(2, value));
-  EXPECT_EQ(value, 2);
+  value = cache.get(2);
+  EXPECT_TRUE(value.has_value());
+  EXPECT_EQ(value.value(), 2);
 }
 
 TEST(LRUCacheTest, ResizeTest) {
@@ -58,38 +66,46 @@ TEST(LRUCacheTest, ResizeTest) {
   cache.put(2, 2);
   cache.put(3, 3);
 
-  int value;
-  EXPECT_FALSE(cache.get(1, value));
+  std::optional<int> value;
+  value = cache.get(1);
+  EXPECT_FALSE(value.has_value());
 
-  EXPECT_TRUE(cache.get(2, value));
-  EXPECT_EQ(value, 2);
+  value = cache.get(2);
+  EXPECT_TRUE(value.has_value());
+  EXPECT_EQ(value.value(), 2);
 
-  EXPECT_TRUE(cache.get(3, value));
-  EXPECT_EQ(value, 3);
+  value = cache.get(3);
+  EXPECT_TRUE(value.has_value());
+  EXPECT_EQ(value.value(), 3);
 }
 
 TEST(LRUCacheTest, EmptyCacheTest) {
   memgraph::utils::LRUCache<int, int> cache(2);
 
-  int value;
-  EXPECT_FALSE(cache.get(1, value));
+  std::optional<int> value;
+  value = cache.get(1);
+  EXPECT_FALSE(value.has_value());
 
   cache.put(1, 1);
-  EXPECT_TRUE(cache.get(1, value));
-  EXPECT_EQ(value, 1);
+  value = cache.get(1);
+  EXPECT_TRUE(value.has_value());
+  EXPECT_EQ(value.value(), 1);
 }
 
 TEST(LRUCacheTest, LargeCacheTest) {
   const int CACHE_SIZE = 10000;
   memgraph::utils::LRUCache<int, int> cache(CACHE_SIZE);
 
+  std::optional<int> value;
   for (int i = 0; i < CACHE_SIZE; i++) {
+    value = cache.get(i);
+    EXPECT_FALSE(value.has_value());
     cache.put(i, i);
   }
 
-  int value;
   for (int i = 0; i < CACHE_SIZE; i++) {
-    EXPECT_TRUE(cache.get(i, value));
-    EXPECT_EQ(value, i);
+    value = cache.get(i);
+    EXPECT_TRUE(value.has_value());
+    EXPECT_EQ(value.value(), i);
   }
 }

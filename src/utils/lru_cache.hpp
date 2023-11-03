@@ -12,6 +12,7 @@
 #pragma once
 
 #include <list>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 
@@ -35,14 +36,13 @@ class LRUCache {
     item_map.insert(std::make_pair(key, item_list.begin()));
     try_clean();
   };
-  bool get(const TKey &key, TVal &result) {
+  std::optional<TVal> get(const TKey &key) {
     if (!exists(key)) {
-      return false;
+      return std::nullopt;
     }
     auto it = item_map.find(key);
     item_list.splice(item_list.begin(), item_list, it->second);
-    result = it->second->second;
-    return true;
+    return it->second->second;
   }
   void reset() {
     item_list.clear();

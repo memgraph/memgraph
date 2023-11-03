@@ -133,9 +133,9 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_sto
                                                DbAccessor *db_accessor,
                                                const std::vector<Identifier *> &predefined_identifiers) {
   if (plan_cache) {
-    std::shared_ptr<PlanWrapper> existing_plan;
-    if (plan_cache->WithLock([&](auto &cache) { return cache.get(hash, existing_plan); })) {
-      return existing_plan;
+    auto existing_plan = plan_cache->WithLock([&](auto &cache) { return cache.get(hash); });
+    if (existing_plan.has_value()) {
+      return existing_plan.value();
     }
   }
 
