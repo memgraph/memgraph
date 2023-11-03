@@ -124,7 +124,10 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     });
   }
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
+    // TODO: move out of storage have one global gc_runner_
+    gc_runner_.Run("Storage GC", config_.gc.interval, [this] {
+      this->FreeMemory(std::unique_lock<utils::ResourceLock>{main_lock_, std::defer_lock});
+    });
   }
 
   if (timestamp_ == kTimestampInitialId) {
