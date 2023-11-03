@@ -206,7 +206,7 @@ int main(int argc, char **argv) {
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
-  auto vm_max_map_count = memgraph::utils::GetVmMaxMapCount();
+  const auto vm_max_map_count = memgraph::utils::GetVmMaxMapCount();
   if (vm_max_map_count.has_value()) {
     if (vm_max_map_count.value() < kMgVmMaxMapCount) {
       std::cout << "Max virtual memory areas vm.max_map_count " << vm_max_map_count.value()

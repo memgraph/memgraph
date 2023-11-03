@@ -78,15 +78,12 @@ const nlohmann::json GetResourceUsage(std::filesystem::path root_directory) {
   }
   auto cpu_total = GetCpuUsage(pid);
   cpu["usage"] = cpu_total.second;
-
-  nlohmann::json json;
-  json.emplace_back(nlohmann::json::object_t::value_type("cpu", cpu));
-  json.emplace_back(nlohmann::json::object_t::value_type("memory", utils::GetMemoryUsage()));
-  json.emplace_back(nlohmann::json::object_t::value_type("disk", utils::GetDirDiskUsage(root_directory)));
   const auto vm_max_map_count = utils::GetVmMaxMapCount();
-  json.emplace_back(nlohmann::json::object_t::value_type("vm_max_map_count",
-                                                         vm_max_map_count.has_value() ? vm_max_map_count.value() : -1));
-  return json;
+  return {{"cpu", cpu},
+          {"memory", utils::GetMemoryUsage()},
+          {"disk", utils::GetDirDiskUsage(root_directory)},
+          {"vm_max_map_count",
+           vm_max_map_count.has_value() ? *vm_max_map_count : memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT}};
 }
 
 }  // namespace memgraph::telemetry

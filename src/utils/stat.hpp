@@ -22,6 +22,8 @@
 
 namespace memgraph::utils {
 
+static constexpr int64_t VM_MAX_MAP_COUNT_DEFAULT{-1};
+
 /// Returns the number of bytes a directory is using on disk. If the given path
 /// isn't a directory, zero will be returned.
 template <bool IgnoreSymlink = true>

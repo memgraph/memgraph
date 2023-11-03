@@ -3118,8 +3118,9 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                  next_transaction_isolation_level] {
         auto info = storage->GetBaseInfo();
         const auto vm_max_map_count = utils::GetVmMaxMapCount();
-        const int64_t vm_max_map_count_storage_info =
-            vm_max_map_count.has_value() ? static_cast<int64_t>(vm_max_map_count.value()) : -1;
+        const int64_t vm_max_map_count_storage_info = vm_max_map_count.has_value()
+                                                          ? static_cast<int64_t>(vm_max_map_count.value())
+                                                          : memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT;
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("name"), TypedValue(storage->id())},
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
