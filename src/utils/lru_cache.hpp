@@ -14,14 +14,11 @@
 #include <list>
 #include <unordered_map>
 #include <utility>
-#include "exceptions.hpp"
 
 namespace memgraph::utils {
 
 /// A simple LRU cache implementation.
 /// It is not thread-safe.
-/// You should check if the key exists (with exists() method) before calling get() method.
-/// @throws BasicException if the key does not exist in the cache.
 
 template <class TKey, class TVal>
 class LRUCache {
@@ -38,15 +35,15 @@ class LRUCache {
     item_map.insert(std::make_pair(key, item_list.begin()));
     try_clean();
   };
-  bool exists(const TKey &key) { return (item_map.count(key) > 0); };
-  TVal &get(const TKey &key) {
+  bool get(const TKey &key, TVal &result) {
     if (!exists(key)) {
-      throw BasicException("Key does not exist in cache.");
+      return false;
     }
     auto it = item_map.find(key);
     item_list.splice(item_list.begin(), item_list, it->second);
-    return it->second->second;
-  };
+    result = it->second->second;
+    return true;
+  }
   void reset() {
     item_list.clear();
     item_map.clear();
@@ -62,6 +59,7 @@ class LRUCache {
       item_list.pop_back();
     }
   };
+  bool exists(const TKey &key) { return (item_map.count(key) > 0); };
 
   std::list<std::pair<TKey, TVal>> item_list;
   std::unordered_map<TKey, decltype(item_list.begin())> item_map;

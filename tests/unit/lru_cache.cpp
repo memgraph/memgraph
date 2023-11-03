@@ -10,22 +10,30 @@
 // licenses/APL.txt.
 
 #include "utils/lru_cache.hpp"
-#include <gtest/gtest.h>
-#include "utils/exceptions.hpp"
+#include "gtest/gtest.h"
 
 TEST(LRUCacheTest, BasicTest) {
   memgraph::utils::LRUCache<int, int> cache(2);
   cache.put(1, 1);
   cache.put(2, 2);
-  EXPECT_EQ(cache.get(1), 1);
+
+  int value;
+  EXPECT_TRUE(cache.get(1, value));
+  EXPECT_EQ(value, 1);
+
   cache.put(3, 3);
-  EXPECT_THROW(cache.get(2), memgraph::utils::BasicException);
-  EXPECT_FALSE(cache.exists(2));
+
+  EXPECT_FALSE(cache.get(2, value));
+
   cache.put(4, 4);
-  EXPECT_THROW(cache.get(1), memgraph::utils::BasicException);
-  EXPECT_FALSE(cache.exists(1));
-  EXPECT_EQ(cache.get(3), 3);
-  EXPECT_EQ(cache.get(4), 4);
+
+  EXPECT_FALSE(cache.get(1, value));
+
+  EXPECT_TRUE(cache.get(3, value));
+  EXPECT_EQ(value, 3);
+
+  EXPECT_TRUE(cache.get(4, value));
+  EXPECT_EQ(value, 4);
 
   EXPECT_EQ(cache.size(), 2);
 }
@@ -35,8 +43,13 @@ TEST(LRUCacheTest, DuplicatePutTest) {
   cache.put(1, 1);
   cache.put(2, 2);
   cache.put(1, 10);
-  EXPECT_EQ(cache.get(1), 10);
-  EXPECT_EQ(cache.get(2), 2);
+
+  int value;
+  EXPECT_TRUE(cache.get(1, value));
+  EXPECT_EQ(value, 10);
+
+  EXPECT_TRUE(cache.get(2, value));
+  EXPECT_EQ(value, 2);
 }
 
 TEST(LRUCacheTest, ResizeTest) {
@@ -44,25 +57,39 @@ TEST(LRUCacheTest, ResizeTest) {
   cache.put(1, 1);
   cache.put(2, 2);
   cache.put(3, 3);
-  EXPECT_FALSE(cache.exists(1));
-  EXPECT_EQ(cache.get(2), 2);
-  EXPECT_EQ(cache.get(3), 3);
+
+  int value;
+  EXPECT_FALSE(cache.get(1, value));
+
+  EXPECT_TRUE(cache.get(2, value));
+  EXPECT_EQ(value, 2);
+
+  EXPECT_TRUE(cache.get(3, value));
+  EXPECT_EQ(value, 3);
 }
 
 TEST(LRUCacheTest, EmptyCacheTest) {
   memgraph::utils::LRUCache<int, int> cache(2);
-  EXPECT_FALSE(cache.exists(1));
+
+  int value;
+  EXPECT_FALSE(cache.get(1, value));
+
   cache.put(1, 1);
-  EXPECT_EQ(cache.get(1), 1);
+  EXPECT_TRUE(cache.get(1, value));
+  EXPECT_EQ(value, 1);
 }
 
 TEST(LRUCacheTest, LargeCacheTest) {
   const int CACHE_SIZE = 10000;
   memgraph::utils::LRUCache<int, int> cache(CACHE_SIZE);
+
   for (int i = 0; i < CACHE_SIZE; i++) {
     cache.put(i, i);
   }
+
+  int value;
   for (int i = 0; i < CACHE_SIZE; i++) {
-    EXPECT_EQ(cache.get(i), i);
+    EXPECT_TRUE(cache.get(i, value));
+    EXPECT_EQ(value, i);
   }
 }
