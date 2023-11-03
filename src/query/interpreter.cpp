@@ -234,6 +234,17 @@ std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
   return {};
 };
 
+bool IsOrderByQuery(const std::vector<memgraph::query::Clause *> &clauses) {
+  for (const auto &clause : clauses) {
+    if (clause->GetTypeInfo() == Return::kType) {
+      auto *return_clause = utils::Downcast<Return>(clause);
+      auto isOrderBy = !return_clause->body_.order_by.empty();
+      return isOrderBy;
+    }
+  }
+  return false;
+}
+
 bool IsAllShortestPathsQuery(const std::vector<memgraph::query::Clause *> &clauses) {
   for (const auto &clause : clauses) {
     if (clause->GetTypeInfo() != Match::kType) {
@@ -1610,8 +1621,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   }
 
   // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory =
-      !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
+  auto use_monotonic_memory = !contains_csv && !IsCallBatchedProcedureQuery(clauses) &&
+                              !IsAllShortestPathsQuery(clauses) && !IsOrderByQuery(clauses);
 
   MG_ASSERT(current_db.execution_db_accessor_, "Cypher query expects a current DB transaction");
   auto *dba =
@@ -1773,8 +1784,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   // If this is LOAD CSV, BatchedProcedure or AllShortest query, use PoolResource without MonotonicMemoryResource as we
   // want to reuse allocated memory
-  auto use_monotonic_memory =
-      !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
+  auto use_monotonic_memory = !contains_csv && !IsCallBatchedProcedureQuery(clauses) &&
+                              !IsAllShortestPathsQuery(clauses) && !IsOrderByQuery(clauses);
 
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
   EvaluationContext evaluation_context;
@@ -3705,7 +3716,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       auto const &clauses = cypher_query->single_query_->clauses_;
       bool hasAllShortestPaths = IsAllShortestPathsQuery(clauses);
       // Using PoolResource without MonotonicMemoryResouce for LOAD CSV reduces memory usage.
-      bool usePool = hasAllShortestPaths || IsCallBatchedProcedureQuery(clauses) || IsLoadCsvQuery(clauses);
+      bool usePool = hasAllShortestPaths || IsCallBatchedProcedureQuery(clauses) || IsLoadCsvQuery(clauses) ||
+                     IsOrderByQuery(clauses);
       return {usePool, hasAllShortestPaths};
     }();  // IILE
 
