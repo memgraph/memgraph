@@ -690,7 +690,7 @@ Feature: Match
         Given an empty graph
         And having executed:
             """
-            CREATE (n:User {time: localdatetime()});
+            CREATE (n:User {time: localDateTime("2021-10-05T14:15:00")});
             """
         When executing query:
             """
@@ -698,4 +698,4 @@ Feature: Match
             """
         Then the result should be
             | date(n.time) |
-            | 2023-10-30   |
+            | 2023-10-05   |
