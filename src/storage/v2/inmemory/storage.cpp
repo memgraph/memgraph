@@ -1578,7 +1578,7 @@ StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
-  info.memory_usage = utils::GetMemoryUsage();
+  info.memory_res = utils::GetMemoryRES();
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {
     if (!force_directory && std::filesystem::is_directory(dir) && dir.has_filename()) {
