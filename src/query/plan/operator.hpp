@@ -292,18 +292,20 @@ struct NodeCreationInfo {
 
   NodeCreationInfo() = default;
 
-  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels,
+  NodeCreationInfo(Symbol symbol, std::vector<std::variant<storage::LabelId, ParameterLookup *>> labels,
                    std::variant<PropertiesMapList, ParameterLookup *> properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
 
-  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, PropertiesMapList properties)
+  NodeCreationInfo(Symbol symbol, std::vector<std::variant<storage::LabelId, ParameterLookup *>> labels,
+                   PropertiesMapList properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
 
-  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, ParameterLookup *properties)
+  NodeCreationInfo(Symbol symbol, std::vector<std::variant<storage::LabelId, ParameterLookup *>> labels,
+                   ParameterLookup *properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{properties} {};
 
   Symbol symbol;
-  std::vector<storage::LabelId> labels;
+  std::vector<std::variant<storage::LabelId, ParameterLookup *>> labels;
   std::variant<PropertiesMapList, ParameterLookup *> properties;
 
   NodeCreationInfo Clone(AstStorage *storage) const {
