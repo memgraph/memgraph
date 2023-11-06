@@ -56,7 +56,7 @@ def test_does_default_config_match():
     machine_dependent_configurations = [
         "memory_res",
         "disk_usage",
-        "memory_allocated",
+        "memory_tracked",
         "allocation_limit",
         "vm_max_map_count",
     ]
