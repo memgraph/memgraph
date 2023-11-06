@@ -80,7 +80,7 @@ const nlohmann::json GetResourceUsage(std::filesystem::path root_directory) {
   cpu["usage"] = cpu_total.second;
   const auto vm_max_map_count = utils::GetVmMaxMapCount();
   return {{"cpu", cpu},
-          {"memory", utils::GetMemoryUsage()},
+          {"memory", utils::GetMemoryRES()},
           {"disk", utils::GetDirDiskUsage(root_directory)},
           {"vm_max_map_count",
            vm_max_map_count.has_value() ? *vm_max_map_count : memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT}};

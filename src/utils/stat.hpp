@@ -44,7 +44,7 @@ inline uint64_t GetDirDiskUsage(const std::filesystem::path &path) {
 }
 
 /// Returns the number of bytes the process is using in the memory.
-inline uint64_t GetMemoryUsage() {
+inline uint64_t GetMemoryRES() {
   // Get PID of entire process.
   pid_t pid = getpid();
   uint64_t memory = 0;
