@@ -27,6 +27,7 @@
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
+#include "query/metadata.hpp"
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
@@ -1281,7 +1282,8 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValuesPropertiesSet) {
         "Description: 'null'};");
     this->Pull(&stream);
     auto stats = stream.GetSummary().at("stats").ValueMap();
-    ASSERT_EQ(stats["properties-set"].ValueInt(), 8);
+    auto key = memgraph::query::ExecutionStatsKeyToString(memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES);
+    ASSERT_EQ(stats[key].ValueInt(), 8);
   }
 }
 
