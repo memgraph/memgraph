@@ -59,7 +59,7 @@ inline uint64_t GetMemoryRES() {
 }
 
 /// Returns the size of vm.max_map_count
-inline std::optional<uint64_t> GetVmMaxMapCount() {
+inline std::optional<int64_t> GetVmMaxMapCount() {
   auto vm_max_map_count_data = utils::ReadLines("/proc/sys/vm/max_map_count");
   if (vm_max_map_count_data.empty()) {
     return std::nullopt;
@@ -71,7 +71,7 @@ inline std::optional<uint64_t> GetVmMaxMapCount() {
   if (parts.size() != 1) {
     return std::nullopt;
   }
-  return std::stoull(parts[0]);
+  return std::stoi(parts[0]);
 }
 
 }  // namespace memgraph::utils
