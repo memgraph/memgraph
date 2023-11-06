@@ -313,7 +313,7 @@ add_unit_test(storage_v2_decoder_encoder.cpp)
 target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg-storage-v2)
 
 add_unit_test(storage_v2_durability_inmemory.cpp)
-target_link_libraries(${test_prefix}storage_v2_durability_inmemory mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_durability_inmemory mg-storage-v2 mg-dbms)
 
 add_unit_test(storage_rocks.cpp)
 target_link_libraries(${test_prefix}storage_rocks mg-storage-v2)
@@ -346,7 +346,7 @@ add_unit_test(storage_v2_wal_file.cpp)
 target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 storage_test_utils fmt)
 
 add_unit_test(storage_v2_replication.cpp)
-target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
+target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 mg-dbms fmt)
 
 add_unit_test(storage_v2_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
@@ -388,19 +388,15 @@ if(MG_ENTERPRISE)
   target_link_libraries(${test_prefix}slk_advanced mg-storage-v2)
 endif()
 
-if(MG_ENTERPRISE)
-  add_unit_test(slk_core.cpp)
-  target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
+add_unit_test(slk_core.cpp)
+target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
 
-  add_unit_test(slk_streams.cpp)
-  target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
-endif()
+add_unit_test(slk_streams.cpp)
+target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
 
 # Test mg-rpc
-if(MG_ENTERPRISE)
-  add_unit_test(rpc.cpp)
-  target_link_libraries(${test_prefix}rpc mg-rpc)
-endif()
+add_unit_test(rpc.cpp)
+target_link_libraries(${test_prefix}rpc mg-rpc)
 
 # Test websocket
 find_package(Boost REQUIRED)
@@ -415,6 +411,9 @@ if(MG_ENTERPRISE)
 
   add_unit_test_with_custom_main(dbms_handler.cpp)
   target_link_libraries(${test_prefix}dbms_handler mg-query mg-auth mg-glue mg-dbms)
+else()
+  add_unit_test_with_custom_main(dbms_handler_community.cpp)
+  target_link_libraries(${test_prefix}dbms_handler_community mg-query mg-auth mg-glue mg-dbms)
 endif()
 
 # Test distributed

@@ -31,6 +31,10 @@
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
 
+namespace memgraph::dbms {
+class InMemoryReplicationHandlers;
+}
+
 namespace memgraph::storage {
 
 // The storage is based on this paper:
@@ -39,7 +43,7 @@ namespace memgraph::storage {
 // only implement snapshot isolation for transactions.
 
 class InMemoryStorage final : public Storage {
-  friend class InMemoryReplicationServer;
+  friend class memgraph::dbms::InMemoryReplicationHandlers;
   friend class InMemoryReplicationClient;
 
  public:
@@ -66,7 +70,7 @@ class InMemoryStorage final : public Storage {
     friend class InMemoryStorage;
 
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode);
+                              StorageMode storage_mode, bool is_main = true);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -204,8 +208,8 @@ class InMemoryStorage final : public Storage {
     /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {}) override;
+    utils::BasicResult<StorageManipulationError, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {},
+                                                              bool is_main = true) override;
 
     /// @throw std::bad_alloc
     void Abort() override;
@@ -311,9 +315,13 @@ class InMemoryStorage final : public Storage {
     Transaction &GetTransaction() { return transaction_; }
   };
 
-  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
+  using Storage::Access;
+  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
+                                            bool is_main) override;
 
-  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
+  using Storage::UniqueAccess;
+  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                  bool is_main) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) override;
 
@@ -321,16 +329,16 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
-      memgraph::replication::ReplicationState const &replicationState, std::optional<bool> is_periodic);
+  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(bool is_periodic = false);
 
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
+  void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>(bool)> cb);
 
-  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
+  using Storage::CreateTransaction;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) override;
+
+  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
+                               const memgraph::replication::ReplicationEpoch *current_epoch)
       -> std::unique_ptr<ReplicationClient> override;
-
-  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
-      -> std::unique_ptr<ReplicationServer> override;
 
  private:
   /// The force parameter determines the behaviour of the garbage collector.
@@ -377,7 +385,7 @@ class InMemoryStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  void PrepareForNewEpoch(std::string prev_epoch) override;
+  void PrepareForNewEpoch() override;
 
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
@@ -444,6 +452,9 @@ class InMemoryStorage final : public Storage {
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
+
+  // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
+  std::function<void(bool)> create_snapshot_handler{};
 };
 
 }  // namespace memgraph::storage
