@@ -237,6 +237,10 @@ class Storage {
 
     const std::string &id() const { return storage_->id(); }
 
+    std::vector<std::string> ListAllPossiblyPresentVertexLabels() const;
+
+    std::vector<std::string> ListAllPossiblyPresentEdgeTypes() const;
+
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
@@ -383,6 +387,18 @@ class Storage {
 
   Indices indices_;
   Constraints constraints_;
+
+  // Datastructures to provide fast retrieval of node-label and
+  // edge-type related metadata.
+  // Currently we should not remove any node-labels or edge-types even
+  // if the set of given types are currently not present in the
+  // database. This metadata is usually used by client side
+  // applications that want to be aware of the kind of data that *may*
+  // be present in the database.
+
+  // TODO(gvolfing): check if this would be faster with flat_maps.
+  std::unordered_set<LabelId> stored_node_labels_;
+  std::unordered_set<EdgeTypeId> stored_edge_types_;
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
