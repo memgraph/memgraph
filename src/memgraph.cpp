@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <cstdint>
 #include "audit/log.hpp"
 #include "communication/metrics.hpp"
 #include "communication/websocket/auth.hpp"
@@ -48,6 +49,7 @@ namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
+constexpr uint64_t kMgVmMaxMapCount = 262144;
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
@@ -206,6 +208,17 @@ int main(int argc, char **argv) {
   }
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
+
+  const auto vm_max_map_count = memgraph::utils::GetVmMaxMapCount();
+  if (vm_max_map_count.has_value()) {
+    if (vm_max_map_count.value() < kMgVmMaxMapCount) {
+      std::cout << "Max virtual memory areas vm.max_map_count " << vm_max_map_count.value()
+                << " is too low, increase to at least " << kMgVmMaxMapCount << std::endl;
+    }
+  } else {
+    std::cout << "Can't get info on vm.max_map_count, check whether it is too low, vm.max_map_count is at least "
+              << kMgVmMaxMapCount << std::endl;
+  }
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
