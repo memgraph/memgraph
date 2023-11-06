@@ -181,7 +181,7 @@ def execute_test(name, test_path, test_config, memgraph_binary, mg_import_csv_bi
         # Verify the queries
         queries_expected.sort()
         queries_got.sort()
-        assert queries_got == queries_expected, "Expected\n{}\nto be equal to\n" "{}".format(
+        assert queries_got == queries_expected, "Got:\n{}\nExpected:\n" "{}".format(
             list_to_string(queries_got), list_to_string(queries_expected)
         )
     print("\033[1;32m~~ Test successful ~~\033[0m\n")

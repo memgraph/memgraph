@@ -27,11 +27,12 @@
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
 class Storage;
-class ReplicationServer;
+
 class ReplicationClient;
 
 struct ReplicationStorageState {
@@ -49,7 +50,7 @@ struct ReplicationStorageState {
   auto ReplicasInfo() const -> std::vector<ReplicaInfo>;
 
   // History
-  void AddEpochToHistory(std::string prev_epoch);
+  void TrackLatestHistory();
   void AddEpochToHistoryForce(std::string prev_epoch);
 
   void Reset();
@@ -76,10 +77,9 @@ struct ReplicationStorageState {
   using ReplicationClientPtr = std::unique_ptr<ReplicationClient>;
   using ReplicationClientList = utils::Synchronized<std::vector<ReplicationClientPtr>, utils::RWSpinLock>;
 
-  // NOTE: Server is not in MAIN it is in REPLICA
-  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
-
   ReplicationClientList replication_clients_;
+
+  memgraph::replication::ReplicationEpoch epoch_;
 };
 
 }  // namespace memgraph::storage

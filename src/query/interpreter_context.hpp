@@ -21,17 +21,14 @@
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/typed_value.hpp"
+#include "replication/state.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::dbms {
-#ifdef MG_ENTERPRISE
 class DbmsHandler;
-#else
-class Database;
-#endif
 }  // namespace memgraph::dbms
 
 namespace memgraph::query {
@@ -48,20 +45,10 @@ class Interpreter;
  *
  */
 struct InterpreterContext {
-#ifdef MG_ENTERPRISE
-  InterpreterContext(InterpreterConfig interpreter_config, memgraph::dbms::DbmsHandler *db_handler,
-                     AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr);
-#else
-  InterpreterContext(InterpreterConfig interpreter_config,
-                     memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper,
-                     query::AuthQueryHandler *ah = nullptr, query::AuthChecker *ac = nullptr);
-#endif
+  InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
+                     replication::ReplicationState *rs, AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr);
 
-#ifdef MG_ENTERPRISE
-  memgraph::dbms::DbmsHandler *db_handler;
-#else
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper;
-#endif
+  memgraph::dbms::DbmsHandler *dbms_handler;
 
   // Internal
   const InterpreterConfig config;
@@ -69,6 +56,7 @@ struct InterpreterContext {
   memgraph::utils::SkipList<QueryCacheEntry> ast_cache;
 
   // GLOBAL
+  memgraph::replication::ReplicationState *repl_state;
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;
 

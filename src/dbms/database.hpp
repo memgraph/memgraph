@@ -46,7 +46,7 @@ class Database {
    *
    * @param config storage configuration
    */
-  explicit Database(const storage::Config &config);
+  explicit Database(storage::Config config, const replication::ReplicationState &repl_state);
 
   /**
    * @brief Returns the raw storage pointer.
@@ -56,6 +56,7 @@ class Database {
    * @return storage::Storage*
    */
   storage::Storage *storage() { return storage_.get(); }
+  storage::Storage const *storage() const { return storage_.get(); }
 
   /**
    * @brief Storage's Accessor
@@ -65,12 +66,12 @@ class Database {
    */
   std::unique_ptr<storage::Storage::Accessor> Access(
       std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->Access(override_isolation_level);
+    return storage_->Access(override_isolation_level, repl_state_->IsMain());
   }
 
   std::unique_ptr<storage::Storage::Accessor> UniqueAccess(
       std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->UniqueAccess(override_isolation_level);
+    return storage_->UniqueAccess(override_isolation_level, repl_state_->IsMain());
   }
 
   /**
@@ -157,6 +158,8 @@ class Database {
 
   // TODO: Move to a better place
   utils::SkipList<query::PlanCacheEntry> plan_cache_;  //!< Plan cache associated with the storage
+
+  const replication::ReplicationState *repl_state_;
 };
 
 }  // namespace memgraph::dbms

@@ -31,7 +31,8 @@ class TransactionQueueSimpleTest : public ::testing::Test {
  protected:
   const std::string testSuite = "transactin_queue";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_transaction_queue_intr"};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+
+  memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
         config.durability.storage_directory = data_directory;
@@ -44,6 +45,8 @@ class TransactionQueueSimpleTest : public ::testing::Test {
       }()  // iile
   };
 
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -56,7 +59,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
-  memgraph::query::InterpreterContext interpreter_context{{}, nullptr};
+  memgraph::query::InterpreterContext interpreter_context{{}, nullptr, &repl_state};
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
 
   void TearDown() override {
