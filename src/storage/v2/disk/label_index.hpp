@@ -19,6 +19,7 @@
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/rocksdb_serialization.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 class DiskLabelIndex : public storage::LabelIndex {
