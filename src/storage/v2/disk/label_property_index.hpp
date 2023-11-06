@@ -13,6 +13,7 @@
 
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
