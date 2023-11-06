@@ -11,6 +11,7 @@
 
 #include "utils/query_memory_tracker.hpp"
 #include <atomic>
+#include <optional>
 #include "memory/query_memory_control.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -21,9 +22,9 @@ void QueryMemoryTracker::TrackAlloc(size_t size) {
     query_tracker_->Alloc(static_cast<int64_t>(size));
   }
 
-  auto &proc_tracker = GetActiveProc();
+  auto *proc_tracker = GetActiveProc();
 
-  if (!proc_tracker.has_value()) {
+  if (proc_tracker == nullptr) {
     return;
   }
 
@@ -34,9 +35,9 @@ void QueryMemoryTracker::TrackFree(size_t size) {
     query_tracker_->Free(static_cast<int64_t>(size));
   }
 
-  auto &proc_tracker = GetActiveProc();
+  auto *proc_tracker = GetActiveProc();
 
-  if (!proc_tracker.has_value()) {
+  if (proc_tracker == nullptr) {
     return;
   }
 
@@ -52,23 +53,24 @@ void QueryMemoryTracker::SetQueryLimit(size_t size) {
   query_tracker_->SetHardLimit(static_cast<int64_t>(size));
 }
 
-std::optional<memgraph::utils::MemoryTracker> &QueryMemoryTracker::GetActiveProc() {
-  return proc_memory_trackers_[active_proc_id.load(std::memory_order_acquire)];
+memgraph::utils::MemoryTracker *QueryMemoryTracker::GetActiveProc() {
+  if (active_proc_id == NO_PROCEDURE) [[likely]] {
+    return nullptr;
+  }
+  return &proc_memory_trackers_[active_proc_id];
 }
 
-void QueryMemoryTracker::SetActiveProc(int64_t new_active_proc) {
-  active_proc_id.store(new_active_proc, std::memory_order_acq_rel);
-}
+void QueryMemoryTracker::SetActiveProc(int64_t new_active_proc) { active_proc_id = new_active_proc; }
 
-void QueryMemoryTracker::StopProcTracking() { active_proc_id.store(0, std::memory_order_acq_rel); }
+void QueryMemoryTracker::StopProcTracking() { active_proc_id = QueryMemoryTracker::NO_PROCEDURE; }
 
 void QueryMemoryTracker::TryCreateProcTracker(int64_t procedure_id, size_t limit) {
   if (proc_memory_trackers_.contains(procedure_id)) {
     return;
   }
   auto [it, inserted] = proc_memory_trackers_.emplace(procedure_id, utils::MemoryTracker{});
-  it->second->SetMaximumHardLimit(static_cast<int64_t>(limit));
-  it->second->SetHardLimit(static_cast<int64_t>(limit));
+  it->second.SetMaximumHardLimit(static_cast<int64_t>(limit));
+  it->second.SetHardLimit(static_cast<int64_t>(limit));
 }
 
 void QueryMemoryTracker::InitializeQueryTracker() { query_tracker_.emplace(MemoryTracker{}); }

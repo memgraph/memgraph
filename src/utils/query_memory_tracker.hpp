@@ -18,14 +18,22 @@
 
 namespace memgraph::utils {
 
+// Class which handles tracking of query memory
+// together with procedure memory. Default
+// active procedure id is set to -1, as
+// procedures start from id 1.
+// This class is meant to be used in environment
+// where we don't execute multiple procedures in parallel
+// but procedure can have multiple threads which are doing allocations
 class QueryMemoryTracker {
  public:
-  QueryMemoryTracker() { proc_memory_trackers_.emplace(0, std::nullopt); }
+  QueryMemoryTracker() = default;
 
   QueryMemoryTracker(QueryMemoryTracker &&other) noexcept
-      : query_tracker_(std::move(other.query_tracker_)), proc_memory_trackers_(std::move(other.proc_memory_trackers_)) {
-    active_proc_id.store(other.active_proc_id.load(std::memory_order_acquire), std::memory_order_acq_rel);
-    other.active_proc_id.store(0, std::memory_order_acq_rel);
+      : query_tracker_(std::move(other.query_tracker_)),
+        proc_memory_trackers_(std::move(other.proc_memory_trackers_)),
+        active_proc_id(other.active_proc_id) {
+    other.active_proc_id = NO_PROCEDURE;
   }
 
   QueryMemoryTracker(const QueryMemoryTracker &other) = delete;
@@ -35,24 +43,36 @@ class QueryMemoryTracker {
 
   ~QueryMemoryTracker() = default;
 
+  // Track allocation on query and procedure if active
   void TrackAlloc(size_t);
+
+  // Track Free on query and procedure if active
   void TrackFree(size_t);
 
+  // Set query limit
   void SetQueryLimit(size_t);
 
+  // Create proc tracker if doesn't exist
   void TryCreateProcTracker(int64_t, size_t);
+
+  // Set currently active procedure
   void SetActiveProc(int64_t);
+
+  // Stop procedure tracking
   void StopProcTracking();
 
- protected:
  private:
+  static constexpr int64_t NO_PROCEDURE{-1};
   void InitializeQueryTracker();
 
   std::optional<memgraph::utils::MemoryTracker> query_tracker_{std::nullopt};
-  std::unordered_map<int64_t, std::optional<memgraph::utils::MemoryTracker>> proc_memory_trackers_;
-  std::atomic<int64_t> active_proc_id{0};
+  std::unordered_map<int64_t, memgraph::utils::MemoryTracker> proc_memory_trackers_;
 
-  std::optional<memgraph::utils::MemoryTracker> &GetActiveProc();
+  // Procedure ids start from 1. Procedure id -1 means there is no procedure
+  // to track.
+  int64_t active_proc_id{NO_PROCEDURE};
+
+  memgraph::utils::MemoryTracker *GetActiveProc();
 };
 
 }  // namespace memgraph::utils

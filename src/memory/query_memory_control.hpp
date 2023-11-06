@@ -146,10 +146,15 @@ void TryStartTrackingOnTransaction(uint64_t transaction_id, size_t limit);
 // Does nothing if jemalloc is not enabled. Does nothing if tracker doesn't exist
 void TryStopTrackingOnTransaction(uint64_t transaction_id);
 
+// Is transaction with given id tracked in memory tracker
 bool IsTransactionTracked(uint64_t transaction_id);
 
+// Creates tracker on procedure if doesn't exist. Sets query tracker
+// to track procedure with id.
 void CreateOrContinueProcedureTracking(uint64_t transaction_id, int64_t procedure_id, size_t limit);
 
+// Pauses procedure tracking. This enables to continue
+// tracking on procedure once procedure execution resumes.
 void PauseProcedureTracking(uint64_t transaction_id);
 
 }  // namespace memgraph::memory
