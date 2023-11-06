@@ -12,13 +12,17 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <optional>
 
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpreter_context.hpp"
+#include "replication/state.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/replication/enums.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -30,6 +34,8 @@ template <typename StorageType>
 class InfoTest : public testing::Test {
  protected:
   void SetUp() {
+    repl_state.emplace(memgraph::storage::ReplicationStateRootPath(config));
+    db_gk.emplace(config, *repl_state);
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;
@@ -43,6 +49,7 @@ class InfoTest : public testing::Test {
   void TearDown() {
     db_acc_.reset();
     db_gk.reset();
+    repl_state.reset();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
@@ -52,8 +59,10 @@ class InfoTest : public testing::Test {
   StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
                                                             : StorageMode::IN_MEMORY_TRANSACTIONAL};
 
+  std::optional<memgraph::replication::ReplicationState> repl_state;
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
-  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk{
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
+  memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
         memgraph::storage::UpdatePaths(config, storage_directory);

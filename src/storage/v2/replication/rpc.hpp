@@ -32,9 +32,10 @@ struct AppendDeltasReq {
   static void Load(AppendDeltasReq *self, memgraph::slk::Reader *reader);
   static void Save(const AppendDeltasReq &self, memgraph::slk::Builder *builder);
   AppendDeltasReq() {}
-  AppendDeltasReq(uint64_t previous_commit_timestamp, uint64_t seq_num)
-      : previous_commit_timestamp(previous_commit_timestamp), seq_num(seq_num) {}
+  AppendDeltasReq(std::string name, uint64_t previous_commit_timestamp, uint64_t seq_num)
+      : db_name(std::move(name)), previous_commit_timestamp(previous_commit_timestamp), seq_num(seq_num) {}
 
+  std::string db_name;
   uint64_t previous_commit_timestamp;
   uint64_t seq_num;
 };
@@ -46,9 +47,10 @@ struct AppendDeltasRes {
   static void Load(AppendDeltasRes *self, memgraph::slk::Reader *reader);
   static void Save(const AppendDeltasRes &self, memgraph::slk::Builder *builder);
   AppendDeltasRes() {}
-  AppendDeltasRes(bool success, uint64_t current_commit_timestamp)
-      : success(success), current_commit_timestamp(current_commit_timestamp) {}
+  AppendDeltasRes(std::string name, bool success, uint64_t current_commit_timestamp)
+      : db_name(std::move(name)), success(success), current_commit_timestamp(current_commit_timestamp) {}
 
+  std::string db_name;
   bool success;
   uint64_t current_commit_timestamp;
 };
@@ -62,9 +64,10 @@ struct HeartbeatReq {
   static void Load(HeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const HeartbeatReq &self, memgraph::slk::Builder *builder);
   HeartbeatReq() {}
-  HeartbeatReq(uint64_t main_commit_timestamp, std::string epoch_id)
-      : main_commit_timestamp(main_commit_timestamp), epoch_id(std::move(epoch_id)) {}
+  HeartbeatReq(std::string name, uint64_t main_commit_timestamp, std::string epoch_id)
+      : db_name(std::move(name)), main_commit_timestamp(main_commit_timestamp), epoch_id(std::move(epoch_id)) {}
 
+  std::string db_name;
   uint64_t main_commit_timestamp;
   std::string epoch_id;
 };
@@ -76,38 +79,19 @@ struct HeartbeatRes {
   static void Load(HeartbeatRes *self, memgraph::slk::Reader *reader);
   static void Save(const HeartbeatRes &self, memgraph::slk::Builder *builder);
   HeartbeatRes() {}
-  HeartbeatRes(bool success, uint64_t current_commit_timestamp, std::string epoch_id)
-      : success(success), current_commit_timestamp(current_commit_timestamp), epoch_id(epoch_id) {}
+  HeartbeatRes(std::string name, bool success, uint64_t current_commit_timestamp, std::string epoch_id)
+      : db_name(std::move(name)),
+        success(success),
+        current_commit_timestamp(current_commit_timestamp),
+        epoch_id(epoch_id) {}
 
+  std::string db_name;
   bool success;
   uint64_t current_commit_timestamp;
   std::string epoch_id;
 };
 
 using HeartbeatRpc = rpc::RequestResponse<HeartbeatReq, HeartbeatRes>;
-
-struct FrequentHeartbeatReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
-  static void Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
-  FrequentHeartbeatReq() {}
-};
-
-struct FrequentHeartbeatRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
-  static void Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
-  FrequentHeartbeatRes() {}
-  explicit FrequentHeartbeatRes(bool success) : success(success) {}
-
-  bool success;
-};
-
-using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;
 
 struct SnapshotReq {
   static const utils::TypeInfo kType;
@@ -116,6 +100,9 @@ struct SnapshotReq {
   static void Load(SnapshotReq *self, memgraph::slk::Reader *reader);
   static void Save(const SnapshotReq &self, memgraph::slk::Builder *builder);
   SnapshotReq() {}
+  explicit SnapshotReq(std::string name) : db_name(std::move(name)) {}
+
+  std::string db_name;
 };
 
 struct SnapshotRes {
@@ -125,9 +112,10 @@ struct SnapshotRes {
   static void Load(SnapshotRes *self, memgraph::slk::Reader *reader);
   static void Save(const SnapshotRes &self, memgraph::slk::Builder *builder);
   SnapshotRes() {}
-  SnapshotRes(bool success, uint64_t current_commit_timestamp)
-      : success(success), current_commit_timestamp(current_commit_timestamp) {}
+  SnapshotRes(std::string name, bool success, uint64_t current_commit_timestamp)
+      : db_name(std::move(name)), success(success), current_commit_timestamp(current_commit_timestamp) {}
 
+  std::string db_name;
   bool success;
   uint64_t current_commit_timestamp;
 };
@@ -141,8 +129,9 @@ struct WalFilesReq {
   static void Load(WalFilesReq *self, memgraph::slk::Reader *reader);
   static void Save(const WalFilesReq &self, memgraph::slk::Builder *builder);
   WalFilesReq() {}
-  explicit WalFilesReq(uint64_t file_number) : file_number(file_number) {}
+  explicit WalFilesReq(std::string name, uint64_t file_number) : db_name(std::move(name)), file_number(file_number) {}
 
+  std::string db_name;
   uint64_t file_number;
 };
 
@@ -153,9 +142,10 @@ struct WalFilesRes {
   static void Load(WalFilesRes *self, memgraph::slk::Reader *reader);
   static void Save(const WalFilesRes &self, memgraph::slk::Builder *builder);
   WalFilesRes() {}
-  WalFilesRes(bool success, uint64_t current_commit_timestamp)
-      : success(success), current_commit_timestamp(current_commit_timestamp) {}
+  WalFilesRes(std::string name, bool success, uint64_t current_commit_timestamp)
+      : db_name(std::move(name)), success(success), current_commit_timestamp(current_commit_timestamp) {}
 
+  std::string db_name;
   bool success;
   uint64_t current_commit_timestamp;
 };
@@ -169,6 +159,9 @@ struct CurrentWalReq {
   static void Load(CurrentWalReq *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalReq &self, memgraph::slk::Builder *builder);
   CurrentWalReq() {}
+  explicit CurrentWalReq(std::string name) : db_name(std::move(name)) {}
+
+  std::string db_name;
 };
 
 struct CurrentWalRes {
@@ -178,9 +171,10 @@ struct CurrentWalRes {
   static void Load(CurrentWalRes *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalRes &self, memgraph::slk::Builder *builder);
   CurrentWalRes() {}
-  CurrentWalRes(bool success, uint64_t current_commit_timestamp)
-      : success(success), current_commit_timestamp(current_commit_timestamp) {}
+  CurrentWalRes(std::string name, bool success, uint64_t current_commit_timestamp)
+      : db_name(std::move(name)), success(success), current_commit_timestamp(current_commit_timestamp) {}
 
+  std::string db_name;
   bool success;
   uint64_t current_commit_timestamp;
 };
@@ -194,6 +188,9 @@ struct TimestampReq {
   static void Load(TimestampReq *self, memgraph::slk::Reader *reader);
   static void Save(const TimestampReq &self, memgraph::slk::Builder *builder);
   TimestampReq() {}
+  explicit TimestampReq(std::string name) : db_name(std::move(name)) {}
+
+  std::string db_name;
 };
 
 struct TimestampRes {
@@ -203,9 +200,10 @@ struct TimestampRes {
   static void Load(TimestampRes *self, memgraph::slk::Reader *reader);
   static void Save(const TimestampRes &self, memgraph::slk::Builder *builder);
   TimestampRes() {}
-  TimestampRes(bool success, uint64_t current_commit_timestamp)
-      : success(success), current_commit_timestamp(current_commit_timestamp) {}
+  TimestampRes(std::string name, bool success, uint64_t current_commit_timestamp)
+      : db_name(std::move(name)), success(success), current_commit_timestamp(current_commit_timestamp) {}
 
+  std::string db_name;
   bool success;
   uint64_t current_commit_timestamp;
 };
@@ -250,14 +248,6 @@ void Load(memgraph::storage::replication::SnapshotRes *self, memgraph::slk::Read
 void Save(const memgraph::storage::replication::SnapshotReq &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::SnapshotReq *self, memgraph::slk::Reader *reader);
-
-void Save(const memgraph::storage::replication::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
-
-void Save(const memgraph::storage::replication::FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::replication::HeartbeatRes &self, memgraph::slk::Builder *builder);
 
