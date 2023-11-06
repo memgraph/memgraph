@@ -11,8 +11,17 @@
 
 #pragma once
 
-#include <string>
+#include <cstdint>
 
-namespace memgraph::glue {
-extern const std::string run_id_;
-}  // namespace memgraph::glue
+namespace memgraph::rpc {
+
+using Version = uint64_t;
+
+// versioning of RPC was/will be introduced in 2.13
+// We start the versioning with a strange number, to radically reduce the
+// probability of accidental match/conformance with pre 2.13 versions
+constexpr auto v1 = Version{2023'10'30'0'2'13};
+
+constexpr auto current_version = v1;
+
+}  // namespace memgraph::rpc

@@ -81,7 +81,7 @@ EvalResult(run_t, Func &&, T &) -> EvalResult<std::invoke_result_t<Func, T &>>;
 template <typename T>
 struct Gatekeeper {
   template <typename... Args>
-  explicit Gatekeeper(Args &&...args) : value_{std::forward<Args>(args)...} {}
+  explicit Gatekeeper(Args &&...args) : value_{std::in_place, std::forward<Args>(args)...} {}
 
   Gatekeeper(Gatekeeper const &) = delete;
   Gatekeeper(Gatekeeper &&) noexcept = delete;

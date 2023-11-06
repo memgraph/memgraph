@@ -14,9 +14,32 @@
 #include "replication/config.hpp"
 #include "rpc/server.hpp"
 #include "slk/streams.hpp"
-#include "storage/v2/replication/global.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::replication {
+
+struct FrequentHeartbeatReq {
+  static const utils::TypeInfo kType;                            // TODO: make constexpr?
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }  // WHAT?
+
+  static void Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
+  static void Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
+  FrequentHeartbeatReq() {}
+};
+
+struct FrequentHeartbeatRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
+  static void Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
+  FrequentHeartbeatRes() {}
+  explicit FrequentHeartbeatRes(bool success) : success(success) {}
+
+  bool success;
+};
+
+// TODO: move to own header
+using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;
 
 class ReplicationServer {
  public:
@@ -31,10 +54,10 @@ class ReplicationServer {
   bool Start();
 
  protected:
-  static void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
-
   communication::ServerContext rpc_server_context_;
-  rpc::Server rpc_server_;
+
+ public:
+  rpc::Server rpc_server_;  // TODO: Interface or something
 };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::replication
