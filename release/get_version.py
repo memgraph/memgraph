@@ -104,7 +104,9 @@ def retry(retry_limit, timeout=100):
                 except Exception:
                     time.sleep(timeout)
             return func(*args, **kwargs)
+
         return wrapper
+
     return inner_func
 
 
@@ -200,19 +202,19 @@ if args.version:
 try:
     current_branch = get_output("git", "rev-parse", "--abbrev-ref", "HEAD")
     if current_branch != "master":
-        branches = get_output("git", "branch")
-        if "master" in branches:
+        branches = get_output("git", "branch", "-r", "--list", "origin/master")
+        if "origin/master" in branches:
             # If master is present locally, the fetch is allowed to fail
             # because this script will still be able to compare against the
             # master branch.
             try:
-                get_output("git", "fetch", "origin", "master:master")
+                get_output("git", "fetch", "origin", "master")
             except Exception:
                 pass
         else:
             # If master is not present locally, the fetch command has to
             # succeed because something else will fail otherwise.
-            get_output("git", "fetch", "origin", "master:master")
+            get_output("git", "fetch", "origin", "master")
 except Exception:
     print("Fatal error while ensuring local master branch.")
     sys.exit(1)
@@ -232,7 +234,7 @@ for branch in branches:
     match = branch_regex.match(branch)
     if match is not None:
         version = tuple(map(int, match.group(1).split(".")))
-        master_branch_merge = get_output("git", "merge-base", "master", branch)
+        master_branch_merge = get_output("git", "merge-base", "origin/master", branch)
         versions.append((version, branch, master_branch_merge))
 versions.sort(reverse=True)
 
@@ -243,7 +245,7 @@ current_version = None
 for version in versions:
     version_tuple, branch, master_branch_merge = version
     current_branch_merge = get_output("git", "merge-base", current_hash, branch)
-    master_current_merge = get_output("git", "merge-base", current_hash, "master")
+    master_current_merge = get_output("git", "merge-base", current_hash, "origin/master")
     # The first check checks whether this commit is a child of `master` and
     # the version branch was created before us.
     # The second check checks whether this commit is a child of the version
