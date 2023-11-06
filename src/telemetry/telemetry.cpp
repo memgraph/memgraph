@@ -15,6 +15,7 @@
 
 #include <fmt/format.h>
 
+#include "communication/bolt/metrics.hpp"
 #include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
 #include "utils/event_counter.hpp"
@@ -154,7 +155,6 @@ void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler) {
 #else
 #endif
 
-#ifdef MG_ENTERPRISE
 void Telemetry::AddStorageCollector(
     dbms::DbmsHandler &dbms_handler,
     memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> &auth) {
@@ -164,33 +164,6 @@ void Telemetry::AddStorageCollector(
     return ToJson(stats);
   });
 }
-#else
-void Telemetry::AddStorageCollector(
-    memgraph::utils::Gatekeeper<memgraph::dbms::Database> &db_gatekeeper,
-    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> &auth) {
-  AddCollector("storage", [&db_gatekeeper, &auth]() -> nlohmann::json {
-    memgraph::dbms::Statistics stats;
-    auto db_acc_opt = db_gatekeeper.access();
-    MG_ASSERT(db_acc_opt, "Failed to get access to the default database");
-    auto &db_acc = *db_acc_opt;
-    const auto &info = db_acc->GetInfo();
-    const auto &storage_info = info.storage_info;
-    stats.num_vertex = storage_info.vertex_count;
-    stats.num_edges = storage_info.edge_count;
-    stats.triggers = info.triggers;
-    stats.streams = info.streams;
-    stats.num_databases = 1;
-    stats.indices += storage_info.label_indices + storage_info.label_property_indices;
-    stats.constraints += storage_info.existence_constraints + storage_info.unique_constraints;
-    ++stats.storage_modes[(int)storage_info.storage_mode];
-    ++stats.isolation_levels[(int)storage_info.isolation_level];
-    stats.snapshot_enabled = storage_info.durability_snapshot_enabled;
-    stats.wal_enabled = storage_info.durability_wal_enabled;
-    stats.users = auth->AllUsers().size();
-    return ToJson(stats);
-  });
-}
-#endif
 
 void Telemetry::AddExceptionCollector() {
   AddCollector("exception", []() -> nlohmann::json { return memgraph::metrics::global_counters_map.ToJson(); });
