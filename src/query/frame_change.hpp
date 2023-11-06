@@ -44,11 +44,11 @@ struct CachedValue {
   }
 
   // Func to check if cache_ contains value
-  bool CacheValue(TypedValue &&value) {
-    if (!value.IsList()) {
+  bool CacheValue(TypedValue &&maybe_list) {
+    if (!maybe_list.IsList()) {
       return false;
     }
-    auto &list = value.ValueList();
+    auto &list = maybe_list.ValueList();
     TypedValue::Hash hash{};
     for (auto &element : list) {
       const auto key = hash(element);
@@ -59,6 +59,24 @@ struct CachedValue {
     }
     return true;
   }
+
+  bool CacheValue(const TypedValue &maybe_list) {
+    if (!maybe_list.IsList()) {
+      return false;
+    }
+    auto &list = maybe_list.ValueList();
+    TypedValue::Hash hash{};
+    for (auto &element : list) {
+      const auto key = hash(element);
+      auto &vector_values = cache_[key];
+      if (!IsValueInVec(vector_values, element)) {
+        vector_values.emplace_back(element);
+      }
+    }
+    return true;
+  }
+
+  // Func to check if cache_ contains value
   bool ContainsValue(const TypedValue &value) const {
     TypedValue::Hash hash{};
     const auto key = hash(value);
