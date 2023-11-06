@@ -86,6 +86,12 @@ class QueriesMemoryControl {
   // being constructed.
   utils::MemoryTracker *GetTrackerCurrentThread();
 
+  // This method resets all the trackings.
+  // Method is not thread-safe so it should
+  // be called when there is global lock
+  // to not create new transactions
+  void ResetTrackings();
+
  private:
   std::unordered_map<unsigned, std::atomic<int>> arena_tracking;
 
@@ -137,5 +143,10 @@ void TryStartTrackingOnTransaction(uint64_t transaction_id, size_t limit);
 // API function call to stop tracking for given transaction.
 // Does nothing if jemalloc is not enabled. Does nothing if tracker doesn't exist
 void TryStopTrackingOnTransaction(uint64_t transaction_id);
+
+// This method requires lock on global storage
+// It will clean all trackers which may accidentally have left in system
+// It will reset any tracking on arenas
+void CleanTracker();
 
 }  // namespace memgraph::memory

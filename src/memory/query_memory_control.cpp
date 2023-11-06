@@ -102,6 +102,17 @@ void QueriesMemoryControl::InitializeArenaCounter(unsigned arena_ind) {
   arena_tracking[arena_ind].store(0, std::memory_order_relaxed);
 }
 
+void QueriesMemoryControl::ResetTrackings() {
+  // First disable trackings on arenas
+  // so we don't start tracking on some query if
+  // there was something active left
+  for (auto &[arena_id, counter] : arena_tracking) {
+    counter.store(0, std::memory_order_acquire);
+  }
+  transaction_id_to_tracker.clear();
+  thread_id_to_transaction_id.clear();
+}
+
 #endif
 
 void StartTrackingCurrentThreadTransaction(uint64_t transaction_id) {
@@ -134,6 +145,12 @@ void TryStopTrackingOnTransaction(uint64_t transaction_id) {
     return;
   }
   GetQueriesMemoryControl().EraseTransactionIdTracker(transaction_id);
+#endif
+}
+
+void CleanTracker() {
+#if USE_JEMALLOC
+  GetQueriesMemoryControl().ResetTrackings();
 #endif
 }
 
