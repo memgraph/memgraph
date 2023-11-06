@@ -19,7 +19,6 @@
 #include <tuple>
 #include <utility>
 
-#include "query/exceptions.hpp"
 #include "query_memory_control.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -74,7 +73,11 @@ void QueriesMemoryControl::TrackAllocOnCurrentThread(size_t size) {
   auto transaction_id_to_tracker =
       transaction_id_to_tracker_accessor.find(thread_id_to_transaction_id_elem->transaction_id);
 
-  MG_ASSERT(transaction_id_to_tracker != transaction_id_to_tracker_accessor.end(), "Tracker for thread not found");
+  // It can happen that some allocation happens between mapping thread to
+  // transaction id, so we miss this allocation
+  if (transaction_id_to_tracker == transaction_id_to_tracker_accessor.end()) [[unlikely]] {
+    return;
+  }
   auto &query_tracker = transaction_id_to_tracker->tracker;
   query_tracker.TrackAlloc(size);
 }
@@ -93,7 +96,11 @@ void QueriesMemoryControl::TrackFreeOnCurrentThread(size_t size) {
   auto transaction_id_to_tracker =
       transaction_id_to_tracker_accessor.find(thread_id_to_transaction_id_elem->transaction_id);
 
-  MG_ASSERT(transaction_id_to_tracker != transaction_id_to_tracker_accessor.end(), "Tracker for thread not found");
+  // It can happen that some allocation happens between mapping thread to
+  // transaction id, so we miss this allocation
+  if (transaction_id_to_tracker == transaction_id_to_tracker_accessor.end()) [[unlikely]] {
+    return;
+  }
   auto &query_tracker = transaction_id_to_tracker->tracker;
   query_tracker.TrackFree(size);
 }

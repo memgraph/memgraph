@@ -78,12 +78,6 @@ class QueriesMemoryControl {
   // Important to reset if one thread gets reused for different transaction
   void EraseThreadToTransactionId(const std::thread::id &, uint64_t);
 
-  // C-API functionality for thread to transaction mapping
-  void UpdateThreadToTransactionId(const char *, uint64_t);
-
-  // C-API functionality for thread to transaction unmapping
-  void EraseThreadToTransactionId(const char *, uint64_t);
-
   // Find tracker for current thread if exists, track
   // query allocation and procedure allocation if
   // necessary
