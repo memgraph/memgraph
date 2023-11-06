@@ -110,6 +110,9 @@ class EdgeAccessor final {
 
 }  // namespace memgraph::storage
 
+static_assert(std::is_trivially_copyable<memgraph::storage::EdgeAccessor>::value,
+              "storage::EdgeAccessor must be trivially copyable!");
+
 namespace std {
 template <>
 struct hash<memgraph::storage::EdgeAccessor> {

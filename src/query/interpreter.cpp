@@ -1612,8 +1612,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
   auto use_monotonic_memory =
       !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
-  spdlog::trace("PrepareCypher has {} encountered all shortest paths and will {} use of monotonic memory",
-                IsAllShortestPathsQuery(clauses) ? "" : "not", use_monotonic_memory ? "" : "not");
 
   MG_ASSERT(current_db.execution_db_accessor_, "Cypher query expects a current DB transaction");
   auto *dba =
@@ -3121,9 +3119,9 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
-            {TypedValue("memory_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_usage)))},
+            {TypedValue("memory_res"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_res)))},
             {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
-            {TypedValue("memory_allocated"),
+            {TypedValue("memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
             {TypedValue("allocation_limit"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.HardLimit())))},
@@ -3714,8 +3712,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // Setup QueryExecution
     // its MemoryResource is mostly used for allocations done on Frame and storing `row`s
     if (usePool) {
-      spdlog::trace("PrepareCypher has {} encountered all shortest paths, QueryExecution will use PoolResource",
-                    hasAllShortestPaths ? "" : "not");
       query_executions_.emplace_back(QueryExecution::Create(utils::PoolResource(128, kExecutionPoolMaxBlockSize)));
     } else {
       query_executions_.emplace_back(QueryExecution::Create(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
@@ -3761,7 +3757,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         std::visit([](auto &execution_memory) -> utils::MemoryResource * { return &execution_memory; },
                    query_execution->execution_memory);
     frame_change_collector_.reset();
-    frame_change_collector_.emplace(memory_resource);
+    frame_change_collector_.emplace();
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                           current_db_, memory_resource, &query_execution->notifications, username_,
