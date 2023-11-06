@@ -1210,14 +1210,14 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   return {transaction_id, start_timestamp, isolation_level, storage_mode, false};
 }
 
-/// Main lock is taken by the caller.
-void InMemoryStorage::SetStorageMode(StorageMode storage_mode) {
+void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   std::unique_lock main_guard{main_lock_};
   MG_ASSERT(
       (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
-      (storage_mode == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
-  if (storage_mode_ != storage_mode) {
-    if (storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||
+       new_storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
+  if (storage_mode_ != new_storage_mode) {
+    if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       snapshot_runner_.Stop();
     } else {
       snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
@@ -1236,7 +1236,7 @@ void InMemoryStorage::SetStorageMode(StorageMode storage_mode) {
       });
     }
 
-    storage_mode_ = storage_mode;
+    storage_mode_ = new_storage_mode;
     FreeMemory(std::move(main_guard));
   }
 }
