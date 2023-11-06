@@ -917,7 +917,18 @@ DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(string, const char *);
 
 DEFINE_MGP_VALUE_MAKE(list)
 DEFINE_MGP_VALUE_MAKE(map)
-DEFINE_MGP_VALUE_MAKE(vertex)
+// DEFINE_MGP_VALUE_MAKE(vertex)
+
+mgp_error mgp_value_make_vertex(mgp_vertex *val, mgp_value **result) {
+  auto a = WrapExceptions(
+      [val] {
+        auto a = NewRawMgpObject<mgp_value>(val->GetMemoryResource(), val);
+        return a;
+      },
+      result);
+  return a;
+}
+
 DEFINE_MGP_VALUE_MAKE(edge)
 DEFINE_MGP_VALUE_MAKE(path)
 DEFINE_MGP_VALUE_MAKE(date)
@@ -1560,6 +1571,42 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
       result);
 }
 
+bool ContainsDeleted(mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex_->deleted; }
+
+bool ContainsDeleted(mgp_edge *edge) { return edge->impl.impl_.edge_.ptr->deleted; }
+
+bool ContainsDeleted(mgp_value *val) {
+  switch (val->type) {
+    case MGP_VALUE_TYPE_VERTEX:
+      return val->vertex_v->getImpl().impl_.vertex_->deleted;
+    case MGP_VALUE_TYPE_EDGE:
+      return val->edge_v->impl.impl_.edge_.ptr->deleted;
+    case MGP_VALUE_TYPE_PATH:
+      for (auto &vertex : val->path_v->vertices) {
+        if (ContainsDeleted(&vertex)) return true;
+      }
+      for (auto &edge : val->path_v->edges) {
+        if (ContainsDeleted(&edge)) return true;
+      }
+      return false;
+    case MGP_VALUE_TYPE_LIST:
+      for (auto &elem : val->list_v->elems) {
+        if (ContainsDeleted(&elem)) return true;
+      }
+      return false;
+    case MGP_VALUE_TYPE_MAP:
+      for (auto &[_, map_value] : val->map_v->items) {
+        if (ContainsDeleted(&map_value)) return true;
+      }
+      return false;
+    // other types are primitives
+    default:
+      break;
+  }
+
+  return false;
+}
+
 mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_name, mgp_value *val) {
   return WrapExceptions([=] {
     auto *memory = record->values.get_allocator().GetMemoryResource();
@@ -1569,12 +1616,21 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
     if (find_it == record->signature->end()) {
       throw std::out_of_range{fmt::format("The result doesn't have any field named '{}'.", field_name)};
     }
+
+    // TODO add existence check
+    // get type - if vertex, edge, or collection (path, map, list)
+
+    if (ContainsDeleted(val)) {
+      throw DeletedObjectException{"Vertex deleted by parallel transaction!"};
+    }
+
     const auto *type = find_it->second.first;
     if (!type->SatisfiesType(*val)) {
       throw std::logic_error{
-          fmt::format("The type of value doesn't satisfies the type '{}'!", type->GetPresentableName())};
+          fmt::format("The type of value doesn't satisfy the type '{}'!", type->GetPresentableName())};
     }
-    record->values.emplace(field_name, ToTypedValue(*val, memory));
+    auto v = ToTypedValue(*val, memory);
+    record->values.emplace(field_name, v);
   });
 }
 
