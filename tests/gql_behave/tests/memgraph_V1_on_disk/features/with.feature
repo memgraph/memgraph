@@ -249,3 +249,18 @@ Feature: With
         Then the result should be:
             | n         |
             | ({id: 0}) |
+
+    Scenario: With test 16:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({id: 0}) CREATE ({id:1});
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.id AS id;
+            """
+        Then the result should be:
+            | id |
+            | 0  |
+            | 1  |

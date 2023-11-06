@@ -69,7 +69,7 @@ struct StorageInfo {
   uint64_t vertex_count;
   uint64_t edge_count;
   double average_degree;
-  uint64_t memory_usage;
+  uint64_t memory_res;
   uint64_t disk_usage;
   uint64_t label_indices;
   uint64_t label_property_indices;
@@ -86,7 +86,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
 
   res["edges"] = info.edge_count;
   res["vertices"] = info.vertex_count;
-  res["memory"] = info.memory_usage;
+  res["memory"] = info.memory_res;
   res["disk"] = info.disk_usage;
   res["label_indices"] = info.label_indices;
   res["label_prop_indices"] = info.label_property_indices;
@@ -196,6 +196,8 @@ class Storage {
     virtual Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) = 0;
 
     virtual Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) = 0;
+
+    virtual Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, EdgeTypeId new_edge_type) = 0;
 
     virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
 

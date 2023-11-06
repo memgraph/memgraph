@@ -17,6 +17,7 @@
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "memory/query_memory_control.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -372,6 +373,16 @@ class DbAccessor final {
 
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
+  void TrackCurrentThreadAllocations() {
+    memgraph::memory::StartTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
+  }
+
+  void UntrackCurrentThreadAllocations() {
+    memgraph::memory::StopTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
+  }
+
+  std::optional<uint64_t> GetTransactionId() { return accessor_->GetTransactionId(); }
+
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
@@ -411,6 +422,12 @@ class DbAccessor final {
   storage::Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) {
     auto changed_edge = accessor_->EdgeSetTo(&edge->impl_, &new_to->impl_);
     if (changed_edge.HasError()) return storage::Result<EdgeAccessor>(changed_edge.GetError());
+    return EdgeAccessor(*changed_edge);
+  }
+
+  storage::Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, storage::EdgeTypeId new_edge_type) {
+    auto changed_edge = accessor_->EdgeChangeType(&edge->impl_, new_edge_type);
+    if (changed_edge.HasError()) return storage::Result<EdgeAccessor>{changed_edge.GetError()};
     return EdgeAccessor(*changed_edge);
   }
 
@@ -634,6 +651,14 @@ class SubgraphDbAccessor final {
 
   static SubgraphDbAccessor *MakeSubgraphDbAccessor(DbAccessor *db_accessor, Graph *graph);
 
+  void TrackThreadAllocations(const char *thread_id);
+
+  void TrackCurrentThreadAllocations();
+
+  void UntrackThreadAllocations(const char *thread_id);
+
+  void UntrackCurrentThreadAllocations();
+
   storage::PropertyId NameToProperty(std::string_view name);
 
   storage::LabelId NameToLabel(std::string_view name);
@@ -654,6 +679,8 @@ class SubgraphDbAccessor final {
   storage::Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from);
 
   storage::Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, SubgraphVertexAccessor *new_to);
+
+  storage::Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, storage::EdgeTypeId new_edge_type);
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       SubgraphVertexAccessor *vertex_accessor);

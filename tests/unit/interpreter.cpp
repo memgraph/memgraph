@@ -60,7 +60,7 @@ class InterpreterTest : public ::testing::Test {
   const std::string testSuiteCsv = "interpreter_csv";
   std::filesystem::path data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
 
-  InterpreterTest() : interpreter_context({}, kNoHandler) { memgraph::flags::run_time::execution_timeout_sec_ = 600.0; }
+  InterpreterTest() : interpreter_context({}, kNoHandler) {}
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
       [&]() {
@@ -745,7 +745,7 @@ TYPED_TEST(InterpreterTest, ExplainQueryWithParams) {
       this->Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue(42)}});
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
-  std::vector<std::string> expected_rows{" * Produce {n}", " * Filter", " * ScanAll (n)", " * Once"};
+  std::vector<std::string> expected_rows{" * Produce {n}", " * Filter {n.id}", " * ScanAll (n)", " * Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
   auto expected_it = expected_rows.begin();
   for (const auto &row : stream.GetResults()) {
@@ -834,7 +834,7 @@ TYPED_TEST(InterpreterTest, ProfileQueryWithParams) {
       this->Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue(42)}});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
-  std::vector<std::string> expected_rows{"* Produce {n}", "* Filter", "* ScanAll (n)", "* Once"};
+  std::vector<std::string> expected_rows{"* Produce {n}", "* Filter {n.id}", "* ScanAll (n)", "* Once"};
   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
   auto expected_it = expected_rows.begin();
   for (const auto &row : stream.GetResults()) {

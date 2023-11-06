@@ -2,7 +2,7 @@ bolt_port: &bolt_port "7687"
 args: &args
   - "--bolt-port"
   - *bolt_port
-  - "--memory-limit=1000"
+  - "--memory-limit=1024"
   - "--storage-gc-cycle-sec=180"
   - "--log-level=TRACE"
 
@@ -21,6 +21,44 @@ disk_cluster: &disk_cluster
       log_file: "memory-e2e.log"
       setup_queries:
         - "STORAGE MODE ON_DISK_TRANSACTIONAL"
+      validation_queries: []
+
+args_query_limit: &args_query_limit
+  - "--bolt-port"
+  - *bolt_port
+  - "--storage-gc-cycle-sec=180"
+  - "--log-level=TRACE"
+
+in_memory_query_limit_cluster: &in_memory_query_limit_cluster
+  cluster:
+    main:
+      args: *args_query_limit
+      log_file: "memory-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+args_450_MiB_limit: &args_450_MiB_limit
+  - "--bolt-port"
+  - *bolt_port
+  - "--memory-limit=450"
+  - "--storage-gc-cycle-sec=180"
+  - "--log-level=INFO"
+
+in_memory_450_MiB_limit_cluster: &in_memory_450_MiB_limit_cluster
+  cluster:
+    main:
+      args: *args_450_MiB_limit
+      log_file: "memory-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+
+disk_450_MiB_limit_cluster: &disk_450_MiB_limit_cluster
+  cluster:
+    main:
+      args: *args_450_MiB_limit
+      log_file: "memory-e2e.log"
+      setup_queries: []
       validation_queries: []
 
 
@@ -70,3 +108,54 @@ workloads:
     args: ["--bolt-port", *bolt_port, "--timeout", "180"]
     proc: "tests/e2e/memory/procedures/"
     <<: *disk_cluster
+
+  - name: "Memory control query limit proc"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_query_alloc_proc"
+    proc: "tests/e2e/memory/procedures/"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_query_limit_cluster
+
+  - name: "Memory control query limit proc multi thread"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_query_alloc_proc_multi_thread"
+    args: ["--bolt-port", *bolt_port, "--timeout", "180"]
+    proc: "tests/e2e/memory/procedures/"
+    <<: *in_memory_query_limit_cluster
+
+  - name: "Memory control query limit create"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_query_alloc_create"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_query_limit_cluster
+
+  - name: "Memory control query limit create multi thread"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_query_alloc_create_multi_thread"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_query_limit_cluster
+  - name: "Memory control for detach delete"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_delete"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_450_MiB_limit_cluster
+
+  - name: "Memory control for detach delete on disk storage"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_delete"
+    args: ["--bolt-port", *bolt_port]
+    <<: *disk_450_MiB_limit_cluster
+
+  - name: "Memory control for accumulation"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_accumulation"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_450_MiB_limit_cluster
+
+  - name: "Memory control for accumulation on disk storage"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_accumulation"
+    args: ["--bolt-port", *bolt_port]
+    <<: *disk_450_MiB_limit_cluster
+
+  - name: "Memory control for edge create"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_edge_create"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_450_MiB_limit_cluster
+
+  - name: "Memory control for edge create on disk storage"
+    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_edge_create"
+    args: ["--bolt-port", *bolt_port]
+    <<: *disk_450_MiB_limit_cluster

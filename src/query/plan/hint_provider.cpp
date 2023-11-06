@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,8 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "hint_provider.hpp"
 
-namespace memgraph::memory {
-void PurgeUnusedMemory();
-}  // namespace memgraph::memory
+namespace memgraph::query::plan {
+
+std::vector<std::string> ProvidePlanHints(const LogicalOperator *plan_root, const SymbolTable &symbol_table) {
+  PlanHintsProvider plan_hinter(symbol_table);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  const_cast<LogicalOperator *>(plan_root)->Accept(plan_hinter);
+
+  return plan_hinter.hints();
+}
+
+}  // namespace memgraph::query::plan
