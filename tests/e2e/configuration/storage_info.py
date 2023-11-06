@@ -58,7 +58,7 @@ def test_does_default_config_match():
         "disk_usage",
         "memory_allocated",
         "allocation_limit",
-        "",
+        "vm_max_map_count",
     ]
     # Number of different data-points returned by SHOW STORAGE INFO
     assert len(config) == 13
