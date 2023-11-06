@@ -213,26 +213,45 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   auto &dba = *context.db_accessor;
   auto new_node = dba.InsertVertex();
   context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
-  for (auto label : node_info.labels) {
-    auto maybe_error = new_node.AddLabel(label);
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
-        case storage::Error::SERIALIZATION_ERROR:
-          throw TransactionSerializationException();
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to set a label on a deleted node.");
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when setting a label.");
-      }
-    }
-    context.execution_stats[ExecutionStats::Key::CREATED_LABELS] += 1;
-  }
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
   ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
+  for (auto label : node_info.labels) {
+    // auto maybe_error = new_node.AddLabel(label);
+    if (const auto *labe_atom = std::get_if<storage::LabelId>(&label)) {
+      auto maybe_error = new_node.AddLabel(std::get<storage::LabelId>(label));
+      if (maybe_error.HasError()) {
+        switch (maybe_error.GetError()) {
+          case storage::Error::SERIALIZATION_ERROR:
+            throw TransactionSerializationException();
+          case storage::Error::DELETED_OBJECT:
+            throw QueryRuntimeException("Trying to set a label on a deleted node.");
+          case storage::Error::VERTEX_HAS_EDGES:
+          case storage::Error::PROPERTIES_DISABLED:
+          case storage::Error::NONEXISTENT_OBJECT:
+            throw QueryRuntimeException("Unexpected error when setting a label.");
+        }
+      }
+      context.execution_stats[ExecutionStats::Key::CREATED_LABELS] += 1;
+    } else {
+      auto key = evaluator.Visit(*std::get<ParameterLookup *>(label));
+      auto maybe_error = new_node.AddLabel(dba.NameToLabel(key.ValueString()));
+      if (maybe_error.HasError()) {
+        switch (maybe_error.GetError()) {
+          case storage::Error::SERIALIZATION_ERROR:
+            throw TransactionSerializationException();
+          case storage::Error::DELETED_OBJECT:
+            throw QueryRuntimeException("Trying to set a label on a deleted node.");
+          case storage::Error::VERTEX_HAS_EDGES:
+          case storage::Error::PROPERTIES_DISABLED:
+          case storage::Error::NONEXISTENT_OBJECT:
+            throw QueryRuntimeException("Unexpected error when setting a label.");
+        }
+      }
+      context.execution_stats[ExecutionStats::Key::CREATED_LABELS] += 1;
+    }
+  }
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
   std::map<storage::PropertyId, storage::PropertyValue> properties;
@@ -273,11 +292,13 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("CreateNode");
 #ifdef MG_ENTERPRISE
+/*
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(self_.node_info_.labels,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Vertex not created due to not having enough permission!");
   }
+  */
 #endif
 
   if (input_cursor_->Pull(frame, context)) {
@@ -372,13 +393,14 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
                                              ? memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE
 
                                              : memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE;
-
+    /*
     if (context.auth_checker &&
         !(context.auth_checker->Has(self_.edge_info_.edge_type,
                                     memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
           context.auth_checker->Has(self_.node_info_.labels, fine_grained_permission))) {
       throw QueryRuntimeException("Edge not created due to not having enough permission!");
     }
+    */
   }
 #endif
   // get the origin vertex
@@ -2789,15 +2811,13 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties =
-    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
-             std::map<storage::PropertyId, storage::PropertyValue> properties) {
-      {
-        value.ClearProperties()
-      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-      { value.SetProperty(property_id, property_value) };
-      { value.UpdateProperties(properties) };
-    };
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
+};
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///

@@ -339,11 +339,18 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
   };
   auto add_node_filter = [&](NodeAtom *node) {
     const auto &node_symbol = symbol_table.at(*node->identifier_);
-    if (!node->labels_.empty()) {
+    std::vector<LabelIx> labels;
+    for (auto label : node->labels_) {
+      if (const auto *label_node = std::get_if<ParameterLookup *>(&label)) {
+        throw SemanticException("Parameter lookup not supported in MATCH/MERGE clause!");
+      }
+      labels.push_back(std::get<LabelIx>(label));
+    }
+    if (!labels.empty()) {
       // Create a LabelsTest and store it.
-      auto *labels_test = storage.Create<LabelsTest>(node->identifier_, node->labels_);
+      auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
       auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
-      label_filter.labels = node->labels_;
+      label_filter.labels = labels;
       all_filters_.emplace_back(label_filter);
     }
     add_properties(node);
