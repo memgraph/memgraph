@@ -1273,17 +1273,7 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValuesPropertiesSet) {
     auto [stream, qid] = this->Prepare(
         "CREATE (u:Employee {Uid: 'EMP_AAAAA', FirstName: 'Bong', LastName: 'Revilla'}) RETURN u.name AS name;");
     this->Pull(&stream);
-    auto stats = stream.GetSummary().at("stats").ValueMap();
   }
-  {
-    auto [stream, gid] = this->Prepare("MATCH (node:Employee) SET node.FirstName = 'Andi'");
-    this->Pull(&stream);
-    auto stats = stream.GetSummary().at("stats").ValueMap();
-    for (const auto &[key, value] : stats) {
-      spdlog::info("{}", key);
-    }
-  }
-
   {
     auto [stream, qid] = this->Prepare(
         "MATCH (node:Employee) WHERE node.Uid='EMP_AAAAA' SET node={FirstName: 'James', LastName: 'Revilla', Uid: "
@@ -1291,10 +1281,7 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValuesPropertiesSet) {
         "Description: 'null'};");
     this->Pull(&stream);
     auto stats = stream.GetSummary().at("stats").ValueMap();
-    // ASSERT_EQ(stats["properties-set"].ValueInt(), 8);
-    for (const auto &[key, value] : stats) {
-      spdlog::info("{}", key);
-    }
+    ASSERT_EQ(stats["properties-set"].ValueInt(), 8);
   }
 }
 
