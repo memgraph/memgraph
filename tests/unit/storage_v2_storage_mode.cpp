@@ -43,7 +43,7 @@ TEST_P(StorageModeTest, Mode) {
       std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
           .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
 
-  storage->SetStorageMode(storage_mode);
+  static_cast<memgraph::storage::InMemoryStorage *>(storage.get())->SetStorageMode(storage_mode);
   auto creator = storage->Access();
   auto other_analytics_mode_reader = storage->Access();
 
