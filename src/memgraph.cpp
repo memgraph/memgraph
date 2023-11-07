@@ -65,9 +65,13 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
   std::string line;
   while (std::getline(file, line)) {
     if (!line.empty()) {
-      auto results = interpreter.Prepare(line, {}, {});
-      memgraph::query::DiscardValueResultStream stream;
-      interpreter.Pull(&stream, {}, results.qid);
+      try {
+        auto results = interpreter.Prepare(line, {}, {});
+        memgraph::query::DiscardValueResultStream stream;
+        interpreter.Pull(&stream, {}, results.qid);
+      } catch (const memgraph::query::QueryRuntimeException &e) {
+        spdlog::error("Error while executing init file: {}. The rest of the queries will be run normally.", e.what());
+      }
 
       if (audit_log) {
         audit_log->Record("", "", line, {}, memgraph::dbms::kDefaultDB);
