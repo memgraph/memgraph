@@ -3076,6 +3076,38 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       };
       break;
     }
+    case DatabaseInfoQuery::InfoType::EDGE_TYPES: {
+      header = {"edge types"};
+      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
+        auto edge_types = dba->ListAllPossiblyPresentEdgeTypes();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(edge_types.size());
+        for (auto &edge_type : edge_types) {
+          results.push_back({TypedValue(edge_type)});
+        }
+
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
+
+      break;
+    }
+    case DatabaseInfoQuery::InfoType::NODE_LABELS: {
+      header = {"node labels"};
+      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
+        auto node_labels = dba->ListAllPossiblyPresentVertexLabels();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(node_labels.size());
+        for (auto &node_label : node_labels) {
+          results.push_back({TypedValue(node_label)});
+        }
+
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
+
+      break;
+    }
+
+      // NODE_LABELS
   }
 
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),

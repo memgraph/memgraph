@@ -89,6 +89,7 @@ MULTI_DATABASE_EDIT     : M U L T I UNDERSCORE D A T A B A S E UNDERSCORE E D I 
 MULTI_DATABASE_USE      : M U L T I UNDERSCORE D A T A B A S E UNDERSCORE U S E ;
 NEXT                    : N E X T ;
 NO                      : N O ;
+NODE_LABELS             : N O D E UNDERSCORE L A B E L S ;
 NOTHING                 : N O T H I N G ;
 ON_DISK_TRANSACTIONAL   : O N UNDERSCORE D I S K UNDERSCORE T R A N S A C T I O N A L ;
 NULLIF                  : N U L L I F ;
