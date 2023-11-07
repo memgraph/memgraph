@@ -2896,6 +2896,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 
   auto update_props = [&, record](PropertiesMap &new_properties) {
     auto updated_properties = UpdatePropertiesChecked(record, new_properties);
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+    context->execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += new_properties.size();
 
     if (should_register_change) {
       for (const auto &[id, old_value, new_value] : updated_properties) {
