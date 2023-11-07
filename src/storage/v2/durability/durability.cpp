@@ -211,12 +211,10 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
 
 std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
                                         const std::filesystem::path &wal_directory, std::string *uuid,
-                                        memgraph::replication::ReplicationEpoch &epoch,
-                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                        Indices *indices, Constraints *constraints, const Config &config,
-                                        uint64_t *wal_seq_num) {
+                                        ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
+                                        utils::SkipList<Edge> *edges, std::atomic<uint64_t> *edge_count,
+                                        NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints,
+                                        const Config &config, uint64_t *wal_seq_num) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
                wal_directory);
@@ -226,6 +224,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     return std::nullopt;
   }
 
+  auto *const epoch_history = &repl_storage_state.history;
   utils::Timer timer;
 
   auto snapshot_files = GetSnapshotFiles(snapshot_directory);
@@ -264,7 +263,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
-    epoch.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
+    repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
 
     if (!utils::DirExists(wal_directory)) {
       const auto par_exec_info = config.durability.allow_parallel_index_creation
@@ -309,7 +308,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.
     *uuid = std::move(wal_files.back().uuid);
-    epoch.SetEpoch(std::move(wal_files.back().epoch_id));
+    repl_storage_state.epoch_.SetEpoch(std::move(wal_files.back().epoch_id));
   }
 
   auto maybe_wal_files = GetWalFiles(wal_directory, *uuid);
@@ -365,7 +364,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       }
       previous_seq_num = wal_file.seq_num;
 
-      if (wal_file.epoch_id != epoch.id()) {
+      if (wal_file.epoch_id != repl_storage_state.epoch_.id()) {
         // This way we skip WALs finalized only because of role change.
         // We can also set the last timestamp to 0 if last loaded timestamp
         // is nullopt as this can only happen if the WAL file with seq = 0
@@ -373,7 +372,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
         if (last_loaded_timestamp) {
           epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
         }
-        epoch.SetEpoch(std::move(wal_file.epoch_id));
+        repl_storage_state.epoch_.SetEpoch(std::move(wal_file.epoch_id));
       }
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,

@@ -135,10 +135,11 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
   // Read offsets.
   {
     auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_OFFSETS) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_OFFSETS)
+      throw RecoveryFailure("Couldn't read marker for section offsets!");
 
     auto snapshot_size = snapshot.GetSize();
-    if (!snapshot_size) throw RecoveryFailure("Couldn't read data from snapshot!");
+    if (!snapshot_size) throw RecoveryFailure("Couldn't read snapshot size!");
 
     auto read_offset = [&snapshot, snapshot_size] {
       auto maybe_offset = snapshot.ReadUint();
@@ -166,29 +167,30 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
 
   // Read metadata.
   {
-    if (!snapshot.SetPosition(info.offset_metadata)) throw RecoveryFailure("Couldn't read data from snapshot!");
+    if (!snapshot.SetPosition(info.offset_metadata)) throw RecoveryFailure("Couldn't read metadata offset!");
 
     auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_METADATA) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_METADATA)
+      throw RecoveryFailure("Couldn't read marker for section metadata!");
 
     auto maybe_uuid = snapshot.ReadString();
-    if (!maybe_uuid) throw RecoveryFailure("Invalid snapshot data!");
+    if (!maybe_uuid) throw RecoveryFailure("Couldn't read uuid!");
     info.uuid = std::move(*maybe_uuid);
 
     auto maybe_epoch_id = snapshot.ReadString();
-    if (!maybe_epoch_id) throw RecoveryFailure("Invalid snapshot data!");
+    if (!maybe_epoch_id) throw RecoveryFailure("Couldn't read epoch id!");
     info.epoch_id = std::move(*maybe_epoch_id);
 
     auto maybe_timestamp = snapshot.ReadUint();
-    if (!maybe_timestamp) throw RecoveryFailure("Invalid snapshot data!");
+    if (!maybe_timestamp) throw RecoveryFailure("Couldn't read start timestamp!");
     info.start_timestamp = *maybe_timestamp;
 
     auto maybe_edges = snapshot.ReadUint();
-    if (!maybe_edges) throw RecoveryFailure("Invalid snapshot data!");
+    if (!maybe_edges) throw RecoveryFailure("Couldn't read the number of edges!");
     info.edges_count = *maybe_edges;
 
     auto maybe_vertices = snapshot.ReadUint();
-    if (!maybe_vertices) throw RecoveryFailure("Invalid snapshot data!");
+    if (!maybe_vertices) throw RecoveryFailure("Couldn't read the number of vertices!");
     info.vertices_count = *maybe_vertices;
   }
 
@@ -199,19 +201,19 @@ std::vector<BatchInfo> ReadBatchInfos(Decoder &snapshot) {
   std::vector<BatchInfo> infos;
   const auto infos_size = snapshot.ReadUint();
   if (!infos_size.has_value()) {
-    throw RecoveryFailure("Invalid snapshot data!");
+    throw RecoveryFailure("Couldn't read number of batch infos!");
   }
   infos.reserve(*infos_size);
 
   for (auto i{0U}; i < *infos_size; ++i) {
     const auto offset = snapshot.ReadUint();
     if (!offset.has_value()) {
-      throw RecoveryFailure("Invalid snapshot data!");
+      throw RecoveryFailure("Couldn't read batch info offset!");
     }
 
     const auto count = snapshot.ReadUint();
     if (!count.has_value()) {
-      throw RecoveryFailure("Invalid snapshot data!");
+      throw RecoveryFailure("Couldn't read batch info count!");
     }
     infos.push_back(BatchInfo{*offset, *count});
   }
@@ -228,7 +230,7 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
   auto edge_acc = edges.access();
   uint64_t last_edge_gid = 0;
   spdlog::info("Recovering {} edges.", edges_count);
-  if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't read data from snapshot!");
+  if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't set offset position for reading edges!");
 
   std::vector<std::pair<PropertyId, PropertyValue>> read_properties;
   uint64_t five_percent_chunk = edges_count / 20;
@@ -253,12 +255,12 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
 
     {
       const auto marker = snapshot.ReadMarker();
-      if (!marker || *marker != Marker::SECTION_EDGE) throw RecoveryFailure("Invalid snapshot data!");
+      if (!marker || *marker != Marker::SECTION_EDGE) throw RecoveryFailure("Couldn't read section edge marker!");
     }
     // Read edge GID.
     auto gid = snapshot.ReadUint();
-    if (!gid) throw RecoveryFailure("Invalid snapshot data!");
-    if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+    if (!gid) throw RecoveryFailure("Failed to read edge gid!");
+    if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid edge gid read!");
     last_edge_gid = *gid;
 
     if (items.properties_on_edges) {
@@ -268,15 +270,15 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
       // Recover properties.
       {
         auto props_size = snapshot.ReadUint();
-        if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
+        if (!props_size) throw RecoveryFailure("Couldn't read the size of edge properties!");
         auto &props = it->properties;
         read_properties.clear();
         read_properties.reserve(*props_size);
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
-          if (!key) throw RecoveryFailure("Invalid snapshot data!");
+          if (!key) throw RecoveryFailure("Couldn't read edge property id!");
           auto value = snapshot.ReadPropertyValue();
-          if (!value) throw RecoveryFailure("Invalid snapshot data!");
+          if (!value) throw RecoveryFailure("Couldn't read edge property value!");
           read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
         }
         props.InitProperties(std::move(read_properties));
@@ -286,7 +288,7 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
       // Read properties.
       {
         auto props_size = snapshot.ReadUint();
-        if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
+        if (!props_size) throw RecoveryFailure("Couldn't read size of edge properties!");
         if (*props_size != 0)
           throw RecoveryFailure(
               "The snapshot has properties on edges, but the storage is "
@@ -304,7 +306,8 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
                              TLabelFromIdFunc get_label_from_id, TPropertyFromIdFunc get_property_from_id) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
-  if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't read data from snapshot!");
+  if (!snapshot.SetPosition(from_offset))
+    throw RecoveryFailure("Couldn't set offset for reading vertices from a snapshot!");
 
   auto vertex_acc = vertices.access();
   uint64_t last_vertex_gid = 0;
@@ -331,14 +334,14 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
     }
     {
       auto marker = snapshot.ReadMarker();
-      if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Invalid snapshot data!");
+      if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Couldn't read section vertex marker!");
     }
 
     // Insert vertex.
     auto gid = snapshot.ReadUint();
-    if (!gid) throw RecoveryFailure("Invalid snapshot data!");
+    if (!gid) throw RecoveryFailure("Couldn't read vertex gid!");
     if (i > 0 && *gid <= last_vertex_gid) {
-      throw RecoveryFailure("Invalid snapshot data!");
+      throw RecoveryFailure("Read vertex gid is invalid!");
     }
     last_vertex_gid = *gid;
     auto [it, inserted] = vertex_acc.insert(Vertex{Gid::FromUint(*gid), nullptr});
@@ -347,12 +350,12 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
     // Recover labels.
     {
       auto labels_size = snapshot.ReadUint();
-      if (!labels_size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!labels_size) throw RecoveryFailure("Couldn't read the size of vertex labels!");
       auto &labels = it->labels;
       labels.reserve(*labels_size);
       for (uint64_t j = 0; j < *labels_size; ++j) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read vertex label!");
         labels.emplace_back(get_label_from_id(*label));
       }
     }
@@ -360,15 +363,15 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
     // Recover properties.
     {
       auto props_size = snapshot.ReadUint();
-      if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!props_size) throw RecoveryFailure("Couldn't read size of vertex properties!");
       auto &props = it->properties;
       read_properties.clear();
       read_properties.reserve(*props_size);
       for (uint64_t j = 0; j < *props_size; ++j) {
         auto key = snapshot.ReadUint();
-        if (!key) throw RecoveryFailure("Invalid snapshot data!");
+        if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
         auto value = snapshot.ReadPropertyValue();
-        if (!value) throw RecoveryFailure("Invalid snapshot data!");
+        if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
         read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
       }
       props.InitProperties(std::move(read_properties));
@@ -377,27 +380,27 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
     // Skip in edges.
     {
       auto in_size = snapshot.ReadUint();
-      if (!in_size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!in_size) throw RecoveryFailure("Couldn't read the number of in edges!");
       for (uint64_t j = 0; j < *in_size; ++j) {
         auto edge_gid = snapshot.ReadUint();
-        if (!edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+        if (!edge_gid) throw RecoveryFailure("Couldn't read edge gid!");
         auto from_gid = snapshot.ReadUint();
-        if (!from_gid) throw RecoveryFailure("Invalid snapshot data!");
+        if (!from_gid) throw RecoveryFailure("Couldn't read from vertex gid!");
         auto edge_type = snapshot.ReadUint();
-        if (!edge_type) throw RecoveryFailure("Invalid snapshot data!");
+        if (!edge_type) throw RecoveryFailure("Couldn't read in edge type!");
       }
     }
 
     // Skip out edges.
     auto out_size = snapshot.ReadUint();
-    if (!out_size) throw RecoveryFailure("Invalid snapshot data!");
+    if (!out_size) throw RecoveryFailure("Couldn't read the number of out edges!");
     for (uint64_t j = 0; j < *out_size; ++j) {
       auto edge_gid = snapshot.ReadUint();
-      if (!edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+      if (!edge_gid) throw RecoveryFailure("Couldn't read edge gid!");
       auto to_gid = snapshot.ReadUint();
-      if (!to_gid) throw RecoveryFailure("Invalid snapshot data!");
+      if (!to_gid) throw RecoveryFailure("Couldn't read to vertex gid!");
       auto edge_type = snapshot.ReadUint();
-      if (!edge_type) throw RecoveryFailure("Invalid snapshot data!");
+      if (!edge_type) throw RecoveryFailure("Couldn't read out edge type!");
     }
   }
   spdlog::info("Process of recovering {} vertices is finished.", vertices_count);
@@ -421,7 +424,8 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
                                                       TEdgeTypeFromIdFunc get_edge_type_from_id) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
-  if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't read data from snapshot!");
+  if (!snapshot.SetPosition(from_offset))
+    throw RecoveryFailure("Couldn't set snapshot offset position doing loading partial connectivity!");
 
   auto vertex_acc = vertices.access();
   auto edge_acc = edges.access();
@@ -430,11 +434,11 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
   const auto first_vertex_gid = std::invoke([&]() mutable {
     {
       auto marker = snapshot.ReadMarker();
-      if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Invalid snapshot data!");
+      if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Couldn't set section vertex marker!");
     }
 
     auto gid = snapshot.ReadUint();
-    if (!gid) throw RecoveryFailure("Invalid snapshot data!");
+    if (!gid) throw RecoveryFailure("Couldn't read vertex gid!");
     return Gid::FromUint(*gid);
   });
 
@@ -442,12 +446,12 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
   uint64_t highest_edge_gid{0};
   auto vertex_it = vertex_acc.find(first_vertex_gid);
   if (vertex_it == vertex_acc.end()) {
-    throw RecoveryFailure("Invalid snapshot data!");
+    throw RecoveryFailure("Couldn't find vertex with first vertex gid!");
   }
 
   spdlog::info("Recovering connectivity for {} vertices.", vertices_count);
 
-  if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't read data from snapshot!");
+  if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't set from_offset position!");
 
   uint64_t five_percent_chunk = vertices_count / 20;
 
@@ -473,52 +477,52 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
     auto &vertex = *vertex_it;
     {
       auto marker = snapshot.ReadMarker();
-      if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Invalid snapshot data!");
+      if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Couldn't read section vertex marker!");
     }
 
     auto gid = snapshot.ReadUint();
-    if (!gid) throw RecoveryFailure("Invalid snapshot data!");
-    if (gid != vertex.gid.AsUint()) throw RecoveryFailure("Invalid snapshot data!");
+    if (!gid) throw RecoveryFailure("Couldn't read vertex gid!");
+    if (gid != vertex.gid.AsUint()) throw RecoveryFailure("Read vertex gid is different from the existing one!");
 
     // Skip labels.
     {
       auto labels_size = snapshot.ReadUint();
-      if (!labels_size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!labels_size) throw RecoveryFailure("Couldn't read the number of labels!");
       for (uint64_t j = 0; j < *labels_size; ++j) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label!");
       }
     }
 
     // Skip properties.
     {
       auto props_size = snapshot.ReadUint();
-      if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!props_size) throw RecoveryFailure("Couldn't read the number of vertex properties!");
       for (uint64_t j = 0; j < *props_size; ++j) {
         auto key = snapshot.ReadUint();
-        if (!key) throw RecoveryFailure("Invalid snapshot data!");
+        if (!key) throw RecoveryFailure("Couldn't read vertex property id!");
         auto value = snapshot.SkipPropertyValue();
-        if (!value) throw RecoveryFailure("Invalid snapshot data!");
+        if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
       }
     }
 
     // Recover in edges.
     {
       auto in_size = snapshot.ReadUint();
-      if (!in_size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!in_size) throw RecoveryFailure("Couldn't read the number of in edges!");
       vertex.in_edges.reserve(*in_size);
       for (uint64_t j = 0; j < *in_size; ++j) {
         auto edge_gid = snapshot.ReadUint();
-        if (!edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+        if (!edge_gid) throw RecoveryFailure("Couldn't read the edge gid!");
         highest_edge_gid = std::max(highest_edge_gid, *edge_gid);
 
         auto from_gid = snapshot.ReadUint();
-        if (!from_gid) throw RecoveryFailure("Invalid snapshot data!");
+        if (!from_gid) throw RecoveryFailure("Couldn't read from vertex gid!");
         auto edge_type = snapshot.ReadUint();
-        if (!edge_type) throw RecoveryFailure("Invalid snapshot data!");
+        if (!edge_type) throw RecoveryFailure("Couldn't read edge type!");
 
         auto from_vertex = vertex_acc.find(Gid::FromUint(*from_gid));
-        if (from_vertex == vertex_acc.end()) throw RecoveryFailure("Invalid from vertex!");
+        if (from_vertex == vertex_acc.end()) throw RecoveryFailure("Couldn't find from vertex in loaded vertices!");
 
         EdgeRef edge_ref(Gid::FromUint(*edge_gid));
         if (items.properties_on_edges) {
@@ -541,19 +545,19 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
     // Recover out edges.
     {
       auto out_size = snapshot.ReadUint();
-      if (!out_size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!out_size) throw RecoveryFailure("Couldn't read the number of out edges!");
       vertex.out_edges.reserve(*out_size);
       for (uint64_t j = 0; j < *out_size; ++j) {
         auto edge_gid = snapshot.ReadUint();
-        if (!edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+        if (!edge_gid) throw RecoveryFailure("Couldn't read edge gid!");
 
         auto to_gid = snapshot.ReadUint();
-        if (!to_gid) throw RecoveryFailure("Invalid snapshot data!");
+        if (!to_gid) throw RecoveryFailure("Couldn't read to vertex gid!");
         auto edge_type = snapshot.ReadUint();
-        if (!edge_type) throw RecoveryFailure("Invalid snapshot data!");
+        if (!edge_type) throw RecoveryFailure("Couldn't read edge type!");
 
         auto to_vertex = vertex_acc.find(Gid::FromUint(*to_gid));
-        if (to_vertex == vertex_acc.end()) throw RecoveryFailure("Invalid to vertex!");
+        if (to_vertex == vertex_acc.end()) throw RecoveryFailure("Couldn't find to vertex in loaded vertices!");
 
         EdgeRef edge_ref(Gid::FromUint(*edge_gid));
         if (items.properties_on_edges) {
@@ -562,7 +566,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
           // edges in the in/out edges list of vertices, therefore the edges has to be created here.
           if (snapshot_has_edges) {
             auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
-            if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
+            if (edge == edge_acc.end()) throw RecoveryFailure(":ouldn't find edge in the loaded edges!");
             edge_ref = EdgeRef(&*edge);
           } else {
             auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
@@ -649,34 +653,34 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
     if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
 
     auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Invalid snapshot data!");
+    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
 
     for (uint64_t i = 0; i < *size; ++i) {
       auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Invalid snapshot data!");
+      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
       auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Invalid snapshot data!");
+      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
       auto my_id = name_id_mapper->NameToId(*name);
       snapshot_id_map.emplace(*id, my_id);
       SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
     }
   }
-  auto get_label_from_id = [&snapshot_id_map](uint64_t snapshot_id) {
-    auto it = snapshot_id_map.find(snapshot_id);
-    if (it == snapshot_id_map.end()) throw RecoveryFailure("Invalid snapshot data!");
+  auto get_label_from_id = [&snapshot_id_map](uint64_t label_id) {
+    auto it = snapshot_id_map.find(label_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find label id in snapshot_id_map!");
     return LabelId::FromUint(it->second);
   };
-  auto get_property_from_id = [&snapshot_id_map](uint64_t snapshot_id) {
-    auto it = snapshot_id_map.find(snapshot_id);
-    if (it == snapshot_id_map.end()) throw RecoveryFailure("Invalid snapshot data!");
+  auto get_property_from_id = [&snapshot_id_map](uint64_t property_id) {
+    auto it = snapshot_id_map.find(property_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find property id in snapshot_id_map!");
     return PropertyId::FromUint(it->second);
   };
-  auto get_edge_type_from_id = [&snapshot_id_map](uint64_t snapshot_id) {
-    auto it = snapshot_id_map.find(snapshot_id);
-    if (it == snapshot_id_map.end()) throw RecoveryFailure("Invalid snapshot data!");
+  auto get_edge_type_from_id = [&snapshot_id_map](uint64_t edge_type_id) {
+    auto it = snapshot_id_map.find(edge_type_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find edge type id in snapshot_id_map!");
     return EdgeTypeId::FromUint(it->second);
   };
 
@@ -693,14 +697,14 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
       for (uint64_t i = 0; i < info.edges_count; ++i) {
         {
           const auto marker = snapshot.ReadMarker();
-          if (!marker || *marker != Marker::SECTION_EDGE) throw RecoveryFailure("Invalid snapshot data!");
+          if (!marker || *marker != Marker::SECTION_EDGE) throw RecoveryFailure("Couldn't read section edge marker");
         }
 
         if (items.properties_on_edges) {
           // Insert edge.
           auto gid = snapshot.ReadUint();
-          if (!gid) throw RecoveryFailure("Invalid snapshot data!");
-          if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+          if (!gid) throw RecoveryFailure("Couldn't read edge gid!");
+          if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid edge gid read!");
           last_edge_gid = *gid;
           spdlog::debug("Recovering edge {} with properties.", *gid);
           auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
@@ -709,13 +713,13 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
           // Recover properties.
           {
             auto props_size = snapshot.ReadUint();
-            if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
+            if (!props_size) throw RecoveryFailure("Couldn't read the size of properties!");
             auto &props = it->properties;
             for (uint64_t j = 0; j < *props_size; ++j) {
               auto key = snapshot.ReadUint();
-              if (!key) throw RecoveryFailure("Invalid snapshot data!");
+              if (!key) throw RecoveryFailure("Couldn't read edge property id!");
               auto value = snapshot.ReadPropertyValue();
-              if (!value) throw RecoveryFailure("Invalid snapshot data!");
+              if (!value) throw RecoveryFailure("Couldn't read edge property value!");
               SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for edge {}.",
                            name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
               props.SetProperty(get_property_from_id(*key), *value);
@@ -724,15 +728,15 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
         } else {
           // Read edge GID.
           auto gid = snapshot.ReadUint();
-          if (!gid) throw RecoveryFailure("Invalid snapshot data!");
-          if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+          if (!gid) throw RecoveryFailure("Couldn't read edge gid!");
+          if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid edge gid read!");
           last_edge_gid = *gid;
 
           spdlog::debug("Ensuring edge {} doesn't have any properties.", *gid);
           // Read properties.
           {
             auto props_size = snapshot.ReadUint();
-            if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
+            if (!props_size) throw RecoveryFailure("Couldn't read the size of properties!");
             if (*props_size != 0)
               throw RecoveryFailure(
                   "The snapshot has properties on edges, but the storage is "
@@ -751,14 +755,14 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
     for (uint64_t i = 0; i < info.vertices_count; ++i) {
       {
         auto marker = snapshot.ReadMarker();
-        if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Invalid snapshot data!");
+        if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Couldn't read section vertex marker!");
       }
 
       // Insert vertex.
       auto gid = snapshot.ReadUint();
-      if (!gid) throw RecoveryFailure("Invalid snapshot data!");
+      if (!gid) throw RecoveryFailure("Couldn't read vertex gid!");
       if (i > 0 && *gid <= last_vertex_gid) {
-        throw RecoveryFailure("Invalid snapshot data!");
+        throw RecoveryFailure("Invalid vertex gid read!");
       }
       last_vertex_gid = *gid;
       spdlog::debug("Recovering vertex {}.", *gid);
@@ -769,12 +773,12 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
       spdlog::trace("Recovering labels for vertex {}.", *gid);
       {
         auto labels_size = snapshot.ReadUint();
-        if (!labels_size) throw RecoveryFailure("Invalid snapshot data!");
+        if (!labels_size) throw RecoveryFailure("Couldn't read the size of labels!");
         auto &labels = it->labels;
         labels.reserve(*labels_size);
         for (uint64_t j = 0; j < *labels_size; ++j) {
           auto label = snapshot.ReadUint();
-          if (!label) throw RecoveryFailure("Invalid snapshot data!");
+          if (!label) throw RecoveryFailure("Couldn't read vertex label!");
           SPDLOG_TRACE("Recovered label \"{}\" for vertex {}.", name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                        *gid);
           labels.emplace_back(get_label_from_id(*label));
@@ -785,13 +789,13 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
       spdlog::trace("Recovering properties for vertex {}.", *gid);
       {
         auto props_size = snapshot.ReadUint();
-        if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
+        if (!props_size) throw RecoveryFailure("Couldn't read the size of properties!");
         auto &props = it->properties;
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
-          if (!key) throw RecoveryFailure("Invalid snapshot data!");
+          if (!key) throw RecoveryFailure("Couldn't read the vertex property id!");
           auto value = snapshot.ReadPropertyValue();
-          if (!value) throw RecoveryFailure("Invalid snapshot data!");
+          if (!value) throw RecoveryFailure("Couldn't read the vertex property value!");
           SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for vertex {}.",
                        name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
           props.SetProperty(get_property_from_id(*key), *value);
@@ -801,27 +805,27 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
       // Skip in edges.
       {
         auto in_size = snapshot.ReadUint();
-        if (!in_size) throw RecoveryFailure("Invalid snapshot data!");
+        if (!in_size) throw RecoveryFailure("Couldn't the read the size of input edges!");
         for (uint64_t j = 0; j < *in_size; ++j) {
           auto edge_gid = snapshot.ReadUint();
-          if (!edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+          if (!edge_gid) throw RecoveryFailure("Couldn't read the edge gid!");
           auto from_gid = snapshot.ReadUint();
-          if (!from_gid) throw RecoveryFailure("Invalid snapshot data!");
+          if (!from_gid) throw RecoveryFailure("Couldn't read from vertex gid!");
           auto edge_type = snapshot.ReadUint();
-          if (!edge_type) throw RecoveryFailure("Invalid snapshot data!");
+          if (!edge_type) throw RecoveryFailure("Couldn't read edge type!");
         }
       }
 
       // Skip out edges.
       auto out_size = snapshot.ReadUint();
-      if (!out_size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!out_size) throw RecoveryFailure("Couldn't read the number of out edges!");
       for (uint64_t j = 0; j < *out_size; ++j) {
         auto edge_gid = snapshot.ReadUint();
-        if (!edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+        if (!edge_gid) throw RecoveryFailure("Couldn't read the edge gid!");
         auto to_gid = snapshot.ReadUint();
-        if (!to_gid) throw RecoveryFailure("Invalid snapshot data!");
+        if (!to_gid) throw RecoveryFailure("Couldn't read to vertex gid!");
         auto edge_type = snapshot.ReadUint();
-        if (!edge_type) throw RecoveryFailure("Invalid snapshot data!");
+        if (!edge_type) throw RecoveryFailure("Couldn't read edge type!");
       }
     }
     spdlog::info("Vertices are recovered.");
@@ -832,34 +836,34 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
     for (auto &vertex : vertex_acc) {
       {
         auto marker = snapshot.ReadMarker();
-        if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Invalid snapshot data!");
+        if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Couldn't read section vertex marker!");
       }
 
       spdlog::trace("Recovering connectivity for vertex {}.", vertex.gid.AsUint());
       // Check vertex.
       auto gid = snapshot.ReadUint();
-      if (!gid) throw RecoveryFailure("Invalid snapshot data!");
-      if (gid != vertex.gid.AsUint()) throw RecoveryFailure("Invalid snapshot data!");
+      if (!gid) throw RecoveryFailure("Couldn't read vertex gid!");
+      if (gid != vertex.gid.AsUint()) throw RecoveryFailure("Invalid vertex read!");
 
       // Skip labels.
       {
         auto labels_size = snapshot.ReadUint();
-        if (!labels_size) throw RecoveryFailure("Invalid snapshot data!");
+        if (!labels_size) throw RecoveryFailure("Couldn't read the size of labels!");
         for (uint64_t j = 0; j < *labels_size; ++j) {
           auto label = snapshot.ReadUint();
-          if (!label) throw RecoveryFailure("Invalid snapshot data!");
+          if (!label) throw RecoveryFailure("Couldn't read label!");
         }
       }
 
       // Skip properties.
       {
         auto props_size = snapshot.ReadUint();
-        if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
+        if (!props_size) throw RecoveryFailure("Couldn't read the size of properties!");
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
-          if (!key) throw RecoveryFailure("Invalid snapshot data!");
+          if (!key) throw RecoveryFailure("Couldn't read property key while skipping properties!");
           auto value = snapshot.SkipPropertyValue();
-          if (!value) throw RecoveryFailure("Invalid snapshot data!");
+          if (!value) throw RecoveryFailure("Couldn't read property value while skipping properties!");
         }
       }
 
@@ -867,17 +871,17 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
       {
         spdlog::trace("Recovering inbound edges for vertex {}.", vertex.gid.AsUint());
         auto in_size = snapshot.ReadUint();
-        if (!in_size) throw RecoveryFailure("Invalid snapshot data!");
+        if (!in_size) throw RecoveryFailure("Couldn't read the size of in edges!");
         vertex.in_edges.reserve(*in_size);
         for (uint64_t j = 0; j < *in_size; ++j) {
           auto edge_gid = snapshot.ReadUint();
-          if (!edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+          if (!edge_gid) throw RecoveryFailure("Couldn't read egde gid!");
           last_edge_gid = std::max(last_edge_gid, *edge_gid);
 
           auto from_gid = snapshot.ReadUint();
-          if (!from_gid) throw RecoveryFailure("Invalid snapshot data!");
+          if (!from_gid) throw RecoveryFailure("Couldn't read from vertex gid!");
           auto edge_type = snapshot.ReadUint();
-          if (!edge_type) throw RecoveryFailure("Invalid snapshot data!");
+          if (!edge_type) throw RecoveryFailure("Couldn't read edge type");
 
           auto from_vertex = vertex_acc.find(Gid::FromUint(*from_gid));
           if (from_vertex == vertex_acc.end()) throw RecoveryFailure("Invalid from vertex!");
@@ -903,17 +907,17 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
       {
         spdlog::trace("Recovering outbound edges for vertex {}.", vertex.gid.AsUint());
         auto out_size = snapshot.ReadUint();
-        if (!out_size) throw RecoveryFailure("Invalid snapshot data!");
+        if (!out_size) throw RecoveryFailure("Couldn't read the number of out edges!");
         vertex.out_edges.reserve(*out_size);
         for (uint64_t j = 0; j < *out_size; ++j) {
           auto edge_gid = snapshot.ReadUint();
-          if (!edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+          if (!edge_gid) throw RecoveryFailure("Couldn't read edge gid!");
           last_edge_gid = std::max(last_edge_gid, *edge_gid);
 
           auto to_gid = snapshot.ReadUint();
-          if (!to_gid) throw RecoveryFailure("Invalid snapshot data!");
+          if (!to_gid) throw RecoveryFailure("Couldn't read to vertex gid!");
           auto edge_type = snapshot.ReadUint();
-          if (!edge_type) throw RecoveryFailure("Invalid snapshot data!");
+          if (!edge_type) throw RecoveryFailure("Couldn't read edge type!");
 
           auto to_vertex = vertex_acc.find(Gid::FromUint(*to_gid));
           if (to_vertex == vertex_acc.end()) throw RecoveryFailure("Invalid to vertex!");
@@ -951,16 +955,16 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
     if (!snapshot.SetPosition(info.offset_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_INDICES) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_INDICES) throw RecoveryFailure("Couldn't read section indices!");
 
     // Recover label indices.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't read the number of label indices");
       spdlog::info("Recovering metadata of {} label indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label of label index!");
         AddRecoveredIndexConstraint(&indices_constraints.indices.label, get_label_from_id(*label),
                                     "The label index already exists!");
         SPDLOG_TRACE("Recovered metadata of label index for :{}", name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -971,13 +975,13 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
     // Recover label+property indices.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't recover the number of label property indices!");
       spdlog::info("Recovering metadata of {} label+property indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label for label property index!");
         auto property = snapshot.ReadUint();
-        if (!property) throw RecoveryFailure("Invalid snapshot data!");
+        if (!property) throw RecoveryFailure("Couldn't read property for label property index");
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_property,
                                     {get_label_from_id(*label), get_property_from_id(*property)},
                                     "The label+property index already exists!");
@@ -987,6 +991,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
       }
       spdlog::info("Metadata of label+property indices are recovered.");
     }
+
     spdlog::info("Metadata of indices are recovered.");
   }
 
@@ -996,18 +1001,19 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
     if (!snapshot.SetPosition(info.offset_constraints)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_CONSTRAINTS) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_CONSTRAINTS)
+      throw RecoveryFailure("Couldn't read section constraints marker!");
 
     // Recover existence constraints.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't recover the number of existence constraints!");
       spdlog::info("Recovering metadata of {} existence constraints.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label of existence constraints!");
         auto property = snapshot.ReadUint();
-        if (!property) throw RecoveryFailure("Invalid snapshot data!");
+        if (!property) throw RecoveryFailure("Couldn't read property of existence constraints!");
         AddRecoveredIndexConstraint(&indices_constraints.constraints.existence,
                                     {get_label_from_id(*label), get_property_from_id(*property)},
                                     "The existence constraint already exists!");
@@ -1023,17 +1029,17 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
     // implemented in later versions of snapshot.
     if (*version >= kUniqueConstraintVersion) {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
       spdlog::info("Recovering metadata of {} unique constraints.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label of unique constraint!");
         auto properties_count = snapshot.ReadUint();
-        if (!properties_count) throw RecoveryFailure("Invalid snapshot data!");
+        if (!properties_count) throw RecoveryFailure("Couldn't read the number of properties of unique constraint");
         std::set<PropertyId> properties;
         for (uint64_t j = 0; j < *properties_count; ++j) {
           auto property = snapshot.ReadUint();
-          if (!property) throw RecoveryFailure("Invalid snapshot data!");
+          if (!property) throw RecoveryFailure("Couldn't read property of unique constraint!");
           properties.insert(get_property_from_id(*property));
         }
         AddRecoveredIndexConstraint(&indices_constraints.constraints.unique, {get_label_from_id(*label), properties},
@@ -1052,21 +1058,22 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
     if (!snapshot.SetPosition(info.offset_epoch_history)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     const auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_EPOCH_HISTORY) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_EPOCH_HISTORY)
+      throw RecoveryFailure("Couldn't recover section epoch history marker!");
 
     const auto history_size = snapshot.ReadUint();
     if (!history_size) {
-      throw RecoveryFailure("Invalid snapshot data!");
+      throw RecoveryFailure("Couldn't read history size!");
     }
 
     for (int i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
-        throw RecoveryFailure("Invalid snapshot data!");
+        throw RecoveryFailure("Couldn't read epoch id!");
       }
       const auto maybe_last_commit_timestamp = snapshot.ReadUint();
       if (!maybe_last_commit_timestamp) {
-        throw RecoveryFailure("Invalid snapshot data!");
+        throw RecoveryFailure("Couldn't read last commit timestamp!");
       }
       epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_commit_timestamp);
     }
@@ -1120,34 +1127,34 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
     if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Couldn't read section mapper marker!");
 
     auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Invalid snapshot data!");
+    if (!size) throw RecoveryFailure("Couldn't read snapshot size!");
 
     for (uint64_t i = 0; i < *size; ++i) {
       auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Invalid snapshot data!");
+      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
       auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Invalid snapshot data!");
+      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
       auto my_id = name_id_mapper->NameToId(*name);
       snapshot_id_map.emplace(*id, my_id);
       SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
     }
   }
-  auto get_label_from_id = [&snapshot_id_map](uint64_t snapshot_id) {
-    auto it = snapshot_id_map.find(snapshot_id);
-    if (it == snapshot_id_map.end()) throw RecoveryFailure("Invalid snapshot data!");
+  auto get_label_from_id = [&snapshot_id_map](uint64_t label_id) {
+    auto it = snapshot_id_map.find(label_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find label id in snapshot_id_map!");
     return LabelId::FromUint(it->second);
   };
-  auto get_property_from_id = [&snapshot_id_map](uint64_t snapshot_id) {
-    auto it = snapshot_id_map.find(snapshot_id);
-    if (it == snapshot_id_map.end()) throw RecoveryFailure("Invalid snapshot data!");
+  auto get_property_from_id = [&snapshot_id_map](uint64_t property_id) {
+    auto it = snapshot_id_map.find(property_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find property id in snapshot_id_map!");
     return PropertyId::FromUint(it->second);
   };
-  auto get_edge_type_from_id = [&snapshot_id_map](uint64_t snapshot_id) {
-    auto it = snapshot_id_map.find(snapshot_id);
-    if (it == snapshot_id_map.end()) throw RecoveryFailure("Invalid snapshot data!");
+  auto get_edge_type_from_id = [&snapshot_id_map](uint64_t edge_type_id) {
+    auto it = snapshot_id_map.find(edge_type_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find edge type id in snapshot_id_map!");
     return EdgeTypeId::FromUint(it->second);
   };
 
@@ -1237,16 +1244,16 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
     if (!snapshot.SetPosition(info.offset_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_INDICES) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_INDICES) throw RecoveryFailure("Couldn't read section indices!");
 
     // Recover label indices.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't read the number of label indices");
       spdlog::info("Recovering metadata of {} label indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label of label index!");
         AddRecoveredIndexConstraint(&indices_constraints.indices.label, get_label_from_id(*label),
                                     "The label index already exists!");
         SPDLOG_TRACE("Recovered metadata of label index for :{}", name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -1257,13 +1264,13 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
     // Recover label+property indices.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't recover the number of label property indices!");
       spdlog::info("Recovering metadata of {} label+property indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label for label property index!");
         auto property = snapshot.ReadUint();
-        if (!property) throw RecoveryFailure("Invalid snapshot data!");
+        if (!property) throw RecoveryFailure("Couldn't read property for label property index");
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_property,
                                     {get_label_from_id(*label), get_property_from_id(*property)},
                                     "The label+property index already exists!");
@@ -1279,21 +1286,23 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
   // Recover constraints.
   {
     spdlog::info("Recovering metadata of constraints.");
-    if (!snapshot.SetPosition(info.offset_constraints)) throw RecoveryFailure("Couldn't read data from snapshot!");
+    if (!snapshot.SetPosition(info.offset_constraints))
+      throw RecoveryFailure("Couldn't read offset constraints marker!");
 
     auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_CONSTRAINTS) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_CONSTRAINTS)
+      throw RecoveryFailure("Couldn't read section constraints marker!");
 
     // Recover existence constraints.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't recover the number of existence constraints!");
       spdlog::info("Recovering metadata of {} existence constraints.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label of existence constraints!");
         auto property = snapshot.ReadUint();
-        if (!property) throw RecoveryFailure("Invalid snapshot data!");
+        if (!property) throw RecoveryFailure("Couldn't read property of existence constraints!");
         AddRecoveredIndexConstraint(&indices_constraints.constraints.existence,
                                     {get_label_from_id(*label), get_property_from_id(*property)},
                                     "The existence constraint already exists!");
@@ -1309,17 +1318,17 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
     // implemented in later versions of snapshot.
     if (*version >= kUniqueConstraintVersion) {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
       spdlog::info("Recovering metadata of {} unique constraints.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label of unique constraint!");
         auto properties_count = snapshot.ReadUint();
-        if (!properties_count) throw RecoveryFailure("Invalid snapshot data!");
+        if (!properties_count) throw RecoveryFailure("Couldn't read the number of properties of unique constraint");
         std::set<PropertyId> properties;
         for (uint64_t j = 0; j < *properties_count; ++j) {
           auto property = snapshot.ReadUint();
-          if (!property) throw RecoveryFailure("Invalid snapshot data!");
+          if (!property) throw RecoveryFailure("Couldn't read property of unique constraint!");
           properties.insert(get_property_from_id(*property));
         }
         AddRecoveredIndexConstraint(&indices_constraints.constraints.unique, {get_label_from_id(*label), properties},
@@ -1338,21 +1347,22 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
     if (!snapshot.SetPosition(info.offset_epoch_history)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     const auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_EPOCH_HISTORY) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_EPOCH_HISTORY)
+      throw RecoveryFailure("Couldn't recover section epoch history marker!");
 
     const auto history_size = snapshot.ReadUint();
     if (!history_size) {
-      throw RecoveryFailure("Invalid snapshot data!");
+      throw RecoveryFailure("Couldn't read history size!");
     }
 
     for (int i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
-        throw RecoveryFailure("Invalid snapshot data!");
+        throw RecoveryFailure("Couldn't read epoch id!");
       }
       const auto maybe_last_commit_timestamp = snapshot.ReadUint();
       if (!maybe_last_commit_timestamp) {
-        throw RecoveryFailure("Invalid snapshot data!");
+        throw RecoveryFailure("Couldn't read last commit timestamp!");
       }
       epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_commit_timestamp);
     }
@@ -1410,34 +1420,34 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     if (!snapshot.SetPosition(info.offset_mapper)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_MAPPER) throw RecoveryFailure("Failed to read section mapper!");
 
     auto size = snapshot.ReadUint();
-    if (!size) throw RecoveryFailure("Invalid snapshot data!");
+    if (!size) throw RecoveryFailure("Failed to read name-id mapper size!");
 
     for (uint64_t i = 0; i < *size; ++i) {
       auto id = snapshot.ReadUint();
-      if (!id) throw RecoveryFailure("Invalid snapshot data!");
+      if (!id) throw RecoveryFailure("Failed to read id for name-id mapper!");
       auto name = snapshot.ReadString();
-      if (!name) throw RecoveryFailure("Invalid snapshot data!");
+      if (!name) throw RecoveryFailure("Failed to read name for name-id mapper!");
       auto my_id = name_id_mapper->NameToId(*name);
       snapshot_id_map.emplace(*id, my_id);
       SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
     }
   }
-  auto get_label_from_id = [&snapshot_id_map](uint64_t snapshot_id) {
-    auto it = snapshot_id_map.find(snapshot_id);
-    if (it == snapshot_id_map.end()) throw RecoveryFailure("Invalid snapshot data!");
+  auto get_label_from_id = [&snapshot_id_map](uint64_t label_id) {
+    auto it = snapshot_id_map.find(label_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find label id in snapshot_id_map!");
     return LabelId::FromUint(it->second);
   };
-  auto get_property_from_id = [&snapshot_id_map](uint64_t snapshot_id) {
-    auto it = snapshot_id_map.find(snapshot_id);
-    if (it == snapshot_id_map.end()) throw RecoveryFailure("Invalid snapshot data!");
+  auto get_property_from_id = [&snapshot_id_map](uint64_t property_id) {
+    auto it = snapshot_id_map.find(property_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find property id in snapshot_id_map!");
     return PropertyId::FromUint(it->second);
   };
-  auto get_edge_type_from_id = [&snapshot_id_map](uint64_t snapshot_id) {
-    auto it = snapshot_id_map.find(snapshot_id);
-    if (it == snapshot_id_map.end()) throw RecoveryFailure("Invalid snapshot data!");
+  auto get_edge_type_from_id = [&snapshot_id_map](uint64_t edge_type_id) {
+    auto it = snapshot_id_map.find(edge_type_id);
+    if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find edge type id in snapshot_id_map!");
     return EdgeTypeId::FromUint(it->second);
   };
 
@@ -1527,16 +1537,16 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     if (!snapshot.SetPosition(info.offset_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_INDICES) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_INDICES) throw RecoveryFailure("Couldn't read section indices!");
 
     // Recover label indices.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't read the number of label indices");
       spdlog::info("Recovering metadata of {} label indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
-        const auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label of label index!");
         AddRecoveredIndexConstraint(&indices_constraints.indices.label, get_label_from_id(*label),
                                     "The label index already exists!");
         SPDLOG_TRACE("Recovered metadata of label index for :{}", name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -1547,15 +1557,15 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     // Recover label indices statistics.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't read the number of entries for label index statistics!");
       spdlog::info("Recovering metadata of {} label indices statistics.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         const auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label while recovering label index statistics!");
         const auto count = snapshot.ReadUint();
-        if (!count) throw RecoveryFailure("Invalid snapshot data!");
+        if (!count) throw RecoveryFailure("Couldn't read count for label index statistics!");
         const auto avg_degree = snapshot.ReadDouble();
-        if (!avg_degree) throw RecoveryFailure("Invalid snapshot data!");
+        if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label index statistics");
         const auto label_id = get_label_from_id(*label);
         indices_constraints.indices.label_stats.emplace_back(label_id, LabelIndexStats{*count, *avg_degree});
         SPDLOG_TRACE("Recovered metadata of label index statistics for :{}",
@@ -1567,13 +1577,13 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     // Recover label+property indices.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't recover the number of label property indices!");
       spdlog::info("Recovering metadata of {} label+property indices.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
-        const auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
-        const auto property = snapshot.ReadUint();
-        if (!property) throw RecoveryFailure("Invalid snapshot data!");
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label for label property index!");
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property for label property index");
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_property,
                                     {get_label_from_id(*label), get_property_from_id(*property)},
                                     "The label+property index already exists!");
@@ -1587,23 +1597,25 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     // Recover label+property indices statistics.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't recover the number of entries for label property statistics!");
       spdlog::info("Recovering metadata of {} label+property indices statistics.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         const auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label for label property index statistics!");
         const auto property = snapshot.ReadUint();
-        if (!property) throw RecoveryFailure("Invalid snapshot data!");
+        if (!property) throw RecoveryFailure("Couldn't read property for label property index statistics!");
         const auto count = snapshot.ReadUint();
-        if (!count) throw RecoveryFailure("Invalid snapshot data!");
+        if (!count) throw RecoveryFailure("Couldn't read count for label property index statistics!!");
         const auto distinct_values_count = snapshot.ReadUint();
-        if (!distinct_values_count) throw RecoveryFailure("Invalid snapshot data!");
+        if (!distinct_values_count)
+          throw RecoveryFailure("Couldn't read distinct values count for label property index statistics!");
         const auto statistic = snapshot.ReadDouble();
-        if (!statistic) throw RecoveryFailure("Invalid snapshot data!");
+        if (!statistic) throw RecoveryFailure("Couldn't read statistics value for label-property index statistics!");
         const auto avg_group_size = snapshot.ReadDouble();
-        if (!avg_group_size) throw RecoveryFailure("Invalid snapshot data!");
+        if (!avg_group_size)
+          throw RecoveryFailure("Couldn't read average group size for label property index statistics!");
         const auto avg_degree = snapshot.ReadDouble();
-        if (!avg_degree) throw RecoveryFailure("Invalid snapshot data!");
+        if (!avg_degree) throw RecoveryFailure("Couldn't read average degree for label property index statistics!");
         const auto label_id = get_label_from_id(*label);
         const auto property_id = get_property_from_id(*property);
         indices_constraints.indices.label_property_stats.emplace_back(
@@ -1625,18 +1637,19 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     if (!snapshot.SetPosition(info.offset_constraints)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_CONSTRAINTS) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_CONSTRAINTS)
+      throw RecoveryFailure("Couldn't read section constraints marker!");
 
     // Recover existence constraints.
     {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't read the number of existence constraints!");
       spdlog::info("Recovering metadata of {} existence constraints.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label of existence constraints!");
         auto property = snapshot.ReadUint();
-        if (!property) throw RecoveryFailure("Invalid snapshot data!");
+        if (!property) throw RecoveryFailure("Couldn't read property of existence constraints!");
         AddRecoveredIndexConstraint(&indices_constraints.constraints.existence,
                                     {get_label_from_id(*label), get_property_from_id(*property)},
                                     "The existence constraint already exists!");
@@ -1652,17 +1665,17 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     // implemented in later versions of snapshot.
     if (*version >= kUniqueConstraintVersion) {
       auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Invalid snapshot data!");
+      if (!size) throw RecoveryFailure("Couldn't read the number of unique constraints!");
       spdlog::info("Recovering metadata of {} unique constraints.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Invalid snapshot data!");
+        if (!label) throw RecoveryFailure("Couldn't read label of unique constraints!");
         auto properties_count = snapshot.ReadUint();
-        if (!properties_count) throw RecoveryFailure("Invalid snapshot data!");
+        if (!properties_count) throw RecoveryFailure("Couldn't read the number of properties in unique constraint!");
         std::set<PropertyId> properties;
         for (uint64_t j = 0; j < *properties_count; ++j) {
           auto property = snapshot.ReadUint();
-          if (!property) throw RecoveryFailure("Invalid snapshot data!");
+          if (!property) throw RecoveryFailure("Couldn't read property of unique constraint!");
           properties.insert(get_property_from_id(*property));
         }
         AddRecoveredIndexConstraint(&indices_constraints.constraints.unique, {get_label_from_id(*label), properties},
@@ -1681,21 +1694,22 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     if (!snapshot.SetPosition(info.offset_epoch_history)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
     const auto marker = snapshot.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_EPOCH_HISTORY) throw RecoveryFailure("Invalid snapshot data!");
+    if (!marker || *marker != Marker::SECTION_EPOCH_HISTORY)
+      throw RecoveryFailure("Couldn't read section epoch history marker!");
 
     const auto history_size = snapshot.ReadUint();
     if (!history_size) {
-      throw RecoveryFailure("Invalid snapshot data!");
+      throw RecoveryFailure("Couldn't read history size!");
     }
 
     for (int i = 0; i < *history_size; ++i) {
       auto maybe_epoch_id = snapshot.ReadString();
       if (!maybe_epoch_id) {
-        throw RecoveryFailure("Invalid snapshot data!");
+        throw RecoveryFailure("Couldn't read maybe epoch id!");
       }
       const auto maybe_last_commit_timestamp = snapshot.ReadUint();
       if (!maybe_last_commit_timestamp) {
-        throw RecoveryFailure("Invalid snapshot data!");
+        throw RecoveryFailure("Couldn't read maybe last commit timestamp!");
       }
       epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_commit_timestamp);
     }
@@ -1709,6 +1723,94 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
   success = true;
 
   return {info, recovery_info, std::move(indices_constraints)};
+}
+
+using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
+void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
+                                  OldSnapshotFiles old_snapshot_files, Transaction *transaction,
+                                  utils::FileRetainer *file_retainer) {
+  std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>> wal_files;
+  std::error_code error_code;
+  for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
+    if (!item.is_regular_file()) continue;
+    try {
+      auto info = ReadWalInfo(item.path());
+      if (info.uuid != uuid) continue;
+      wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
+    } catch (const RecoveryFailure &e) {
+      spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will be deleted.", item.path(), e.what());
+      file_retainer->DeleteFile(item.path());
+    }
+  }
+
+  if (error_code) {
+    spdlog::error(
+        utils::MessageWithLink("Couldn't ensure that only the absolutely necessary WAL files exist "
+                               "because an error occurred: {}.",
+                               error_code.message(), "https://memgr.ph/snapshots"));
+  }
+  std::sort(wal_files.begin(), wal_files.end());
+  uint64_t snapshot_start_timestamp = transaction->start_timestamp;
+  if (!old_snapshot_files.empty()) {
+    snapshot_start_timestamp = old_snapshot_files.front().first;
+  }
+  std::optional<uint64_t> pos = 0;
+  for (uint64_t i = 0; i < wal_files.size(); ++i) {
+    const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
+    if (from_timestamp <= snapshot_start_timestamp) {
+      pos = i;
+    } else {
+      break;
+    }
+  }
+  if (pos && *pos > 0) {
+    // We need to leave at least one WAL file that contains deltas that were
+    // created before the oldest snapshot. Because we always leave at least
+    // one WAL file that contains deltas before the snapshot, this correctly
+    // handles the edge case when that one file is the current WAL file that
+    // is being appended to.
+    for (uint64_t i = 0; i < *pos; ++i) {
+      const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
+      file_retainer->DeleteFile(wal_path);
+    }
+  }
+}
+
+auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &path,
+                                        const std::string &uuid, utils::FileRetainer *file_retainer, Storage *storage)
+    -> OldSnapshotFiles {
+  OldSnapshotFiles old_snapshot_files;
+  std::error_code error_code;
+  for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
+    if (!item.is_regular_file()) continue;
+    if (item.path() == path) continue;
+    try {
+      auto info = ReadSnapshotInfo(item.path());
+      if (info.uuid != uuid) continue;
+      old_snapshot_files.emplace_back(info.start_timestamp, item.path());
+    } catch (const RecoveryFailure &e) {
+      spdlog::warn("Found a corrupt snapshot file {} becuase of: {}. Corrupted snapshot file will be deleted.",
+                   item.path(), e.what());
+      file_retainer->DeleteFile(item.path());
+    }
+  }
+
+  if (error_code) {
+    spdlog::error(utils::MessageWithLink(
+        "Couldn't ensure that exactly {} snapshots exist because an error occurred: {}.",
+        storage->config_.durability.snapshot_retention_count, error_code.message(), "https://memgr.ph/snapshots"));
+  }
+
+  std::sort(old_snapshot_files.begin(), old_snapshot_files.end());
+  if (old_snapshot_files.size() <= storage->config_.durability.snapshot_retention_count - 1) return old_snapshot_files;
+
+  uint32_t num_to_erase = old_snapshot_files.size() - (storage->config_.durability.snapshot_retention_count - 1);
+  for (size_t i = 0; i < num_to_erase; ++i) {
+    const auto &[_, snapshot_path] = old_snapshot_files[i];
+    file_retainer->DeleteFile(snapshot_path);
+  }
+  old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
+  return old_snapshot_files;
 }
 
 void CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
@@ -2088,86 +2190,12 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   snapshot.Finalize();
   spdlog::info("Snapshot creation successful!");
 
-  // Ensure exactly `snapshot_retention_count` snapshots exist.
-  std::vector<std::pair<uint64_t, std::filesystem::path>> old_snapshot_files;
-  {
-    std::error_code error_code;
-    for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
-      if (!item.is_regular_file()) continue;
-      if (item.path() == path) continue;
-      try {
-        auto info = ReadSnapshotInfo(item.path());
-        if (info.uuid != uuid) continue;
-        old_snapshot_files.emplace_back(info.start_timestamp, item.path());
-      } catch (const RecoveryFailure &e) {
-        spdlog::warn("Found a corrupt snapshot file {} becuase of: {}", item.path(), e.what());
-        continue;
-      }
-    }
+  OldSnapshotFiles old_snapshot_files =
+      EnsureRetentionCountSnapshotsExist(snapshot_directory, path, uuid, file_retainer, storage);
 
-    if (error_code) {
-      spdlog::error(utils::MessageWithLink(
-          "Couldn't ensure that exactly {} snapshots exist because an error occurred: {}.",
-          storage->config_.durability.snapshot_retention_count, error_code.message(), "https://memgr.ph/snapshots"));
-    }
-    std::sort(old_snapshot_files.begin(), old_snapshot_files.end());
-    if (old_snapshot_files.size() > storage->config_.durability.snapshot_retention_count - 1) {
-      auto num_to_erase = old_snapshot_files.size() - (storage->config_.durability.snapshot_retention_count - 1);
-      for (size_t i = 0; i < num_to_erase; ++i) {
-        const auto &[start_timestamp, snapshot_path] = old_snapshot_files[i];
-        file_retainer->DeleteFile(snapshot_path);
-      }
-      old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
-    }
-  }
-
-  // Ensure that only the absolutely necessary WAL files exist.
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
       utils::DirExists(wal_directory)) {
-    std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>> wal_files;
-    std::error_code error_code;
-    for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
-      if (!item.is_regular_file()) continue;
-      try {
-        auto info = ReadWalInfo(item.path());
-        if (info.uuid != uuid) continue;
-        wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
-      } catch (const RecoveryFailure &e) {
-        continue;
-      }
-    }
-
-    if (error_code) {
-      spdlog::error(
-          utils::MessageWithLink("Couldn't ensure that only the absolutely necessary WAL files exist "
-                                 "because an error occurred: {}.",
-                                 error_code.message(), "https://memgr.ph/snapshots"));
-    }
-    std::sort(wal_files.begin(), wal_files.end());
-    uint64_t snapshot_start_timestamp = transaction->start_timestamp;
-    if (!old_snapshot_files.empty()) {
-      snapshot_start_timestamp = old_snapshot_files.front().first;
-    }
-    std::optional<uint64_t> pos = 0;
-    for (uint64_t i = 0; i < wal_files.size(); ++i) {
-      const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
-      if (from_timestamp <= snapshot_start_timestamp) {
-        pos = i;
-      } else {
-        break;
-      }
-    }
-    if (pos && *pos > 0) {
-      // We need to leave at least one WAL file that contains deltas that were
-      // created before the oldest snapshot. Because we always leave at least
-      // one WAL file that contains deltas before the snapshot, this correctly
-      // handles the edge case when that one file is the current WAL file that
-      // is being appended to.
-      for (uint64_t i = 0; i < *pos; ++i) {
-        const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
-        file_retainer->DeleteFile(wal_path);
-      }
-    }
+    EnsureNecessaryWalFilesExist(wal_directory, uuid, std::move(old_snapshot_files), transaction, file_retainer);
   }
 }
 
