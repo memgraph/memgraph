@@ -25,4 +25,3 @@ target_link_libraries(mg-communication Boost::headers Threads::Threads mg-utils 
 find_package(OpenSSL REQUIRED)
 target_link_libraries(mg-communication ${OPENSSL_LIBRARIES})
 target_include_directories(mg-communication SYSTEM PUBLIC ${OPENSSL_INCLUDE_DIR})
-target_precompile_headers(mg-communication INTERFACE http/server.hpp <boost/beast/websocket.hpp> bolt/v1/session.hpp)
