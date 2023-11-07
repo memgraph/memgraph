@@ -301,8 +301,6 @@ class Storage {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
 
-  void SetStorageMode(StorageMode storage_mode);
-
   StorageMode GetStorageMode() const;
 
   virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) = 0;
