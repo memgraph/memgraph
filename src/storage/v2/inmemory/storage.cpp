@@ -26,12 +26,6 @@ namespace memgraph::storage {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
-// new struct will have:
-// snapshot_directory_
-// wal_directory_
-// uuid_
-//
-
 InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     : Storage(config, storage_mode),
       snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
@@ -2067,11 +2061,5 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryStorage::InMemoryAccessor::D
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
   return res;
 }
-
-auto InMemoryStorage::GetSnapshotDirectory() const -> std::filesystem::path { return snapshot_directory_; }
-auto InMemoryStorage::GetWalDirectory() const -> std::filesystem::path { return wal_directory_; }
-auto InMemoryStorage::GetUuid() -> std::string * { return &uuid_; }
-auto InMemoryStorage::GetFileRetainer() -> utils::FileRetainer * { return &file_retainer_; }
-void InMemoryStorage::SetWalSeqNum(uint64_t new_wal_seq_num) { wal_seq_num_ = new_wal_seq_num; }
 
 }  // namespace memgraph::storage
