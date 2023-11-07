@@ -33,20 +33,6 @@ namespace memgraph::memory {
 
 #if USE_JEMALLOC
 
-unsigned QueriesMemoryControl::GetArenaForThread() {
-  unsigned thread_arena{0};
-  size_t size_thread_arena = sizeof(thread_arena);
-  int err = mallctl("thread.arena", &thread_arena, &size_thread_arena, nullptr, 0);
-  if (err) {
-    LOG_FATAL("Can't get arena for thread.");
-  }
-  return thread_arena;
-}
-
-void QueriesMemoryControl::AddTrackingOnArena(unsigned arena_id) { arena_tracking[arena_id].fetch_add(1); }
-
-void QueriesMemoryControl::RemoveTrackingOnArena(unsigned arena_id) { arena_tracking[arena_id].fetch_sub(1); }
-
 void QueriesMemoryControl::UpdateThreadToTransactionId(const std::thread::id &thread_id, uint64_t transaction_id) {
   auto accessor = thread_id_to_transaction_id.access();
   accessor.insert({thread_id, transaction_id});
@@ -119,14 +105,6 @@ bool QueriesMemoryControl::EraseTransactionIdTracker(uint64_t transaction_id) {
   return removed;
 }
 
-bool QueriesMemoryControl::IsArenaTracked(unsigned arena_ind) {
-  return arena_tracking[arena_ind].load(std::memory_order_acquire) != 0;
-}
-
-void QueriesMemoryControl::InitializeArenaCounter(unsigned arena_ind) {
-  arena_tracking[arena_ind].store(0, std::memory_order_relaxed);
-}
-
 bool QueriesMemoryControl::CheckTransactionIdTrackerExists(uint64_t transaction_id) {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
   return transaction_id_to_tracker_accessor.contains(transaction_id);
@@ -166,19 +144,29 @@ void QueriesMemoryControl::PauseProcedureTracking(uint64_t transaction_id) {
   query_tracker->tracker.StopProcTracking();
 }
 
+inline bool &Get_Thread_Tracker() {
+  static thread_local bool is_thread_tracked{false};
+  return is_thread_tracked;
+}
+
+bool QueriesMemoryControl::IsThreadTracked() { return Get_Thread_Tracker(); }
+
 #endif
 
 void StartTrackingCurrentThreadTransaction(uint64_t transaction_id) {
 #if USE_JEMALLOC
+
   GetQueriesMemoryControl().UpdateThreadToTransactionId(std::this_thread::get_id(), transaction_id);
-  GetQueriesMemoryControl().AddTrackingOnArena(QueriesMemoryControl::GetArenaForThread());
+  Get_Thread_Tracker() = true;
+  // GetQueriesMemoryControl().AddTrackingOnArena(QueriesMemoryControl::GetArenaForThread());
 #endif
 }
 
 void StopTrackingCurrentThreadTransaction(uint64_t transaction_id) {
 #if USE_JEMALLOC
+  Get_Thread_Tracker() = false;
   GetQueriesMemoryControl().EraseThreadToTransactionId(std::this_thread::get_id(), transaction_id);
-  GetQueriesMemoryControl().RemoveTrackingOnArena(QueriesMemoryControl::GetArenaForThread());
+  // GetQueriesMemoryControl().RemoveTrackingOnArena(QueriesMemoryControl::GetArenaForThread());
 #endif
 }
 
