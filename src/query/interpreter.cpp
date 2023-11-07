@@ -1213,7 +1213,7 @@ struct TxTimeout {
 };
 
 struct PullPlan {
-  explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
+  explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::optional<std::string> username, std::atomic<TransactionStatus> *transaction_status,
                     std::shared_ptr<utils::AsyncTimer> tx_timer,
@@ -1226,7 +1226,7 @@ struct PullPlan {
                                                         std::map<std::string, TypedValue> *summary);
 
  private:
-  std::shared_ptr<CachedPlan> plan_ = nullptr;
+  std::shared_ptr<PlanWrapper> plan_ = nullptr;
   plan::UniqueCursorPtr cursor_ = nullptr;
   Frame frame_;
   ExecutionContext ctx_;
@@ -1253,7 +1253,7 @@ struct PullPlan {
   bool use_monotonic_memory_;
 };
 
-PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
+PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::optional<std::string> username, std::atomic<TransactionStatus> *transaction_status,
                    std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
@@ -2106,10 +2106,7 @@ PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explici
 
   // Creating an index influences computed plan costs.
   auto invalidate_plan_cache = [plan_cache = current_db.db_acc_->get()->plan_cache()] {
-    auto access = plan_cache->access();
-    for (auto &kv : access) {
-      access.remove(kv.first);
-    }
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
   };
   utils::OnScopeExit cache_invalidator(invalidate_plan_cache);
 
@@ -2154,10 +2151,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
   // Creating an index influences computed plan costs.
   auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
-    auto access = plan_cache->access();
-    for (auto &kv : access) {
-      access.remove(kv.first);
-    }
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
   };
 
   auto *storage = db_acc->storage();

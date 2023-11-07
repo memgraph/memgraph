@@ -13,3 +13,8 @@ target_link_libraries(query_memory_limit_proc_multi_thread mg-utils)
 add_library(query_memory_limit_proc SHARED query_memory_limit_proc.cpp)
 target_include_directories(query_memory_limit_proc PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(query_memory_limit_proc mg-utils)
+
+
+add_library(proc_memory_limit SHARED proc_memory_limit.cpp)
+target_include_directories(proc_memory_limit PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(proc_memory_limit mg-utils)
