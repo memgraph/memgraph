@@ -30,7 +30,6 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
-#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
@@ -90,8 +89,7 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
         if (uuid.empty() || info.uuid == uuid) {
           snapshot_files.emplace_back(item.path(), std::move(info.uuid), info.start_timestamp);
         }
-      } catch (const RecoveryFailure &e) {
-        spdlog::error("Failed to recover from snapshot file {} because of {}", item.path(), e.what());
+      } catch (const RecoveryFailure &) {
         continue;
       }
     }
@@ -211,18 +209,15 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   spdlog::info("Constraints are recreated from metadata.");
 }
 
-/// Wrap it into a struct
-std::optional<RecoveryInfo> RecoverData(InMemoryStorage *storage, memgraph::replication::ReplicationEpoch &epoch,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges) {
+std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
+                                        const std::filesystem::path &wal_directory, std::string *uuid,
+                                        memgraph::replication::ReplicationEpoch &epoch,
+                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                        std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
+                                        Indices *indices, Constraints *constraints, const Config &config,
+                                        uint64_t *wal_seq_num) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-
-  const auto snapshot_directory = storage->GetSnapshotDirectory();
-  const auto wal_directory = storage->GetWalDirectory();
-  std::string *uuid = storage->GetUuid();
-  auto *epoch_history = &storage->repl_storage_state_.history;
-  std::atomic<uint64_t> *edge_count = &storage->edge_count_;
-  auto *file_retainer = storage->GetFileRetainer();
-
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
                wal_directory);
   if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory)) {
@@ -254,16 +249,14 @@ std::optional<RecoveryInfo> RecoverData(InMemoryStorage *storage, memgraph::repl
       }
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
-        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, storage->name_id_mapper_.get(),
-                                          edge_count, storage->config_);
+        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, name_id_mapper, edge_count, config);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
         spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path, e.what());
-        file_retainer->DeleteFile(path);
+        continue;
       }
     }
-
     MG_ASSERT(recovered_snapshot,
               "The database is configured to recover on startup, but couldn't "
               "recover using any of the specified snapshots! Please inspect them "
@@ -274,13 +267,11 @@ std::optional<RecoveryInfo> RecoverData(InMemoryStorage *storage, memgraph::repl
     epoch.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
 
     if (!utils::DirExists(wal_directory)) {
-      const auto par_exec_info =
-          storage->config_.durability.allow_parallel_index_creation
-              ? std::make_optional(
-                    std::make_pair(recovery_info.vertex_batches, storage->config_.durability.recovery_thread_count))
-              : std::nullopt;
-      RecoverIndicesAndConstraints(indices_constraints, &storage->indices_, &storage->constraints_, vertices,
-                                   par_exec_info);
+      const auto par_exec_info = config.durability.allow_parallel_index_creation
+                                     ? std::make_optional(std::make_pair(recovery_info.vertex_batches,
+                                                                         config.durability.recovery_thread_count))
+                                     : std::nullopt;
+      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, par_exec_info);
       return recovered_snapshot->recovery_info;
     }
   } else {
@@ -385,8 +376,8 @@ std::optional<RecoveryInfo> RecoverData(InMemoryStorage *storage, memgraph::repl
         epoch.SetEpoch(std::move(wal_file.epoch_id));
       }
       try {
-        auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges,
-                            storage->name_id_mapper_.get(), edge_count, storage->config_.items);
+        auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
+                            edge_count, config.items);
         recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
         recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
@@ -402,12 +393,12 @@ std::optional<RecoveryInfo> RecoverData(InMemoryStorage *storage, memgraph::repl
     }
     // The sequence number needs to be recovered even though `LoadWal` didn't
     // load any deltas from that file.
-    storage->SetWalSeqNum(*previous_seq_num + 1);
+    *wal_seq_num = *previous_seq_num + 1;
 
     spdlog::info("All necessary WAL files are loaded successfully.");
   }
 
-  RecoverIndicesAndConstraints(indices_constraints, &storage->indices_, &storage->constraints_, vertices);
+  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());

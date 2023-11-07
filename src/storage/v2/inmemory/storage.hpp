@@ -330,12 +330,6 @@ class InMemoryStorage final : public Storage {
 
   void SetStorageMode(StorageMode storage_mode);
 
-  auto GetSnapshotDirectory() const -> std::filesystem::path;
-  auto GetWalDirectory() const -> std::filesystem::path;
-  auto GetUuid() -> std::string *;
-  auto GetFileRetainer() -> utils::FileRetainer *;
-  void SetWalSeqNum(uint64_t new_wal_seq_num);
-
  private:
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't

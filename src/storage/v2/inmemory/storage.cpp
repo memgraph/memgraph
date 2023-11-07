@@ -26,6 +26,12 @@ namespace memgraph::storage {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
+// new struct will have:
+// snapshot_directory_
+// wal_directory_
+// uuid_
+//
+
 InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     : Storage(config, storage_mode),
       snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
@@ -63,7 +69,9 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   auto &repl_state = repl_state_;
   if (config_.durability.recover_on_startup) {
     auto &epoch = repl_state.GetEpoch();
-    auto info = durability::RecoverData(this, epoch, &vertices_, &edges_);
+    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, epoch,
+                                        &repl_storage_state_.history, &vertices_, &edges_, &edge_count_,
+                                        name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
