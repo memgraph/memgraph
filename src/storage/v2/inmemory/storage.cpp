@@ -11,6 +11,8 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 #include "dbms/constants.hpp"
+#include "memory/global_memory_control.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -123,6 +125,11 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
       }
     });
   }
+
+  if (config_.gc_jemalloc.type == Config::Gc::Type::PERIODIC_JEMALLOC) {
+    gc_jemalloc_runner_.Run("GC jemalloc", config_.gc_jemalloc.interval, [] { memory::PurgeUnusedMemory(); });
+  }
+
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     // TODO: move out of storage have one global gc_runner_
     gc_runner_.Run("Storage GC", config_.gc.interval, [this] {
@@ -158,6 +165,9 @@ InMemoryStorage::InMemoryStorage(Config config) : InMemoryStorage(config, Storag
 InMemoryStorage::~InMemoryStorage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
+  }
+  if (config_.gc.type == Config::Gc::Type::PERIODIC_JEMALLOC) {
+    gc_jemalloc_runner_.Stop();
   }
   {
     // Stop replication (Stop all clients or stop the REPLICA server)

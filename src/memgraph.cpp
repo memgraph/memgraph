@@ -275,6 +275,8 @@ int main(int argc, char **argv) {
   memgraph::storage::Config db_config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
+      .gc_jemalloc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC_JEMALLOC,
+                      .interval = std::chrono::seconds(FLAGS_storage_gc_jemalloc_cycle_sec)},
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
