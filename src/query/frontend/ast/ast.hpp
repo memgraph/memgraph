@@ -3029,7 +3029,7 @@ class ReplicationQuery : public memgraph::query::Query {
 
   enum class SyncMode { SYNC, ASYNC };
 
-  enum class ReplicaState { READY, REPLICATING, RECOVERY, INVALID };
+  enum class ReplicaState { READY, REPLICATING, RECOVERY, RECOVERY_REQUIRED, UNRESOLVABLE_CONFLICT };
 
   ReplicationQuery() = default;
 

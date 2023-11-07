@@ -145,20 +145,23 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
     // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
     if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
-    all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock([storage,
-                                                                                    &config](auto &clients) -> bool {
-      auto const id = clients.next_id++;
-      auto client = storage->CreateReplicationClient(config, id);
-      auto res = client->Start(storage);  // make agnostic of storage
-      // move   auto res = TryInitializeClientSync(storage); here
-      if (res == storage::replication::ReplicaState::INVALID) {
-        return false;
-      }
-      clients.states_.emplace(id, res);  // ALL storages have link to id->client state before client is made available
-      clients.clients.push_back(std::move(client));
-      // move frequency check enable to here (use dbms)
-      return true;
-    });
+    all_clients_good &=
+        storage->repl_storage_state_.replication_clients_.WithLock([storage, &config](auto &clients) -> bool {
+          auto const id = clients.next_id++;
+          auto client = storage->CreateReplicationClient(config, id);
+          auto res = client->Start(storage);  // make agnostic of storage
+          // move   auto res = TryInitializeClientSync(storage); here
+          if (res == storage::replication::ReplicaState::UNRESOLVABLE_CONFLICT ||
+              res == storage::replication::ReplicaState::RECOVERY_REQUIRED) {
+            return false;
+          }
+          auto [it, _] = clients.states_.emplace(
+              id, res);  // ALL storages have link to id->client state before client is made available
+          client->StartFrequentCheck(storage, it->second);
+          clients.clients.push_back(std::move(client));
+          // move frequency check enable to here (use dbms)
+          return true;
+        });
   });
   if (!all_clients_good) return RegisterReplicaError::CONNECTION_FAILED;  // TODO: this happen to 1 or many...what to do
   return {};
@@ -182,6 +185,7 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterR
                                [&](const auto &client) { return client->Name() == name; });
         if (it == clients.clients.cend()) return;
         auto id = (*it)->ID();
+        (*it)->StopFrequentCheck();  // FrequentCheck depends on states_, stop first
         clients.states_.erase(id);
         clients.clients.erase(it);
       });
@@ -209,23 +213,30 @@ void RestoreReplication(const replication::ReplicationState &repl_state, storage
 
       auto register_replica = [&storage](const memgraph::replication::ReplicationClientConfig &config)
           -> memgraph::utils::BasicResult<RegisterReplicaError> {
-        return storage.repl_storage_state_.replication_clients_.WithLock(
-            [&storage, &config](
-                storage::ReplicationStorageState::TMP_THING &clients) -> utils::BasicResult<RegisterReplicaError> {
-              auto id = clients.next_id++;
-              auto client = storage.CreateReplicationClient(config, id);
-              auto res = client->Start(&storage);  // make agnostic of storage
-              // move   auto res = TryInitializeClientSync(storage); here
-              if (res == storage::replication::ReplicaState::INVALID) {
-                spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
-                             client->Name());
-              }
-              // ALL storages have link to id->client state before client is made available
-              clients.states_.emplace(id, res);
-              clients.clients.push_back(std::move(client));
-              // move frequency check enable to here (use dbms)
-              return {};
-            });
+        return storage.repl_storage_state_.replication_clients_.WithLock([&storage, &config](
+                                                                             storage::ReplicationStorageState::TMP_THING
+                                                                                 &clients)
+                                                                             -> utils::BasicResult<
+                                                                                 RegisterReplicaError> {
+          auto id = clients.next_id++;
+          auto client = storage.CreateReplicationClient(config, id);
+          auto res = client->Start(&storage);  // make agnostic of storage
+          // move   auto res = TryInitializeClientSync(storage); here
+          if (res == storage::replication::ReplicaState::UNRESOLVABLE_CONFLICT) {
+            spdlog::warn(
+                "Replica is an incompatible version, please upgrade and redeploy {}. Replica will still be registered.",
+                client->Name());
+          } else if (res == storage::replication::ReplicaState::RECOVERY_REQUIRED) {
+            spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
+                         client->Name());
+          }
+          // ALL storages have link to id->client state before client is made available
+          auto [it, _] = clients.states_.emplace(id, res);
+          client->StartFrequentCheck(&storage, it->second);
+          clients.clients.push_back(std::move(client));
+          // move frequency check enable to here (use dbms)
+          return {};
+        });
       };
 
       auto ret = register_replica(config);

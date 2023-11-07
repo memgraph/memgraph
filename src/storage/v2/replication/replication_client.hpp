@@ -100,15 +100,17 @@ class ReplicationClient {
   [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage,
                                                     std::atomic<replication::ReplicaState> &replica_state);
 
+  void StartFrequentCheck(Storage *storage, std::atomic<replication::ReplicaState> &replica_state);
+  void StopFrequentCheck();
+
  protected:
   virtual void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) = 0;
 
-  void InitializeClient(Storage *storage, std::atomic<replication::ReplicaState> &replica_state);
+  void InitializeReplicaState(Storage *storage, std::atomic<replication::ReplicaState> &replica_state);
   void HandleRpcFailure(Storage *storage);
   void TryInitializeClientAsync(Storage *storage);
   void TryInitializeClientSync(Storage *storage, std::atomic<replication::ReplicaState> &replica_state);
-  void FrequentCheck(Storage *storage);
-  void StartFrequentCheck(Storage *storage);
+  void FrequentCheck(Storage *storage, std::atomic<replication::ReplicaState> &replica_state);
 
   uint64_t id_;
   std::string name_;

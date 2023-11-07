@@ -393,6 +393,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
           repl_info.timestamp_info.current_number_of_timestamp_behind_master;
 
       switch (repl_info.state) {
+        case storage::replication::ReplicaState::UNRESOLVABLE_CONFLICT:
+          replica.state = ReplicationQuery::ReplicaState::UNRESOLVABLE_CONFLICT;
+          break;
         case storage::replication::ReplicaState::READY:
           replica.state = ReplicationQuery::ReplicaState::READY;
           break;
@@ -402,8 +405,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         case storage::replication::ReplicaState::RECOVERY:
           replica.state = ReplicationQuery::ReplicaState::RECOVERY;
           break;
-        case storage::replication::ReplicaState::INVALID:
-          replica.state = ReplicationQuery::ReplicaState::INVALID;
+        case storage::replication::ReplicaState::RECOVERY_REQUIRED:
+          replica.state = ReplicationQuery::ReplicaState::RECOVERY_REQUIRED;
           break;
       }
 
@@ -812,6 +815,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
               TypedValue(static_cast<int64_t>(replica.current_number_of_timestamp_behind_master)));
 
           switch (replica.state) {
+            case ReplicationQuery::ReplicaState::UNRESOLVABLE_CONFLICT:
+              typed_replica.emplace_back(TypedValue("unresolvable conflict"));
+              break;
             case ReplicationQuery::ReplicaState::READY:
               typed_replica.emplace_back(TypedValue("ready"));
               break;
@@ -821,8 +827,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
             case ReplicationQuery::ReplicaState::RECOVERY:
               typed_replica.emplace_back(TypedValue("recovery"));
               break;
-            case ReplicationQuery::ReplicaState::INVALID:
-              typed_replica.emplace_back(TypedValue("invalid"));
+            case ReplicationQuery::ReplicaState::RECOVERY_REQUIRED:
+              typed_replica.emplace_back(TypedValue("waiting for recovery"));
               break;
           }
 

@@ -41,7 +41,8 @@ ReplicationClient::~ReplicationClient() {
   thread_pool_.Shutdown();
 }
 
-void ReplicationClient::InitializeClient(Storage *storage, std::atomic<replication::ReplicaState> &replica_state) {
+void ReplicationClient::InitializeReplicaState(Storage *storage,
+                                               std::atomic<replication::ReplicaState> &replica_state) {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
   auto &replStorageState = storage->repl_storage_state_;
@@ -68,7 +69,7 @@ void ReplicationClient::InitializeClient(Storage *storage, std::atomic<replicati
         "now hold unique data. Please resolve data conflicts and start the "
         "replication on a clean instance.",
         name_, name_, name_);
-    replica_state.store(replication::ReplicaState::INVALID);
+    replica_state.store(replication::ReplicaState::UNRESOLVABLE_CONFLICT);
     return;
   }
 
@@ -100,7 +101,7 @@ TimestampInfo ReplicationClient::GetTimestampInfo(Storage *storage,
     const auto response = stream.AwaitResponse();
     const auto is_success = response.success;
     if (!is_success) {
-      replica_state.store(replication::ReplicaState::INVALID);
+      replica_state.store(replication::ReplicaState::RECOVERY_REQUIRED);
       HandleRpcFailure(storage);
     }
     auto main_time_stamp = storage->repl_storage_state_.last_commit_timestamp_.load();
@@ -109,7 +110,7 @@ TimestampInfo ReplicationClient::GetTimestampInfo(Storage *storage,
   } catch (const rpc::RpcFailedException &) {
     {
       std::unique_lock client_guard(client_lock_);
-      replica_state.store(replication::ReplicaState::INVALID);
+      replica_state.store(replication::ReplicaState::RECOVERY_REQUIRED);
     }
     HandleRpcFailure(storage);  // mutex already unlocked, if the new enqueued task dispatches immediately it probably
                                 // won't block
@@ -134,17 +135,17 @@ void ReplicationClient::TryInitializeClientAsync(Storage *storage) {
 void ReplicationClient::TryInitializeClientSync(Storage *storage,
                                                 std::atomic<replication::ReplicaState> &replica_state) {
   try {
-    InitializeClient(storage, replica_state);
+    InitializeReplicaState(storage, replica_state);
   } catch (const rpc::VersionMismatchRpcFailedException &) {
     std::unique_lock client_guard{client_lock_};
-    replica_state.store(replication::ReplicaState::INVALID);
+    replica_state.store(replication::ReplicaState::UNRESOLVABLE_CONFLICT);
     spdlog::error(
         utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}. Because the replica "
                                "deployed is not a compatible version.",
                                name_, rpc_client_.Endpoint(), "https://memgr.ph/replication"));
   } catch (const rpc::RpcFailedException &) {
     std::unique_lock client_guard{client_lock_};
-    replica_state.store(replication::ReplicaState::INVALID);
+    replica_state.store(replication::ReplicaState::RECOVERY_REQUIRED);
     spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.", name_,
                                          rpc_client_.Endpoint(), "https://memgr.ph/replication"));
   }
@@ -155,6 +156,9 @@ void ReplicationClient::StartTransactionReplication(uint64_t const current_wal_s
   std::unique_lock guard(client_lock_);
   const auto status = replica_state.load();
   switch (status) {
+    case replication::ReplicaState::UNRESOLVABLE_CONFLICT:
+      spdlog::debug("Replica {} is has data conflicts", name_);
+      return;
     case replication::ReplicaState::RECOVERY:
       spdlog::debug("Replica {} is behind MAIN instance", name_);
       return;
@@ -169,7 +173,7 @@ void ReplicationClient::StartTransactionReplication(uint64_t const current_wal_s
       // INVALID state before starting the recovery process
       replica_state.store(replication::ReplicaState::RECOVERY);
       return;
-    case replication::ReplicaState::INVALID:
+    case replication::ReplicaState::RECOVERY_REQUIRED:
       HandleRpcFailure(storage);
       return;
     case replication::ReplicaState::READY:
@@ -178,7 +182,7 @@ void ReplicationClient::StartTransactionReplication(uint64_t const current_wal_s
         replica_stream_.emplace(ReplicaStream{storage, rpc_client_, current_wal_seq_num});
         replica_state.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
-        replica_state.store(replication::ReplicaState::INVALID);
+        replica_state.store(replication::ReplicaState::RECOVERY_REQUIRED);
         HandleRpcFailure(storage);
       }
       return;
@@ -213,7 +217,7 @@ bool ReplicationClient::FinalizeTransactionReplication(Storage *storage,
     } catch (const rpc::RpcFailedException &) {
       {
         std::unique_lock client_guard(client_lock_);
-        setState(replication::ReplicaState::INVALID);
+        setState(replication::ReplicaState::RECOVERY_REQUIRED);
       }
       HandleRpcFailure(storage);
       return false;
@@ -241,8 +245,8 @@ bool ReplicationClient::FinalizeTransactionReplication(Storage *storage,
   return task(setState, getState);
 }
 
-void ReplicationClient::FrequentCheck(Storage *storage) {
-  const auto is_success = std::invoke([this]() {
+void ReplicationClient::FrequentCheck(Storage *storage, std::atomic<replication::ReplicaState> &replica_state) {
+  const auto network_exists = std::invoke([this]() {
     try {
       auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
       const auto response = stream.AwaitResponse();
@@ -251,33 +255,26 @@ void ReplicationClient::FrequentCheck(Storage *storage) {
       return false;
     }
   });
-  // States: READY, REPLICATING, RECOVERY, INVALID
-  // If success && ready, replicating, recovery -> stay the same because something good is going on.
-  // If success && INVALID -> [it's possible that replica came back to life] -> TryInitializeClient.
-  // If fail -> [replica is not reachable at all] -> INVALID state.
-  // NOTE: TryInitializeClient might return nothing if there is a branching point.
-  // NOTE: The early return pattern simplified the code, but the behavior should be as explained.
-  if (!is_success) {
-    storage->repl_storage_state_.replication_clients_.WithLock(
-        [id = id_](ReplicationStorageState::TMP_THING &X) { X.states_[id] = replication::ReplicaState::INVALID; });
-    return;
-  }
-  auto isInvalid = storage->repl_storage_state_.replication_clients_.WithReadLock(
-      [id = id_](ReplicationStorageState::TMP_THING const &X) {
-        return X.states_.at(id) == replication::ReplicaState::INVALID;
-      });
-  if (isInvalid) {
-    TryInitializeClientAsync(storage);
-  }
+
+  if (!network_exists) return;
+
+  // TODO: Subtle race condition, unregister/shutdown will be locking clients
+  //       and asking for FrequentCheck to stop
+
+  auto expected = replication::ReplicaState::RECOVERY_REQUIRED;
+  bool need_to_recover = replica_state.compare_exchange_strong(expected, replication::ReplicaState::RECOVERY);
+  if (!need_to_recover) return;
+
+  TryInitializeClientAsync(storage);
 }
 
 replication::ReplicaState ReplicationClient::Start(Storage *storage) {
   auto const &endpoint = rpc_client_.Endpoint();
   spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
 
-  std::atomic<replication::ReplicaState> replica_state;
+  std::atomic<replication::ReplicaState> replica_state = storage::replication::ReplicaState::RECOVERY_REQUIRED;
   TryInitializeClientSync(storage, replica_state);
-  StartFrequentCheck(storage);
+
   return replica_state.load();
 }
 
@@ -296,16 +293,18 @@ void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaS
   } catch (const rpc::RpcFailedException &) {
     {
       std::unique_lock client_guard{client_lock_};
-      replica_state.store(replication::ReplicaState::INVALID);
+      replica_state.store(replication::ReplicaState::RECOVERY_REQUIRED);
     }
     HandleRpcFailure(storage);
   }
 }
-void ReplicationClient::StartFrequentCheck(Storage *storage) {
+void ReplicationClient::StartFrequentCheck(Storage *storage, std::atomic<replication::ReplicaState> &replica_state) {
   if (replica_check_frequency_ > std::chrono::seconds(0)) {
-    replica_checker_.Run("Replica Checker", replica_check_frequency_, [=, this] { this->FrequentCheck(storage); });
+    replica_checker_.Run("Replica Checker", replica_check_frequency_,
+                         [=, this, replica_state = &replica_state] { this->FrequentCheck(storage, *replica_state); });
   }
 }
+void ReplicationClient::StopFrequentCheck() { replica_checker_.Stop(); }
 
 ////// ReplicaStream //////
 ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const uint64_t current_seq_num)

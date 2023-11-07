@@ -151,7 +151,7 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
         {
           std::unique_lock client_guard{client_lock_};
           storage->repl_storage_state_.replication_clients_.WithLock([id = id_](ReplicationStorageState::TMP_THING &X) {
-            X.states_[id] = replication::ReplicaState::INVALID;
+            X.states_[id] = replication::ReplicaState::RECOVERY_REQUIRED;
           });
         }
         HandleRpcFailure(storage);

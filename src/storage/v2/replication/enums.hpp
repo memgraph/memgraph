@@ -14,6 +14,6 @@
 
 namespace memgraph::storage::replication {
 
-enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, INVALID };
+enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, RECOVERY_REQUIRED, UNRESOLVABLE_CONFLICT };
 
 }  // namespace memgraph::storage::replication
