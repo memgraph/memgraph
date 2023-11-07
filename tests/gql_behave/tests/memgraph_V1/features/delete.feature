@@ -219,3 +219,24 @@ Feature: Delete
         Then the result should be:
         | n1 |
         | () |
+
+
+    Scenario: Detach deleting paths
+        Given an empty graph
+        And having executed:
+          """
+          CREATE (x:X), (n1), (n2), (n3)
+          CREATE (x)-[:R]->(n1)
+          CREATE (n1)-[:R]->(n2)
+          CREATE (n2)-[:R]->(n3)
+          """
+        When executing query:
+          """
+          MATCH p = (:X)-->()-->()-->()
+          DETACH DELETE p
+          """
+        Then the result should be empty
+        And the side effects should be:
+          | -nodes         | 4 |
+          | -relationships | 3 |
+          | -labels        | 1 |

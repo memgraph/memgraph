@@ -12,16 +12,19 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <optional>
 
 #include "dbms/database_handler.hpp"
 #include "dbms/global.hpp"
 
 #include "license/license.hpp"
 #include "query_plan_common.hpp"
+#include "replication/state.hpp"
 #include "storage/v2/view.hpp"
 
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_database"};
 
+memgraph::replication::ReplicationState generic_repl_state{std::nullopt};
 memgraph::storage::Config default_conf(std::string name = "") {
   return {.durability = {.storage_directory = storage_directory / name,
                          .snapshot_wal_mode =
@@ -53,19 +56,19 @@ TEST_F(DBMS_Database, New) {
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
         .disk = {.main_storage_directory = storage_directory / "disk"}};
-    auto db2 = db_handler.New("db2", db_config);
+    auto db2 = db_handler.New("db2", db_config, generic_repl_state);
     ASSERT_TRUE(db2.HasValue() && db2.GetValue());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "db2"));
   }
   {
     // With default config
-    auto db3 = db_handler.New("db3", default_conf("db3"));
+    auto db3 = db_handler.New("db3", default_conf("db3"), generic_repl_state);
     ASSERT_TRUE(db3.HasValue() && db3.GetValue());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "db3"));
-    auto db4 = db_handler.New("db4", default_conf("four"));
+    auto db4 = db_handler.New("db4", default_conf("four"), generic_repl_state);
     ASSERT_TRUE(db4.HasValue() && db4.GetValue());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "four"));
-    auto db5 = db_handler.New("db5", default_conf("db3"));
+    auto db5 = db_handler.New("db5", default_conf("db3"), generic_repl_state);
     ASSERT_TRUE(db5.HasError() && db5.GetError() == memgraph::dbms::NewError::EXISTS);
   }
 
@@ -80,9 +83,9 @@ TEST_F(DBMS_Database, New) {
 TEST_F(DBMS_Database, Get) {
   memgraph::dbms::DatabaseHandler db_handler;
 
-  auto db1 = db_handler.New("db1", default_conf("db1"));
-  auto db2 = db_handler.New("db2", default_conf("db2"));
-  auto db3 = db_handler.New("db3", default_conf("db3"));
+  auto db1 = db_handler.New("db1", default_conf("db1"), generic_repl_state);
+  auto db2 = db_handler.New("db2", default_conf("db2"), generic_repl_state);
+  auto db3 = db_handler.New("db3", default_conf("db3"), generic_repl_state);
 
   ASSERT_TRUE(db1.HasValue());
   ASSERT_TRUE(db2.HasValue());
@@ -104,9 +107,9 @@ TEST_F(DBMS_Database, Get) {
 TEST_F(DBMS_Database, Delete) {
   memgraph::dbms::DatabaseHandler db_handler;
 
-  auto db1 = db_handler.New("db1", default_conf("db1"));
-  auto db2 = db_handler.New("db2", default_conf("db2"));
-  auto db3 = db_handler.New("db3", default_conf("db3"));
+  auto db1 = db_handler.New("db1", default_conf("db1"), generic_repl_state);
+  auto db2 = db_handler.New("db2", default_conf("db2"), generic_repl_state);
+  auto db3 = db_handler.New("db3", default_conf("db3"), generic_repl_state);
 
   ASSERT_TRUE(db1.HasValue());
   ASSERT_TRUE(db2.HasValue());
@@ -141,8 +144,8 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
   memgraph::dbms::DatabaseHandler db_handler;
 
   {
-    auto db1 = db_handler.New("db1", default_conf("db1"));
-    auto db2 = db_handler.New("db2", default_conf("db2"));
+    auto db1 = db_handler.New("db1", default_conf("db1"), generic_repl_state);
+    auto db2 = db_handler.New("db2", default_conf("db2"), generic_repl_state);
 
     memgraph::storage::Config conf_w_snap{
         .durability = {.storage_directory = storage_directory / "db3",
@@ -151,7 +154,7 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
                        .snapshot_on_exit = true},
         .disk = {.main_storage_directory = storage_directory / "db3" / "disk"}};
 
-    auto db3 = db_handler.New("db3", conf_w_snap);
+    auto db3 = db_handler.New("db3", conf_w_snap, generic_repl_state);
 
     ASSERT_TRUE(db1.HasValue());
     ASSERT_TRUE(db2.HasValue());
@@ -187,8 +190,8 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
 
   {
     // Recover graphs (only db3)
-    auto db1 = db_handler.New("db1", default_conf("db1"));
-    auto db2 = db_handler.New("db2", default_conf("db2"));
+    auto db1 = db_handler.New("db1", default_conf("db1"), generic_repl_state);
+    auto db2 = db_handler.New("db2", default_conf("db2"), generic_repl_state);
 
     memgraph::storage::Config conf_w_rec{
         .durability = {.storage_directory = storage_directory / "db3",
@@ -197,7 +200,7 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
         .disk = {.main_storage_directory = storage_directory / "db3" / "disk"}};
 
-    auto db3 = db_handler.New("db3", conf_w_rec);
+    auto db3 = db_handler.New("db3", conf_w_rec, generic_repl_state);
 
     // Check content
     {

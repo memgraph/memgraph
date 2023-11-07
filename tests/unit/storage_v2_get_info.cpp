@@ -140,8 +140,8 @@ TYPED_TEST(InfoTest, InfoCheck) {
   ASSERT_EQ(info.vertex_count, 5);
   ASSERT_EQ(info.edge_count, 2);
   ASSERT_EQ(info.average_degree, 0.8);
-  ASSERT_GT(info.memory_usage, 10'000'000);  // 200MB < > 10MB
-  ASSERT_LT(info.memory_usage, 200'000'000);
+  ASSERT_GT(info.memory_res, 10'000'000);  // 200MB < > 10MB
+  ASSERT_LT(info.memory_res, 200'000'000);
   ASSERT_GT(info.disk_usage, 100);  // 1MB < > 100B
   ASSERT_LT(info.disk_usage, 1000'000);
   ASSERT_EQ(info.label_indices, 1);
