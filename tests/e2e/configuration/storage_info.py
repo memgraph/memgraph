@@ -53,10 +53,15 @@ def test_does_default_config_match():
     config = cursor.fetchall()
 
     # The default value of these is dependent on the given machine.
-    machine_dependent_configurations = ["memory_res", "disk_usage", "memory_tracked", "allocation_limit"]
-
+    machine_dependent_configurations = [
+        "memory_res",
+        "disk_usage",
+        "memory_tracked",
+        "allocation_limit",
+        "vm_max_map_count",
+    ]
     # Number of different data-points returned by SHOW STORAGE INFO
-    assert len(config) == 12
+    assert len(config) == 13
 
     for conf in config:
         conf_name = conf[0]

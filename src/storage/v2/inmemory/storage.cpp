@@ -20,6 +20,7 @@
 #include "storage/v2/inmemory/replication/replication_client.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/stat.hpp"
 
 namespace memgraph::storage {
 
