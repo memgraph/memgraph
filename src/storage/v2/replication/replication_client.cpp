@@ -49,8 +49,8 @@ uint64_t ReplicationClient::LastCommitTimestamp() const {
 void ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
-  auto stream{rpc_client_.Stream<replication::HeartbeatRpc>(storage_->repl_storage_state_.last_commit_timestamp_,
-                                                            std::string{repl_epoch_->id()})};
+  auto stream{rpc_client_.Stream<replication::HeartbeatRpc>(
+      storage_->id(), storage_->repl_storage_state_.last_commit_timestamp_, std::string{repl_epoch_->id()})};
 
   const auto replica = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
@@ -98,7 +98,7 @@ TimestampInfo ReplicationClient::GetTimestampInfo() {
   info.current_number_of_timestamp_behind_master = 0;
 
   try {
-    auto stream{rpc_client_.Stream<replication::TimestampRpc>()};
+    auto stream{rpc_client_.Stream<replication::TimestampRpc>(storage_->id())};
     const auto response = stream.AwaitResponse();
     const auto is_success = response.success;
     if (!is_success) {
@@ -135,8 +135,15 @@ void ReplicationClient::TryInitializeClientAsync() {
 void ReplicationClient::TryInitializeClientSync() {
   try {
     InitializeClient();
+  } catch (const rpc::VersionMismatchRpcFailedException &) {
+    std::unique_lock client_guard{client_lock_};
+    replica_state_.store(replication::ReplicaState::INVALID);
+    spdlog::error(
+        utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}. Because the replica "
+                               "deployed is not a compatible version.",
+                               name_, rpc_client_.Endpoint(), "https://memgr.ph/replication"));
   } catch (const rpc::RpcFailedException &) {
-    std::unique_lock client_guarde{client_lock_};
+    std::unique_lock client_guard{client_lock_};
     replica_state_.store(replication::ReplicaState::INVALID);
     spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.", name_,
                                          rpc_client_.Endpoint(), "https://memgr.ph/replication"));
@@ -222,7 +229,7 @@ bool ReplicationClient::FinalizeTransactionReplication() {
 void ReplicationClient::FrequentCheck() {
   const auto is_success = std::invoke([this]() {
     try {
-      auto stream{rpc_client_.Stream<replication::FrequentHeartbeatRpc>()};
+      auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
       const auto response = stream.AwaitResponse();
       return response.success;
     } catch (const rpc::RpcFailedException &) {
@@ -280,7 +287,8 @@ void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaS
 ReplicaStream::ReplicaStream(ReplicationClient *self, const uint64_t previous_commit_timestamp,
                              const uint64_t current_seq_num)
     : self_(self),
-      stream_(self_->rpc_client_.Stream<replication::AppendDeltasRpc>(previous_commit_timestamp, current_seq_num)) {
+      stream_(self_->rpc_client_.Stream<replication::AppendDeltasRpc>(self->GetStorageId(), previous_commit_timestamp,
+                                                                      current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
 
   encoder.WriteString(self->repl_epoch_->id());
@@ -312,4 +320,5 @@ void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operati
 
 replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
 
+auto ReplicationClient::GetStorageId() const -> std::string { return storage_->id(); }
 }  // namespace memgraph::storage

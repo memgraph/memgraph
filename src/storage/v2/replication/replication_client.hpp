@@ -29,6 +29,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <variant>
 
 namespace memgraph::storage {
 
@@ -85,6 +86,8 @@ class ReplicationClient {
   auto Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
   auto State() const -> replication::ReplicaState { return replica_state_.load(); }
   auto GetTimestampInfo() -> TimestampInfo;
+
+  auto GetStorageId() const -> std::string;
 
   void Start();
   void StartTransactionReplication(const uint64_t current_wal_seq_num);

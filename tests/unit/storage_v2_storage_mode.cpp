@@ -75,9 +75,11 @@ class StorageModeMultiTxTest : public ::testing::Test {
     return tmp;
   }();  // iile
 
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{memgraph::storage::Config{
-      .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"}};
+  memgraph::storage::Config config{.durability.storage_directory = data_directory,
+                                   .disk.main_storage_directory = data_directory / "disk"};
 
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -86,8 +88,7 @@ class StorageModeMultiTxTest : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
-
-  memgraph::query::InterpreterContext interpreter_context{{}, nullptr};
+  memgraph::query::InterpreterContext interpreter_context{{}, nullptr, &repl_state};
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
 };
 
