@@ -18,7 +18,7 @@ class InMemoryStorage;
 
 class InMemoryReplicationClient : public ReplicationClient {
  public:
-  InMemoryReplicationClient(const memgraph::replication::ReplicationClientConfig &config);
+  InMemoryReplicationClient(const memgraph::replication::ReplicationClientConfig &config, uint64_t id);
 
  protected:
   void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) override;

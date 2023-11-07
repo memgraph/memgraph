@@ -48,7 +48,7 @@ struct ReplicationStorageState {
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;
-  auto ReplicasInfo(Storage *storage) const -> std::vector<ReplicaInfo>;
+  auto ReplicasInfo(Storage *storage) -> std::vector<ReplicaInfo>;
 
   // History
   void TrackLatestHistory();
@@ -76,9 +76,15 @@ struct ReplicationStorageState {
   // that we can immediately notify the user if the initialization
   // failed.
   using ReplicationClientPtr = std::unique_ptr<ReplicationClient>;
-  using ReplicationClientList = utils::Synchronized<std::vector<ReplicationClientPtr>, utils::RWSpinLock>;
+  //  using ReplicationClientList = utils::Synchronized<std::vector<ReplicationClientPtr>, utils::RWSpinLock>;
 
-  ReplicationClientList replication_clients_;
+  struct TMP_THING {
+    uint64_t next_id{};
+    std::vector<ReplicationClientPtr> clients;
+    std::map<uint64_t, std::atomic<replication::ReplicaState>> states_;
+  };
+
+  utils::Synchronized<TMP_THING, utils::RWSpinLock> replication_clients_;
 
   memgraph::replication::ReplicationEpoch epoch_;
 };

@@ -102,8 +102,9 @@ uint64_t ReplicateCurrentWal(CurrentWalHandler &stream, durability::WalFile cons
 
 ////// ReplicationClient //////
 
-InMemoryReplicationClient::InMemoryReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
-    : ReplicationClient{config} {}
+InMemoryReplicationClient::InMemoryReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
+                                                     uint64_t id)
+    : ReplicationClient{config, id} {}
 
 void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) {
   spdlog::debug("Starting replica recover");
@@ -149,7 +150,9 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
       } catch (const rpc::RpcFailedException &) {
         {
           std::unique_lock client_guard{client_lock_};
-          replica_state_.store(replication::ReplicaState::INVALID);
+          storage->repl_storage_state_.replication_clients_.WithLock([id = id_](ReplicationStorageState::TMP_THING &X) {
+            X.states_[id] = replication::ReplicaState::INVALID;
+          });
         }
         HandleRpcFailure(storage);
         return;
@@ -171,7 +174,8 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
     SPDLOG_INFO("Replica timestamp: {}", replica_commit);
     SPDLOG_INFO("Last commit: {}", last_commit_timestamp);
     if (last_commit_timestamp == replica_commit) {
-      replica_state_.store(replication::ReplicaState::READY);
+      storage->repl_storage_state_.replication_clients_.WithLock(
+          [id = id_](ReplicationStorageState::TMP_THING &X) { X.states_[id] = replication::ReplicaState::READY; });
       return;
     }
   }

@@ -13,13 +13,16 @@
 
 #include "replication/replication_server.hpp"
 #include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/storage.hpp"
 
 namespace memgraph::storage {
 
 void ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage) {
   replication_clients_.WithLock([=](auto &clients) {
-    for (auto &client : clients) {
-      client->StartTransactionReplication(seq_num, storage);
+    for (auto &client : clients.clients) {
+      auto id = client->ID();
+      auto &replica_state = clients.states_[id];
+      client->StartTransactionReplication(seq_num, storage, replica_state);
     }
   });
 }
@@ -27,16 +30,22 @@ void ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *s
 void ReplicationStorageState::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp,
                                           Storage *storage) {
   replication_clients_.WithLock([&](auto &clients) {
-    for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, vertex, timestamp); }, storage);
+    for (auto &client : clients.clients) {
+      auto id = client->ID();
+      auto &replica_state = clients.states_[id];
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, vertex, timestamp); }, storage,
+                                     replica_state);
     }
   });
 }
 
 void ReplicationStorageState::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp, Storage *storage) {
   replication_clients_.WithLock([&](auto &clients) {
-    for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, edge, timestamp); }, storage);
+    for (auto &client : clients.clients) {
+      auto id = client->ID();
+      auto &replica_state = clients.states_[id];
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, edge, timestamp); }, storage,
+                                     replica_state);
     }
   });
 }
@@ -45,12 +54,14 @@ void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperati
                                               const LabelPropertyIndexStats &property_stats,
                                               uint64_t final_commit_timestamp, Storage *storage) {
   replication_clients_.WithLock([&](auto &clients) {
-    for (auto &client : clients) {
+    for (auto &client : clients.clients) {
+      auto id = client->ID();
+      auto &replica_state = clients.states_[id];
       client->IfStreamingTransaction(
           [&](auto &stream) {
             stream.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
           },
-          storage);
+          storage, replica_state);
     }
   });
 }
@@ -58,9 +69,12 @@ void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperati
 bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage) {
   return replication_clients_.WithLock([=](auto &clients) {
     bool finalized_on_all_replicas = true;
-    for (ReplicationClientPtr &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); }, storage);
-      const auto finalized = client->FinalizeTransactionReplication(storage);
+    for (ReplicationClientPtr &client : clients.clients) {
+      auto id = client->ID();
+      auto &replica_state = clients.states_[id];
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); }, storage,
+                                     replica_state);
+      const auto finalized = client->FinalizeTransactionReplication(storage, replica_state);
 
       if (client->Mode() == memgraph::replication::ReplicationMode::SYNC) {
         finalized_on_all_replicas = finalized && finalized_on_all_replicas;
@@ -73,28 +87,35 @@ bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *s
 std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaState(std::string_view name) const {
   return replication_clients_.WithReadLock([&](auto const &clients) -> std::optional<replication::ReplicaState> {
     auto const name_matches = [=](ReplicationClientPtr const &client) { return client->Name() == name; };
-    auto const client_it = std::find_if(clients.cbegin(), clients.cend(), name_matches);
-    if (client_it == clients.cend()) {
+    auto const client_it = std::find_if(clients.clients.cbegin(), clients.clients.cend(), name_matches);
+    if (client_it == clients.clients.cend()) {
       return std::nullopt;
     }
-    return (*client_it)->State();
+    auto const id = (*client_it)->ID();
+    return {clients.states_.at(id).load()};
   });
 }
 
-std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo(Storage *storage) const {
-  return replication_clients_.WithReadLock([=](auto const &clients) {
+std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo(Storage *storage) {
+  return replication_clients_.WithLock([=](auto &clients) {
     std::vector<ReplicaInfo> replica_infos;
-    replica_infos.reserve(clients.size());
-    auto const asReplicaInfo = [=](ReplicationClientPtr const &client) -> ReplicaInfo {
-      return {client->Name(), client->Mode(), client->Endpoint(), client->State(), client->GetTimestampInfo(storage)};
+    replica_infos.reserve(clients.clients.size());
+    auto const asReplicaInfo = [&clients, storage](ReplicationClientPtr &client) -> ReplicaInfo {
+      auto &replica_state = clients.states_.at(client->ID());
+
+      return {client->Name(), client->Mode(), client->Endpoint(), replica_state.load(),
+              client->GetTimestampInfo(storage, replica_state)};
     };
-    std::transform(clients.begin(), clients.end(), std::back_inserter(replica_infos), asReplicaInfo);
+    std::transform(clients.clients.begin(), clients.clients.end(), std::back_inserter(replica_infos), asReplicaInfo);
     return replica_infos;
   });
 }
 
 void ReplicationStorageState::Reset() {
-  replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+  replication_clients_.WithLock([](auto &clients) {
+    clients.clients.clear();
+    clients.states_.clear();
+  });
 }
 
 void ReplicationStorageState::TrackLatestHistory() {

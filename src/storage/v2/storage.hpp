@@ -355,7 +355,7 @@ class Storage {
 
   virtual void PrepareForNewEpoch() = 0;
 
-  virtual auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
+  virtual auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config, uint64_t id)
       -> std::unique_ptr<ReplicationClient> = 0;
 
   auto ReplicasInfo() { return repl_storage_state_.ReplicasInfo(this); }

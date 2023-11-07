@@ -71,7 +71,7 @@ class ReplicationClient {
   friend class ReplicaStream;
 
  public:
-  ReplicationClient(const memgraph::replication::ReplicationClientConfig &config);
+  ReplicationClient(const memgraph::replication::ReplicationClientConfig &config, uint64_t id);
 
   ReplicationClient(ReplicationClient const &) = delete;
   ReplicationClient &operator=(ReplicationClient const &) = delete;
@@ -83,29 +83,34 @@ class ReplicationClient {
   auto Mode() const -> memgraph::replication::ReplicationMode { return mode_; }
   auto Name() const -> std::string const & { return name_; }
   auto Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
-  auto State() const -> replication::ReplicaState { return replica_state_.load(); }
-  auto GetTimestampInfo(Storage *storage) -> TimestampInfo;
+  auto ID() const -> uint64_t { return id_; }
+  auto GetTimestampInfo(Storage *storage, std::atomic<replication::ReplicaState> &replica_state) -> TimestampInfo;
 
-  void Start(Storage *storage);
-  void StartTransactionReplication(const uint64_t current_wal_seq_num, Storage *storage);
+  replication::ReplicaState Start(Storage *storage);
+  void StartTransactionReplication(uint64_t const current_wal_seq_num, Storage *storage,
+                                   std::atomic<replication::ReplicaState> &replica_state);
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
   // we want to send part of transaction and to avoid adding some GC logic this
   // function will run a callback if, after previously callling
   // StartTransactionReplication, stream is created.
-  void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback, Storage *storage);
+  void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback, Storage *storage,
+                              std::atomic<replication::ReplicaState> &replica_state);
   // Return whether the transaction could be finalized on the replication client or not.
-  [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage);
+  [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage,
+                                                    std::atomic<replication::ReplicaState> &replica_state);
 
  protected:
   virtual void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) = 0;
 
-  void InitializeClient(Storage *storage);
+  void InitializeClient(Storage *storage, std::atomic<replication::ReplicaState> &replica_state);
   void HandleRpcFailure(Storage *storage);
   void TryInitializeClientAsync(Storage *storage);
-  void TryInitializeClientSync(Storage *storage);
+  void TryInitializeClientSync(Storage *storage, std::atomic<replication::ReplicaState> &replica_state);
   void FrequentCheck(Storage *storage);
+  void StartFrequentCheck(Storage *storage);
 
+  uint64_t id_;
   std::string name_;
   communication::ClientContext rpc_context_;
   rpc::Client rpc_client_;
@@ -129,7 +134,6 @@ class ReplicationClient {
   //    Not having mulitple possible threads in the same client allows us
   //    to ignore concurrency problems inside the client.
   utils::ThreadPool thread_pool_{1};
-  std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::INVALID};
 
   utils::Scheduler replica_checker_;
 };
