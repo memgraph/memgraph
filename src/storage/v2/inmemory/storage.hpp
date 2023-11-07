@@ -325,9 +325,9 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(bool is_periodic = false);
+  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot();
 
-  void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>(bool)> cb);
+  void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 
   using Storage::CreateTransaction;
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) override;
@@ -452,7 +452,7 @@ class InMemoryStorage final : public Storage {
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
-  std::function<void(bool)> create_snapshot_handler{};
+  std::function<void()> create_snapshot_handler{};
 };
 
 }  // namespace memgraph::storage
