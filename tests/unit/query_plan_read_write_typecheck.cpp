@@ -248,7 +248,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, CallReadProcedureBeforeUpdate) {
   std::vector<Symbol> result_symbols{this->GetSymbol("name_alias"), this->GetSymbol("signature_alias")};
 
   last_op = std::make_shared<plan::CallProcedure>(last_op, procedure_name, arguments, result_fields, result_symbols,
-                                                  nullptr, 0, false);
+                                                  nullptr, 0, false, 1);
 
   this->CheckPlanType(last_op.get(), RWType::RW);
 }
