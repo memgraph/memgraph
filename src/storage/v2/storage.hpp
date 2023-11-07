@@ -237,9 +237,9 @@ class Storage {
 
     const std::string &id() const { return storage_->id(); }
 
-    std::vector<std::string> ListAllPossiblyPresentVertexLabels() const;
+    std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
 
-    std::vector<std::string> ListAllPossiblyPresentEdgeTypes() const;
+    std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
 

@@ -597,10 +597,10 @@ class DbAccessor final {
     return accessor_->ApproximateVertexCount(label, property, lower, upper);
   }
 
-  std::vector<std::string> ListAllPossiblyPresentVertexLabels() const {
+  std::vector<storage::LabelId> ListAllPossiblyPresentVertexLabels() const {
     return accessor_->ListAllPossiblyPresentVertexLabels();
   }
-  std::vector<std::string> ListAllPossiblyPresentEdgeTypes() const {
+  std::vector<storage::EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const {
     return accessor_->ListAllPossiblyPresentEdgeTypes();
   }
 

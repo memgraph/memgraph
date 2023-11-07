@@ -3083,7 +3083,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         std::vector<std::vector<TypedValue>> results;
         results.reserve(edge_types.size());
         for (auto &edge_type : edge_types) {
-          results.push_back({TypedValue(edge_type)});
+          results.push_back({TypedValue(storage->EdgeTypeToName(edge_type))});
         }
 
         return std::pair{results, QueryHandlerResult::COMMIT};
@@ -3098,7 +3098,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         std::vector<std::vector<TypedValue>> results;
         results.reserve(node_labels.size());
         for (auto &node_label : node_labels) {
-          results.push_back({TypedValue(node_label)});
+          results.push_back({TypedValue(storage->LabelToName(node_label))});
         }
 
         return std::pair{results, QueryHandlerResult::COMMIT};
