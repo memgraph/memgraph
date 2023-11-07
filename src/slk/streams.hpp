@@ -47,6 +47,10 @@ static_assert(kSegmentMaxDataSize <= std::numeric_limits<SegmentSize>::max(),
 class Builder {
  public:
   Builder(std::function<void(const uint8_t *, size_t, bool)> write_func);
+  Builder(Builder &&other, std::function<void(const uint8_t *, size_t, bool)> write_func)
+      : write_func_{std::move(write_func)}, pos_{std::move(other.pos_)}, segment_{std::move(other.segment_)} {
+    other.write_func_ = [](const uint8_t *, size_t, bool) {};
+  }
 
   /// Function used internally by SLK to serialize the data.
   void Save(const uint8_t *data, uint64_t size);
@@ -59,7 +63,7 @@ class Builder {
 
   std::function<void(const uint8_t *, size_t, bool)> write_func_;
   size_t pos_{0};
-  uint8_t segment_[kSegmentMaxTotalSize];
+  std::array<uint8_t, kSegmentMaxTotalSize> segment_;
 };
 
 /// Exception that will be thrown if segments can't be decoded from the byte

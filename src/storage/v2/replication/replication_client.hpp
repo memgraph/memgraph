@@ -61,6 +61,8 @@ class ReplicaStream {
   /// @throw rpc::RpcFailedException
   replication::AppendDeltasRes Finalize();
 
+  bool IsDefunct() const { return stream_.IsDefunct(); }
+
  private:
   Storage *storage_;
   rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
