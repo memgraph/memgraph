@@ -11,8 +11,8 @@
 
 #include "storage/v2/replication/replication_storage_state.hpp"
 
+#include "replication/replication_server.hpp"
 #include "storage/v2/replication/replication_client.hpp"
-#include "storage/v2/replication/replication_server.hpp"
 
 namespace memgraph::storage {
 
@@ -91,17 +91,16 @@ std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo() const {
 }
 
 void ReplicationStorageState::Reset() {
-  replication_server_.reset();
   replication_clients_.WithLock([](auto &clients) { clients.clear(); });
 }
 
-void ReplicationStorageState::AddEpochToHistory(std::string prev_epoch) {
+void ReplicationStorageState::TrackLatestHistory() {
   constexpr uint16_t kEpochHistoryRetention = 1000;
   // Generate new epoch id and save the last one to the history.
   if (history.size() == kEpochHistoryRetention) {
     history.pop_front();
   }
-  history.emplace_back(std::move(prev_epoch), last_commit_timestamp_);
+  history.emplace_back(epoch_.id(), last_commit_timestamp_);
 }
 
 void ReplicationStorageState::AddEpochToHistoryForce(std::string prev_epoch) {

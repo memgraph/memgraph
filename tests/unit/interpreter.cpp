@@ -27,9 +27,11 @@
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
+#include "query/metadata.hpp"
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
+#include "replication/state.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
@@ -60,9 +62,9 @@ class InterpreterTest : public ::testing::Test {
   const std::string testSuiteCsv = "interpreter_csv";
   std::filesystem::path data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
 
-  InterpreterTest() : interpreter_context({}, kNoHandler) {}
+  InterpreterTest() {}
 
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+  memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
         config.durability.storage_directory = data_directory;
@@ -75,6 +77,8 @@ class InterpreterTest : public ::testing::Test {
       }()  // iile
   };
 
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -88,7 +92,7 @@ class InterpreterTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::query::InterpreterContext interpreter_context;
+  memgraph::query::InterpreterContext interpreter_context{{}, kNoHandler, &repl_state};
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -1131,7 +1135,8 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
       config2.force_on_disk = true;
     }
 
-    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2);
+    memgraph::replication::ReplicationState repl_state2{memgraph::storage::ReplicationStateRootPath(config2)};
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2, repl_state2);
     auto db_acc_opt = db_gk2.access();
     ASSERT_TRUE(db_acc_opt) << "Failed to access db2";
     auto &db_acc = *db_acc_opt;
@@ -1140,7 +1145,9 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
                                                  : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
         << "Wrong storage mode!";
 
-    memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}}, nullptr};
+    memgraph::replication::ReplicationState repl_state{std::nullopt};
+    memgraph::query::InterpreterContext csv_interpreter_context{
+        {.query = {.allow_load_csv = allow_load_csv}}, nullptr, &repl_state};
     InterpreterFaker interpreter_faker{&csv_interpreter_context, db_acc};
     for (const auto &query : queries) {
       if (allow_load_csv) {
@@ -1265,6 +1272,24 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValues) {
     auto stats = stream.GetSummary().at("stats").ValueMap();
     ASSERT_EQ(stats["properties-set"].ValueInt(), 3);
     AssertAllValuesAreZero(stats, {"properties-set"});
+  }
+}
+
+TYPED_TEST(InterpreterTest, ExecutionStatsValuesPropertiesSet) {
+  {
+    auto [stream, qid] = this->Prepare(
+        "CREATE (u:Employee {Uid: 'EMP_AAAAA', FirstName: 'Bong', LastName: 'Revilla'}) RETURN u.name AS name;");
+    this->Pull(&stream);
+  }
+  {
+    auto [stream, qid] = this->Prepare(
+        "MATCH (node:Employee) WHERE node.Uid='EMP_AAAAA' SET node={FirstName: 'James', LastName: 'Revilla', Uid: "
+        "'EMP_AAAAA', CreatedOn: 'null', CreatedBy: 'null', LastModifiedOn: '1698226931701', LastModifiedBy: 'null', "
+        "Description: 'null'};");
+    this->Pull(&stream);
+    auto stats = stream.GetSummary().at("stats").ValueMap();
+    auto key = memgraph::query::ExecutionStatsKeyToString(memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES);
+    ASSERT_EQ(stats[key].ValueInt(), 8);
   }
 }
 
