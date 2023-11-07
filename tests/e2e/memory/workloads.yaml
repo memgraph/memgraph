@@ -62,6 +62,20 @@ disk_450_MiB_limit_cluster: &disk_450_MiB_limit_cluster
       validation_queries: []
 
 
+args_global_limit_1024_MiB: &args_global_limit_1024_MiB
+  - "--bolt-port"
+  - *bolt_port
+  - "--storage-gc-cycle-sec=180"
+  - "--log-level=INFO"
+
+in_memory_limited_global_limit_cluster: &in_memory_limited_global_limit_cluster
+  cluster:
+    main:
+      args: *args_global_limit_1024_MiB
+      log_file: "memory-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
 workloads:
   - name: "Memory control"
     binary: "tests/e2e/memory/memgraph__e2e__memory__control"
@@ -159,3 +173,15 @@ workloads:
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_edge_create"
     args: ["--bolt-port", *bolt_port]
     <<: *disk_450_MiB_limit_cluster
+
+  - name: "Procedure memory control for single procedure"
+    binary: "tests/e2e/memory/memgraph__e2e__procedure_memory_limit"
+    proc: "tests/e2e/memory/procedures/"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_limited_global_limit_cluster
+
+  - name: "Procedure memory control for multiple procedures"
+    binary: "tests/e2e/memory/memgraph__e2e__procedure_memory_limit"
+    proc: "tests/e2e/memory/procedures/"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_limited_global_limit_cluster
