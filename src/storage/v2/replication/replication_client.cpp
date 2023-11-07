@@ -169,7 +169,7 @@ void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_s
     case replication::ReplicaState::READY:
       MG_ASSERT(!replica_stream_);
       try {
-        replica_stream_.emplace(ReplicaStream{storage, rpc_client_, current_wal_seq_num});
+        replica_stream_.emplace(storage, rpc_client_, current_wal_seq_num);
         replica_state_.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
         replica_state_.store(replication::ReplicaState::INVALID);
@@ -187,6 +187,8 @@ bool ReplicationClient::FinalizeTransactionReplication(Storage *storage) {
   if (replica_state_ != replication::ReplicaState::REPLICATING) {
     return false;
   }
+
+  if (replica_stream_->IsDefunct()) return false;
 
   auto task = [=, this]() {
     MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
@@ -265,6 +267,8 @@ void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaS
   if (replica_state_ != replication::ReplicaState::REPLICATING) {
     return;
   }
+
+  if (replica_stream_->IsDefunct()) return;
 
   try {
     callback(*replica_stream_);  // failure state what if not streaming (std::nullopt)
