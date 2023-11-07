@@ -36,12 +36,11 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
 
   // Connect replication state and storage
   storage->CreateSnapshotHandler(
-      [storage = storage.get(),
-       &repl_state](bool is_periodic) -> utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError> {
+      [storage = storage.get(), &repl_state]() -> utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError> {
         if (repl_state.IsReplica()) {
           return storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica;
         }
-        return storage->CreateSnapshot(is_periodic);
+        return storage->CreateSnapshot();
       });
 
   if (allow_mt_repl || name == dbms::kDefaultDB) {

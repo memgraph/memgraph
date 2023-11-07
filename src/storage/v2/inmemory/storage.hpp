@@ -47,11 +47,7 @@ class InMemoryStorage final : public Storage {
   friend class InMemoryReplicationClient;
 
  public:
-  enum class CreateSnapshotError : uint8_t {
-    DisabledForReplica,
-    DisabledForAnalyticsPeriodicCommit,
-    ReachedMaxNumTries
-  };
+  enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };
 
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -329,9 +325,9 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(bool is_periodic = false);
+  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot();
 
-  void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>(bool)> cb);
+  void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 
   using Storage::CreateTransaction;
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) override;
@@ -339,6 +335,8 @@ class InMemoryStorage final : public Storage {
   auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
                                const memgraph::replication::ReplicationEpoch *current_epoch)
       -> std::unique_ptr<ReplicationClient> override;
+
+  void SetStorageMode(StorageMode storage_mode);
 
  private:
   /// The force parameter determines the behaviour of the garbage collector.
@@ -454,7 +452,7 @@ class InMemoryStorage final : public Storage {
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
-  std::function<void(bool)> create_snapshot_handler{};
+  std::function<void()> create_snapshot_handler{};
 };
 
 }  // namespace memgraph::storage

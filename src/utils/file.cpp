@@ -519,7 +519,7 @@ void OutputFile::FlushBufferInternal() {
   auto *buffer = buffer_;
   auto buffer_position = buffer_position_.load();
   while (buffer_position > 0) {
-    auto written = write(fd_, buffer, buffer_position_);
+    auto written = write(fd_, buffer, buffer_position);
     if (written == -1 && errno == EINTR) {
       continue;
     }
