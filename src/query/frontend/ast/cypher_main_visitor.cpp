@@ -2010,6 +2010,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         // In variable expansion inner variables are mandatory.
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
+
+        // TODO: In what use case do we need accumulated path and weight here?
         if (edge->filter_lambda_.accumulated_path) {
           anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_path);
         }
@@ -2036,6 +2038,11 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         } else {
           // Other variable expands only have the filter lambda.
           edge->filter_lambda_ = visit_lambda(relationshipLambdas[0]);
+          if (edge->filter_lambda_.accumulated_weight) {
+            throw SemanticException(
+                "Accumulated weight in filter lambdacan be used only with "
+                "shortest paths expansion.");
+          }
         }
         break;
       case 2:
