@@ -11,6 +11,17 @@ target_link_libraries(memgraph__e2e__memory__limit_global_alloc gflags mgclient 
 add_executable(memgraph__e2e__memory__limit_global_alloc_proc memory_limit_global_alloc_proc.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_global_alloc_proc gflags mgclient mg-utils mg-io Threads::Threads)
 
+add_executable(memgraph__e2e__memory__limit_delete memory_limit_delete.cpp)
+target_link_libraries(memgraph__e2e__memory__limit_delete gflags mgclient mg-utils mg-io)
+
+add_executable(memgraph__e2e__memory__limit_accumulation memory_limit_accumulation.cpp)
+target_link_libraries(memgraph__e2e__memory__limit_accumulation gflags mgclient mg-utils mg-io)
+
+add_executable(memgraph__e2e__memory__limit_edge_create memory_limit_edge_create.cpp)
+target_link_libraries(memgraph__e2e__memory__limit_edge_create gflags mgclient mg-utils mg-io)
+
+# Query memory limit tests
+
 add_executable(memgraph__e2e__memory__limit_query_alloc_proc_multi_thread query_memory_limit_proc_multi_thread.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_query_alloc_proc_multi_thread gflags mgclient mg-utils mg-io Threads::Threads)
 
@@ -23,11 +34,11 @@ target_link_libraries(memgraph__e2e__memory__limit_query_alloc_proc gflags mgcli
 add_executable(memgraph__e2e__memory__limit_query_alloc_create_multi_thread query_memory_limit_multi_thread.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_query_alloc_create_multi_thread gflags mgclient mg-utils mg-io Threads::Threads)
 
-add_executable(memgraph__e2e__memory__limit_delete memory_limit_delete.cpp)
-target_link_libraries(memgraph__e2e__memory__limit_delete gflags mgclient mg-utils mg-io)
 
-add_executable(memgraph__e2e__memory__limit_accumulation memory_limit_accumulation.cpp)
-target_link_libraries(memgraph__e2e__memory__limit_accumulation gflags mgclient mg-utils mg-io)
+# Procedure memory limit tests
 
-add_executable(memgraph__e2e__memory__limit_edge_create memory_limit_edge_create.cpp)
-target_link_libraries(memgraph__e2e__memory__limit_edge_create gflags mgclient mg-utils mg-io)
+add_executable(memgraph__e2e__procedure_memory_limit procedure_memory_limit.cpp)
+target_link_libraries(memgraph__e2e__procedure_memory_limit gflags mgclient mg-utils mg-io)
+
+add_executable(memgraph__e2e__procedure_memory_limit_multi_proc procedure_memory_limit_multi_proc.cpp)
+target_link_libraries(memgraph__e2e__procedure_memory_limit_multi_proc gflags mgclient mg-utils mg-io)

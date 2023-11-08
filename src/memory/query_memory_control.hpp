@@ -16,9 +16,12 @@
 #include <unordered_map>
 
 #include "utils/memory_tracker.hpp"
+#include "utils/query_memory_tracker.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::memory {
+
+static constexpr int64_t UNLIMITED_MEMORY{0};
 
 #if USE_JEMALLOC
 
@@ -75,16 +78,21 @@ class QueriesMemoryControl {
   // Important to reset if one thread gets reused for different transaction
   void EraseThreadToTransactionId(const std::thread::id &, uint64_t);
 
-  // C-API functionality for thread to transaction mapping
-  void UpdateThreadToTransactionId(const char *, uint64_t);
+  // Find tracker for current thread if exists, track
+  // query allocation and procedure allocation if
+  // necessary
+  void TrackAllocOnCurrentThread(size_t size);
 
-  // C-API functionality for thread to transaction unmapping
-  void EraseThreadToTransactionId(const char *, uint64_t);
+  // Find tracker for current thread if exists, track
+  // query allocation and procedure allocation if
+  // necessary
+  void TrackFreeOnCurrentThread(size_t size);
 
-  // Get tracker to current thread if exists, otherwise return
-  // nullptr. This can happen only if tracker is still
-  // being constructed.
-  utils::MemoryTracker *GetTrackerCurrentThread();
+  void TryCreateTransactionProcTracker(uint64_t, int64_t, size_t);
+
+  void SetActiveProcIdTracker(uint64_t, int64_t);
+
+  void PauseProcedureTracking(uint64_t);
 
  private:
   std::unordered_map<unsigned, std::atomic<int>> arena_tracking;
@@ -102,7 +110,7 @@ class QueriesMemoryControl {
 
   struct TransactionIdToTracker {
     uint64_t transaction_id;
-    utils::MemoryTracker tracker;
+    utils::QueryMemoryTracker tracker;
 
     bool operator<(const TransactionIdToTracker &other) const { return transaction_id < other.transaction_id; }
     bool operator==(const TransactionIdToTracker &other) const { return transaction_id == other.transaction_id; }
@@ -137,5 +145,16 @@ void TryStartTrackingOnTransaction(uint64_t transaction_id, size_t limit);
 // API function call to stop tracking for given transaction.
 // Does nothing if jemalloc is not enabled. Does nothing if tracker doesn't exist
 void TryStopTrackingOnTransaction(uint64_t transaction_id);
+
+// Is transaction with given id tracked in memory tracker
+bool IsTransactionTracked(uint64_t transaction_id);
+
+// Creates tracker on procedure if doesn't exist. Sets query tracker
+// to track procedure with id.
+void CreateOrContinueProcedureTracking(uint64_t transaction_id, int64_t procedure_id, size_t limit);
+
+// Pauses procedure tracking. This enables to continue
+// tracking on procedure once procedure execution resumes.
+void PauseProcedureTracking(uint64_t transaction_id);
 
 }  // namespace memgraph::memory
