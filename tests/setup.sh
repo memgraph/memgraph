@@ -5,6 +5,8 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
+echo -e "-----IGOR-----$DIR"
+
 PIP_DEPS=(
    "behave==1.2.6"
    "ldap3==2.6"
