@@ -25,7 +25,6 @@
 #include <vector>
 
 #include "replication/epoch.hpp"
-#include "spdlog/spdlog.h"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
