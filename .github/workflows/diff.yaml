@@ -215,7 +215,7 @@ jobs:
   #
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, jean-grey]
+    runs-on: [self-hosted, captain-america]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
