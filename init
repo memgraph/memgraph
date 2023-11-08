@@ -64,8 +64,6 @@ echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
 $OS_SCRIPT check MEMGRAPH_BUILD_DEPS
 echo "All packages are in-place..."
 
-echo "---------- $DISTRO ----------"
-
 # create a default build directory
 mkdir -p ./build
 
