@@ -17,202 +17,202 @@ on:
       - "licenses/*"
 
 jobs:
-  # community_build:
-  #   name: "Community build"
-  #   runs-on: [self-hosted, captain-america]
-  #   env:
-  #     THREADS: 24
-  #     MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-  #     MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  #
-  #   steps:
-  #     - name: Set up repository
-  #       uses: actions/checkout@v3
-  #       with:
-  #         # Number of commits to fetch. `0` indicates all history for all
-  #         # branches and tags. (default: 1)
-  #         fetch-depth: 0
-  #
-  #     - name: Build community binaries
-  #       run: |
-  #         # Activate toolchain.
-  #         source /opt/toolchain-v4/activate
-  #
-  #         # Initialize dependencies.
-  #         ./init
-  #
-  #         # Build community binaries.
-  #         cd build
-  #         cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMG_ENTERPRISE=OFF ..
-  #         make -j$THREADS
-  #
-  #     - name: Run unit tests
-  #       run: |
-  #         # Activate toolchain.
-  #         source /opt/toolchain-v4/activate
-  #
-  #         # Run unit tests.
-  #         cd build
-  #         ctest -R memgraph__unit --output-on-failure -j$THREADS
-  #
-  # code_analysis:
-  #   name: "Code analysis"
-  #   runs-on: [self-hosted, captain-america]
-  #   env:
-  #     THREADS: 24
-  #     MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-  #     MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  #
-  #   steps:
-  #     - name: Set up repository
-  #       uses: actions/checkout@v3
-  #       with:
-  #         # Number of commits to fetch. `0` indicates all history for all
-  #         # branches and tags. (default: 1)
-  #         fetch-depth: 0
-  #
-  #       # This is also needed if we want do to comparison against other branches
-  #       # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
-  #     - name: Fetch all history for all tags and branches
-  #       run: git fetch
-  #
-  #     - name: Initialize deps
-  #       run: |
-  #         # Activate toolchain.
-  #         source /opt/toolchain-v4/activate
-  #
-  #         # Initialize dependencies.
-  #         ./init
-  #
-  #     - name: Set base branch
-  #       if: ${{ github.event_name == 'pull_request' }}
-  #       run: |
-  #         echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
-  #
-  #     - name: Set base branch # if we manually dispatch or push to master
-  #       if: ${{ github.event_name != 'pull_request' }}
-  #       run: |
-  #         echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
-  #
-  #     - name: Python code analysis
-  #       run: |
-  #         CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only)
-  #         for file in ${CHANGED_FILES}; do
-  #           echo ${file}
-  #           if [[ ${file} == *.py ]]; then
-  #             python3 -m black --check --diff ${file}
-  #             python3 -m isort --profile black --check-only --diff ${file}
-  #           fi
-  #         done
-  #
-  #     - name: Build combined ASAN, UBSAN and coverage binaries
-  #       run: |
-  #         # Activate toolchain.
-  #         source /opt/toolchain-v4/activate
-  #
-  #         cd build
-  #         cmake -DTEST_COVERAGE=ON -DASAN=ON -DUBSAN=ON ..
-  #         make -j$THREADS memgraph__unit
-  #
-  #     - name: Run unit tests
-  #       run: |
-  #         # Activate toolchain.
-  #         source /opt/toolchain-v4/activate
-  #
-  #         # Run unit tests. It is restricted to 2 threads intentionally, because higher concurrency makes the timing related tests unstable.
-  #         cd build
-  #         LSAN_OPTIONS=suppressions=$PWD/../tools/lsan.supp UBSAN_OPTIONS=halt_on_error=1 ctest -R memgraph__unit --output-on-failure -j2
-  #
-  #     - name: Compute code coverage
-  #       run: |
-  #         # Activate toolchain.
-  #         source /opt/toolchain-v4/activate
-  #
-  #         # Compute code coverage.
-  #         cd tools/github
-  #         ./coverage_convert
-  #
-  #         # Package code coverage.
-  #         cd generated
-  #         tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu
-  #
-  #     - name: Save code coverage
-  #       uses: actions/upload-artifact@v3
-  #       with:
-  #         name: "Code coverage"
-  #         path: tools/github/generated/code_coverage.tar.gz
-  #
-  #     - name: Run clang-tidy
-  #       run: |
-  #         source /opt/toolchain-v4/activate
-  #
-  #         # Restrict clang-tidy results only to the modified parts
-  #         git diff -U0 ${{ env.BASE_BRANCH }}... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build  -regex ".+\.cpp" | tee ./build/clang_tidy_output.txt
-  #
-  #         # Fail if any warning is reported
-  #         ! cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null
-  #
-  # debug_build:
-  #   name: "Debug build"
-  #   runs-on: [self-hosted, captain-america]
-  #   env:
-  #     THREADS: 24
-  #     MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-  #     MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  #
-  #   steps:
-  #     - name: Set up repository
-  #       uses: actions/checkout@v3
-  #       with:
-  #         # Number of commits to fetch. `0` indicates all history for all
-  #         # branches and tags. (default: 1)
-  #         fetch-depth: 0
-  #
-  #     - name: Build debug binaries
-  #       run: |
-  #         # Activate toolchain.
-  #         source /opt/toolchain-v4/activate
-  #
-  #         # Initialize dependencies.
-  #         ./init
-  #
-  #         # Build debug binaries.
-  #         cd build
-  #         cmake ..
-  #         make -j$THREADS
-  #
-  #     - name: Run leftover CTest tests
-  #       run: |
-  #         # Activate toolchain.
-  #         source /opt/toolchain-v4/activate
-  #
-  #         # Run leftover CTest tests (all except unit and benchmark tests).
-  #         cd build
-  #         ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure
-  #
-  #     - name: Run drivers tests
-  #       run: |
-  #         ./tests/drivers/run.sh
-  #
-  #     - name: Run integration tests
-  #       run: |
-  #         tests/integration/run.sh
-  #
-  #     - name: Run cppcheck and clang-format
-  #       run: |
-  #         # Activate toolchain.
-  #         source /opt/toolchain-v4/activate
-  #
-  #         # Run cppcheck and clang-format.
-  #         cd tools/github
-  #         ./cppcheck_and_clang_format diff
-  #
-  #     - name: Save cppcheck and clang-format errors
-  #       uses: actions/upload-artifact@v3
-  #       with:
-  #         name: "Code coverage"
-  #         path: tools/github/cppcheck_and_clang_format.txt
-  #
+  community_build:
+    name: "Community build"
+    runs-on: [self-hosted, captain-america]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v3
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build community binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build community binaries.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMG_ENTERPRISE=OFF ..
+          make -j$THREADS
+
+      - name: Run unit tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Run unit tests.
+          cd build
+          ctest -R memgraph__unit --output-on-failure -j$THREADS
+
+  code_analysis:
+    name: "Code analysis"
+    runs-on: [self-hosted, captain-america]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v3
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+        # This is also needed if we want do to comparison against other branches
+        # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
+      - name: Fetch all history for all tags and branches
+        run: git fetch
+
+      - name: Initialize deps
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+      - name: Set base branch
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
+
+      - name: Set base branch # if we manually dispatch or push to master
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
+
+      - name: Python code analysis
+        run: |
+          CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only)
+          for file in ${CHANGED_FILES}; do
+            echo ${file}
+            if [[ ${file} == *.py ]]; then
+              python3 -m black --check --diff ${file}
+              python3 -m isort --profile black --check-only --diff ${file}
+            fi
+          done
+
+      - name: Build combined ASAN, UBSAN and coverage binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          cd build
+          cmake -DTEST_COVERAGE=ON -DASAN=ON -DUBSAN=ON ..
+          make -j$THREADS memgraph__unit
+
+      - name: Run unit tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Run unit tests. It is restricted to 2 threads intentionally, because higher concurrency makes the timing related tests unstable.
+          cd build
+          LSAN_OPTIONS=suppressions=$PWD/../tools/lsan.supp UBSAN_OPTIONS=halt_on_error=1 ctest -R memgraph__unit --output-on-failure -j2
+
+      - name: Compute code coverage
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Compute code coverage.
+          cd tools/github
+          ./coverage_convert
+
+          # Package code coverage.
+          cd generated
+          tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu
+
+      - name: Save code coverage
+        uses: actions/upload-artifact@v3
+        with:
+          name: "Code coverage"
+          path: tools/github/generated/code_coverage.tar.gz
+
+      - name: Run clang-tidy
+        run: |
+          source /opt/toolchain-v4/activate
+
+          # Restrict clang-tidy results only to the modified parts
+          git diff -U0 ${{ env.BASE_BRANCH }}... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build  -regex ".+\.cpp" | tee ./build/clang_tidy_output.txt
+
+          # Fail if any warning is reported
+          ! cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null
+
+  debug_build:
+    name: "Debug build"
+    runs-on: [self-hosted, captain-america]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v3
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build debug binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build debug binaries.
+          cd build
+          cmake ..
+          make -j$THREADS
+
+      - name: Run leftover CTest tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Run leftover CTest tests (all except unit and benchmark tests).
+          cd build
+          ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure
+
+      - name: Run drivers tests
+        run: |
+          ./tests/drivers/run.sh
+
+      - name: Run integration tests
+        run: |
+          tests/integration/run.sh
+
+      - name: Run cppcheck and clang-format
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Run cppcheck and clang-format.
+          cd tools/github
+          ./cppcheck_and_clang_format diff
+
+      - name: Save cppcheck and clang-format errors
+        uses: actions/upload-artifact@v3
+        with:
+          name: "Code coverage"
+          path: tools/github/cppcheck_and_clang_format.txt
+
   release_build:
     name: "Release build"
     runs-on: [self-hosted, captain-america]
@@ -325,119 +325,119 @@ jobs:
           path: |
             # multiple paths could be defined
             build/logs
-  #
-  # release_jepsen_test:
-  #   name: "Release Jepsen Test"
-  #   runs-on: [self-hosted, captain-america]
-  #   #continue-on-error: true
-  #   env:
-  #     THREADS: 24
-  #     MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-  #     MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  #
-  #   steps:
-  #     - name: Set up repository
-  #       uses: actions/checkout@v3
-  #       with:
-  #         # Number of commits to fetch. `0` indicates all history for all
-  #         # branches and tags. (default: 1)
-  #         fetch-depth: 0
-  #
-  #     - name: Build release binaries
-  #       run: |
-  #         # Activate toolchain.
-  #         source /opt/toolchain-v4/activate
-  #         # Initialize dependencies.
-  #         ./init
-  #         # Build only memgraph release binarie.
-  #         cd build
-  #         cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
-  #         make -j$THREADS memgraph
-  #
-  #     - name: Run Jepsen tests
-  #       run: |
-  #         cd tests/jepsen
-  #         ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
-  #
-  #     - name: Save Jepsen report
-  #       uses: actions/upload-artifact@v3
-  #       if: ${{ always() }}
-  #       with:
-  #         name: "Jepsen Report"
-  #         path: tests/jepsen/Jepsen.tar.gz
-  #
-  # release_benchmarks:
-  #   name: "Release benchmarks"
-  #   runs-on: [self-hosted, captain-america]
-  #   env:
-  #     THREADS: 24
-  #     MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-  #     MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  #
-  #   steps:
-  #     - name: Set up repository
-  #       uses: actions/checkout@v3
-  #       with:
-  #         # Number of commits to fetch. `0` indicates all history for all
-  #         # branches and tags. (default: 1)
-  #         fetch-depth: 0
-  #
-  #     - name: Build release binaries
-  #       run: |
-  #         # Activate toolchain.
-  #         source /opt/toolchain-v4/activate
-  #
-  #         # Initialize dependencies.
-  #         ./init
-  #
-  #         # Build only memgraph release binaries.
-  #         cd build
-  #         cmake -DCMAKE_BUILD_TYPE=release ..
-  #         make -j$THREADS
-  #
-  #     - name: Run macro benchmarks
-  #       run: |
-  #         cd tests/macro_benchmark
-  #         ./harness QuerySuite MemgraphRunner \
-  #           --groups aggregation 1000_create unwind_create dense_expand match \
-  #           --no-strict
-  #
-  #     - name: Get branch name (merge)
-  #       if: github.event_name != 'pull_request'
-  #       shell: bash
-  #       run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
-  #
-  #     - name: Get branch name (pull request)
-  #       if: github.event_name == 'pull_request'
-  #       shell: bash
-  #       run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
-  #
-  #     - name: Upload macro benchmark results
-  #       run: |
-  #         cd tools/bench-graph-client
-  #         virtualenv -p python3 ve3
-  #         source ve3/bin/activate
-  #         pip install -r requirements.txt
-  #         ./main.py --benchmark-name "macro_benchmark" \
-  #                   --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
-  #                   --github-run-id "${{ github.run_id }}" \
-  #                   --github-run-number "${{ github.run_number }}" \
-  #                   --head-branch-name "${{ env.BRANCH_NAME }}"
-  #
-  #     # TODO (andi) No need for path flags and for --disk-storage and --in-memory-analytical
-  #     - name: Run mgbench
-  #       run: |
-  #         cd tests/mgbench
-  #         ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
-  #
-  #     - name: Upload mgbench results
-  #       run: |
-  #         cd tools/bench-graph-client
-  #         virtualenv -p python3 ve3
-  #         source ve3/bin/activate
-  #         pip install -r requirements.txt
-  #         ./main.py --benchmark-name "mgbench" \
-  #                   --benchmark-results "../../tests/mgbench/benchmark_result.json" \
-  #                   --github-run-id "${{ github.run_id }}" \
-  #                   --github-run-number "${{ github.run_number }}" \
-  #                   --head-branch-name "${{ env.BRANCH_NAME }}"
+
+  release_jepsen_test:
+    name: "Release Jepsen Test"
+    runs-on: [self-hosted, captain-america]
+    #continue-on-error: true
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v3
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+          # Initialize dependencies.
+          ./init
+          # Build only memgraph release binarie.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+          make -j$THREADS memgraph
+
+      - name: Run Jepsen tests
+        run: |
+          cd tests/jepsen
+          ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
+
+      - name: Save Jepsen report
+        uses: actions/upload-artifact@v3
+        if: ${{ always() }}
+        with:
+          name: "Jepsen Report"
+          path: tests/jepsen/Jepsen.tar.gz
+
+  release_benchmarks:
+    name: "Release benchmarks"
+    runs-on: [self-hosted, captain-america]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v3
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build only memgraph release binaries.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=release ..
+          make -j$THREADS
+
+      - name: Run macro benchmarks
+        run: |
+          cd tests/macro_benchmark
+          ./harness QuerySuite MemgraphRunner \
+            --groups aggregation 1000_create unwind_create dense_expand match \
+            --no-strict
+
+      - name: Get branch name (merge)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+
+      - name: Get branch name (pull request)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
+
+      - name: Upload macro benchmark results
+        run: |
+          cd tools/bench-graph-client
+          virtualenv -p python3 ve3
+          source ve3/bin/activate
+          pip install -r requirements.txt
+          ./main.py --benchmark-name "macro_benchmark" \
+                    --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
+                    --github-run-id "${{ github.run_id }}" \
+                    --github-run-number "${{ github.run_number }}" \
+                    --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      # TODO (andi) No need for path flags and for --disk-storage and --in-memory-analytical
+      - name: Run mgbench
+        run: |
+          cd tests/mgbench
+          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
+
+      - name: Upload mgbench results
+        run: |
+          cd tools/bench-graph-client
+          virtualenv -p python3 ve3
+          source ve3/bin/activate
+          pip install -r requirements.txt
+          ./main.py --benchmark-name "mgbench" \
+                    --benchmark-results "../../tests/mgbench/benchmark_result.json" \
+                    --github-run-id "${{ github.run_id }}" \
+                    --github-run-number "${{ github.run_number }}" \
+                    --head-branch-name "${{ env.BRANCH_NAME }}"
