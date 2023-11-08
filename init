@@ -78,10 +78,8 @@ if [[ "$setup_libs" == "true" ]]; then
 fi
 
 # Fix for centos 7 during release
-if [ "${DISTRO}" = "ubuntu-20.04" ] || [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "debian-11" ] || [ "${DISTRO}" = "amzn-2" ]; then
-  echo "-----am here-----"
+if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "debian-11" ] || [ "${DISTRO}" = "amzn-2" ]; then
   if python3 -m pip show virtualenv >/dev/null 2>/dev/null; then
-    echo "-----Uninstalling virtualenv-----"
     python3 -m pip uninstall -y virtualenv
   fi
   python3 -m pip install virtualenv
