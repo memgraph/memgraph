@@ -35,12 +35,8 @@ void CallCreate(mgp_graph *graph, mgp_memory *memory) {
   for (int i = 0; i < num_vertices_per_thread; i++) {
     struct mgp_vertex *vertex{nullptr};
     auto enum_error = mgp_graph_create_vertex(graph, memory, &vertex);
-    if (enum_error == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+    if (enum_error == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE || enum_error != mgp_error::MGP_ERROR_NO_ERROR) {
       break;
-    }
-    if (enum_error != mgp_error::MGP_ERROR_NO_ERROR) {
-      [[maybe_unused]] const enum mgp_error untracking_error = mgp_untrack_current_thread_allocations(graph);
-      return;
     }
     created_vertices.fetch_add(1, std::memory_order_acq_rel);
   }
