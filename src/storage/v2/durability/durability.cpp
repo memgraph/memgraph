@@ -25,16 +25,19 @@
 #include <vector>
 
 #include "replication/epoch.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
+#include "utils/string.hpp"
 #include "utils/timer.hpp"
 
 namespace memgraph::metrics {
@@ -130,6 +133,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // recovery process.
 void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
                                   Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                                  NameIdMapper *name_id_mapper,
                                   const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
@@ -138,7 +142,11 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   for (const auto &item : indices_constraints.indices.label) {
     if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label index must be created here!");
-
+    if (name_id_mapper) {
+      spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+    } else {
+      spdlog::info("A label+property index is recreated from metadata.");
+    }
     spdlog::info("A label index is recreated from metadata.");
   }
   spdlog::info("Label indices are recreated.");
@@ -159,7 +167,12 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   for (const auto &item : indices_constraints.indices.label_property) {
     if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label+property index must be created here!");
-    spdlog::info("A label+property index is recreated from metadata.");
+    if (name_id_mapper) {
+      spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
+                   name_id_mapper->IdToName(item.second.AsUint()));
+    } else {
+      spdlog::info("A label+property index is recreated from metadata.");
+    }
   }
   spdlog::info("Label+property indices are recreated.");
 
@@ -191,8 +204,12 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
     }
 
     constraints->existence_constraints_->InsertConstraint(label, property);
-
-    spdlog::info("A existence constraint is recreated from metadata.");
+    if (name_id_mapper) {
+      spdlog::info("Existence constraint on :{}({}) is recreated from metadata",
+                   name_id_mapper->IdToName(label.AsUint()), name_id_mapper->IdToName(property.AsUint()));
+    } else {
+      spdlog::info("A existence constraint is recreated from metadata.");
+    }
   }
   spdlog::info("Existence constraints are recreated from metadata.");
 
@@ -203,7 +220,17 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
     auto ret = mem_unique_constraints->CreateConstraint(item.first, item.second, vertices->access());
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
-    spdlog::info("A unique constraint is recreated from metadata.");
+    if (name_id_mapper) {
+      std::vector<std::string> property_names;
+      for (const auto &prop : item.second) {
+        property_names.push_back(name_id_mapper->IdToName(prop.AsUint()));
+      }
+      auto property_names_joined = utils::Join(property_names, ",");
+      spdlog::info("Unique constraint on :{}({}) is recreated from metadata",
+                   name_id_mapper->IdToName(item.first.AsUint()), property_names_joined);
+    } else {
+      spdlog::info("A unique constraint is recreated from metadata.");
+    }
   }
   spdlog::info("Unique constraints are recreated from metadata.");
   spdlog::info("Constraints are recreated from metadata.");
@@ -270,7 +297,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                      ? std::make_optional(std::make_pair(recovery_info.vertex_batches,
                                                                          config.durability.recovery_thread_count))
                                      : std::nullopt;
-      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, par_exec_info);
+      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, name_id_mapper, par_exec_info);
       return recovered_snapshot->recovery_info;
     }
   } else {
@@ -397,7 +424,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     spdlog::info("All necessary WAL files are loaded successfully.");
   }
 
-  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
+  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, name_id_mapper);
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
