@@ -101,32 +101,23 @@ TimestampInfo ReplicationClient::GetTimestampInfo(Storage *storage,
     const auto response = stream.AwaitResponse();
     const auto is_success = response.success;
     if (!is_success) {
-      replica_state.store(replication::ReplicaState::RECOVERY_REQUIRED);
-      HandleRpcFailure(storage);
+      replica_state.store(replication::ReplicaState::RECOVERY);
+      TryInitializeClientAsync(storage);
     }
     auto main_time_stamp = storage->repl_storage_state_.last_commit_timestamp_.load();
     info.current_timestamp_of_replica = response.current_commit_timestamp;
     info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
   } catch (const rpc::RpcFailedException &) {
-    {
-      std::unique_lock client_guard(client_lock_);
-      replica_state.store(replication::ReplicaState::RECOVERY_REQUIRED);
-    }
-    HandleRpcFailure(storage);  // mutex already unlocked, if the new enqueued task dispatches immediately it probably
-                                // won't block
+    spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
+    std::unique_lock client_guard(client_lock_);
+    replica_state.store(replication::ReplicaState::RECOVERY_REQUIRED);
   }
 
   return info;
 }
 
-void ReplicationClient::HandleRpcFailure(Storage *storage) {
-  spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
-  TryInitializeClientAsync(storage);
-}
-
 void ReplicationClient::TryInitializeClientAsync(Storage *storage) {
   thread_pool_.AddTask([=, this] {
-    rpc_client_.Abort();
     storage->repl_storage_state_.replication_clients_.WithLock(
         [=, this](ReplicationStorageState::TMP_THING &X) { this->TryInitializeClientSync(storage, X.states_[id_]); });
   });
@@ -174,16 +165,23 @@ void ReplicationClient::StartTransactionReplication(uint64_t const current_wal_s
       replica_state.store(replication::ReplicaState::RECOVERY);
       return;
     case replication::ReplicaState::RECOVERY_REQUIRED:
-      HandleRpcFailure(storage);
-      return;
+      if (mode_ == memgraph::replication::ReplicationMode::SYNC) {
+        guard.unlock();  // TODO Make sure the atomic-nes is okay
+        TryInitializeClientSync(storage, replica_state);
+        guard.lock();
+        if (replica_state != replication::ReplicaState::READY) return;
+      } else {
+        TryInitializeClientAsync(storage);
+        return;
+      }
     case replication::ReplicaState::READY:
       MG_ASSERT(!replica_stream_);
       try {
         replica_stream_.emplace(storage, rpc_client_, current_wal_seq_num);
         replica_state.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
+        spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
         replica_state.store(replication::ReplicaState::RECOVERY_REQUIRED);
-        HandleRpcFailure(storage);
       }
       return;
   }
@@ -217,11 +215,9 @@ bool ReplicationClient::FinalizeTransactionReplication(Storage *storage,
       thread_pool_.AddTask([=, this] { this->RecoverReplica(response.current_commit_timestamp, storage); });
       return false;
     } catch (const rpc::RpcFailedException &) {
-      {
-        std::unique_lock client_guard(client_lock_);
-        setState(replication::ReplicaState::RECOVERY_REQUIRED);
-      }
-      HandleRpcFailure(storage);
+      spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
+      std::unique_lock client_guard(client_lock_);
+      setState(replication::ReplicaState::RECOVERY_REQUIRED);
       return false;
     }
   };
@@ -295,11 +291,9 @@ void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaS
   try {
     callback(*replica_stream_);  // failure state what if not streaming (std::nullopt)
   } catch (const rpc::RpcFailedException &) {
-    {
-      std::unique_lock client_guard{client_lock_};
-      replica_state.store(replication::ReplicaState::RECOVERY_REQUIRED);
-    }
-    HandleRpcFailure(storage);
+    spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
+    std::unique_lock client_guard{client_lock_};
+    replica_state.store(replication::ReplicaState::RECOVERY_REQUIRED);
   }
 }
 void ReplicationClient::StartFrequentCheck(Storage *storage, std::atomic<replication::ReplicaState> &replica_state) {

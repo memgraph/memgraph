@@ -149,12 +149,13 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
             recovery_step);
       } catch (const rpc::RpcFailedException &) {
         {
+          spdlog::error(
+              utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
           std::unique_lock client_guard{client_lock_};
           storage->repl_storage_state_.replication_clients_.WithLock([id = id_](ReplicationStorageState::TMP_THING &X) {
             X.states_[id] = replication::ReplicaState::RECOVERY_REQUIRED;
           });
         }
-        HandleRpcFailure(storage);
         return;
       }
     }

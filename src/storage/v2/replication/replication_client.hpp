@@ -109,7 +109,6 @@ class ReplicationClient {
   virtual void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) = 0;
 
   void InitializeReplicaState(Storage *storage, std::atomic<replication::ReplicaState> &replica_state);
-  void HandleRpcFailure(Storage *storage);
   void TryInitializeClientAsync(Storage *storage);
   void TryInitializeClientSync(Storage *storage, std::atomic<replication::ReplicaState> &replica_state);
   void FrequentCheck(Storage *storage, std::atomic<replication::ReplicaState> &replica_state);
