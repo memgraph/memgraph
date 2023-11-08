@@ -44,22 +44,39 @@ struct CachedValue {
   }
 
   // Func to check if cache_ contains value
-  bool CacheValue(const TypedValue &value) {
-    if (!value.IsList()) {
+  bool CacheValue(TypedValue &&maybe_list) {
+    if (!maybe_list.IsList()) {
       return false;
     }
-    const auto &list = value.ValueList();
+    auto &list = maybe_list.ValueList();
     TypedValue::Hash hash{};
-    for (const TypedValue &element : list) {
+    for (auto &element : list) {
       const auto key = hash(element);
       auto &vector_values = cache_[key];
       if (!IsValueInVec(vector_values, element)) {
-        vector_values.push_back(element);
+        vector_values.emplace_back(std::move(element));
       }
     }
     return true;
   }
-  // Func to cache_value inside cache_
+
+  bool CacheValue(const TypedValue &maybe_list) {
+    if (!maybe_list.IsList()) {
+      return false;
+    }
+    auto &list = maybe_list.ValueList();
+    TypedValue::Hash hash{};
+    for (auto &element : list) {
+      const auto key = hash(element);
+      auto &vector_values = cache_[key];
+      if (!IsValueInVec(vector_values, element)) {
+        vector_values.emplace_back(element);
+      }
+    }
+    return true;
+  }
+
+  // Func to check if cache_ contains value
   bool ContainsValue(const TypedValue &value) const {
     TypedValue::Hash hash{};
     const auto key = hash(value);
@@ -70,7 +87,7 @@ struct CachedValue {
   }
 
  private:
-  bool IsValueInVec(const std::vector<TypedValue> &vec_values, const TypedValue &value) const {
+  static bool IsValueInVec(const std::vector<TypedValue> &vec_values, const TypedValue &value) {
     return std::any_of(vec_values.begin(), vec_values.end(), [&value](auto &vec_value) {
       const auto is_value_equal = vec_value == value;
       if (is_value_equal.IsNull()) return false;
@@ -80,43 +97,37 @@ struct CachedValue {
 };
 
 // Class tracks keys for which user can cache values which help with faster search or faster retrieval
-// in the future.
+// in the future. Used for IN LIST operator.
 class FrameChangeCollector {
  public:
-  explicit FrameChangeCollector(utils::MemoryResource *mem) : tracked_values_(mem){};
+  explicit FrameChangeCollector() : tracked_values_(&memory_resource_){};
 
-  // Add tracking key to cache later value
   CachedValue &AddTrackingKey(const std::string &key) {
     const auto &[it, _] = tracked_values_.emplace(key, tracked_values_.get_allocator().GetMemoryResource());
     return it->second;
   }
 
-  // Is key tracked
   bool IsKeyTracked(const std::string &key) const { return tracked_values_.contains(key); }
 
-  // Is value for given key cached
   bool IsKeyValueCached(const std::string &key) const {
-    return tracked_values_.contains(key) && !tracked_values_.at(key).cache_.empty();
+    return IsKeyTracked(key) && !tracked_values_.at(key).cache_.empty();
   }
 
-  // Reset value for tracking key
   bool ResetTrackingValue(const std::string &key) {
-    if (tracked_values_.contains(key)) {
-      tracked_values_.erase(key);
-      AddTrackingKey(key);
+    if (!tracked_values_.contains(key)) {
+      return false;
     }
-
+    tracked_values_.erase(key);
+    AddTrackingKey(key);
     return true;
   }
 
-  // Get value cached for tracking key, throws if key is not in tracked
   CachedValue &GetCachedValue(const std::string &key) { return tracked_values_.at(key); }
 
-  // Checks for keys tracked
   bool IsTrackingValues() const { return !tracked_values_.empty(); }
 
  private:
-  // Key is output of utils::GetFrameChangeId, value is utils::pmr::unordered_map
+  utils::MonotonicBufferResource memory_resource_{0};
   memgraph::utils::pmr::unordered_map<std::string, CachedValue> tracked_values_;
 };
 }  // namespace memgraph::query

@@ -348,7 +348,7 @@ def test_basic_recovery(connection):
 def test_replication_role_recovery(connection):
     # Goal of this test is to check the recovery of main and replica role.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
-    # 1/ We try to add a replica with reserved name which results in an exception
+    # 1/ We try to add a replica with reserved name which results in an exception <- Schema changed, there are no reserved names now
     # 2/ We check that all replicas have the correct state: they should all be ready.
     # 3/ We kill main.
     # 4/ We re-start main. We check that main indeed has the role main and replicas still have the correct state.
@@ -411,9 +411,9 @@ def test_replication_role_recovery(connection):
             "data_directory": f"{data_directory.name}/main",
         },
     }
-    # 1/
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "REGISTER REPLICA __replication_role SYNC TO '127.0.0.1:10002';")
+    # 1/ Obsolete, schema change, no longer a reserved name
+    # with pytest.raises(mgclient.DatabaseError):
+    #     execute_and_fetch_all(cursor, "REGISTER REPLICA __replication_role SYNC TO '127.0.0.1:10002';")
 
     # 2/
     expected_data = {
