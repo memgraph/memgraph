@@ -218,38 +218,29 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   for (auto label : node_info.labels) {
-    if (const auto *labe_atom = std::get_if<storage::LabelId>(&label)) {
-      auto maybe_error = new_node.AddLabel(std::get<storage::LabelId>(label));
-      if (maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
-          case storage::Error::SERIALIZATION_ERROR:
-            throw TransactionSerializationException();
-          case storage::Error::DELETED_OBJECT:
-            throw QueryRuntimeException("Trying to set a label on a deleted node.");
-          case storage::Error::VERTEX_HAS_EDGES:
-          case storage::Error::PROPERTIES_DISABLED:
-          case storage::Error::NONEXISTENT_OBJECT:
-            throw QueryRuntimeException("Unexpected error when setting a label.");
-        }
+    auto maybe_error = std::invoke([&] {
+      if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
+        return new_node.AddLabel(*label_atom);
+      } else {
+        auto key = evaluator.Visit(*std::get<ParameterLookup *>(label));
+        return new_node.AddLabel(dba.NameToLabel(key.ValueString()));
       }
-      context.execution_stats[ExecutionStats::Key::CREATED_LABELS] += 1;
-    } else {
-      auto key = evaluator.Visit(*std::get<ParameterLookup *>(label));
-      auto maybe_error = new_node.AddLabel(dba.NameToLabel(key.ValueString()));
-      if (maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
-          case storage::Error::SERIALIZATION_ERROR:
-            throw TransactionSerializationException();
-          case storage::Error::DELETED_OBJECT:
-            throw QueryRuntimeException("Trying to set a label on a deleted node.");
-          case storage::Error::VERTEX_HAS_EDGES:
-          case storage::Error::PROPERTIES_DISABLED:
-          case storage::Error::NONEXISTENT_OBJECT:
-            throw QueryRuntimeException("Unexpected error when setting a label.");
-        }
+    });
+
+    if (maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case storage::Error::SERIALIZATION_ERROR:
+          throw TransactionSerializationException();
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to set a label on a deleted node.");
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw QueryRuntimeException("Unexpected error when setting a label.");
       }
-      context.execution_stats[ExecutionStats::Key::CREATED_LABELS] += 1;
     }
+
+    context.execution_stats[ExecutionStats::Key::CREATED_LABELS] += 1;
   }
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
