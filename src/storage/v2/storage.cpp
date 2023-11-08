@@ -106,19 +106,13 @@ std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
 
 std::vector<LabelId> Storage::Accessor::ListAllPossiblyPresentVertexLabels() const {
   std::vector<LabelId> vertex_labels;
-  vertex_labels.reserve(storage_->stored_node_labels_.size());
-  for (const auto label : storage_->stored_node_labels_) {
-    vertex_labels.push_back(label);
-  }
+  storage_->stored_node_labels_.for_each([&vertex_labels](const auto &label) { vertex_labels.push_back(label); });
   return vertex_labels;
 }
 
 std::vector<EdgeTypeId> Storage::Accessor::ListAllPossiblyPresentEdgeTypes() const {
   std::vector<EdgeTypeId> edge_types;
-  edge_types.reserve(storage_->stored_edge_types_.size());
-  for (const auto edge_type : storage_->stored_edge_types_) {
-    edge_types.push_back(edge_type);
-  }
+  storage_->stored_edge_types_.for_each([&edge_types](const auto &type) { edge_types.push_back(type); });
   return edge_types;
 }
 

@@ -40,6 +40,7 @@
 #include "utils/event_histogram.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/synchronized_metadata_store.hpp"
 #include "utils/timer.hpp"
 #include "utils/uuid.hpp"
 
@@ -407,8 +408,8 @@ class Storage {
   // be present in the database.
 
   // TODO(gvolfing): check if this would be faster with flat_maps.
-  std::unordered_set<LabelId> stored_node_labels_;
-  std::unordered_set<EdgeTypeId> stored_edge_types_;
+  utils::SynchronizedMetaDataStore<LabelId> stored_node_labels_;
+  utils::SynchronizedMetaDataStore<EdgeTypeId> stored_edge_types_;
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
