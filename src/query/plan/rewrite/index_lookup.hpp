@@ -105,6 +105,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_);
     op.expression_ = removal.trimmed_expression;
+    if (op.expression_) {
+      Filters leftover_filters;
+      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
+      op.all_filters_ = leftover_filters;
+    }
 
     // edge uniqueness filter comes always before filter in plan generation
     LogicalOperator *input = op.input().get();
