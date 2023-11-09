@@ -22,6 +22,7 @@
 #include "query_memory_control.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/rw_spin_lock.hpp"
 
@@ -144,29 +145,29 @@ void QueriesMemoryControl::PauseProcedureTracking(uint64_t transaction_id) {
   query_tracker->tracker.StopProcTracking();
 }
 
-inline bool &Get_Thread_Tracker() {
-  static thread_local bool is_thread_tracked{false};
+inline int &Get_Thread_Tracker() {
+  // store variable in bss segment for each thread
+  // https://cs-fundamentals.com/c-programming/memory-layout-of-c-program-code-data-segments#size-of-code-data-bss-segments
+  static thread_local int is_thread_tracked{0};
   return is_thread_tracked;
 }
 
-bool QueriesMemoryControl::IsThreadTracked() { return Get_Thread_Tracker(); }
+bool QueriesMemoryControl::IsThreadTracked() { return Get_Thread_Tracker() == 1; }
 
 #endif
 
 void StartTrackingCurrentThreadTransaction(uint64_t transaction_id) {
 #if USE_JEMALLOC
-
+  Get_Thread_Tracker() = 0;
   GetQueriesMemoryControl().UpdateThreadToTransactionId(std::this_thread::get_id(), transaction_id);
-  Get_Thread_Tracker() = true;
-  // GetQueriesMemoryControl().AddTrackingOnArena(QueriesMemoryControl::GetArenaForThread());
+  Get_Thread_Tracker() = 1;
 #endif
 }
 
 void StopTrackingCurrentThreadTransaction(uint64_t transaction_id) {
 #if USE_JEMALLOC
-  Get_Thread_Tracker() = false;
+  Get_Thread_Tracker() = 0;
   GetQueriesMemoryControl().EraseThreadToTransactionId(std::this_thread::get_id(), transaction_id);
-  // GetQueriesMemoryControl().RemoveTrackingOnArena(QueriesMemoryControl::GetArenaForThread());
 #endif
 }
 

@@ -179,7 +179,8 @@ void SetHooks() {
     return;
   }
 
-  // Needs init
+  // Needs init due to error we might encounter otherwise
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=13684
   [[maybe_unused]] const auto &queries_memory_control = GetQueriesMemoryControl();
 
   for (int i = 0; i < n_arenas; i++) {
