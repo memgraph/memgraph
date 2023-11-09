@@ -1617,20 +1617,18 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
       throw std::out_of_range{fmt::format("The result doesn't have any field named '{}'.", field_name)};
     }
 
-    // TODO add existence check
-    // get type - if vertex, edge, or collection (path, map, list)
-
-    if (ContainsDeleted(val)) {
-      throw DeletedObjectException{"Vertex deleted by parallel transaction!"};
-    }
+    // if (ContainsDeleted(val)) {
+    //   throw DeletedObjectException{"Vertex deleted by parallel transaction!"};
+    // }
 
     const auto *type = find_it->second.first;
     if (!type->SatisfiesType(*val)) {
       throw std::logic_error{
           fmt::format("The type of value doesn't satisfy the type '{}'!", type->GetPresentableName())};
     }
-    auto v = ToTypedValue(*val, memory);
-    record->values.emplace(field_name, v);
+    // auto v = ToTypedValue(*val, memory);
+    // record->values.emplace(field_name, v);
+    record->values.emplace(field_name, ToTypedValue(*val, memory));
   });
 }
 

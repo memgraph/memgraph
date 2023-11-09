@@ -985,3 +985,5 @@ struct mgp_messages {
 };
 
 memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory);
+
+bool ContainsDeleted(mgp_value *val);

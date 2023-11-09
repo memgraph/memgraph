@@ -867,6 +867,13 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 }
 
 namespace {
+struct RecordFieldCache {
+  PyObject *key;
+  PyObject *val;
+  const char *field_name;
+  mgp_value *field_val;
+};
+
 std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Object py_record, mgp_graph *graph,
                                                      mgp_memory *memory) {
   py::Object py_mgp(PyImport_ImportModule("mgp"));
@@ -892,12 +899,17 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
   if (RaiseExceptionFromErrorCode(mgp_result_new_record(result, &record))) {
     return py::FetchError();
   }
+  // std::vector<std::tuple<const char *, mgp_value *, PyObject *, PyObject *>> current_record_cache{};
+  std::vector<RecordFieldCache> current_record_cache{};
+  bool deleted_values = false;
+  int is_transactional;
+  std::ignore = mgp_graph_is_transactional(graph, &is_transactional);
   Py_ssize_t len = PyList_GET_SIZE(items.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
     auto *item = PyList_GET_ITEM(items.Ptr(), i);
     if (!item) return py::FetchError();
     MG_ASSERT(PyTuple_Check(item));
-    auto *key = PyTuple_GetItem(item, 0);
+    PyObject *key = PyTuple_GetItem(item, 0);
     if (!key) return py::FetchError();
     if (!PyUnicode_Check(key)) {
       std::stringstream ss;
@@ -906,32 +918,65 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
       PyErr_SetString(PyExc_TypeError, msg.c_str());
       return py::FetchError();
     }
-    const auto *field_name = PyUnicode_AsUTF8(key);
+    const char *field_name = PyUnicode_AsUTF8(key);
     if (!field_name) return py::FetchError();
-    auto *val = PyTuple_GetItem(item, 1);
+    PyObject *val = PyTuple_GetItem(item, 1);
     if (!val) return py::FetchError();
     // This memory is one dedicated for mg_procedure.
     mgp_value *field_val = PyObjectToMgpValueWithPythonExceptions(val, memory);
     if (field_val == nullptr) {
       return py::FetchError();
     }
-    auto any_error = mgp_result_record_insert(record, field_name, field_val);
-    int is_transactional;
-    mgp_graph_is_transactional(graph, &is_transactional);
-    if (any_error == mgp_error::MGP_ERROR_DELETED_OBJECT && !is_transactional) {
+
+    if (!is_transactional) {
+      if (ContainsDeleted(field_val)) {
+        mgp_value_destroy(field_val);
+        deleted_values = true;
+        break;
+      }
+      current_record_cache.emplace_back(
+          RecordFieldCache{.key = key, .val = val, .field_name = field_name, .field_val = field_val});
+      // current_record_cache.emplace_back(
+      // std::tuple<const char *, mgp_value *, PyObject *, PyObject *>{field_name, field_val, key, val});
+    } else {
+      if (mgp_result_record_insert(record, field_name, field_val) != mgp_error::MGP_ERROR_NO_ERROR) {
+        std::stringstream ss;
+        ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '"
+           << py::Object::FromBorrow(val) << "'; did you set the correct field type?";
+        const auto &msg = ss.str();
+        PyErr_SetString(PyExc_ValueError, msg.c_str());
+        mgp_value_destroy(field_val);
+        return py::FetchError();
+      }
       mgp_value_destroy(field_val);
+
       return std::nullopt;
-    } else if (any_error != mgp_error::MGP_ERROR_NO_ERROR) {
+    }
+  }
+
+  if (deleted_values) {
+    for (auto &cache_entry : current_record_cache) {
+      mgp_value_destroy(cache_entry.field_val);
+    }
+
+    return std::nullopt;
+  }
+
+  for (auto &cache_entry : current_record_cache) {
+    // auto [key, val, field_name, field_val] = cache_entry;
+    if (mgp_result_record_insert(record, cache_entry.field_name, cache_entry.field_val) !=
+        mgp_error::MGP_ERROR_NO_ERROR) {
       std::stringstream ss;
-      ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '"
-         << py::Object::FromBorrow(val) << "'; did you set the correct field type?";
+      ss << "Unable to insert field '" << py::Object::FromBorrow(cache_entry.key) << "' with value: '"
+         << py::Object::FromBorrow(cache_entry.val) << "'; did you set the correct field type?";
       const auto &msg = ss.str();
       PyErr_SetString(PyExc_ValueError, msg.c_str());
-      mgp_value_destroy(field_val);
+      mgp_value_destroy(cache_entry.field_val);
       return py::FetchError();
     }
-    mgp_value_destroy(field_val);
+    mgp_value_destroy(cache_entry.field_val);
   }
+
   return std::nullopt;
 }
 
