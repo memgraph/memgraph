@@ -397,7 +397,12 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     spdlog::info("All necessary WAL files are loaded successfully.");
   }
 
-  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
+  const auto par_exec_info =
+      config.durability.allow_parallel_index_creation
+          ? std::make_optional(std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count))
+          : std::nullopt;
+
+  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, par_exec_info);
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
