@@ -4745,7 +4745,6 @@ class CallProcedureCursor : public Cursor {
     // the result record, but it does not gurantee that some may be missing. See
     // `mgp_result_record_insert`.
     if (values.size() != result_signature_size_) {
-      // if (values.size() != result_signature_size_ && !(values.size() == 0)) {
       throw QueryRuntimeException(
           "Procedure '{}' did not yield all fields as required by its "
           "signature.",
@@ -4758,18 +4757,10 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
                                     field_name);
       }
-
       frame[self_->result_symbols_[i]] = std::move(result_it->second);
       if (context.frame_change_collector &&
           context.frame_change_collector->IsKeyTracked(self_->result_symbols_[i].name())) {
         context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());
-
-        // if (!(values.size() == 0)) {
-        //   frame[self_->result_symbols_[i]] = std::move(result_it->second);
-        //   if (context.frame_change_collector &&
-        //       context.frame_change_collector->IsKeyTracked(self_->result_symbols_[i].name())) {
-        //     context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());
-        //   }
       }
     }
     ++result_row_it_;
