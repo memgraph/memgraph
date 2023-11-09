@@ -31,7 +31,7 @@ class StorageConfigException : public utils::BasicException {
 /// the storage. This class also defines the default behavior.
 struct Config {
   struct Gc {
-    enum class Type { NONE, PERIODIC, PERIODIC_JEMALLOC };
+    enum class Type { NONE, PERIODIC };
 
     Type type{Type::PERIODIC};
     std::chrono::milliseconds interval{std::chrono::milliseconds(1000)};

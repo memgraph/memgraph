@@ -12,7 +12,6 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "dbms/constants.hpp"
 #include "memory/global_memory_control.hpp"
-#include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -104,7 +103,7 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     }
   }
 
-  if (config_.gc_jemalloc.type == Config::Gc::Type::PERIODIC_JEMALLOC) {
+  if (config_.gc_jemalloc.type == Config::Gc::Type::PERIODIC) {
     gc_jemalloc_runner_.Run("GC jemalloc", config_.gc_jemalloc.interval, [] { memory::PurgeUnusedMemory(); });
   }
 
@@ -127,7 +126,7 @@ InMemoryStorage::~InMemoryStorage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
   }
-  if (config_.gc.type == Config::Gc::Type::PERIODIC_JEMALLOC) {
+  if (config_.gc_jemalloc.type == Config::Gc::Type::PERIODIC) {
     gc_jemalloc_runner_.Stop();
   }
   {
