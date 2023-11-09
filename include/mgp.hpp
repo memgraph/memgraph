@@ -248,6 +248,8 @@ class Graph {
 
   /// @brief Returns whether the graph is mutable.
   bool IsMutable() const;
+  /// @brief Returns whether the graph is in a transactional storage mode.
+  bool IsTransactional() const;
   /// @brief Creates a node and adds it to the graph.
   Node CreateNode();
   /// @brief Deletes a node from the graph.
@@ -1991,6 +1993,8 @@ inline bool Graph::ContainsRelationship(const Relationship &relationship) const 
 }
 
 inline bool Graph::IsMutable() const { return mgp::graph_is_mutable(graph_); }
+
+inline bool Graph::IsTransactional() const { return mgp::graph_is_transactional(graph_); }
 
 inline Node Graph::CreateNode() {
   auto *vertex = mgp::MemHandlerCallback(graph_create_vertex, graph_);
