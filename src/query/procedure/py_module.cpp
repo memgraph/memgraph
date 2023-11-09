@@ -905,7 +905,6 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     }
   }
   std::vector<RecordFieldCache> current_record_cache{};
-  bool deleted_values = false;
   Py_ssize_t len = PyList_GET_SIZE(items.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
     auto *item = PyList_GET_ITEM(items.Ptr(), i);
@@ -933,7 +932,6 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     if (!is_transactional) {
       if (ContainsDeleted(field_val)) {
         mgp_value_destroy(field_val);
-        deleted_values = true;
         for (auto &cache_entry : current_record_cache) {
           mgp_value_destroy(cache_entry.field_val);
         }
