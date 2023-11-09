@@ -896,14 +896,16 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
   py::Object items(PyDict_Items(fields.Ptr()));
   if (!items) return py::FetchError();
   mgp_result_record *record{nullptr};
-  if (RaiseExceptionFromErrorCode(mgp_result_new_record(result, &record))) {
-    return py::FetchError();
-  }
-  // std::vector<std::tuple<const char *, mgp_value *, PyObject *, PyObject *>> current_record_cache{};
-  std::vector<RecordFieldCache> current_record_cache{};
-  bool deleted_values = false;
   int is_transactional;
   std::ignore = mgp_graph_is_transactional(graph, &is_transactional);
+  if (is_transactional) {
+    // IN_MEMORY_ANALYTICAL doesn’t add a new record before verifying that it contains no deleted values
+    if (RaiseExceptionFromErrorCode(mgp_result_new_record(result, &record))) {
+      return py::FetchError();
+    }
+  }
+  std::vector<RecordFieldCache> current_record_cache{};
+  bool deleted_values = false;
   Py_ssize_t len = PyList_GET_SIZE(items.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
     auto *item = PyList_GET_ITEM(items.Ptr(), i);
@@ -932,12 +934,14 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
       if (ContainsDeleted(field_val)) {
         mgp_value_destroy(field_val);
         deleted_values = true;
-        break;
+        for (auto &cache_entry : current_record_cache) {
+          mgp_value_destroy(cache_entry.field_val);
+        }
+
+        return std::nullopt;
       }
       current_record_cache.emplace_back(
           RecordFieldCache{.key = key, .val = val, .field_name = field_name, .field_val = field_val});
-      // current_record_cache.emplace_back(
-      // std::tuple<const char *, mgp_value *, PyObject *, PyObject *>{field_name, field_val, key, val});
     } else {
       if (mgp_result_record_insert(record, field_name, field_val) != mgp_error::MGP_ERROR_NO_ERROR) {
         std::stringstream ss;
@@ -949,21 +953,17 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
         return py::FetchError();
       }
       mgp_value_destroy(field_val);
-
-      return std::nullopt;
     }
   }
 
-  if (deleted_values) {
-    for (auto &cache_entry : current_record_cache) {
-      mgp_value_destroy(cache_entry.field_val);
-    }
-
+  if (is_transactional) {
     return std::nullopt;
   }
 
+  if (RaiseExceptionFromErrorCode(mgp_result_new_record(result, &record))) {
+    return py::FetchError();
+  }
   for (auto &cache_entry : current_record_cache) {
-    // auto [key, val, field_name, field_val] = cache_entry;
     if (mgp_result_record_insert(record, cache_entry.field_name, cache_entry.field_val) !=
         mgp_error::MGP_ERROR_NO_ERROR) {
       std::stringstream ss;
