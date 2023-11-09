@@ -398,7 +398,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   }
 
   const auto par_exec_info =
-      config.durability.allow_parallel_index_creation
+      config.durability.allow_parallel_index_creation && !recovery_info.vertex_batches.empty()
           ? std::make_optional(std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count))
           : std::nullopt;
 
