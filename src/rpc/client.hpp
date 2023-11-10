@@ -129,9 +129,9 @@ class Client {
       return [client, self](const uint8_t *data, size_t size, bool have_more) {
         if (self->defunct_) throw GenericRpcFailedException();
         if (!client->client_->Write(data, size, have_more)) {
+          self->defunct_ = true;
           client->Abort();
           self->guard_.unlock();
-          self->defunct_ = true;
           throw GenericRpcFailedException();
         }
       };

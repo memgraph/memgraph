@@ -151,7 +151,7 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
           std::unique_lock client_guard{client_lock_};
           replica_state_.store(replication::ReplicaState::INVALID);
         }
-        HandleRpcFailure(storage);
+        LogRpcFailure();
         return;
       }
     }
@@ -166,10 +166,10 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
     // replica checks if it's the same last commit timestamp it received
     // and we will go to recovery.
     // By adding this lock, we can avoid that, and go to RECOVERY immediately.
-    std::unique_lock client_guard{client_lock_};
     const auto last_commit_timestamp = storage->repl_storage_state_.last_commit_timestamp_.load();
     SPDLOG_INFO("Replica timestamp: {}", replica_commit);
     SPDLOG_INFO("Last commit: {}", last_commit_timestamp);
+    std::unique_lock client_guard{client_lock_};
     if (last_commit_timestamp == replica_commit) {
       replica_state_.store(replication::ReplicaState::READY);
       return;
