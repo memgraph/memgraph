@@ -160,6 +160,9 @@ void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_s
       // an error can happen while we're replicating the previous
       // transaction after which the client should go to
       // INVALID state before starting the recovery process
+      //
+      // This is a signal to any async streams that are still finalizing to start recovery, since this commit will be
+      // missed.
       replica_state_.store(replication::ReplicaState::RECOVERY);
       return;
     case replication::ReplicaState::INVALID:
@@ -194,8 +197,8 @@ bool ReplicationClient::FinalizeTransactionReplication(Storage *storage) {
     MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
     try {
       auto response = replica_stream_->Finalize();
-      replica_stream_.reset();  // TODO: Move under the lock
       std::unique_lock client_guard(client_lock_);
+      replica_stream_.reset();
       if (!response.success || replica_state_ == replication::ReplicaState::RECOVERY) {
         replica_state_.store(replication::ReplicaState::RECOVERY);
         thread_pool_.AddTask([=, this] { this->RecoverReplica(response.current_commit_timestamp, storage); });
@@ -204,8 +207,8 @@ bool ReplicationClient::FinalizeTransactionReplication(Storage *storage) {
         return true;
       }
     } catch (const rpc::RpcFailedException &) {
-      replica_stream_.reset();  // TODO: Move under the lock
       std::unique_lock client_guard(client_lock_);
+      replica_stream_.reset();
       replica_state_.store(replication::ReplicaState::INVALID);
       LogRpcFailure();
     }
