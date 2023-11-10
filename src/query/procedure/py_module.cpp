@@ -896,8 +896,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
   py::Object items(PyDict_Items(fields.Ptr()));
   if (!items) return py::FetchError();
   mgp_result_record *record{nullptr};
-  int is_transactional;
-  std::ignore = mgp_graph_is_transactional(graph, &is_transactional);
+  auto is_transactional = MgpGraphIsTransactional(*graph);
   if (is_transactional) {
     // IN_MEMORY_ANALYTICAL doesn’t add a new record before verifying that it contains no deleted values
     if (RaiseExceptionFromErrorCode(mgp_result_new_record(result, &record))) {
@@ -1214,9 +1213,26 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
   auto call = [&](py::Object py_graph) -> utils::BasicResult<std::optional<py::ExceptionInfo>, mgp_value *> {
     py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
     if (!py_args) return {py::FetchError()};
+    auto is_transactional = MgpGraphIsTransactional(*graph);
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return {py::FetchError()};
     mgp_value *ret_val = PyObjectToMgpValueWithPythonExceptions(py_res.Ptr(), memory);
+    if (!is_transactional && ContainsDeleted(ret_val)) {
+      mgp_value *null_val{nullptr};
+      mgp_error last_error{mgp_error::MGP_ERROR_NO_ERROR};
+
+      last_error = mgp_value_make_null(memory, &null_val);
+
+      if (last_error == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        throw std::bad_alloc{};
+      }
+      if (last_error != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::runtime_error{"Unexpected error while creating mgp_value"};
+      }
+
+      return null_val;
+    }
+
     if (ret_val == nullptr) {
       return {py::FetchError()};
     }
