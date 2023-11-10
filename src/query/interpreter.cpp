@@ -4028,7 +4028,7 @@ void Interpreter::Commit() {
   }
 
   if (frame_change_collector_) {
-    frame_change_collector_.reset();
+    frame_change_collector_.value().~FrameChangeCollector();
   }
 
   if (trigger_context) {
