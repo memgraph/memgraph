@@ -4584,10 +4584,8 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     }
 
     std::erase_if(result->rows, [](mgp_result_record rec) {
-      for (const auto &[key, value] : rec.values) {
-        if (value.ContainsDeleted()) return true;
-      }
-      return false;
+      return std::ranges::any_of(rec.values.begin(), rec.values.end(),
+                                 [](auto &item) { return item.second.ContainsDeleted(); });
     });
 
     return;
