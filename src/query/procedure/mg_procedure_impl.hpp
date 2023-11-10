@@ -984,6 +984,8 @@ struct mgp_messages {
   storage_type messages;
 };
 
-memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory);
+bool MgpGraphIsTransactional(const mgp_graph &graph) noexcept;
 
 bool ContainsDeleted(mgp_value *val);
+
+memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory);
