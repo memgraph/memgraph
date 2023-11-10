@@ -3467,8 +3467,6 @@ class AggregateCursor : public Cursor {
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 
-      if (aggregation_it_ == aggregation_.end()) return false;
-
       if (aggregation_.empty()) {
         auto *pull_memory = context.evaluation_context.memory;
         // place default aggregation values on the frame
@@ -3489,6 +3487,7 @@ class AggregateCursor : public Cursor {
         return true;
       }
     }
+    if (aggregation_it_ == aggregation_.end()) return false;
 
     // place aggregation values on the frame
     auto aggregation_values_it = aggregation_it_->second.values_.begin();
