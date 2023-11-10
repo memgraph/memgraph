@@ -102,10 +102,10 @@ class ReplicationClient {
  protected:
   virtual void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) = 0;
 
-  void InitializeClient(Storage *storage);
+  void CheckReplicaState(Storage *storage);
   void LogRpcFailure();
-  void TryInitializeClientAsync(Storage *storage);
-  void TryInitializeClientSync(Storage *storage);
+  void TryCheckReplicaStateAsync(Storage *storage);
+  void TryCheckReplicaStateSync(Storage *storage);
   void FrequentCheck(Storage *storage);
 
   std::string name_;
@@ -116,7 +116,7 @@ class ReplicationClient {
   std::optional<ReplicaStream> replica_stream_;
   memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
 
-  utils::SpinLock client_lock_;
+  utils::SpinLock state_lock_;
   // This thread pool is used for background tasks so we don't
   // block the main storage thread
   // We use only 1 thread for 2 reasons:
@@ -131,7 +131,7 @@ class ReplicationClient {
   //    Not having mulitple possible threads in the same client allows us
   //    to ignore concurrency problems inside the client.
   utils::ThreadPool thread_pool_{1};
-  std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::INVALID};
+  std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::MAYBE_BEHIND};
 
   utils::Scheduler replica_checker_;
 };

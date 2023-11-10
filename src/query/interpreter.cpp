@@ -404,8 +404,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         case storage::replication::ReplicaState::RECOVERY:
           replica.state = ReplicationQuery::ReplicaState::RECOVERY;
           break;
-        case storage::replication::ReplicaState::INVALID:
-          replica.state = ReplicationQuery::ReplicaState::INVALID;
+        case storage::replication::ReplicaState::MAYBE_BEHIND:
+          replica.state = ReplicationQuery::ReplicaState::MAYBE_BEHIND;
           break;
       }
 
@@ -822,7 +822,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
             case ReplicationQuery::ReplicaState::RECOVERY:
               typed_replica.emplace_back("recovery");
               break;
-            case ReplicationQuery::ReplicaState::INVALID:
+            case ReplicationQuery::ReplicaState::MAYBE_BEHIND:
               typed_replica.emplace_back("invalid");
               break;
           }

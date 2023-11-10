@@ -147,7 +147,7 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
           auto client = storage->CreateReplicationClient(config);
           client->Start(storage);
 
-          if (client->State() == storage::replication::ReplicaState::INVALID) {
+          if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
             return false;
           }
           clients.push_back(std::move(client));
@@ -202,7 +202,7 @@ void RestoreReplication(const replication::ReplicationState &repl_state, storage
               auto client = storage.CreateReplicationClient(config);
               client->Start(&storage);
 
-              if (client->State() == storage::replication::ReplicaState::INVALID) {
+              if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
                 spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
                              client->Name());
               }

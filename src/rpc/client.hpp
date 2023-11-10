@@ -80,10 +80,18 @@ class Client {
       while (true) {
         auto ret = slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
         if (ret.status == slk::StreamStatus::INVALID) {
+          // Logically invalid state, connection is still up, defunct stream and release
+          defunct_ = true;
+          guard_.unlock();
           throw GenericRpcFailedException();
-        } else if (ret.status == slk::StreamStatus::PARTIAL) {
+        }
+        if (ret.status == slk::StreamStatus::PARTIAL) {
           if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
                                     /* exactly_len = */ false)) {
+            // Failed connection, abort and let somebody retry in the future
+            defunct_ = true;
+            self_->Abort();
+            guard_.unlock();
             throw GenericRpcFailedException();
           }
         } else {
@@ -113,7 +121,9 @@ class Client {
       // Check the response ID.
       if (res_id != res_type.id && res_id != utils::TypeId::UNKNOWN) {
         spdlog::error("Message response was of unexpected type");
-        self_->client_ = std::nullopt;
+        // Logically invalid state, connection is still up, defunct stream and release
+        defunct_ = true;
+        guard_.unlock();
         throw GenericRpcFailedException();
       }
 

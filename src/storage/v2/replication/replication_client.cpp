@@ -40,7 +40,7 @@ ReplicationClient::~ReplicationClient() {
   thread_pool_.Shutdown();
 }
 
-void ReplicationClient::InitializeClient(Storage *storage) {
+void ReplicationClient::CheckReplicaState(Storage *storage) {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
   auto &replStorageState = storage->repl_storage_state_;
@@ -73,7 +73,7 @@ void ReplicationClient::InitializeClient(Storage *storage) {
   current_commit_timestamp = replica.current_commit_timestamp;
   spdlog::trace("Current timestamp on replica {}: {}", name_, current_commit_timestamp);
   spdlog::trace("Current timestamp on main: {}", replStorageState.last_commit_timestamp_.load());
-  std::unique_lock client_guard{client_lock_};
+  std::unique_lock client_guard{state_lock_};
   if (current_commit_timestamp == replStorageState.last_commit_timestamp_.load()) {
     spdlog::debug("Replica '{}' up to date", name_);
     replica_state_.store(replication::ReplicaState::READY);
@@ -94,8 +94,8 @@ TimestampInfo ReplicationClient::GetTimestampInfo(Storage *storage) {
     const auto response = stream.AwaitResponse();
     const auto is_success = response.success;
     if (!is_success) {
-      std::unique_lock client_guard(client_lock_);
-      replica_state_.store(replication::ReplicaState::INVALID);
+      std::unique_lock client_guard(state_lock_);
+      replica_state_.store(replication::ReplicaState::MAYBE_BEHIND);
       LogRpcFailure();
     }
     auto main_time_stamp = storage->repl_storage_state_.last_commit_timestamp_.load();
@@ -103,8 +103,8 @@ TimestampInfo ReplicationClient::GetTimestampInfo(Storage *storage) {
     info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
   } catch (const rpc::RpcFailedException &) {
     {
-      std::unique_lock client_guard(client_lock_);
-      replica_state_.store(replication::ReplicaState::INVALID);
+      std::unique_lock client_guard(state_lock_);
+      replica_state_.store(replication::ReplicaState::MAYBE_BEHIND);
     }
     LogRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably
                       // won't block
@@ -119,33 +119,33 @@ void ReplicationClient::LogRpcFailure() {
   // TryInitializeClientAsync(storage);
 }
 
-void ReplicationClient::TryInitializeClientAsync(Storage *storage) {
+void ReplicationClient::TryCheckReplicaStateAsync(Storage *storage) {
   thread_pool_.AddTask([=, this] {
-    rpc_client_.Abort();
-    this->TryInitializeClientSync(storage);
+    // rpc_client_.Abort();
+    this->TryCheckReplicaStateSync(storage);
   });
 }
 
-void ReplicationClient::TryInitializeClientSync(Storage *storage) {
+void ReplicationClient::TryCheckReplicaStateSync(Storage *storage) {
   try {
-    InitializeClient(storage);
+    CheckReplicaState(storage);
   } catch (const rpc::VersionMismatchRpcFailedException &) {
-    std::unique_lock client_guard{client_lock_};
-    replica_state_.store(replication::ReplicaState::INVALID);
+    std::unique_lock client_guard{state_lock_};
+    replica_state_.store(replication::ReplicaState::MAYBE_BEHIND);
     spdlog::error(
         utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}. Because the replica "
                                "deployed is not a compatible version.",
                                name_, rpc_client_.Endpoint(), "https://memgr.ph/replication"));
   } catch (const rpc::RpcFailedException &) {
-    std::unique_lock client_guard{client_lock_};
-    replica_state_.store(replication::ReplicaState::INVALID);
+    std::unique_lock client_guard{state_lock_};
+    replica_state_.store(replication::ReplicaState::MAYBE_BEHIND);
     spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.", name_,
                                          rpc_client_.Endpoint(), "https://memgr.ph/replication"));
   }
 }
 
 void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_seq_num, Storage *storage) {
-  std::unique_lock guard(client_lock_);
+  std::unique_lock guard(state_lock_);
   const auto status = replica_state_.load();
   switch (status) {
     case replication::ReplicaState::RECOVERY:
@@ -165,9 +165,9 @@ void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_s
       // missed.
       replica_state_.store(replication::ReplicaState::RECOVERY);
       return;
-    case replication::ReplicaState::INVALID:
+    case replication::ReplicaState::MAYBE_BEHIND:
       spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
-      TryInitializeClientAsync(storage);
+      TryCheckReplicaStateAsync(storage);
       return;
     case replication::ReplicaState::READY:
       MG_ASSERT(!replica_stream_);
@@ -175,7 +175,7 @@ void ReplicationClient::StartTransactionReplication(const uint64_t current_wal_s
         replica_stream_.emplace(storage, rpc_client_, current_wal_seq_num);
         replica_state_.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
-        replica_state_.store(replication::ReplicaState::INVALID);
+        replica_state_.store(replication::ReplicaState::MAYBE_BEHIND);
         LogRpcFailure();
       }
       return;
@@ -197,7 +197,7 @@ bool ReplicationClient::FinalizeTransactionReplication(Storage *storage) {
     MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
     try {
       auto response = replica_stream_->Finalize();
-      std::unique_lock client_guard(client_lock_);
+      std::unique_lock client_guard(state_lock_);
       replica_stream_.reset();
       if (!response.success || replica_state_ == replication::ReplicaState::RECOVERY) {
         replica_state_.store(replication::ReplicaState::RECOVERY);
@@ -207,9 +207,9 @@ bool ReplicationClient::FinalizeTransactionReplication(Storage *storage) {
         return true;
       }
     } catch (const rpc::RpcFailedException &) {
-      std::unique_lock client_guard(client_lock_);
+      std::unique_lock client_guard(state_lock_);
       replica_stream_.reset();
-      replica_state_.store(replication::ReplicaState::INVALID);
+      replica_state_.store(replication::ReplicaState::MAYBE_BEHIND);
       LogRpcFailure();
     }
     return false;
@@ -240,12 +240,12 @@ void ReplicationClient::FrequentCheck(Storage *storage) {
   // NOTE: TryInitializeClient might return nothing if there is a branching point.
   // NOTE: The early return pattern simplified the code, but the behavior should be as explained.
   if (!is_success) {
-    std::unique_lock client_guard{client_lock_};
-    replica_state_.store(replication::ReplicaState::INVALID);
+    std::unique_lock client_guard{state_lock_};
+    replica_state_.store(replication::ReplicaState::MAYBE_BEHIND);
     return;
   }
-  if (replica_state_.load() == replication::ReplicaState::INVALID) {
-    TryInitializeClientAsync(storage);
+  if (replica_state_.load() == replication::ReplicaState::MAYBE_BEHIND) {
+    TryCheckReplicaStateAsync(storage);
   }
 }
 
@@ -253,7 +253,7 @@ void ReplicationClient::Start(Storage *storage) {
   auto const &endpoint = rpc_client_.Endpoint();
   spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
 
-  TryInitializeClientSync(storage);
+  TryCheckReplicaStateSync(storage);
 
   // Help the user to get the most accurate replica state possible.
   if (replica_check_frequency_ > std::chrono::seconds(0)) {
@@ -275,8 +275,8 @@ void ReplicationClient::IfStreamingTransaction(const std::function<void(ReplicaS
   try {
     callback(*replica_stream_);  // failure state what if not streaming (std::nullopt)
   } catch (const rpc::RpcFailedException &) {
-    std::unique_lock client_guard{client_lock_};
-    replica_state_.store(replication::ReplicaState::INVALID);
+    std::unique_lock client_guard{state_lock_};
+    replica_state_.store(replication::ReplicaState::MAYBE_BEHIND);
     LogRpcFailure();
   }
 }

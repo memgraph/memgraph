@@ -148,8 +148,8 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
             recovery_step);
       } catch (const rpc::RpcFailedException &) {
         {
-          std::unique_lock client_guard{client_lock_};
-          replica_state_.store(replication::ReplicaState::INVALID);
+          std::unique_lock client_guard{state_lock_};
+          replica_state_.store(replication::ReplicaState::MAYBE_BEHIND);
         }
         LogRpcFailure();
         return;
@@ -169,7 +169,7 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
     const auto last_commit_timestamp = storage->repl_storage_state_.last_commit_timestamp_.load();
     SPDLOG_INFO("Replica timestamp: {}", replica_commit);
     SPDLOG_INFO("Last commit: {}", last_commit_timestamp);
-    std::unique_lock client_guard{client_lock_};
+    std::unique_lock client_guard{state_lock_};
     if (last_commit_timestamp == replica_commit) {
       replica_state_.store(replication::ReplicaState::READY);
       return;
