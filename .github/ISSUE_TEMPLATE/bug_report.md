@@ -3,7 +3,6 @@ name: Bug report
 about: Create a report to help us improve
 title: ""
 labels: bug
-assignees: gitbuda
 ---
 
 **Memgraph version**
@@ -11,8 +10,8 @@ Which version did you use?
 
 **Environment**
 Some information about the environment you are using Memgraph on: operating
-system, architecture (ARM, x86), how do you connect, with or without docker,
-which driver etc.
+system, architecture (ARM, x86), how do you connect, are you running queries
+concurrently, with or without docker, which driver, etc.
 
 **Describe the bug**
 A clear and concise description of what the bug is.
@@ -29,6 +28,10 @@ A clear and concise description of what you expected to happen.
 **Logs**
 If applicable, add logs of Memgraph, CLI output or screenshots to help explain
 your problem.
+
+**Data**
+If possible, put a link to the snapshot file. Sharing the data greatly increases
+the chances of reproducing the problem and resolving the issue in the shortest time.
 
 **Additional context**
 Add any other context about the problem here.
