@@ -953,18 +953,7 @@ DEFINE_MGP_VALUE_MAKE_WITH_MEMORY(string, const char *);
 
 DEFINE_MGP_VALUE_MAKE(list)
 DEFINE_MGP_VALUE_MAKE(map)
-// DEFINE_MGP_VALUE_MAKE(vertex)
-
-mgp_error mgp_value_make_vertex(mgp_vertex *val, mgp_value **result) {
-  auto a = WrapExceptions(
-      [val] {
-        auto a = NewRawMgpObject<mgp_value>(val->GetMemoryResource(), val);
-        return a;
-      },
-      result);
-  return a;
-}
-
+DEFINE_MGP_VALUE_MAKE(vertex)
 DEFINE_MGP_VALUE_MAKE(edge)
 DEFINE_MGP_VALUE_MAKE(path)
 DEFINE_MGP_VALUE_MAKE(date)

@@ -365,12 +365,12 @@ bool TypedValue::IsGraph() const { return type_ == Type::Graph; }
 bool TypedValue::ContainsDeleted() const {
   switch (type_) {
     case Type::List:
-      for (auto &elem : list_v) {
+      for (const auto &elem : list_v) {
         if (elem.ContainsDeleted()) return true;
       }
       return false;
     case Type::Map:
-      for (auto &[_, map_value] : map_v) {
+      for (const auto &[_, map_value] : map_v) {
         if (map_value.ContainsDeleted()) return true;
       }
       return false;
@@ -379,13 +379,10 @@ bool TypedValue::ContainsDeleted() const {
     case Type::Edge:
       return edge_v.impl_.edge_.ptr->deleted;
     case Type::Path:
-      for (auto &vertex_acc : path_v.vertices()) {
+      for (const auto &vertex_acc : path_v.vertices()) {
         if (vertex_acc.impl_.vertex_->deleted) return true;
       }
-      for (auto &edge_acc : path_v.edges()) {
-        if (edge_acc.impl_.edge_.ptr->deleted) return true;
-      }
-      return false;
+      std::ranges::any_of(path_v.edges(), [](auto &edge_acc) { return edge_acc.impl_.edge_.ptr->deleted; });
     default:
       break;
   }
