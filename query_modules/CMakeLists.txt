@@ -10,7 +10,7 @@ disallow_in_source_build()
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "query_modules")
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
-add_library(example_c SHARED example.c)
+add_library(example_c STATIC example.c)
 target_include_directories(example_c PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(example_c PRIVATE -Wall -static-libstdc++ -static-libgcc)
 # Strip C example in release build.
@@ -21,11 +21,11 @@ if (lower_build_type STREQUAL "release")
 endif()
 install(PROGRAMS $<TARGET_FILE:example_c>
         DESTINATION lib/memgraph/query_modules
-        RENAME example_c.so)
+        RENAME example_c.a)
 # Also install the source of the example, so user can read it.
 install(FILES example.c DESTINATION lib/memgraph/query_modules/src)
 
-add_library(example_cpp SHARED example.cpp)
+add_library(example_cpp STATIC example.cpp)
 target_include_directories(example_cpp PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(example_cpp PRIVATE -Wall -static-libstdc++ -static-libgcc)
 # Strip C++ example in release build.
@@ -36,11 +36,11 @@ if (lower_build_type STREQUAL "release")
 endif()
 install(PROGRAMS $<TARGET_FILE:example_cpp>
         DESTINATION lib/memgraph/query_modules
-        RENAME example_cpp.so)
+        RENAME example_cpp.a)
 # Also install the source of the example, so user can read it.
 install(FILES example.cpp DESTINATION lib/memgraph/query_modules/src)
 
-add_library(schema SHARED schema.cpp)
+add_library(schema STATIC schema.cpp)
 target_include_directories(schema PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(schema PRIVATE -Wall -static-libstdc++ -static-libgcc)
 # Strip C++ example in release build.
@@ -51,7 +51,7 @@ if (lower_build_type STREQUAL "release")
 endif()
 install(PROGRAMS $<TARGET_FILE:schema>
         DESTINATION lib/memgraph/query_modules
-        RENAME schema.so)
+        RENAME schema.a)
 # Also install the source of the example, so user can read it.
 install(FILES schema.cpp DESTINATION lib/memgraph/query_modules/src)
 
