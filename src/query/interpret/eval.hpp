@@ -315,8 +315,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           return std::move(*preoperational_checks);
         }
         auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
-        cached_value.CacheValue(std::move(list));
-        spdlog::trace("Value cached {}", *cached_id);
+        cached_value.CacheValue(list);
       }
       const auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
 
@@ -338,7 +337,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
 
     const auto &list_value = list.ValueList();
-    spdlog::trace("Not using cache on IN LIST operator");
     auto has_null = false;
     for (const auto &element : list_value) {
       auto result = literal == element;
