@@ -11,6 +11,8 @@
 
 #include <mgp.hpp>
 
+#include <cassert>
+
 namespace Schema {
 
 constexpr std::string_view kReturnNodeType = "nodeType";
@@ -164,6 +166,48 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
   }
 }
 
+void CreateIndices(const mgp::Map &indices_map, mgp_graph *memgraph_graph, const auto &record_factory) {
+  for (const auto &[label, property] : indices_map) {
+    const auto property_str = property.ValueString();
+    auto success = std::invoke([memgraph_graph, label, property_str]() {
+      if (property_str.empty()) {
+        return mgp::CreateLabelIndexImpl(memgraph_graph, label);
+      }
+      return mgp::CreateLabelPropertyIndex(memgraph_graph, label, property_str);
+    });
+    if (success) {
+      auto record = record_factory.NewRecord();
+      record.Insert(std::string(Schema::kReturnLabel).c_str(), label);
+      record.Insert(std::string(Schema::kReturnKey).c_str(), property_str);
+      record.Insert(std::string(Schema::kReturnKeys).c_str(), mgp::List({property}));
+      record.Insert(std::string(Schema::kReturnUnique).c_str(), false);
+      record.Insert(std::string(Schema::kReturnAction).c_str(), "Created");
+    }
+  }
+}
+
+void CreateExistenceConstraints(const mgp::Map &existence_constraints_map, mgp_graph *memgraph_graph) {
+  for (const auto &[label, property] : existence_constraints_map) {
+    const auto property_str = property.ValueString();
+    assert((!property_str.empty()) && "Property name must be provided for existence constraint");
+    mgp::CreateExistenceConstraint(memgraph_graph, label, property_str);
+  }
+}
+
+void CreateUniqueConstraints(const mgp::Map &unique_constraints_map, mgp_graph *memgraph_graph) {
+  for (const auto &[label, properties] : unique_constraints_map) {
+    auto properties_list = properties.ValueList();
+    std::vector<std::string_view> properties_str;
+    properties_str.reserve(properties_list.Size());
+    for (const auto &property : properties_list) {
+      const auto property_str = property.ValueString();
+      assert((!property_str.empty()) && "Property name must be provided for unique constraint");
+      properties_str.push_back(property_str);
+    }
+    mgp::CreateUniqueConstraint(memgraph_graph, label, properties_str);
+  }
+}
+
 void Schema::Assert(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
@@ -172,7 +216,20 @@ void Schema::Assert(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
   auto unique_constraints_map = arguments[1].ValueMap();
   auto existence_constraints_map = arguments[2].ValueMap();
 
-  const mgp::Graph graph = mgp::Graph(memgraph_graph);
+  CreateIndices(indices_map, memgraph_graph);
+  CreateUniqueConstraints(unique_constraints_map, memgraph_graph);
+  CreateExistenceConstraints(existence_constraints_map, memgraph_graph);
+
+  auto record = record_factory.NewRecord();
+  record.Insert(std::string(kReturnLabel).c_str(), "All");
+  record.Insert(std::string(kReturnKey).c_str(), "All");
+  record.Insert(std::string(kReturnKeys).c_str(), mgp::List());
+  record.Insert(std::string(kReturnUnique).c_str(), false);
+  record.Insert(std::string(kReturnAction).c_str(), "Created");
+
+  // mgp::Graph ima pointer na mgp_graph
+  // DropIndex(mgp_graph *memgraph_graph);
+  // Take care about the lock
 }
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
@@ -211,7 +268,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                   mgp::Return(std::string(Schema::kReturnAction).c_str(), mgp::Type::String)},
                  module, memory);
   } catch (const std::exception &e) {
-    std::cerr << e.what() << std::endl;
+    std::cerr << "Error while initializing query module: " << e.what() << std::endl;
     return 1;
   }
 
