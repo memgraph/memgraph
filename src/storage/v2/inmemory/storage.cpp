@@ -1759,7 +1759,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
 
   append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
     wal_file_->AppendDelta(delta, parent, timestamp);
-    repl_storage_state_.AppendDelta(delta, parent, timestamp, this);
+    repl_storage_state_.AppendDelta(delta, parent, timestamp);
   });
 
   // Add a delta that indicates that the transaction is fully written to the WAL
@@ -1854,8 +1854,7 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 LabelPropertyIndexStats property_stats,
                                                 uint64_t final_commit_timestamp) {
   wal_file_->AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
-  repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp,
-                                      this);
+  repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,

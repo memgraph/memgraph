@@ -24,33 +24,30 @@ void ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *s
   });
 }
 
-void ReplicationStorageState::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp,
-                                          Storage *storage) {
+void ReplicationStorageState::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp) {
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, vertex, timestamp); }, storage);
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, vertex, timestamp); });
     }
   });
 }
 
-void ReplicationStorageState::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp, Storage *storage) {
+void ReplicationStorageState::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp) {
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, edge, timestamp); }, storage);
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, edge, timestamp); });
     }
   });
 }
 void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                                               const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                                               const LabelPropertyIndexStats &property_stats,
-                                              uint64_t final_commit_timestamp, Storage *storage) {
+                                              uint64_t final_commit_timestamp) {
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
-      client->IfStreamingTransaction(
-          [&](auto &stream) {
-            stream.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
-          },
-          storage);
+      client->IfStreamingTransaction([&](auto &stream) {
+        stream.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+      });
     }
   });
 }
@@ -59,7 +56,7 @@ bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *s
   return replication_clients_.WithLock([=](auto &clients) {
     bool finalized_on_all_replicas = true;
     for (ReplicationClientPtr &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); }, storage);
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); });
       const auto finalized = client->FinalizeTransactionReplication(storage);
 
       if (client->Mode() == memgraph::replication::ReplicationMode::SYNC) {

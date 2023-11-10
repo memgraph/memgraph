@@ -23,9 +23,11 @@
 #include "storage/v2/replication/rpc.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 
 #include <atomic>
+#include <functional>
 #include <optional>
 #include <set>
 #include <string>
@@ -85,7 +87,7 @@ class ReplicationClient {
   auto Mode() const -> memgraph::replication::ReplicationMode { return mode_; }
   auto Name() const -> std::string const & { return name_; }
   auto Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
-  auto State() const -> replication::ReplicaState { return replica_state_.load(); }
+  auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
   auto GetTimestampInfo(Storage *storage) -> TimestampInfo;
 
   void Start(Storage *storage);
@@ -95,7 +97,7 @@ class ReplicationClient {
   // we want to send part of transaction and to avoid adding some GC logic this
   // function will run a callback if, after previously callling
   // StartTransactionReplication, stream is created.
-  void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback, Storage *storage);
+  void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback);
   // Return whether the transaction could be finalized on the replication client or not.
   [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage);
 
@@ -116,7 +118,8 @@ class ReplicationClient {
   std::optional<ReplicaStream> replica_stream_;
   memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
 
-  utils::SpinLock state_lock_;
+  mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
+      replication::ReplicaState::MAYBE_BEHIND};
   // This thread pool is used for background tasks so we don't
   // block the main storage thread
   // We use only 1 thread for 2 reasons:
@@ -131,7 +134,6 @@ class ReplicationClient {
   //    Not having mulitple possible threads in the same client allows us
   //    to ignore concurrency problems inside the client.
   utils::ThreadPool thread_pool_{1};
-  std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::MAYBE_BEHIND};
 
   utils::Scheduler replica_checker_;
 };

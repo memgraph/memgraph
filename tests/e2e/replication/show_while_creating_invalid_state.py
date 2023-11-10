@@ -630,10 +630,26 @@ def test_async_replication_when_main_is_killed():
         )
 
         # 2/
-        for index in range(50):
+        # First make sure that anything has been replicated
+        for index in range(0, 5):
+            interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
+        expected_data = [("async_replica", "127.0.0.1:10001", "async", "ready")]
+
+        def retrieve_data():
+            replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+            return [
+                (replica_name, ip, mode, status)
+                for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+            ]
+
+        actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+        assert actual_data == expected_data
+
+        for index in range(5, 50):
             interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
             if random.randint(0, 100) > 95:
                 main_killed = f"Main was killed at index={index}"
+                print(main_killed)
                 interactive_mg_runner.kill(CONFIGURATION, "main")
                 break
 
