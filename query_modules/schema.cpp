@@ -13,15 +13,24 @@
 
 namespace Schema {
 
-/*NodeTypeProperties and RelTypeProperties constants*/
 constexpr std::string_view kReturnNodeType = "nodeType";
 constexpr std::string_view kProcedureNodeType = "node_type_properties";
 constexpr std::string_view kProcedureRelType = "rel_type_properties";
+constexpr std::string_view kProcedureAssert = "assert";
 constexpr std::string_view kReturnLabels = "nodeLabels";
 constexpr std::string_view kReturnRelType = "relType";
 constexpr std::string_view kReturnPropertyName = "propertyName";
 constexpr std::string_view kReturnPropertyType = "propertyTypes";
 constexpr std::string_view kReturnMandatory = "mandatory";
+constexpr std::string_view kReturnLabel = "label";
+constexpr std::string_view kReturnKey = "key";
+constexpr std::string_view kReturnKeys = "keys";
+constexpr std::string_view kReturnUnique = "unique";
+constexpr std::string_view kReturnAction = "action";
+constexpr std::string_view kParameterIndices = "indices";
+constexpr std::string_view kParameterUniqueConstraints = "unique_constraints";
+constexpr std::string_view kParameterExistenceConstraints = "existence_constraints";
+constexpr std::string_view kParameterDropExisting = "drop_existing";
 
 std::string TypeOf(const mgp::Type &type);
 
@@ -35,6 +44,7 @@ void ProcessPropertiesRel(mgp::Record &record, const std::string_view &type, con
 
 void NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
+void Assert(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 }  // namespace Schema
 
 /*we have << operator for type in Cpp API, but in it we return somewhat different strings than I would like in this
@@ -128,7 +138,6 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
 
 void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
-  ;
   const auto record_factory = mgp::RecordFactory(result);
   try {
     const mgp::Graph graph = mgp::Graph(memgraph_graph);
@@ -155,6 +164,17 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
   }
 }
 
+void Schema::Assert(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto record_factory = mgp::RecordFactory(result);
+  auto arguments = mgp::List(args);
+  auto indices_map = arguments[0].ValueMap();
+  auto unique_constraints_map = arguments[1].ValueMap();
+  auto existence_constraints_map = arguments[2].ValueMap();
+
+  const mgp::Graph graph = mgp::Graph(memgraph_graph);
+}
+
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard{memory};
@@ -176,8 +196,22 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                   mgp::Return(std::string(Schema::kReturnPropertyType).c_str(), mgp::Type::Any),
                   mgp::Return(std::string(Schema::kReturnMandatory).c_str(), mgp::Type::Bool)},
                  module, memory);
-
+    AddProcedure(Schema::Assert, std::string(Schema::kProcedureAssert).c_str(), mgp::ProcedureType::Read,
+                 {
+                     mgp::Parameter(Schema::kParameterIndices, {mgp::Type::Map, mgp::Type::Any}),
+                     mgp::Parameter(Schema::kParameterUniqueConstraints, {mgp::Type::Map, mgp::Type::Any}),
+                     mgp::Parameter(Schema::kParameterExistenceConstraints, {mgp::Type::Map, mgp::Type::Any},
+                                    mgp::Value(mgp::Map{})),
+                     mgp::Parameter(Schema::kParameterDropExisting, mgp::Type::Bool, mgp::Value(true)),
+                 },
+                 {mgp::Return(std::string(Schema::kReturnLabel).c_str(), mgp::Type::String),
+                  mgp::Return(std::string(Schema::kReturnKey).c_str(), mgp::Type::String),
+                  mgp::Return(std::string(Schema::kReturnKeys).c_str(), {mgp::Type::List, mgp::Type::String}),
+                  mgp::Return(std::string(Schema::kReturnUnique).c_str(), mgp::Type::Bool),
+                  mgp::Return(std::string(Schema::kReturnAction).c_str(), mgp::Type::String)},
+                 module, memory);
   } catch (const std::exception &e) {
+    std::cerr << e.what() << std::endl;
     return 1;
   }
 

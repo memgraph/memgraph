@@ -15,6 +15,24 @@ import pytest
 from common import connect, execute_and_fetch_all
 
 
+def test_assert_creates():
+    cursor = connect().cursor()
+    results = list(
+        execute_and_fetch_all(
+            cursor,
+            "CALL libschema.assert({'Person': 'name', 'Person': 'surname', 'Person': ''}, {'Person': ['oib', 'jmbg']}, {'Person': 'name', 'Person': 'surname'}) YIELD * RETURN *;",
+        )
+    )
+    assert len(results) == 7
+    assert results[0] == ["Person", "name", "[name]", False, "CREATED"]
+    assert results[1] == ["Person", "surname", "[surname]", False, "CREATED"]
+    assert results[2] == ["Person", "", "[]", False, "CREATED"]
+    assert results[3] == ["Person", "oib", "[oib]", True, "CREATED"]
+    assert results[4] == ["Person", "jmbg", "[jmbg]", True, "CREATED"]
+    assert results[5] == ["Person", "name", "[name]", False, "CREATED"]
+    assert results[6] == ["Person", "surname", "[surname]", False, "CREATED"]
+
+
 def test_node_type_properties1():
     cursor = connect().cursor()
     execute_and_fetch_all(
