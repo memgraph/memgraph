@@ -4578,6 +4578,21 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result,
                          const bool call_initializer = false) {
+  auto drop_records_with_deleted_values = [graph, result]() -> void {
+    if (MgpGraphIsTransactional(graph)) {
+      return;
+    }
+
+    std::erase_if(result->rows, [](mgp_result_record rec) {
+      for (const auto &[key, value] : rec.values) {
+        if (value.ContainsDeleted()) return true;
+      }
+      return false;
+    });
+
+    return;
+  };
+
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
@@ -4614,6 +4629,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     MG_ASSERT(result->signature == &proc.results);
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
+    drop_records_with_deleted_values();
     size_t leaked_bytes = limited_mem.GetAllocatedBytes();
     if (leaked_bytes > 0U) {
       spdlog::warn("Query procedure '{}' leaked {} *tracked* bytes", fully_qualified_procedure_name, leaked_bytes);
@@ -4625,6 +4641,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     MG_ASSERT(result->signature == &proc.results);
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
+    drop_records_with_deleted_values();
   }
 }
 
@@ -4666,7 +4683,7 @@ class CallProcedureCursor : public Cursor {
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
-      // inside the same execution thread. Also, our RWLock is setup so that
+      // inside the same execution thread. Also, our RWLock is set up so that
       // it's not possible for a single thread to request multiple read locks.
       // Builtin module registration in query/procedure/module.cpp depends on
       // this locking scheme.
