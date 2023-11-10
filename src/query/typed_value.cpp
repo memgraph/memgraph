@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -361,6 +361,36 @@ const Graph &TypedValue::ValueGraph() const {
 bool TypedValue::IsGraph() const { return type_ == Type::Graph; }
 
 #undef DEFINE_VALUE_AND_TYPE_GETTERS
+
+bool TypedValue::ContainsDeleted() const {
+  switch (type_) {
+    case Type::List:
+      for (auto &elem : list_v) {
+        if (elem.ContainsDeleted()) return true;
+      }
+      return false;
+    case Type::Map:
+      for (auto &[_, map_value] : map_v) {
+        if (map_value.ContainsDeleted()) return true;
+      }
+      return false;
+    case Type::Vertex:
+      return vertex_v.impl_.vertex_->deleted;
+    case Type::Edge:
+      return edge_v.impl_.edge_.ptr->deleted;
+    case Type::Path:
+      for (auto &vertex_acc : path_v.vertices()) {
+        if (vertex_acc.impl_.vertex_->deleted) return true;
+      }
+      for (auto &edge_acc : path_v.edges()) {
+        if (edge_acc.impl_.edge_.ptr->deleted) return true;
+      }
+      return false;
+    default:
+      break;
+  }
+  return false;
+}
 
 bool TypedValue::IsNull() const { return type_ == Type::Null; }
 

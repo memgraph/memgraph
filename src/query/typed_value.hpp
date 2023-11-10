@@ -509,6 +509,8 @@ class TypedValue {
 
 #undef DECLARE_VALUE_AND_TYPE_GETTERS
 
+  bool ContainsDeleted() const;
+
   /**  Checks if value is a TypedValue::Null. */
   bool IsNull() const;
 
