@@ -10,9 +10,10 @@ disallow_in_source_build()
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "query_modules")
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
-add_library(example_c STATIC example.c)
+add_library(example_c SHARED example.c)
 target_include_directories(example_c PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(example_c PRIVATE -Wall -static-libstdc++ -static-libgcc)
+target_compile_options(example_c PRIVATE -Wall)
+target_link_libraries(example_c PRIVATE -static-libgcc -static-libstdc++)
 # Strip C example in release build.
 if (lower_build_type STREQUAL "release")
   add_custom_command(TARGET example_c POST_BUILD
@@ -21,13 +22,14 @@ if (lower_build_type STREQUAL "release")
 endif()
 install(PROGRAMS $<TARGET_FILE:example_c>
         DESTINATION lib/memgraph/query_modules
-        RENAME example_c.a)
+        RENAME example_c.so)
 # Also install the source of the example, so user can read it.
 install(FILES example.c DESTINATION lib/memgraph/query_modules/src)
 
-add_library(example_cpp STATIC example.cpp)
+add_library(example_cpp SHARED example.cpp)
 target_include_directories(example_cpp PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(example_cpp PRIVATE -Wall -static-libstdc++ -static-libgcc)
+target_compile_options(example_cpp PRIVATE -Wall)
+target_link_libraries(example_cpp PRIVATE -static-libgcc -static-libstdc++)
 # Strip C++ example in release build.
 if (lower_build_type STREQUAL "release")
   add_custom_command(TARGET example_cpp POST_BUILD
@@ -36,13 +38,14 @@ if (lower_build_type STREQUAL "release")
 endif()
 install(PROGRAMS $<TARGET_FILE:example_cpp>
         DESTINATION lib/memgraph/query_modules
-        RENAME example_cpp.a)
+        RENAME example_cpp.so)
 # Also install the source of the example, so user can read it.
 install(FILES example.cpp DESTINATION lib/memgraph/query_modules/src)
 
-add_library(schema STATIC schema.cpp)
+add_library(schema SHARED schema.cpp)
 target_include_directories(schema PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(schema PRIVATE -Wall -static-libstdc++ -static-libgcc)
+target_compile_options(schema PRIVATE -Wall)
+target_link_libraries(schema PRIVATE -static-libgcc -static-libstdc++)
 # Strip C++ example in release build.
 if (lower_build_type STREQUAL "release")
   add_custom_command(TARGET schema POST_BUILD
@@ -51,7 +54,7 @@ if (lower_build_type STREQUAL "release")
 endif()
 install(PROGRAMS $<TARGET_FILE:schema>
         DESTINATION lib/memgraph/query_modules
-        RENAME schema.a)
+        RENAME schema.so)
 # Also install the source of the example, so user can read it.
 install(FILES schema.cpp DESTINATION lib/memgraph/query_modules/src)
 
