@@ -7,8 +7,10 @@ check_operating_system "centos-9"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
-    coreutils-common gcc gcc-c++ make # generic build tools
     wget # used for archive download
+    coreutils-common gcc gcc-c++ make # generic build tools
+    # NOTE: Pure libcurl conflicts with libcurl-minimal
+    libcurl-devel # cmake build requires it
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     zlib-devel # zlib library used for all builds
