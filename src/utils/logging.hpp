@@ -47,8 +47,12 @@ inline void AssertFailed(const char *file_name, int line_num, const char *expr, 
 #define GET_MESSAGE(...) \
   BOOST_PP_IF(BOOST_PP_EQUAL(BOOST_PP_VARIADIC_SIZE(__VA_ARGS__), 0), "", fmt::format(__VA_ARGS__))
 
-#define MG_ASSERT(expr, ...) \
-  [[likely]] !!(expr) ? (void)0 : ::memgraph::logging::AssertFailed(__FILE__, __LINE__, #expr, GET_MESSAGE(__VA_ARGS__))
+#define MG_ASSERT(expr, ...)                                                                \
+  if (expr) [[likely]] {                                                                    \
+    (void)0;                                                                                \
+  } else {                                                                                  \
+    ::memgraph::logging::AssertFailed(__FILE__, __LINE__, #expr, GET_MESSAGE(__VA_ARGS__)); \
+  }
 
 #ifndef NDEBUG
 #define DMG_ASSERT(expr, ...) MG_ASSERT(expr, __VA_ARGS__)
