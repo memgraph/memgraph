@@ -30,7 +30,7 @@ class OrderBy(Workload):
             queries.append(
                 (
                     """CREATE
-(:Node {prop1: $id, prop2: $id, prop3: $id,
+(:Node {prop1: $id, prop2: $id, prop3: $id
 });
 """,
                     {"id": i},
