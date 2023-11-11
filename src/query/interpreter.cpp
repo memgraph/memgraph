@@ -238,8 +238,7 @@ bool IsOrderByQuery(const std::vector<memgraph::query::Clause *> &clauses) {
   for (const auto &clause : clauses) {
     if (clause->GetTypeInfo() == Return::kType) {
       auto *return_clause = utils::Downcast<Return>(clause);
-      auto isOrderBy = !return_clause->body_.order_by.empty();
-      return isOrderBy;
+      return !return_clause->body_.order_by.empty();
     }
   }
   return false;
