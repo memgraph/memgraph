@@ -671,7 +671,6 @@ PROXYGEN_SHA256=5360a8ccdfb2f5a6c7b3eed331ec7ab0e2c792d579c6fff499c85c516c11fe14
 WANGLE_SHA256=1002e9c32b6f4837f6a760016e3b3e22f3509880ef3eaad191c80dc92655f23f
 # WANGLE_SHA256=0e493c03572bb27fe9ca03a9da5023e52fde99c95abdcaa919bb6190e7e69532
 
-FLEX_VERSION=2.6.4
 FMT_SHA256=78b8c0a72b1c35e4443a7e308df52498252d1cefc2b08c9a97bc9ee6cfe61f8b
 FMT_VERSION=10.1.1
 # NOTE: spdlog depends on exact fmt versions -> UPGRADE fmt and spdlog TOGETHER.
@@ -708,9 +707,7 @@ fi
 if [ ! -f fizz-$FBLIBS_VERSION.tar.gz ]; then
     wget https://github.com/facebookincubator/fizz/releases/download/v$FBLIBS_VERSION/fizz-v$FBLIBS_VERSION.tar.gz -O fizz-$FBLIBS_VERSION.tar.gz
 fi
-if [ ! -f flex-$FLEX_VERSION.tar.gz ]; then
-    wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$FLEX_VERSION.tar.gz -O flex-$FLEX_VERSION.tar.gz
-fi
+
 if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
     wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
 fi
@@ -765,14 +762,6 @@ echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
 # verify fizz
 echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
-# verify flex
-if [ ! -f flex-$FLEX_VERSION.tar.gz.sig ]; then
-    wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$FLEX_VERSION.tar.gz.sig
-fi
-if false; then
-    $GPG --keyserver $KEYSERVER --recv-keys 0xE4B29C8D64885307
-    $GPG --verify flex-$FLEX_VERSION.tar.gz.sig flex-$FLEX_VERSION.tar.gz
-fi
 # verify fmt
 echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
 # verify spdlog
@@ -1230,18 +1219,6 @@ if false; then
       make -j$CPUS install
       popd
   fi
-fi
-
-log_tool_name "flex $FLEX_VERSION"
-if [ ! -f $PREFIX/include/FlexLexer.h ]; then
-    if [ -d flex-$FLEX_VERSION ]; then
-        rm -rf flex-$FLEX_VERSION
-    fi
-    tar -xzf ../archives/flex-$FLEX_VERSION.tar.gz
-    pushd flex-$FLEX_VERSION
-    ./configure $COMMON_CONFIGURE_FLAGS
-    make -j$CPUS install
-    popd
 fi
 
 popd
