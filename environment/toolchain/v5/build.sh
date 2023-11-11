@@ -700,7 +700,7 @@ if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
     wget https://boostorg.jfrog.io/artifactory/main/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz -O boost_$BOOST_VERSION_UNDERSCORES.tar.gz
 fi
 if [ ! -f bzip2-$BZIP2_VERSION.tar.gz ]; then
-    wget https://sourceforge.net/projects/bzip2/files/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
+    wget https://sourceware.org/pub/bzip2/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
 fi
 if [ ! -f double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz ]; then
     wget https://github.com/google/double-conversion/archive/refs/tags/v$DOUBLE_CONVERSION_VERSION.tar.gz -O double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
