@@ -42,7 +42,7 @@ case "$DISTRO" in
         GDB_VERSION=8.3
     ;;
     amzn-2)
-        GDB_VERSION=8.3
+        GDB_VERSION=11.2
     ;;
     *)
         GDB_VERSION=13.2
