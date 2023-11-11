@@ -123,7 +123,9 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
-    yum update -y
+    # --nobest is used because of libipt because we install custom versions
+    # because libipt-devel is not available on CentOS 9 Stream
+    yum update -y --nobest
     yum install -y wget git python3 python3-pip
 
     for pkg in $1; do
