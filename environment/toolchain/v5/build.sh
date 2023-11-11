@@ -41,9 +41,6 @@ case "$DISTRO" in
     centos-7) # because GDB >= 9 does NOT compile with readline6.
         GDB_VERSION=8.3
     ;;
-    amzn-2)
-        GDB_VERSION=11.2
-    ;;
     *)
         GDB_VERSION=13.2
     ;;
@@ -310,7 +307,7 @@ if [ ! -f $PREFIX/bin/ld.gold ]; then
 fi
 
 log_tool_name "GDB $GDB_VERSION"
-if [ ! -f $PREFIX/bin/gdb ]; then
+if [[ ! -f "$PREFIX/bin/gdb" && "$DISTRO" -ne "amzn-2" ]]; then
     if [ -d gdb-$GDB_VERSION ]; then
         rm -rf gdb-$GDB_VERSION
     fi
