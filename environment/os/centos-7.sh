@@ -61,6 +61,8 @@ MEMGRAPH_BUILD_DEPS=(
     cyrus-sasl-devel
 )
 
+MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
+
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp
 )

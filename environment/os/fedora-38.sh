@@ -57,6 +57,16 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
 )
 
+MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
+
+MEMGRAPH_RUN_DEPS=(
+    logrotate openssl python3 libseccomp
+)
+
+NEW_DEPS=(
+    wget curl tar gzip
+)
+
 list() {
     echo "$1"
 }

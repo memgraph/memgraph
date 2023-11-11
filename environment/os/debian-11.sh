@@ -59,6 +59,8 @@ MEMGRAPH_BUILD_DEPS=(
     libsasl2-dev
 )
 
+MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
+
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp
 )
