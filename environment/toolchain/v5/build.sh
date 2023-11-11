@@ -41,6 +41,9 @@ case "$DISTRO" in
     centos-7) # because GDB >= 9 does NOT compile with readline6.
         GDB_VERSION=8.3
     ;;
+    amzn-2)
+        GDB_VERSION=8.3
+    ;;
     *)
         GDB_VERSION=13.2
     ;;
