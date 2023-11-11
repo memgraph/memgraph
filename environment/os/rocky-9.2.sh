@@ -3,7 +3,7 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "centos-9"
+check_operating_system "rocky-9.2"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
@@ -12,7 +12,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     zlib-devel # zlib library used for all builds
-    expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
+    expat-devel xz-devel python3-devel perl-Unicode-EastAsianWidth texinfo libbabeltrace-devel # for gdb
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre-devel pcre2-devel automake bison # for swig
@@ -135,37 +135,27 @@ install() {
             install_custom_golang "1.18.9"
             continue
         fi
-        # Since there is no support for libipt-devel for CentOS 9 we install
-        # Fedoras version of same libs, they are the same version but released
-        # for different OS
-        # TODO Update when libipt-devel releases for CentOS 9
-        if [ "$pkg" == libipt ]; then
-            if ! dnf list installed libipt >/dev/null 2>/dev/null; then
-                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm
+        if [ "$pkg" == perl-Unicode-EastAsianWidth ]; then
+            if ! dnf list installed perl-Unicode-EastAsianWidth >/dev/null 2>/dev/null; then
+                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/p/perl-Unicode-EastAsianWidth-12.0-7.el9.noarch.rpm
             fi
             continue
         fi
-        if [ "$pkg" == libipt-devel ]; then
-            if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
-                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
+        if [ "$pkg" == texinfo ]; then
+            if ! dnf list installed texinfo >/dev/null 2>/dev/null; then
+                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/t/texinfo-6.7-15.el9.x86_64.rpm
             fi
             continue
         fi
         if [ "$pkg" == libbabeltrace-devel ]; then
             if ! dnf list installed libbabeltrace-devel >/dev/null 2>/dev/null; then
-                dnf install -y http://mirror.stream.centos.org/9-stream/CRB/x86_64/os/Packages/libbabeltrace-devel-1.5.8-10.el9.x86_64.rpm
+                dnf install -y https://dl.rockylinux.org/pub/rocky/9/devel/x86_64/os/Packages/l/libbabeltrace-devel-1.5.8-10.el9.x86_64.rpm
             fi
             continue
         fi
-        if [ "$pkg" == sbcl ]; then
-            if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
-                dnf install -y 	https://pkgs.dyn.su/el8/base/x86_64/cl-asdf-20101028-18.el8.noarch.rpm
-            fi
-            if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
-                dnf install -y https://pkgs.dyn.su/el8/base/x86_64/common-lisp-controller-7.4-20.el8.noarch.rpm
-            fi
-            if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
-                dnf install -y https://pkgs.dyn.su/el8/base/x86_64/sbcl-2.0.1-4.el8.x86_64.rpm
+        if [ "$pkg" == libipt-devel ]; then
+            if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
+                dnf install -y https://dl.rockylinux.org/pub/rocky/9/devel/x86_64/os/Packages/l/libipt-devel-2.0.4-5.el9.x86_64.rpm
             fi
             continue
         fi
