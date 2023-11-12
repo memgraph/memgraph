@@ -70,6 +70,7 @@ add_subdirectory(index_hints)
 add_subdirectory(query_modules)
 add_subdirectory(constraints)
 add_subdirectory(inspect_query)
+add_subdirectory(filter_info)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 copy_e2e_python_files(x x.sh "")
