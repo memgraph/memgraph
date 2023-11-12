@@ -315,6 +315,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           return std::move(*preoperational_checks);
         }
         auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
+        // Don't move here because we don't want to remove the element from the frame
         cached_value.CacheValue(list);
       }
       const auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
