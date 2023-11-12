@@ -34,25 +34,6 @@ static constexpr int64_t UNLIMITED_MEMORY{0};
 class QueriesMemoryControl {
  public:
   /*
-  Arena stats
-  */
-
-  static unsigned GetArenaForThread();
-
-  // Add counter on threads allocating inside arena
-  void AddTrackingOnArena(unsigned);
-
-  // Remove counter on threads allocating in arena
-  void RemoveTrackingOnArena(unsigned);
-
-  // Are any threads using current arena for allocations
-  // Multiple threads can allocate inside one arena
-  bool IsArenaTracked(unsigned);
-
-  // Initialize arena counter
-  void InitializeArenaCounter(unsigned);
-
-  /*
     Transaction id <-> tracker
   */
 
@@ -94,9 +75,9 @@ class QueriesMemoryControl {
 
   void PauseProcedureTracking(uint64_t);
 
- private:
-  std::unordered_map<unsigned, std::atomic<int>> arena_tracking;
+  bool IsThreadTracked();
 
+ private:
   struct ThreadIdToTransactionId {
     std::thread::id thread_id;
     uint64_t transaction_id;
