@@ -27,6 +27,7 @@
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "utils/algorithm.hpp"
 
 namespace memgraph::query::plan {
 
@@ -529,6 +530,13 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto rhs_property = rhs_lookup->property_;
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
+
+      if (utils::Contains(right_symbols, lhs_symbol) && utils::Contains(left_symbols, rhs_symbol)) {
+        // We need to duplicate this because expressions are shared between plans
+        join_condition = join_condition->Clone(ast_storage_);
+        std::swap(join_condition->expression1_, join_condition->expression2_);
+      }
+
       return std::make_unique<HashJoin>(left_op, left_symbols, right_op, right_symbols, join_condition);
     }
 
