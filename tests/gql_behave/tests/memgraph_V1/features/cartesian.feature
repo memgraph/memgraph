@@ -186,6 +186,20 @@ Feature: Cartesian
             | a            | b            |
             | (:A {id: 1}) | (:B {id: 1}) |
 
+    Scenario: Multiple match with WHERE x = y 01 reversed
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A {id: 1}), (:A {id: 2}), (:B {id: 1})
+            """
+        When executing query:
+            """
+            MATCH (a:A) MATCH (b:B) WHERE b.id = a.id RETURN a, b
+            """
+        Then the result should be:
+            | a            | b            |
+            | (:A {id: 1}) | (:B {id: 1}) |
+
     Scenario: Multiple match with WHERE x = y 02
         Given an empty graph
         And having executed
