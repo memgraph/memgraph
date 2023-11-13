@@ -44,23 +44,6 @@ struct CachedValue {
 
   ~CachedValue() = default;
 
-  // // Func to check if cache_ contains value
-  // bool CacheValue(TypedValue &&maybe_list) {
-  //   if (!maybe_list.IsList()) {
-  //     return false;
-  //   }
-  //   auto &list = maybe_list.ValueList();
-  //   TypedValue::Hash hash{};
-  //   for (auto &element : list) {
-  //     const auto key = hash(element);
-  //     auto &vector_values = cache_[key];
-  //     if (!IsValueInVec(vector_values, element)) {
-  //       vector_values.emplace_back(std::move(element));
-  //     }
-  //   }
-  //   return true;
-  // }
-
   bool CacheValue(const TypedValue &maybe_list) {
     if (!maybe_list.IsList()) {
       return false;
@@ -138,12 +121,9 @@ class FrameChangeCollector {
     return tracked_values_.contains(utils::pmr::string(key, utils::NewDeleteResource()));
   }
 
-  // bool IsKeyValueCached(const std::string &key) const {
-  //   return IsKeyTracked(key) && !tracked_values_.at(utils::pmr::string(key,
-  //   utils::NewDeleteResource())).cache_.empty();
-  // }
-
-  bool IsKeyValueCached(const std::string &key) const { return false; }
+  bool IsKeyValueCached(const std::string &key) const {
+    return IsKeyTracked(key) && !tracked_values_.at(utils::pmr::string(key, utils::NewDeleteResource())).cache_.empty();
+  }
 
   bool ResetTrackingValue(const std::string &key) {
     if (!tracked_values_.contains(utils::pmr::string(key, utils::NewDeleteResource()))) {
@@ -163,10 +143,10 @@ class FrameChangeCollector {
   ~FrameChangeCollector() = default;
 
  private:
-  struct WspStateHash {
+  struct PmrStringHash {
     size_t operator()(const utils::pmr::string &key) const { return utils::Fnv(key); }
   };
 
-  utils::pmr::unordered_map<utils::pmr::string, CachedValue, WspStateHash> tracked_values_;
+  utils::pmr::unordered_map<utils::pmr::string, CachedValue, PmrStringHash> tracked_values_;
 };
 }  // namespace memgraph::query

@@ -1535,7 +1535,6 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
       continue;
     }
     frame_change_collector->AddTrackingKey(*cached_id);
-    spdlog::trace("Tracking {} operator, by id: {}", InListOperator::kType.name, *cached_id);
   }
 }
 
@@ -4028,7 +4027,7 @@ void Interpreter::Commit() {
   }
 
   if (frame_change_collector_) {
-    frame_change_collector_.value().~FrameChangeCollector();
+    frame_change_collector_.reset();
   }
 
   if (trigger_context) {
