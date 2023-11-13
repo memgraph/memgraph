@@ -1,0 +1,21 @@
+args: &args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=TRACE"
+  - "--storage-gc-cycle-sec=2"
+  - "--storage-gc-jemalloc-cycle-sec=2"
+
+in_memory_cluster: &in_memory_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "garbage_collection-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Garbage collection"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/garbage_collection/procedures/"
+    args: ["garbage_collection/gc.py"]
+    <<: *in_memory_cluster
