@@ -2549,6 +2549,20 @@ mgp_error mgp_create_label_index(mgp_graph *graph, const char *label, int *resul
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
+mgp_error mgp_drop_label_index(mgp_graph *graph, const char *label, int *result) {
+  *result = 1;
+  auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+  const auto index_res = std::visit(
+      memgraph::utils::Overloaded{
+          [label_id](memgraph::query::DbAccessor *impl) { return impl->DropIndex(label_id); },
+          [label_id](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->DropIndex(label_id); }},
+      graph->impl);
+  if (index_res.HasError()) {
+    *result = 0;
+  }
+  return mgp_error::MGP_ERROR_NO_ERROR;
+}
+
 mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, const char *property, int *result) {
   *result = 1;
   auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
@@ -2561,6 +2575,59 @@ mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, c
                                                return impl->GetAccessor()->CreateIndex(label_id, property_id);
                                              }},
                  graph->impl);
+  if (index_res.HasError()) {
+    *result = 0;
+  }
+  return mgp_error::MGP_ERROR_NO_ERROR;
+}
+
+mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, const char *property, int *result) {
+  *result = 1;
+  auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+  auto property_id = std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+  const auto index_res = std::visit(
+      memgraph::utils::Overloaded{
+          [label_id, property_id](memgraph::query::DbAccessor *impl) { return impl->DropIndex(label_id, property_id); },
+          [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+            return impl->GetAccessor()->DropIndex(label_id, property_id);
+          }},
+      graph->impl);
+  if (index_res.HasError()) {
+    *result = 0;
+  }
+  return mgp_error::MGP_ERROR_NO_ERROR;
+}
+
+mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, const char *property, int *result) {
+  *result = 1;
+  auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+  auto property_id = std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+  const auto index_res = std::visit(
+      memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                    return impl->CreateExistenceConstraint(label_id, property_id);
+                                  },
+                                  [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                    return impl->GetAccessor()->CreateExistenceConstraint(label_id, property_id);
+                                  }},
+      graph->impl);
+  if (index_res.HasError()) {
+    *result = 0;
+  }
+  return mgp_error::MGP_ERROR_NO_ERROR;
+}
+
+mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, const char *property, int *result) {
+  *result = 1;
+  auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+  auto property_id = std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+  const auto index_res = std::visit(
+      memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                    return impl->DropExistenceConstraint(label_id, property_id);
+                                  },
+                                  [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                    return impl->GetAccessor()->DropExistenceConstraint(label_id, property_id);
+                                  }},
+      graph->impl);
   if (index_res.HasError()) {
     *result = 0;
   }

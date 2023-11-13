@@ -19,6 +19,8 @@
 #include "mg_exceptions.hpp"
 #include "mg_procedure.h"
 
+#include <vector>
+
 namespace mgp {
 
 namespace {
@@ -240,9 +242,40 @@ inline bool CreateLabelIndex(mgp_graph *graph, const std::string_view label) {
   return MgInvoke<int>(mgp_create_label_index, graph, std::string(label).c_str());
 }
 
+inline bool DropLabelIndex(mgp_graph *graph, const std::string_view label) {
+  return MgInvoke<int>(mgp_create_label_index, graph, std::string(label).c_str());
+}
+
 inline bool CreateLabelPropertyIndex(mgp_graph *graph, const std::string_view label, const std::string_view property) {
   return MgInvoke<int>(mgp_create_label_property_index, graph, std::string(label).c_str(),
                        std::string(property).c_str());
+}
+
+inline bool DropLabelPropertyIndex(mgp_graph *graph, const std::string_view label, const std::string_view property) {
+  return MgInvoke<int>(mgp_drop_label_property_index, graph, std::string(label).c_str(), std::string(property).c_str());
+}
+
+inline bool CreateExistenceConstraint(mgp_graph *graph, const std::string_view label, const std::string_view property) {
+  return MgInvoke<int>(mgp_create_existence_constraint, graph, std::string(label).c_str(),
+                       std::string(property).c_str());
+}
+
+inline bool DropExistenceConstraint(mgp_graph *graph, const std::string_view label, const std::string_view property) {
+  return MgInvoke<int>(mgp_drop_existence_constraint, graph, std::string(label).c_str(), std::string(property).c_str());
+}
+
+inline bool CreateUniqueConstraint(mgp_graph *graph, const std::string_view label, const auto &properties) {
+  std::vector<const char *> properties_cstr;
+  properties_cstr.reserve(properties.size());
+  for (const auto &property : properties) {
+    properties_cstr.push_back(std::string(property).c_str());
+  }
+  // return MgInvoke<int>(mgp_create_unique_constraint, graph, std::string(label).c_str(), std::move(properties_cstr));
+  return true;
+}
+
+inline bool DropUniqueConstraint(mgp_graph *graph, const std::string_view label, const auto &properties) {
+  return true;
 }
 
 inline bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }

@@ -4283,41 +4283,43 @@ inline bool CreateLabelIndexImpl(mgp_graph *memgaph_graph, const std::string_vie
   return CreateLabelIndex(memgaph_graph, label);
 }
 
-bool CreateLabelPropertyIndexImpl(mgp_graph *memgaph_graph, const std::string_view label,
-                                  const std::string_view property) {
+inline bool DropLabelIndexImpl(mgp_graph *memgraph_graph, const std::string_view label) {
+  return DropLabelIndex(memgraph_graph, label);
+}
+
+inline bool CreateLabelPropertyIndexImpl(mgp_graph *memgaph_graph, const std::string_view label,
+                                         const std::string_view property) {
   return CreateLabelPropertyIndex(memgaph_graph, label, property);
 }
 
-bool DropLabelIndexImpl(mgp_graph *memgraph_graph, const std::string_view label) { return true; }
-
-bool DropLabelPropertyIndexImpl(mgp_graph *memgraph_graph, const std::string_view label,
-                                const std::string_view property) {
-  return true;
+inline bool DropLabelPropertyIndexImpl(mgp_graph *memgaph_graph, const std::string_view label,
+                                       const std::string_view property) {
+  return DropLabelPropertyIndex(memgaph_graph, label, property);
 }
 
-bool CreateUniqueConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
-                                const std::vector<std::string_view> &properties) {
-  return true;
+inline bool CreateUniqueConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
+                                       const std::vector<std::string_view> &properties) {
+  return CreateUniqueConstraint(memgraph_graph, label, properties);
 }
 
-bool DropUniqueConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
-                              const std::vector<std::string_view> &properties) {
-  return true;
+inline bool DropUniqueConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
+                                     const std::vector<std::string_view> &properties) {
+  return DropUniqueConstraint(memgraph_graph, label, properties);
 }
 
-bool CreateExistenceConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
-                                   const std::string_view property) {
-  return true;
+inline bool CreateExistenceConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
+                                          const std::string_view property) {
+  return CreateExistenceConstraint(memgraph_graph, label, property);
 }
 
-bool DropExistenceConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
-                                 const std::string_view property) {
-  return true;
+inline bool DropExistenceConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
+                                        const std::string_view property) {
+  return DropExistenceConstraint(memgraph_graph, label, property);
 }
 
 void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
                   std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
-                  mgp_memory *memory) {
+                  mgp_memory * /*memory*/) {
   auto *proc = (proc_type == ProcedureType::Read) ? mgp::module_add_read_procedure(module, name.data(), callback)
                                                   : mgp::module_add_write_procedure(module, name.data(), callback);
   detail::AddParamsReturnsToProc(proc, parameters, returns);
