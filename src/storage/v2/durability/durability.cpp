@@ -213,7 +213,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
     for (const auto &prop : item.second) {
       property_names.emplace_back(name_id_mapper->IdToName(prop.AsUint()));
     }
-    auto property_names_joined = utils::Join(property_names, ",");
+    const auto property_names_joined = utils::Join(property_names, ",");
     spdlog::info("Unique constraint on :{}({}) is recreated from metadata",
                  name_id_mapper->IdToName(item.first.AsUint()), property_names_joined);
   }
