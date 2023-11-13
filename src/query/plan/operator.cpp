@@ -5414,7 +5414,7 @@ class HashJoinCursor : public Cursor {
         // Check if the join value from the pulled frame is shared with any left frames
         ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                       storage::View::OLD);
-        auto right_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
+        auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
         if (hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
           right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
@@ -5462,7 +5462,7 @@ class HashJoinCursor : public Cursor {
     while (left_op_cursor_->Pull(frame, context)) {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
-      auto left_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
+      auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
       if (left_value.type() != TypedValue::Type::Null) {
         hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
       }
