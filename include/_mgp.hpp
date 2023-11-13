@@ -240,6 +240,11 @@ inline bool CreateLabelIndex(mgp_graph *graph, const std::string_view label) {
   return MgInvoke<int>(mgp_create_label_index, graph, std::string(label).c_str());
 }
 
+inline bool CreateLabelPropertyIndex(mgp_graph *graph, const std::string_view label, const std::string_view property) {
+  return MgInvoke<int>(mgp_create_label_property_index, graph, std::string(label).c_str(),
+                       std::string(property).c_str());
+}
+
 inline bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }
 
 inline mgp_vertex *graph_create_vertex(mgp_graph *graph, mgp_memory *memory) {

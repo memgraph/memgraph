@@ -104,21 +104,22 @@ void Schema::ProcessPropertiesRel(mgp::Record &record, const std::string_view &t
   record.Insert(std::string(kReturnMandatory).c_str(), mandatory);
 }
 
-void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result,
+                                mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   ;
   const auto record_factory = mgp::RecordFactory(result);
   try {
     const mgp::Graph graph = mgp::Graph(memgraph_graph);
     for (auto node : graph.Nodes()) {
-      std::string type = "";
+      std::string type;
       mgp::List labels = mgp::List();
       for (auto label : node.Labels()) {
         labels.AppendExtend(mgp::Value(label));
         type += ":`" + std::string(label) + "`";
       }
 
-      if (node.Properties().size() == 0) {
+      if (node.Properties().empty()) {
         auto record = record_factory.NewRecord();
         ProcessPropertiesNode<std::string>(record, type, labels, "", "", false);
         continue;
@@ -138,7 +139,7 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
   }
 }
 
-void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+void Schema::RelTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
   try {
@@ -146,7 +147,7 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
 
     for (auto rel : graph.Relationships()) {
       std::string type = ":`" + std::string(rel.Type()) + "`";
-      if (rel.Properties().size() == 0) {
+      if (rel.Properties().empty()) {
         auto record = record_factory.NewRecord();
         ProcessPropertiesRel<std::string>(record, type, "", "", false);
         continue;
@@ -167,19 +168,20 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
 }
 
 void CreateIndices(const mgp::Map &indices_map, mgp_graph *memgraph_graph, const auto &record_factory) {
-  for (const auto &[label, property] : indices_map) {
-    const auto property_str = property.ValueString();
+  for (const auto &label_property : indices_map) {
+    const auto label = label_property.key;
+    const auto property_str = label_property.value.ValueString();
     auto success = std::invoke([memgraph_graph, label, property_str]() {
       if (property_str.empty()) {
         return mgp::CreateLabelIndexImpl(memgraph_graph, label);
       }
-      return mgp::CreateLabelPropertyIndex(memgraph_graph, label, property_str);
+      return mgp::CreateLabelPropertyIndexImpl(memgraph_graph, label, property_str);
     });
     if (success) {
       auto record = record_factory.NewRecord();
       record.Insert(std::string(Schema::kReturnLabel).c_str(), label);
       record.Insert(std::string(Schema::kReturnKey).c_str(), property_str);
-      record.Insert(std::string(Schema::kReturnKeys).c_str(), mgp::List({property}));
+      record.Insert(std::string(Schema::kReturnKeys).c_str(), mgp::List({label_property.value}));
       record.Insert(std::string(Schema::kReturnUnique).c_str(), false);
       record.Insert(std::string(Schema::kReturnAction).c_str(), "Created");
     }
@@ -190,7 +192,7 @@ void CreateExistenceConstraints(const mgp::Map &existence_constraints_map, mgp_g
   for (const auto &[label, property] : existence_constraints_map) {
     const auto property_str = property.ValueString();
     assert((!property_str.empty()) && "Property name must be provided for existence constraint");
-    mgp::CreateExistenceConstraint(memgraph_graph, label, property_str);
+    mgp::CreateExistenceConstraintImpl(memgraph_graph, label, property_str);
   }
 }
 
@@ -204,7 +206,7 @@ void CreateUniqueConstraints(const mgp::Map &unique_constraints_map, mgp_graph *
       assert((!property_str.empty()) && "Property name must be provided for unique constraint");
       properties_str.push_back(property_str);
     }
-    mgp::CreateUniqueConstraint(memgraph_graph, label, properties_str);
+    mgp::CreateUniqueConstraintImpl(memgraph_graph, label, properties_str);
   }
 }
 
@@ -216,7 +218,7 @@ void Schema::Assert(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
   auto unique_constraints_map = arguments[1].ValueMap();
   auto existence_constraints_map = arguments[2].ValueMap();
 
-  CreateIndices(indices_map, memgraph_graph);
+  CreateIndices(indices_map, memgraph_graph, record_factory);
   CreateUniqueConstraints(unique_constraints_map, memgraph_graph);
   CreateExistenceConstraints(existence_constraints_map, memgraph_graph);
 
@@ -237,36 +239,33 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     mgp::MemoryDispatcherGuard guard{memory};
     ;
 
-    AddProcedure(Schema::NodeTypeProperties, std::string(Schema::kProcedureNodeType).c_str(), mgp::ProcedureType::Read,
-                 {},
-                 {mgp::Return(std::string(Schema::kReturnNodeType).c_str(), mgp::Type::String),
-                  mgp::Return(std::string(Schema::kReturnLabels).c_str(), {mgp::Type::List, mgp::Type::String}),
-                  mgp::Return(std::string(Schema::kReturnPropertyName).c_str(), mgp::Type::String),
-                  mgp::Return(std::string(Schema::kReturnPropertyType).c_str(), mgp::Type::Any),
-                  mgp::Return(std::string(Schema::kReturnMandatory).c_str(), mgp::Type::Bool)},
+    AddProcedure(Schema::NodeTypeProperties, Schema::kProcedureNodeType, mgp::ProcedureType::Read, {},
+                 {mgp::Return(Schema::kReturnNodeType, mgp::Type::String),
+                  mgp::Return(Schema::kReturnLabels, {mgp::Type::List, mgp::Type::String}),
+                  mgp::Return(Schema::kReturnPropertyName, mgp::Type::String),
+                  mgp::Return(Schema::kReturnPropertyType, mgp::Type::Any),
+                  mgp::Return(Schema::kReturnMandatory, mgp::Type::Bool)},
                  module, memory);
 
-    AddProcedure(Schema::RelTypeProperties, std::string(Schema::kProcedureRelType).c_str(), mgp::ProcedureType::Read,
-                 {},
-                 {mgp::Return(std::string(Schema::kReturnRelType).c_str(), mgp::Type::String),
-                  mgp::Return(std::string(Schema::kReturnPropertyName).c_str(), mgp::Type::String),
-                  mgp::Return(std::string(Schema::kReturnPropertyType).c_str(), mgp::Type::Any),
-                  mgp::Return(std::string(Schema::kReturnMandatory).c_str(), mgp::Type::Bool)},
+    AddProcedure(Schema::RelTypeProperties, Schema::kProcedureRelType, mgp::ProcedureType::Read, {},
+                 {mgp::Return(Schema::kReturnRelType, mgp::Type::String),
+                  mgp::Return(Schema::kReturnPropertyName, mgp::Type::String),
+                  mgp::Return(Schema::kReturnPropertyType, mgp::Type::Any),
+                  mgp::Return(Schema::kReturnMandatory, mgp::Type::Bool)},
                  module, memory);
-    AddProcedure(Schema::Assert, std::string(Schema::kProcedureAssert).c_str(), mgp::ProcedureType::Read,
-                 {
-                     mgp::Parameter(Schema::kParameterIndices, {mgp::Type::Map, mgp::Type::Any}),
-                     mgp::Parameter(Schema::kParameterUniqueConstraints, {mgp::Type::Map, mgp::Type::Any}),
-                     mgp::Parameter(Schema::kParameterExistenceConstraints, {mgp::Type::Map, mgp::Type::Any},
-                                    mgp::Value(mgp::Map{})),
-                     mgp::Parameter(Schema::kParameterDropExisting, mgp::Type::Bool, mgp::Value(true)),
-                 },
-                 {mgp::Return(std::string(Schema::kReturnLabel).c_str(), mgp::Type::String),
-                  mgp::Return(std::string(Schema::kReturnKey).c_str(), mgp::Type::String),
-                  mgp::Return(std::string(Schema::kReturnKeys).c_str(), {mgp::Type::List, mgp::Type::String}),
-                  mgp::Return(std::string(Schema::kReturnUnique).c_str(), mgp::Type::Bool),
-                  mgp::Return(std::string(Schema::kReturnAction).c_str(), mgp::Type::String)},
-                 module, memory);
+    AddProcedure(
+        Schema::Assert, Schema::kProcedureAssert, mgp::ProcedureType::Read,
+        {
+            mgp::Parameter(Schema::kParameterIndices, {mgp::Type::Map, mgp::Type::Any}),
+            mgp::Parameter(Schema::kParameterUniqueConstraints, {mgp::Type::Map, mgp::Type::Any}),
+            mgp::Parameter(Schema::kParameterExistenceConstraints, {mgp::Type::Map, mgp::Type::Any},
+                           mgp::Value(mgp::Map{})),
+            mgp::Parameter(Schema::kParameterDropExisting, mgp::Type::Bool, mgp::Value(true)),
+        },
+        {mgp::Return(Schema::kReturnLabel, mgp::Type::String), mgp::Return(Schema::kReturnKey, mgp::Type::String),
+         mgp::Return(Schema::kReturnKeys, {mgp::Type::List, mgp::Type::String}),
+         mgp::Return(Schema::kReturnUnique, mgp::Type::Bool), mgp::Return(Schema::kReturnAction, mgp::Type::String)},
+        module, memory);
   } catch (const std::exception &e) {
     std::cerr << "Error while initializing query module: " << e.what() << std::endl;
     return 1;

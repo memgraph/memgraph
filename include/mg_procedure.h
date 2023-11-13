@@ -881,6 +881,12 @@ enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex
 /// if label index already exists, result will be 0, otherwise 1.
 enum mgp_error mgp_create_label_index(struct mgp_graph *graph, const char *label, int *result);
 
+/// Creates label-property index for given label and propery.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if label property index already exists, result will be 0, otherwise 1.
+enum mgp_error mgp_create_label_property_index(struct mgp_graph *graph, const char *label, const char *property,
+                                               int *result);
+
 /// Result is non-zero if the graph can be modified.
 /// If a graph is immutable, then vertices cannot be created or deleted, and all of the returned vertices will be
 /// immutable also. The same applies for edges.

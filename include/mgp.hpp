@@ -4280,36 +4280,38 @@ inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &param
 }  // namespace detail
 
 inline bool CreateLabelIndexImpl(mgp_graph *memgaph_graph, const std::string_view label) {
-  CreateLabelIndex(memgaph_graph, label);
+  return CreateLabelIndex(memgaph_graph, label);
+}
+
+bool CreateLabelPropertyIndexImpl(mgp_graph *memgaph_graph, const std::string_view label,
+                                  const std::string_view property) {
+  return CreateLabelPropertyIndex(memgaph_graph, label, property);
+}
+
+bool DropLabelIndexImpl(mgp_graph *memgraph_graph, const std::string_view label) { return true; }
+
+bool DropLabelPropertyIndexImpl(mgp_graph *memgraph_graph, const std::string_view label,
+                                const std::string_view property) {
   return true;
 }
 
-bool CreateLabelPropertyIndex(mgp_graph *memgaph_graph, const std::string_view label, const std::string_view property) {
+bool CreateUniqueConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
+                                const std::vector<std::string_view> &properties) {
   return true;
 }
 
-bool DropLabelIndex(mgp_graph *memgraph_graph, const std::string_view label) { return true; }
-
-bool DropLabelPropertyIndex(mgp_graph *memgraph_graph, const std::string_view label, const std::string_view property) {
+bool DropUniqueConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
+                              const std::vector<std::string_view> &properties) {
   return true;
 }
 
-bool CreateUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label,
-                            const std::vector<std::string_view> &properties) {
+bool CreateExistenceConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
+                                   const std::string_view property) {
   return true;
 }
 
-bool DropUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label,
-                          const std::vector<std::string_view> &properties) {
-  return true;
-}
-
-bool CreateExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label,
-                               const std::string_view property) {
-  return true;
-}
-
-bool DropExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label, const std::string_view property) {
+bool DropExistenceConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
+                                 const std::string_view property) {
   return true;
 }
 

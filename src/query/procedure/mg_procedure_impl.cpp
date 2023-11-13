@@ -2535,14 +2535,35 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
       result);
 }
 
-mgp_error mgp_create_label_index(mgp_graph *graph, const char *label) {
+mgp_error mgp_create_label_index(mgp_graph *graph, const char *label, int *result) {
+  *result = 1;
   auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
   const auto index_res = std::visit(
       memgraph::utils::Overloaded{
           [label_id](memgraph::query::DbAccessor *impl) { return impl->CreateIndex(label_id); },
           [label_id](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->CreateIndex(label_id); }},
       graph->impl);
-  if (index_res.HasError()) return mgp_error::MGP_ERROR_LABEL_INDEX_ALREADY_EXISTS;
+  if (index_res.HasError()) {
+    *result = 0;
+  }
+  return mgp_error::MGP_ERROR_NO_ERROR;
+}
+
+mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, const char *property, int *result) {
+  *result = 1;
+  auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+  auto property_id = std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+  const auto index_res =
+      std::visit(memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                               return impl->CreateIndex(label_id, property_id);
+                                             },
+                                             [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                               return impl->GetAccessor()->CreateIndex(label_id, property_id);
+                                             }},
+                 graph->impl);
+  if (index_res.HasError()) {
+    *result = 0;
+  }
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
