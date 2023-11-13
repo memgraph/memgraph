@@ -697,7 +697,7 @@ def test_sync_replication_when_main_is_killed():
         )
 
         # 2/
-        QUERY_TO_CHECK = "MATCH (n) RETURN COLLECT(n.name);"
+        QUERY_TO_CHECK = "MATCH (n) RETURN COUNT(n.name);"
         last_result_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)[0][0]
         for index in range(50):
             interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
