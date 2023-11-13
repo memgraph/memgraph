@@ -13,6 +13,7 @@ string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 add_library(example_c SHARED example.c)
 target_include_directories(example_c PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(example_c PRIVATE -Wall)
+target_link_libraries(example_c PRIVATE -static-libgcc -static-libstdc++)
 # Strip C example in release build.
 if (lower_build_type STREQUAL "release")
   add_custom_command(TARGET example_c POST_BUILD
@@ -28,6 +29,7 @@ install(FILES example.c DESTINATION lib/memgraph/query_modules/src)
 add_library(example_cpp SHARED example.cpp)
 target_include_directories(example_cpp PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(example_cpp PRIVATE -Wall)
+target_link_libraries(example_cpp PRIVATE -static-libgcc -static-libstdc++)
 # Strip C++ example in release build.
 if (lower_build_type STREQUAL "release")
   add_custom_command(TARGET example_cpp POST_BUILD
@@ -43,6 +45,7 @@ install(FILES example.cpp DESTINATION lib/memgraph/query_modules/src)
 add_library(schema SHARED schema.cpp)
 target_include_directories(schema PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(schema PRIVATE -Wall)
+target_link_libraries(schema PRIVATE -static-libgcc -static-libstdc++)
 # Strip C++ example in release build.
 if (lower_build_type STREQUAL "release")
   add_custom_command(TARGET schema POST_BUILD
