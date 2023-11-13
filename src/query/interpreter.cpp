@@ -3086,6 +3086,10 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
         const auto vm_max_map_count = utils::GetVmMaxMapCount();
         const int64_t vm_max_map_count_storage_info =
             vm_max_map_count.has_value() ? vm_max_map_count.value() : memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT;
+        auto memory_res = utils::GetReadableSize(static_cast<double>(info.memory_res));
+        auto memory_tracked = utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount()));
+
+        spdlog::trace("Memory res: {}, memory tracked: {}", memory_res, memory_tracked);
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("name"), TypedValue(storage->id())},
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
