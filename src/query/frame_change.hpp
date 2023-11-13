@@ -43,23 +43,6 @@ struct CachedValue {
     return cache_.get_allocator().GetMemoryResource();
   }
 
-  // Func to check if cache_ contains value
-  bool CacheValue(TypedValue &&maybe_list) {
-    if (!maybe_list.IsList()) {
-      return false;
-    }
-    auto &list = maybe_list.ValueList();
-    TypedValue::Hash hash{};
-    for (auto &element : list) {
-      const auto key = hash(element);
-      auto &vector_values = cache_[key];
-      if (!IsValueInVec(vector_values, element)) {
-        vector_values.emplace_back(std::move(element));
-      }
-    }
-    return true;
-  }
-
   bool CacheValue(const TypedValue &maybe_list) {
     if (!maybe_list.IsList()) {
       return false;
