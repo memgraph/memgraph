@@ -1216,10 +1216,6 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
       call_proc->memory_limit_ = memory_limit_info->first;
       call_proc->memory_scale_ = memory_limit_info->second;
     }
-  } else {
-    // Default to 100 MB
-    call_proc->memory_limit_ = storage_->Create<PrimitiveLiteral>(TypedValue(100));
-    call_proc->memory_scale_ = 1024U * 1024U;
   }
 
   const auto &maybe_found =
