@@ -206,9 +206,11 @@ std::vector<InMemoryReplicationClient::RecoveryStep> InMemoryReplicationClient::
   }
 
   auto locker_acc = file_locker->Access();
-  auto wal_files = durability::GetWalFiles(storage->wal_directory_, storage->uuid_, current_wal_seq_num);
+  auto wal_files = durability::GetWalFiles(storage->wal_directory_, storage->uuid_, current_wal_seq_num, &locker_acc);
   MG_ASSERT(wal_files, "Wal files could not be loaded");
 
+  (void)locker_acc.AddPath(
+      storage->snapshot_directory_);  // protect snapshots from getting deleted while we are reading them
   auto snapshot_files = durability::GetSnapshotFiles(storage->snapshot_directory_, storage->uuid_);
   std::optional<durability::SnapshotDurabilityInfo> latest_snapshot;
   if (!snapshot_files.empty()) {
@@ -252,6 +254,9 @@ std::vector<InMemoryReplicationClient::RecoveryStep> InMemoryReplicationClient::
   if (rwal_it->to_timestamp <= replica_commit) {
     MG_ASSERT(current_wal_seq_num);
     recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
+    for (const auto &wal : *wal_files) {
+      (void)locker_acc.RemovePath(wal.path);  // unlock so it can be deleted
+    }
     return recovery_steps;
   }
 
@@ -271,6 +276,7 @@ std::vector<InMemoryReplicationClient::RecoveryStep> InMemoryReplicationClient::
       if (replica_commit >= rwal_it->to_timestamp) {
         // We want the WAL after because the replica already contains all the
         // commits from this WAL
+        (void)locker_acc.RemovePath(rwal_it->path);  // unlock so it can be deleted
         --rwal_it;
       }
       std::vector<std::filesystem::path> wal_chain;
@@ -302,18 +308,26 @@ std::vector<InMemoryReplicationClient::RecoveryStep> InMemoryReplicationClient::
   MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant path.");
   recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
 
+  (void)locker_acc.RemovePath(storage->snapshot_directory_);  // No need to protect the whole directory anymore
+
   std::vector<std::filesystem::path> recovery_wal_files;
   auto wal_it = wal_files->begin();
   for (; wal_it != wal_files->end(); ++wal_it) {
-    // Assuming recovery process is correct the snashpot should
+    // Assuming recovery process is correct the snapshot should
     // always retain a single WAL that contains a transaction
     // before its creation
     if (latest_snapshot->start_timestamp < wal_it->to_timestamp) {
       if (latest_snapshot->start_timestamp < wal_it->from_timestamp) {
         MG_ASSERT(wal_it != wal_files->begin(), "Invalid durability files state");
         --wal_it;
+      } else {
+        if (wal_it != wal_files->begin())
+          (void)locker_acc.RemovePath((wal_it - 1)->path);  // unlock so the file can be deleted
       }
       break;
+    }
+    if (wal_it != wal_files->begin()) {
+      (void)locker_acc.RemovePath((wal_it - 1)->path);  // unlock so the file can be deleted
     }
   }
 

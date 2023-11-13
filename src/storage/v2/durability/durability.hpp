@@ -90,9 +90,9 @@ struct WalDurabilityInfo {
 /// with seq_num < current_seq_num.
 /// @return List of WAL files. Each WAL file is defined with its sequence
 /// number, from timestamp, to timestamp and path.
-std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
-                                                          std::string_view uuid = "",
-                                                          std::optional<size_t> current_seq_num = {});
+std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(
+    const std::filesystem::path &wal_directory, std::string_view uuid = "", std::optional<size_t> current_seq_num = {},
+    utils::FileRetainer::FileLockerAccessor *file_locker = nullptr);
 
 using ParallelizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;

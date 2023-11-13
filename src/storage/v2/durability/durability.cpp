@@ -101,18 +101,28 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
 
 std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
                                                           const std::string_view uuid,
-                                                          const std::optional<size_t> current_seq_num) {
+                                                          const std::optional<size_t> current_seq_num,
+                                                          utils::FileRetainer::FileLockerAccessor *file_locker) {
   if (!utils::DirExists(wal_directory)) return std::nullopt;
 
   std::vector<WalDurabilityInfo> wal_files;
   std::error_code error_code;
+  // There could be multiple "current" WAL files, the tah just means that the previous session didn't finalize.
+  // We cannot skip based on name, will be able to skip based on invalid data or sequence number, so the actual current
+  // wal will be skipped
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!item.is_regular_file()) continue;
     try {
+      // protect file from being deleted while we are reading it
+      if (file_locker && file_locker->AddPath(item.path()).HasError()) {
+        // File deleted before we locked, skip
+        continue;
+      }
       auto info = ReadWalInfo(item.path());
-      if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num))
+      if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num)) {
         wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, std::move(info.uuid),
                                std::move(info.epoch_id), item.path());
+      }
     } catch (const RecoveryFailure &e) {
       spdlog::warn("Failed to read {}", item.path());
       continue;
@@ -120,6 +130,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
   }
   MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
 
+  // Sort based on the sequence number, not the file name
   std::sort(wal_files.begin(), wal_files.end());
   return std::move(wal_files);
 }
