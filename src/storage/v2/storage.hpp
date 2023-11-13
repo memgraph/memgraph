@@ -109,7 +109,7 @@ struct EdgeInfoForDeletion {
 
 class Storage {
   friend class ReplicationServer;
-  friend class ReplicationClient;
+  friend class ReplicationStorageClient;
 
  public:
   Storage(Config config, StorageMode storage_mode);
@@ -355,8 +355,7 @@ class Storage {
 
   virtual void PrepareForNewEpoch() = 0;
 
-  virtual auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
-      -> std::unique_ptr<ReplicationClient> = 0;
+  virtual auto CreateReplicationClient(ReplicationClient &client) -> std::unique_ptr<ReplicationStorageClient> = 0;
 
   auto ReplicasInfo() { return repl_storage_state_.ReplicasInfo(this); }
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {

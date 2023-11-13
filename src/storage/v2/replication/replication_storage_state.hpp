@@ -33,7 +33,7 @@ namespace memgraph::storage {
 
 class Storage;
 
-class ReplicationClient;
+class ReplicationStorageClient;
 
 struct ReplicationStorageState {
   // Only MAIN can send
@@ -55,6 +55,8 @@ struct ReplicationStorageState {
 
   void Reset();
 
+  ReplicationStorageClient *GetClient(std::string_view replica_name);
+
   // Questions:
   //    - storage durability <- databases/*name*/wal and snapshots (where this for epoch_id)
   //    - multi-tenant durability <- databases/.durability (there is a list of all active tenants)
@@ -74,7 +76,7 @@ struct ReplicationStorageState {
   // This way we can initialize client in main thread which means
   // that we can immediately notify the user if the initialization
   // failed.
-  using ReplicationClientPtr = std::unique_ptr<ReplicationClient>;
+  using ReplicationClientPtr = std::unique_ptr<ReplicationStorageClient>;
   using ReplicationClientList = utils::Synchronized<std::vector<ReplicationClientPtr>, utils::RWSpinLock>;
 
   ReplicationClientList replication_clients_;

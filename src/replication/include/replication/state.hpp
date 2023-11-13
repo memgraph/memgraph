@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <list>
 #include <variant>
 #include <vector>
 
@@ -23,6 +24,7 @@
 #include "replication/role.hpp"
 #include "replication_server.hpp"
 #include "status.hpp"
+#include "storage/v2/replication/replication_client.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::replication {
@@ -32,8 +34,18 @@ enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
 struct RoleMainData {
+  RoleMainData() = default;
+  RoleMainData(ReplicationEpoch e) : epoch_(std::move(e)) {}
+  ~RoleMainData() = default;
+
+  RoleMainData(RoleMainData const &) = delete;
+  RoleMainData &operator=(RoleMainData const &) = delete;
+  RoleMainData(RoleMainData &&) = default;
+  RoleMainData &operator=(RoleMainData &&) = default;
+
   ReplicationEpoch epoch_;
-  std::vector<ReplicationClientConfig> registered_replicas_;
+  // std::vector<ReplicationClientConfig> registered_replicas_;
+  std::list<std::unique_ptr<storage::ReplicationClient>> registered_replicas_{};
 };
 
 struct RoleReplicaData {
@@ -41,6 +53,7 @@ struct RoleReplicaData {
   std::unique_ptr<ReplicationServer> server;
 };
 
+// Global (instance) level object
 struct ReplicationState {
   explicit ReplicationState(std::optional<std::filesystem::path> durability_dir);
 
@@ -74,7 +87,8 @@ struct ReplicationState {
   // TODO: locked access
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
-  auto RegisterReplica(const ReplicationClientConfig &config) -> RegisterReplicaError;
+  utils::BasicResult<RegisterReplicaError, storage::ReplicationClient *> RegisterReplica(
+      const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain();
 

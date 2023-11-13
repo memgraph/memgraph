@@ -102,8 +102,7 @@ uint64_t ReplicateCurrentWal(CurrentWalHandler &stream, durability::WalFile cons
 
 ////// ReplicationClient //////
 
-InMemoryReplicationClient::InMemoryReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
-    : ReplicationClient{config} {}
+InMemoryReplicationClient::InMemoryReplicationClient(ReplicationClient &client) : ReplicationStorageClient{client} {}
 
 void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) {
   spdlog::debug("Starting replica recover");
@@ -116,7 +115,7 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
     for (const InMemoryReplicationClient::RecoveryStep &recovery_step : steps) {
       spdlog::trace("Recovering in step: {}", i++);
       try {
-        rpc::Client &rpcClient = rpc_client_;
+        rpc::Client &rpcClient = client_.rpc_client_;
         std::visit(
             [&]<typename T>(T &&arg) {
               using StepType = std::remove_cvref_t<T>;
@@ -194,7 +193,7 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
 /// We assume that the property of preserving at least 1 WAL before the snapshot
 /// is satisfied as we extract the timestamp information from it.
 std::vector<InMemoryReplicationClient::RecoveryStep> InMemoryReplicationClient::GetRecoverySteps(
-    const uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker, const InMemoryStorage *storage) {
+    uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker, const InMemoryStorage *storage) {
   // First check if we can recover using the current wal file only
   // otherwise save the seq_num of the current wal file
   // This lock is also necessary to force the missed transaction to finish.

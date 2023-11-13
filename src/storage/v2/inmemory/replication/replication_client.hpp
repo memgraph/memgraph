@@ -16,9 +16,9 @@ namespace memgraph::storage {
 
 class InMemoryStorage;
 
-class InMemoryReplicationClient : public ReplicationClient {
+class InMemoryReplicationClient : public ReplicationStorageClient {
  public:
-  InMemoryReplicationClient(const memgraph::replication::ReplicationClientConfig &config);
+  InMemoryReplicationClient(ReplicationClient &client);
 
  protected:
   void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) override;
@@ -31,7 +31,7 @@ class InMemoryReplicationClient : public ReplicationClient {
     uint64_t current_wal_seq_num;
   };
   using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
-  static auto GetRecoverySteps(const uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,
+  static auto GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,
                                const InMemoryStorage *storage) -> std::vector<InMemoryReplicationClient::RecoveryStep>;
 };
 

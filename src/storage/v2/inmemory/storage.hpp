@@ -332,8 +332,7 @@ class InMemoryStorage final : public Storage {
   using Storage::CreateTransaction;
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) override;
 
-  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
-      -> std::unique_ptr<ReplicationClient> override;
+  auto CreateReplicationClient(ReplicationClient &client) -> std::unique_ptr<ReplicationStorageClient> override;
 
   void SetStorageMode(StorageMode storage_mode);
 

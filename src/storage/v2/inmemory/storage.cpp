@@ -1972,9 +1972,8 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
-    -> std::unique_ptr<ReplicationClient> {
-  return std::make_unique<InMemoryReplicationClient>(config);
+auto InMemoryStorage::CreateReplicationClient(ReplicationClient &client) -> std::unique_ptr<ReplicationStorageClient> {
+  return std::make_unique<InMemoryReplicationClient>(client);
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,

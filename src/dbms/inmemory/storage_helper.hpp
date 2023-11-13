@@ -28,8 +28,8 @@ constexpr bool allow_mt_repl = true;
 constexpr bool allow_mt_repl = false;
 #endif
 
-inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
-    storage::Config config, const ::memgraph::replication::ReplicationState &repl_state) {
+inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(storage::Config config,
+                                                               ::memgraph::replication::ReplicationState &repl_state) {
   const auto wal_mode = config.durability.snapshot_wal_mode;
   const auto name = config.name;
   auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config));
@@ -43,6 +43,7 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
         return storage->CreateSnapshot();
       });
 
+  // TODO Move to memgraph.cpp
   if (allow_mt_repl || name == dbms::kDefaultDB) {
     // Handle global replication state
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");

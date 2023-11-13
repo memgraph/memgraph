@@ -33,13 +33,17 @@
 #include <string>
 #include <variant>
 
+namespace memgraph::dbms {
+class DbmsHandler;
+}  // namespace memgraph::dbms
+
 namespace memgraph::storage {
 
 struct Delta;
 struct Vertex;
 struct Edge;
 class Storage;
-class ReplicationClient;
+class ReplicationStorageClient;
 
 // Handler used for transferring the current transaction.
 class ReplicaStream {
@@ -70,23 +74,60 @@ class ReplicaStream {
   rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
 };
 
-class ReplicationClient {
-  friend class CurrentWalHandler;
-  friend class ReplicaStream;
-
- public:
+struct ReplicationClient {
   ReplicationClient(const memgraph::replication::ReplicationClientConfig &config);
 
+  ~ReplicationClient();
   ReplicationClient(ReplicationClient const &) = delete;
   ReplicationClient &operator=(ReplicationClient const &) = delete;
   ReplicationClient(ReplicationClient &&) noexcept = delete;
   ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
 
-  virtual ~ReplicationClient();
+  void Start(dbms::DbmsHandler *dbms_handler);
+  void FrequentCheck(dbms::DbmsHandler *dbms_handler);
 
-  auto Mode() const -> memgraph::replication::ReplicationMode { return mode_; }
-  auto Name() const -> std::string const & { return name_; }
-  auto Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
+  std::string name_;
+  communication::ClientContext rpc_context_;
+  rpc::Client rpc_client_;
+  std::chrono::seconds replica_check_frequency_;
+
+  memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
+  // This thread pool is used for background tasks so we don't
+  // block the main storage thread
+  // We use only 1 thread for 2 reasons:
+  //  - background tasks ALWAYS contain some kind of RPC communication.
+  //    We can't have multiple RPC communication from a same client
+  //    because that's not logically valid (e.g. you cannot send a snapshot
+  //    and WAL at a same time because WAL will arrive earlier and be applied
+  //    before the snapshot which is not correct)
+  //  - the implementation is simplified as we have a total control of what
+  //    this pool is executing. Also, we can simply queue multiple tasks
+  //    and be sure of the execution order.
+  //    Not having mulitple possible threads in the same client allows us
+  //    to ignore concurrency problems inside the client.
+  utils::ThreadPool thread_pool_{1};
+
+  utils::Scheduler replica_checker_;
+};
+
+class ReplicationStorageClient {
+  friend class CurrentWalHandler;
+  friend class ReplicaStream;
+  friend struct ReplicationClient;
+
+ public:
+  explicit ReplicationStorageClient(ReplicationClient &client);
+
+  ReplicationStorageClient(ReplicationStorageClient const &) = delete;
+  ReplicationStorageClient &operator=(ReplicationStorageClient const &) = delete;
+  ReplicationStorageClient(ReplicationStorageClient &&) noexcept = delete;
+  ReplicationStorageClient &operator=(ReplicationStorageClient &&) noexcept = delete;
+
+  virtual ~ReplicationStorageClient() = default;
+
+  auto Mode() const -> memgraph::replication::ReplicationMode { return client_.mode_; }
+  auto Name() const -> std::string const & { return client_.name_; }
+  auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
   auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
   auto GetTimestampInfo(Storage *storage) -> TimestampInfo;
 
@@ -110,32 +151,11 @@ class ReplicationClient {
   void TryCheckReplicaStateSync(Storage *storage);
   void FrequentCheck(Storage *storage);
 
-  std::string name_;
-  communication::ClientContext rpc_context_;
-  rpc::Client rpc_client_;
-  std::chrono::seconds replica_check_frequency_;
-
-  std::optional<ReplicaStream> replica_stream_;
-  memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
-
+  ReplicationClient &client_;
+  std::optional<ReplicaStream>
+      replica_stream_;  // Currently active stream (nullopt if not in use), note: a single stream per rpc client
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
-  // This thread pool is used for background tasks so we don't
-  // block the main storage thread
-  // We use only 1 thread for 2 reasons:
-  //  - background tasks ALWAYS contain some kind of RPC communication.
-  //    We can't have multiple RPC communication from a same client
-  //    because that's not logically valid (e.g. you cannot send a snapshot
-  //    and WAL at a same time because WAL will arrive earlier and be applied
-  //    before the snapshot which is not correct)
-  //  - the implementation is simplified as we have a total control of what
-  //    this pool is executing. Also, we can simply queue multiple tasks
-  //    and be sure of the execution order.
-  //    Not having mulitple possible threads in the same client allows us
-  //    to ignore concurrency problems inside the client.
-  utils::ThreadPool thread_pool_{1};
-
-  utils::Scheduler replica_checker_;
 };
 
 }  // namespace memgraph::storage

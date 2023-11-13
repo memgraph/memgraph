@@ -130,14 +130,13 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
       .port = ports[0],
   });
 
-  ASSERT_FALSE(main.repl_handler
-                   .RegisterReplica(ReplicationClientConfig{
-                       .name = "REPLICA",
-                       .mode = ReplicationMode::SYNC,
-                       .ip_address = local_host,
-                       .port = ports[0],
-                   })
-                   .HasError());
+  const auto &reg = main.repl_handler.RegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .ip_address = local_host,
+      .port = ports[0],
+  });
+  ASSERT_FALSE(reg.HasError()) << (int)reg.GetError();
 
   // vertex create
   // vertex add label
