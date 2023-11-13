@@ -33,7 +33,7 @@ TOOLCHAIN_RUN_DEPS=(
     libcurl4 # for cmake
     file # for CPack
     libreadline8 # for cmake and llvm
-    libffi7 libxml2 # for llvm
+    libffi8 libxml2 # for llvm
     libssl-dev # for libevent
 )
 
