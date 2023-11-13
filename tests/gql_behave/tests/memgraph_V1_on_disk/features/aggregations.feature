@@ -427,4 +427,4 @@ Feature: Aggregations
       """
       Then the result should be:
         | id |
-        | 0  |
+        | null  |
