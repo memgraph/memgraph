@@ -31,12 +31,10 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
-#include "utils/string.hpp"
 #include "utils/timer.hpp"
 
 namespace memgraph::metrics {
@@ -211,8 +209,9 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
       throw RecoveryFailure("The unique constraint must be created here!");
 
     std::vector<std::string> property_names;
+    property_names.reserve(item.second.size());
     for (const auto &prop : item.second) {
-      property_names.push_back(name_id_mapper->IdToName(prop.AsUint()));
+      property_names.emplace_back(name_id_mapper->IdToName(prop.AsUint()));
     }
     auto property_names_joined = utils::Join(property_names, ",");
     spdlog::info("Unique constraint on :{}({}) is recreated from metadata",
