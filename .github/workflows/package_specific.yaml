@@ -274,7 +274,7 @@ jobs:
   upload-to-s3:
     # only run upload if we specified version. Allows for runs without upload
     if: "${{ github.event.inputs.memgraph_version != '' }}"
-    needs: [centos-7, centos-9, debian-10, debian-11, docker, ubuntu-1804, ubuntu-2004, ubuntu-2204, debian-11-platform, fedora-36, amzn-2, debian-11-arm, ubuntu-2204-arm]
+    needs: [amzn-2, centos-7, centos-9, debian-10, debian-11, debian-11-arm, debian-11-platform, docker, fedora-36, ubuntu-18_04, ubuntu-20_04, ubuntu-22_04, ubuntu-22_04-arm]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
