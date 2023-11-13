@@ -264,18 +264,12 @@ inline bool DropExistenceConstraint(mgp_graph *graph, const std::string_view lab
   return MgInvoke<int>(mgp_drop_existence_constraint, graph, std::string(label).c_str(), std::string(property).c_str());
 }
 
-inline bool CreateUniqueConstraint(mgp_graph *graph, const std::string_view label, const auto &properties) {
-  std::vector<const char *> properties_cstr;
-  properties_cstr.reserve(properties.size());
-  for (const auto &property : properties) {
-    properties_cstr.push_back(std::string(property).c_str());
-  }
-  // return MgInvoke<int>(mgp_create_unique_constraint, graph, std::string(label).c_str(), std::move(properties_cstr));
-  return true;
+inline bool CreateUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
+  return MgInvoke<int>(mgp_create_unique_constraint, memgraph_graph, std::string(label).c_str(), properties);
 }
 
-inline bool DropUniqueConstraint(mgp_graph *graph, const std::string_view label, const auto &properties) {
-  return true;
+inline bool DropUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
+  return MgInvoke<int>(mgp_drop_unique_constraint, memgraph_graph, std::string(label).c_str(), properties);
 }
 
 inline bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }

@@ -4297,14 +4297,12 @@ inline bool DropLabelPropertyIndexImpl(mgp_graph *memgaph_graph, const std::stri
   return DropLabelPropertyIndex(memgaph_graph, label, property);
 }
 
-inline bool CreateUniqueConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
-                                       const std::vector<std::string_view> &properties) {
-  return CreateUniqueConstraint(memgraph_graph, label, properties);
+inline bool CreateUniqueConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
+  return MgInvoke<int>(mgp_create_unique_constraint, memgraph_graph, std::string(label).c_str(), properties);
 }
 
-inline bool DropUniqueConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
-                                     const std::vector<std::string_view> &properties) {
-  return DropUniqueConstraint(memgraph_graph, label, properties);
+inline bool DropUniqueConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
+  return MgInvoke<int>(mgp_drop_unique_constraint, memgraph_graph, std::string(label).c_str(), properties);
 }
 
 inline bool CreateExistenceConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,

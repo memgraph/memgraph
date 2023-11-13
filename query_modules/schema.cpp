@@ -199,14 +199,10 @@ void CreateExistenceConstraints(const mgp::Map &existence_constraints_map, mgp_g
 void CreateUniqueConstraints(const mgp::Map &unique_constraints_map, mgp_graph *memgraph_graph) {
   for (const auto &[label, properties] : unique_constraints_map) {
     auto properties_list = properties.ValueList();
-    std::vector<std::string_view> properties_str;
-    properties_str.reserve(properties_list.Size());
     for (const auto &property : properties_list) {
-      const auto property_str = property.ValueString();
       assert((!property_str.empty()) && "Property name must be provided for unique constraint");
-      properties_str.push_back(property_str);
     }
-    mgp::CreateUniqueConstraintImpl(memgraph_graph, label, properties_str);
+    mgp::CreateUniqueConstraintImpl(memgraph_graph, label, properties.ptr());
   }
 }
 

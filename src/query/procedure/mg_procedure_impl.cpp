@@ -2602,7 +2602,7 @@ mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, c
   *result = 1;
   auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
   auto property_id = std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
-  const auto index_res = std::visit(
+  const auto exist_res = std::visit(
       memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
                                     return impl->CreateExistenceConstraint(label_id, property_id);
                                   },
@@ -2610,7 +2610,7 @@ mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, c
                                     return impl->GetAccessor()->CreateExistenceConstraint(label_id, property_id);
                                   }},
       graph->impl);
-  if (index_res.HasError()) {
+  if (exist_res.HasError()) {
     *result = 0;
   }
   return mgp_error::MGP_ERROR_NO_ERROR;
@@ -2620,7 +2620,7 @@ mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, con
   *result = 1;
   auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
   auto property_id = std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
-  const auto index_res = std::visit(
+  const auto exist_res = std::visit(
       memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
                                     return impl->DropExistenceConstraint(label_id, property_id);
                                   },
@@ -2628,7 +2628,52 @@ mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, con
                                     return impl->GetAccessor()->DropExistenceConstraint(label_id, property_id);
                                   }},
       graph->impl);
-  if (index_res.HasError()) {
+  if (exist_res.HasError()) {
+    *result = 0;
+  }
+  return mgp_error::MGP_ERROR_NO_ERROR;
+}
+
+mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_value *properties, int *result) {
+  *result = 1;
+  auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+  std::set<memgraph::storage::PropertyId> property_ids;
+  for (const auto &elem : properties->list_v->elems) {
+    property_ids.insert(
+        std::visit([prop_str = elem.string_v](auto *impl) { return impl->NameToProperty(prop_str); }, graph->impl));
+  }
+
+  const auto unique_res = std::visit(
+      memgraph::utils::Overloaded{[label_id, property_ids](memgraph::query::DbAccessor *impl) {
+                                    return impl->CreateUniqueConstraint(label_id, property_ids);
+                                  },
+                                  [label_id, property_ids](memgraph::query::SubgraphDbAccessor *impl) {
+                                    return impl->GetAccessor()->CreateUniqueConstraint(label_id, property_ids);
+                                  }},
+      graph->impl);
+  if (unique_res.HasError()) {
+    *result = 0;
+  }
+  return mgp_error::MGP_ERROR_NO_ERROR;
+}
+
+mgp_error mgp_drop_unique_constraint(mgp_graph *graph, const char *label, mgp_value *properties, int *result) {
+  *result = 1;
+  auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+  std::set<memgraph::storage::PropertyId> property_ids;
+  for (const auto &elem : properties->list_v->elems) {
+    property_ids.insert(
+        std::visit([prop_str = elem.string_v](auto *impl) { return impl->NameToProperty(prop_str); }, graph->impl));
+  }
+  const auto unique_res =
+      std::visit(memgraph::utils::Overloaded{[label_id, property_ids](memgraph::query::DbAccessor *impl) {
+                                               return impl->DropUniqueConstraint(label_id, property_ids);
+                                             },
+                                             [label_id, property_ids](memgraph::query::SubgraphDbAccessor *impl) {
+                                               return impl->GetAccessor()->DropUniqueConstraint(label_id, property_ids);
+                                             }},
+                 graph->impl);
+  if (unique_res != memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS) {
     *result = 0;
   }
   return mgp_error::MGP_ERROR_NO_ERROR;

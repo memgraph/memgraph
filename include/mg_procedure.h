@@ -909,19 +909,18 @@ enum mgp_error mgp_create_existence_constraint(struct mgp_graph *graph, const ch
 /// if dropping existence constraint failed, result will be 0, otherwise 1.
 enum mgp_error mgp_drop_existence_constraint(struct mgp_graph *graph, const char *label, const char *property,
                                              int *result);
-/*
+
 /// Creates unique constraint for given label and properties.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.
 /// if creating unique constraint failed, result will be 0, otherwise 1.
-enum mgp_error mgp_create_unique_constraint(struct mgp_graph *graph, const char *label, const auto &properties,
+enum mgp_error mgp_create_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
                                             int *result);
 
 /// Drops unique constraint for given label and properties..
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.
 /// if dropping unique constraint failed, result will be 0, otherwise 1.
-enum mgp_error mgp_drop_unique_constraint(struct mgp_graph *graph, const char *label, const auto &properties,
+enum mgp_error mgp_drop_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
                                           int *result);
-*/
 
 /// Result is non-zero if the graph can be modified.
 /// If a graph is immutable, then vertices cannot be created or deleted, and all of the returned vertices will be
