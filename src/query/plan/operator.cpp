@@ -3463,7 +3463,7 @@ class AggregateCursor : public Cursor {
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!pulled_all_input_) {
-      if (!ProcessAll(&frame, &context) && self_.AllAggregationsForCollecting()) return false;
+      if (!ProcessAll(&frame, &context) && self_.AreAllAggregationsForCollecting()) return false;
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 
@@ -3668,7 +3668,6 @@ class AggregateCursor : public Cursor {
     auto unique_values_it = agg_value->unique_values_.begin();
     auto agg_elem_it = self_.aggregations_.begin();
     const auto counts_end = agg_value->counts_.end();
-    spdlog::info("Updating agg value");
     for (; count_it != counts_end; ++count_it, ++value_it, ++unique_values_it, ++agg_elem_it) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
@@ -3824,7 +3823,7 @@ UniqueCursorPtr Aggregate::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<AggregateCursor>(mem, *this, mem);
 }
 
-auto Aggregate::AllAggregationsForCollecting() const -> bool {
+auto Aggregate::AreAllAggregationsForCollecting() const -> bool {
   return std::all_of(aggregations_.begin(), aggregations_.end(), [](const auto &agg) {
     return agg.op == Aggregation::Op::COLLECT_LIST || agg.op == Aggregation::Op::COLLECT_MAP;
   });
