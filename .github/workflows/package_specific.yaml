@@ -15,7 +15,7 @@ on:
         options:
           - Release
           - RelWithDebInfo
-     build_amzn_2:
+      build_amzn_2:
         type: boolean
         default: false
       build_centos_7:
