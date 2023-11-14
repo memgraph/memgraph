@@ -514,6 +514,9 @@ class List {
 
   ~List();
 
+  /// @brief Returns wheter the list contains any deleted values.
+  bool ContainsDeleted() const;
+
   /// @brief Returns the size of the list.
   size_t Size() const;
   /// @brief Returns whether the list is empty.
@@ -619,6 +622,9 @@ class Map {
   Map &operator=(Map &&other) noexcept;
 
   ~Map();
+
+  /// @brief Returns wheter the map contains any deleted values.
+  bool ContainsDeleted() const;
 
   /// @brief Returns the size of the map.
   size_t Size() const;
@@ -729,6 +735,9 @@ class Node {
 
   ~Node();
 
+  /// @brief Returns wheter the node has been deleted.
+  bool IsDeleted() const;
+
   /// @brief Returns the node’s ID.
   mgp::Id Id() const;
 
@@ -810,6 +819,9 @@ class Relationship {
 
   ~Relationship();
 
+  /// @brief Returns wheter the relationship has been deleted.
+  bool IsDeleted() const;
+
   /// @brief Returns the relationship’s ID.
   mgp::Id Id() const;
 
@@ -874,6 +886,9 @@ class Path {
   Path &operator=(Path &&other) noexcept;
 
   ~Path();
+
+  /// @brief Returns wheter the path contains any deleted values.
+  bool ContainsDeleted() const;
 
   /// Returns the path length (number of relationships).
   size_t Length() const;
@@ -2436,6 +2451,8 @@ inline List::~List() {
   }
 }
 
+inline bool List::ContainsDeleted() const { return mgp::list_contains_deleted(ptr_); }
+
 inline size_t List::Size() const { return mgp::list_size(ptr_); }
 
 inline bool List::Empty() const { return Size() == 0; }
@@ -2561,6 +2578,8 @@ inline Map::~Map() {
     mgp::map_destroy(ptr_);
   }
 }
+
+inline bool Map::ContainsDeleted() const { return mgp::map_contains_deleted(ptr_); }
 
 inline size_t Map::Size() const { return mgp::map_size(ptr_); }
 
@@ -2725,6 +2744,8 @@ inline Node::~Node() {
   }
 }
 
+inline bool Node::IsDeleted() const { return mgp::vertex_is_deleted(ptr_); }
+
 inline mgp::Id Node::Id() const { return Id::FromInt(mgp::vertex_get_id(ptr_).as_int); }
 
 inline mgp::Labels Node::Labels() const { return mgp::Labels(ptr_); }
@@ -2876,6 +2897,8 @@ inline Relationship::~Relationship() {
   }
 }
 
+inline bool Relationship::IsDeleted() const { return mgp::edge_is_deleted(ptr_); }
+
 inline mgp::Id Relationship::Id() const { return Id::FromInt(mgp::edge_get_id(ptr_).as_int); }
 
 inline std::string_view Relationship::Type() const { return mgp::edge_get_type(ptr_).name; }
@@ -2980,6 +3003,8 @@ inline Path::~Path() {
     mgp::path_destroy(ptr_);
   }
 }
+
+inline bool Path::ContainsDeleted() const { return mgp::path_contains_deleted(ptr_); }
 
 inline size_t Path::Length() const { return mgp::path_size(ptr_); }
 

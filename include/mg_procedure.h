@@ -413,6 +413,9 @@ enum mgp_error mgp_list_copy(struct mgp_list *list, struct mgp_memory *memory, s
 /// Free the memory used by the given mgp_list and contained elements.
 void mgp_list_destroy(struct mgp_list *list);
 
+/// Return whether the given mgp_list contains any deleted values.
+enum mgp_error mgp_list_contains_deleted(struct mgp_list *list, int *result);
+
 /// Append a copy of mgp_value to mgp_list if capacity allows.
 /// The list copies the given value and therefore does not take ownership of the
 /// original value. You still need to call mgp_value_destroy to free the
@@ -452,6 +455,9 @@ enum mgp_error mgp_map_copy(struct mgp_map *map, struct mgp_memory *memory, stru
 
 /// Free the memory used by the given mgp_map and contained items.
 void mgp_map_destroy(struct mgp_map *map);
+
+/// Return whether the given mgp_map contains any deleted values.
+enum mgp_error mgp_map_contains_deleted(struct mgp_map *map, int *result);
 
 /// Insert a new mapping from a NULL terminated character string to a value.
 /// If a mapping with the same key already exists, it is *not* replaced.
@@ -532,6 +538,9 @@ enum mgp_error mgp_path_copy(struct mgp_path *path, struct mgp_memory *memory, s
 
 /// Free the memory used by the given mgp_path and contained vertices and edges.
 void mgp_path_destroy(struct mgp_path *path);
+
+/// Return whether the given mgp_path contains any deleted values.
+enum mgp_error mgp_path_contains_deleted(struct mgp_path *path, int *result);
 
 /// Append an edge continuing from the last vertex on the path.
 /// The edge is copied into the path. Therefore, the path does not take
@@ -706,6 +715,9 @@ enum mgp_error mgp_vertex_copy(struct mgp_vertex *v, struct mgp_memory *memory, 
 /// Free the memory used by a mgp_vertex.
 void mgp_vertex_destroy(struct mgp_vertex *v);
 
+/// Return whether the given mgp_vertex is deleted.
+enum mgp_error mgp_vertex_is_deleted(struct mgp_vertex *v, int *result);
+
 /// Result is non-zero if given vertices are equal, otherwise 0.
 enum mgp_error mgp_vertex_equal(struct mgp_vertex *v1, struct mgp_vertex *v2, int *result);
 
@@ -799,6 +811,9 @@ enum mgp_error mgp_edge_copy(struct mgp_edge *e, struct mgp_memory *memory, stru
 
 /// Free the memory used by a mgp_edge.
 void mgp_edge_destroy(struct mgp_edge *e);
+
+/// Return whether the given mgp_edge is deleted.
+enum mgp_error mgp_edge_is_deleted(struct mgp_edge *e, int *result);
 
 /// Result is non-zero if given edges are equal, otherwise 0.
 enum mgp_error mgp_edge_equal(struct mgp_edge *e1, struct mgp_edge *e2, int *result);

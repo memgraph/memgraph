@@ -325,6 +325,8 @@ inline mgp_list *list_copy(mgp_list *list, mgp_memory *memory) {
 
 inline void list_destroy(mgp_list *list) { mgp_list_destroy(list); }
 
+inline bool list_contains_deleted(mgp_list *list) { return MgInvoke<int>(mgp_list_contains_deleted, list); }
+
 inline void list_append(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append, list, val); }
 
 inline void list_append_extend(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append_extend, list, val); }
@@ -342,6 +344,8 @@ inline mgp_map *map_make_empty(mgp_memory *memory) { return MgInvoke<mgp_map *>(
 inline mgp_map *map_copy(mgp_map *map, mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_copy, map, memory); }
 
 inline void map_destroy(mgp_map *map) { mgp_map_destroy(map); }
+
+inline bool map_contains_deleted(mgp_map *map) { return MgInvoke<int>(mgp_map_contains_deleted, map); }
 
 inline void map_insert(mgp_map *map, const char *key, mgp_value *value) {
   MgInvokeVoid(mgp_map_insert, map, key, value);
@@ -388,6 +392,8 @@ inline mgp_vertex *vertex_copy(mgp_vertex *v, mgp_memory *memory) {
 }
 
 inline void vertex_destroy(mgp_vertex *v) { mgp_vertex_destroy(v); }
+
+inline bool vertex_is_deleted(mgp_vertex *v) { return MgInvoke<int>(mgp_vertex_is_deleted, v); }
 
 inline bool vertex_equal(mgp_vertex *v1, mgp_vertex *v2) { return MgInvoke<int>(mgp_vertex_equal, v1, v2); }
 
@@ -441,6 +447,8 @@ inline mgp_edge *edge_copy(mgp_edge *e, mgp_memory *memory) { return MgInvoke<mg
 
 inline void edge_destroy(mgp_edge *e) { mgp_edge_destroy(e); }
 
+inline bool edge_is_deleted(mgp_edge *e) { return MgInvoke<int>(mgp_edge_is_deleted, e); }
+
 inline bool edge_equal(mgp_edge *e1, mgp_edge *e2) { return MgInvoke<int>(mgp_edge_equal, e1, e2); }
 
 inline mgp_edge_type edge_get_type(mgp_edge *e) { return MgInvoke<mgp_edge_type>(mgp_edge_get_type, e); }
@@ -476,6 +484,8 @@ inline mgp_path *path_copy(mgp_path *path, mgp_memory *memory) {
 }
 
 inline void path_destroy(mgp_path *path) { mgp_path_destroy(path); }
+
+inline bool path_contains_deleted(mgp_path *path) { return MgInvoke<int>(mgp_path_contains_deleted, path); }
 
 inline void path_expand(mgp_path *path, mgp_edge *edge) { MgInvokeVoid(mgp_path_expand, path, edge); }
 
