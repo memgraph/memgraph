@@ -15,22 +15,121 @@ import pytest
 from common import connect, execute_and_fetch_all
 
 
-def test_assert_creates():
+# Empty list is a short way of creating only label index.
+def test_assert_creates_label_index_empty_list():
     cursor = connect().cursor()
     results = list(
         execute_and_fetch_all(
             cursor,
-            "CALL libschema.assert({'Person': 'name', 'Person': 'surname', 'Person': ''}, {'Person': ['oib', 'jmbg']}, {'Person': 'name', 'Person': 'surname'}) YIELD * RETURN *;",
+            "CALL libschema.assert({Person: []}, {}) YIELD * RETURN *;",
         )
     )
-    assert len(results) == 7
-    assert results[0] == ["Person", "name", "[name]", False, "CREATED"]
-    assert results[1] == ["Person", "surname", "[surname]", False, "CREATED"]
-    assert results[2] == ["Person", "", "[]", False, "CREATED"]
-    assert results[3] == ["Person", "oib", "[oib]", True, "CREATED"]
-    assert results[4] == ["Person", "jmbg", "[jmbg]", True, "CREATED"]
-    assert results[5] == ["Person", "name", "[name]", False, "CREATED"]
-    assert results[6] == ["Person", "surname", "[surname]", False, "CREATED"]
+    assert results == [("Created", "", [], "Person", False)]
+    show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+    assert show_index_results == [("label", "Person", None, 0)]
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Person;")
+
+
+# Having one empty string is equivalent to having empty list. User-friendly.
+def test_assert_creates_label_index_empty_string():
+    cursor = connect().cursor()
+    results = list(
+        execute_and_fetch_all(
+            cursor,
+            "CALL libschema.assert({Person: ['']}, {}) YIELD * RETURN *;",
+        )
+    )
+    assert results == [("Created", "", [], "Person", False)]
+    show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+    assert show_index_results == [("label", "Person", None, 0)]
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Person;")
+
+
+def test_assert_wrong_properties_type():
+    cursor = connect().cursor()
+    try:
+        execute_and_fetch_all(
+            cursor,
+            "CALL libschema.assert({Person: " "}, {}) YIELD * RETURN *;",
+        )
+    except Exception:
+        show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+        assert show_index_results == []
+        return
+    assert False
+
+
+def test_assert_property_is_not_a_string():
+    cursor = connect().cursor()
+    try:
+        execute_and_fetch_all(
+            cursor,
+            "CALL libschema.assert({Person: ['name', 1] {}) YIELD * RETURN *;",
+        )
+    except Exception:
+        show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+        assert show_index_results == []
+        return
+    assert False
+
+
+# Multiple empty strings will create just one label index
+def test_assert_creates_label_index_multiple_empty_strings():
+    cursor = connect().cursor()
+    results = list(
+        execute_and_fetch_all(
+            cursor,
+            "CALL libschema.assert({Person: ['', '', '', '']}, {}) YIELD * RETURN *;",
+        )
+    )
+    assert results == [("Created", "", [], "Person", False)]
+    show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+    assert show_index_results == [("label", "Person", None, 0)]
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Person;")
+
+
+# One label-property index
+def test_assert_creates_label_property_index():
+    cursor = connect().cursor()
+    results = list(
+        execute_and_fetch_all(
+            cursor,
+            "CALL libschema.assert({Person: ['name']}, {}) YIELD * RETURN *;",
+        )
+    )
+    assert results == [("Created", "name", ["name"], "Person", False)]
+    show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+    assert show_index_results == [("label+property", "Person", "name", 0)]
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Person(name);")
+
+
+# Duplicates are ignored
+def test_assert_creates_multiple_indices():
+    cursor = connect().cursor()
+    results = list(
+        execute_and_fetch_all(
+            cursor,
+            "CALL libschema.assert({Person: ['', 'id', 'name'], Ball: ['', 'size', 'size', '']}, {}) YIELD * RETURN *;",
+        )
+    )
+    assert len(results) == 5
+    assert results[0] == ("Created", "", [], "Ball", False)
+    assert results[1] == ("Created", "size", ["size"], "Ball", False)
+    assert results[2] == ("Created", "", [], "Person", False)
+    assert results[3] == ("Created", "id", ["id"], "Person", False)
+    assert results[4] == ("Created", "name", ["name"], "Person", False)
+    show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+    assert len(show_index_results) == 5
+    assert show_index_results[0] == ("label", "Ball", None, 0)
+    assert show_index_results[1] == ("label", "Person", None, 0)
+    assert show_index_results[2] == ("label+property", "Ball", "size", 0)
+    assert show_index_results[3] == ("label+property", "Person", "id", 0)
+    assert show_index_results[4] == ("label+property", "Person", "name", 0)
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Person;")
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Person(id);")
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Person(name);")
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Ball;")
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Ball(size);")
 
 
 def test_node_type_properties1():
