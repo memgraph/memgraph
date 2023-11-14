@@ -107,9 +107,6 @@ class MemoryTracker final {
   };
 
  private:
-  enum class TrackingMode { DEFAULT, ADDITIONAL_PROC };
-
-  TrackingMode tracking_mode_{TrackingMode::DEFAULT};
   std::atomic<int64_t> amount_{0};
   std::atomic<int64_t> peak_{0};
   std::atomic<int64_t> hard_limit_{0};
