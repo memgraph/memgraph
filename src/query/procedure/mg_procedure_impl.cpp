@@ -359,31 +359,14 @@ bool ContainsDeleted(mgp_value *val) {
   switch (val->type) {
     case MGP_VALUE_TYPE_VERTEX:
       return IsDeleted(val->vertex_v);
-      // return val->vertex_v->getImpl().impl_.vertex_->deleted;
     case MGP_VALUE_TYPE_EDGE:
       return IsDeleted(val->edge_v);
-      // return val->edge_v->impl.impl_.edge_.ptr->deleted;
     case MGP_VALUE_TYPE_PATH:
       return ContainsDeleted(val->path_v);
-      // for (auto &vertex : val->path_v->vertices) {
-      //   if (IsDeleted(&vertex)) return true;
-      // }
-      // for (auto &edge : val->path_v->edges) {
-      //   if (IsDeleted(&edge)) return true;
-      // }
-      // return false;
     case MGP_VALUE_TYPE_LIST:
       return ContainsDeleted(val->list_v);
-      // for (auto &elem : val->list_v->elems) {
-      //   if (ContainsDeleted(&elem)) return true;
-      // }
-      // return false;
     case MGP_VALUE_TYPE_MAP:
       return ContainsDeleted(val->map_v);
-      // for (auto &[_, map_value] : val->map_v->items) {
-      //   if (ContainsDeleted(&map_value)) return true;
-      // }
-      // return false;
     // other types are primitives
     default:
       break;
