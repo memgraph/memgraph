@@ -39,6 +39,7 @@ output_data = OutputData()
 NUMBER_NODES_IN_CHAIN = 4
 CREATE_FUNCTION = "CREATE"
 DELETE_FUNCTION = "DELETE"
+MATCH_FUNCTION = "MATCH"
 
 
 atexit.register(SessionCache.cleanup)
@@ -114,7 +115,9 @@ def clean_database() -> None:
 def create_indices() -> None:
     session = SessionCache.argument_session(args)
     execute_till_success(session, "CREATE INDEX ON :Node")
-    execute_till_success(session, "CREATE INDEX ON :Node(id)")
+    execute_till_success(session, "CREATE INDEX ON :Node(prop)")
+    execute_till_success(session, "CREATE INDEX ON :Supernode")
+    execute_till_success(session, "CREATE INDEX ON :Supernode(prop)")
 
 
 def setup_database_mode() -> None:
@@ -135,71 +138,83 @@ def execute_function(worker: Worker) -> Worker:
         run_deleter(worker.total_worker_cnt, worker.repetition_count, worker.sleep_sec)
         return worker
 
+    if worker.type == MATCH_FUNCTION:
+        run_matcher(worker.total_worker_cnt, worker.repetition_count, worker.sleep_sec)
+        return worker
+
     raise Exception("Worker function not recognized, raising exception!")
 
 
 def run_writer(total_workers_cnt: int, repetition_count: int, sleep_sec: float, worker_id: int) -> int:
     """
-    This writer creates a chain and wants to verify after each action if the action he performed is
-    a valid graph. A graph is valid if the number of nodes is preserved, and the chain is either
-    not present or present completely.
+    Creating nodes connected to a supernode
     """
     session = SessionCache.argument_session(args)
 
     def create():
         try:
+            number = random.randint(1, 1000000)
             execute_till_success(
                 session,
-                f"MERGE (:Node{worker_id} {{id: 1}})-[:REL]-(:Node{worker_id} {{id: 2}})-[:REL]-(:Node{worker_id} {{id: 3}})-[:REL]-(:Node{worker_id} {{id: 4}})",
+                f"FOREACH (i in range(1, 200000) | CREATE (n:Node {{prop: {number}}}))",
+            )
+            execute_till_success(
+                session,
+                f"CREATE (:Supernode {{prop: {number}}})",
+            )
+            execute_till_success(
+                session, f"MATCH (n:Node {{prop: {number}}}), (m:Supernode {{prop: {number}}}) CREATE (n)-[:TYPE]->(m)"
             )
         except Exception as ex:
             pass
 
-    def verify() -> Tuple[bool, int]:
-        # We always create X nodes and therefore the number of nodes needs to be always a fraction of X
-        count = execute_till_success(session, f"MATCH (n) RETURN COUNT(n) AS cnt")[0][0]["cnt"]
-        log.info(f"Worker {worker_id} verified graph count {count} in repetition {curr_repetition}")
-
-        assert count <= total_workers_cnt * NUMBER_NODES_IN_CHAIN and count % NUMBER_NODES_IN_CHAIN == 0
-
-        ids = execute_till_success(
-            session,
-            f"MATCH (n:Node{worker_id} {{id: 1}})-->(m)-->(o)-->(p) RETURN n.id AS id1, m.id AS id2, o.id AS id3, p.id AS id4",
-        )[0]
-
-        if len(ids):
-            result = ids[0]
-            assert "id1" in result and "id2" in result and "id3" in result and "id4" in result
-            assert result["id1"] == 1 and result["id2"] == 2 and result["id3"] == 3 and result["id4"] == 4
-            log.info(f"Worker {worker_id} verified graph chain is valid in repetition {curr_repetition}")
-        else:
-            log.info(f"Worker {worker_id} does not have a chain in repetition {repetition_count}")
-
     curr_repetition = 0
 
     while curr_repetition < repetition_count:
-        log.info(f"Worker {worker_id} started iteration {curr_repetition}")
         create()
         time.sleep(sleep_sec)
         log.info(f"Worker {worker_id} created chain in iteration {curr_repetition}")
-
-        verify()
-
         curr_repetition += 1
 
 
 def run_deleter(total_workers_cnt: int, repetition_count: int, sleep_sec: float) -> None:
     """
-    Periodic deletion of an arbitrary chain in the graph
+    Periodic deletion of an arbitrary subgraph in the graph
+    """
+    session = SessionCache.argument_session(args)
+
+    def delete_part_of_graph():
+        try:
+            maybe_prop = execute_till_success(session, "MATCH (n) WITH n.prop AS prop LIMIT 1 RETURN prop")[0]
+            if len(maybe_prop):
+                prop = maybe_prop[0]["prop"]
+                execute_till_success(session, f"MATCH (n {{prop: {prop}}})-[r]->() DELETE r")
+                execute_till_success(session, f"MATCH (n {{prop: {prop}}}) DETACH DELETE n")
+        except Exception as ex:
+            log.info(f"Worker failed to delete the chain with id {id}")
+            pass
+
+    curr_repetition = 0
+    while curr_repetition < repetition_count:
+        delete_part_of_graph()
+        time.sleep(sleep_sec)
+        curr_repetition += 1
+
+
+def run_matcher(total_workers_cnt: int, repetition_count: int, sleep_sec: float) -> None:
+    """
+    Matching edges and returning the count.
     """
     session = SessionCache.argument_session(args)
 
     def delete_part_of_graph(id: int):
         try:
-            execute_till_success(session, f"MATCH (n:Node{id}) DETACH DELETE n")
-            log.info(f"Worker deleted chain with nodes of id {id}")
+            execute_till_success(session, f"MATCH ()-[r]->(m) RETURN COUNT(r)")
+            log.info(f"Matching done {id}")
+            time.sleep(sleep_sec)
         except Exception as ex:
-            log.info(f"Worker failed to delete the chain with id {id}")
+            log.info(f"Worker failed to match with id {id}")
+            time.sleep(sleep_sec)
             pass
 
     curr_repetition = 0
@@ -219,11 +234,20 @@ def execution_handler() -> None:
 
     create_indices()
 
-    worker_count = args.worker_count
     rep_count = args.repetition_count
+    sleep_sec = 0.5
 
-    workers = [Worker(CREATE_FUNCTION, x, worker_count - 1, rep_count, 0.2) for x in range(worker_count - 1)]
-    workers.append(Worker(DELETE_FUNCTION, -1, worker_count - 1, rep_count, 0.15))
+    workers = [
+        Worker(CREATE_FUNCTION, 0, 3, rep_count, sleep_sec),
+        Worker(DELETE_FUNCTION, 1, 3, rep_count, sleep_sec),
+        Worker(MATCH_FUNCTION, 2, 3, rep_count, sleep_sec),
+        Worker(CREATE_FUNCTION, 3, 3, rep_count, sleep_sec),
+        Worker(DELETE_FUNCTION, 4, 3, rep_count, sleep_sec),
+        Worker(MATCH_FUNCTION, 5, 3, rep_count, sleep_sec),
+        Worker(CREATE_FUNCTION, 6, 3, rep_count, sleep_sec),
+        Worker(DELETE_FUNCTION, 7, 3, rep_count, sleep_sec),
+        Worker(MATCH_FUNCTION, 8, 3, rep_count, sleep_sec),
+    ]
 
     with multiprocessing.Pool(processes=args.worker_count) as p:
         for worker in p.map(execute_function, workers):

@@ -90,6 +90,12 @@ SMALL_DATASET = [
         DatasetConstants.MODE: [get_default_database_mode()],
     },
     {
+        DatasetConstants.TEST: "match_create_delete.py",
+        DatasetConstants.OPTIONS: [],
+        DatasetConstants.TIMEOUT: 5,
+        DatasetConstants.MODE: [get_default_database_mode()],
+    },
+    {
         DatasetConstants.TEST: "parser.cpp",
         DatasetConstants.OPTIONS: ["--per-worker-query-count", "1000"],
         DatasetConstants.TIMEOUT: 5,
@@ -150,6 +156,12 @@ LARGE_DATASET = (
         {
             DatasetConstants.TEST: "create_match.py",
             DatasetConstants.OPTIONS: ["--vertex-count", "500000", "--create-pack-size", "500"],
+            DatasetConstants.TIMEOUT: 30,
+            DatasetConstants.MODE: [get_default_database_mode()],
+        },
+        {
+            DatasetConstants.TEST: "match_create_delete.py",
+            DatasetConstants.OPTIONS: ["--repetition-count", "3000000"],
             DatasetConstants.TIMEOUT: 30,
             DatasetConstants.MODE: [get_default_database_mode()],
         },
