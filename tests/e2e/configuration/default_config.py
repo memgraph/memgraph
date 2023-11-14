@@ -133,7 +133,6 @@ startup_config_dict = {
         "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: The MAIN instance allocates a new thread for each REPLICA.",
     ),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
-    "storage_gc_jemalloc_cycle_sec": ("30", "30", "Storage jemalloc garbage collector interval (in seconds)"),
     "storage_items_per_batch": (
         "1000000",
         "1000000",

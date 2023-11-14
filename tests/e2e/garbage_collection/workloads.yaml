@@ -3,7 +3,6 @@ args: &args
   - "7687"
   - "--log-level=TRACE"
   - "--storage-gc-cycle-sec=2"
-  - "--storage-gc-jemalloc-cycle-sec=2"
 
 in_memory_cluster: &in_memory_cluster
   cluster:
