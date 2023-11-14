@@ -52,7 +52,7 @@ void LicenseInfoSender::SendData() {
               {"valid", license_info->is_valid},
               {"physical_memory_size", memory_info.memory},
               {"swap_memory_size", memory_info.swap},
-              {"memory_usage", memory_res},
+              {"memory_used", memory_res},
               {"runtime_memory_limit", memory_limit_},
               {"license_memory_limit", license_info->license.memory_limit},
               {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()}};

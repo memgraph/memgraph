@@ -47,18 +47,19 @@ struct CachedValue {
     if (!maybe_list.IsList()) {
       return false;
     }
-    const auto &list = maybe_list.ValueList();
+    auto &list = maybe_list.ValueList();
     TypedValue::Hash hash{};
-    for (const TypedValue &list_elem : list) {
-      const auto list_elem_key = hash(list_elem);
-      auto &vector_values = cache_[list_elem_key];
-      if (!IsValueInVec(vector_values, list_elem)) {
-        vector_values.push_back(list_elem);
+    for (auto &element : list) {
+      const auto key = hash(element);
+      auto &vector_values = cache_[key];
+      if (!IsValueInVec(vector_values, element)) {
+        vector_values.emplace_back(element);
       }
     }
     return true;
   }
 
+  // Func to check if cache_ contains value
   bool ContainsValue(const TypedValue &value) const {
     TypedValue::Hash hash{};
     const auto key = hash(value);

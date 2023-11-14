@@ -12,6 +12,7 @@
 /// @file
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <variant>
 
@@ -185,6 +186,10 @@ class RuleBasedPlanner {
 
         uint64_t merge_id = 0;
         uint64_t subquery_id = 0;
+        // procedures need to start from 1
+        // due to swapping mechanism of procedure
+        // tracking
+        uint64_t procedure_id = 1;
 
         for (const auto &clause : single_query_part.remaining_clauses) {
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
@@ -224,7 +229,7 @@ class RuleBasedPlanner {
             input_op = std::make_unique<plan::CallProcedure>(
                 std::move(input_op), call_proc->procedure_name_, call_proc->arguments_, call_proc->result_fields_,
                 result_symbols, call_proc->memory_limit_, call_proc->memory_scale_, call_proc->is_write_,
-                call_proc->void_procedure_);
+                procedure_id++, call_proc->void_procedure_);
           } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
             context.bound_symbols.insert(row_sym);

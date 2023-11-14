@@ -21,6 +21,7 @@
 #include "storage/v2/inmemory/replication/replication_client.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/stat.hpp"
 
 namespace memgraph::storage {
 
@@ -129,7 +130,7 @@ InMemoryStorage::~InMemoryStorage() {
     snapshot_runner_.Stop();
   }
   if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
-    create_snapshot_handler(false);
+    create_snapshot_handler();
   }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
@@ -1166,6 +1167,25 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   return {transaction_id, start_timestamp, isolation_level, storage_mode, false};
 }
 
+void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
+  std::unique_lock main_guard{main_lock_};
+  MG_ASSERT(
+      (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
+      (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||
+       new_storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
+  if (storage_mode_ != new_storage_mode) {
+    if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      snapshot_runner_.Stop();
+    } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
+      snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
+                           [this]() { this->create_snapshot_handler(); });
+    }
+
+    storage_mode_ = new_storage_mode;
+    FreeMemory(std::move(main_guard));
+  }
+}
+
 template <bool force>
 void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard) {
   // NOTE: You do not need to consider cleanup of deleted object that occurred in
@@ -1854,7 +1874,7 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
   return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp);
 }
 
-utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(bool is_periodic) {
+utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot() {
   auto const &epoch = repl_storage_state_.epoch_;
   auto snapshot_creator = [this, &epoch]() {
     utils::Timer timer;
@@ -1882,9 +1902,6 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     } else {
       std::unique_lock main_guard{main_lock_};
       if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-        if (is_periodic) {
-          return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;
-        }
         snapshot_creator();
         return {};
       }
@@ -1970,16 +1987,12 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<I
 }
 
 void InMemoryStorage::CreateSnapshotHandler(
-    std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>(bool)> cb) {
-  create_snapshot_handler = [cb](bool is_periodic) {
-    if (auto maybe_error = cb(is_periodic); maybe_error.HasError()) {
+    std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb) {
+  create_snapshot_handler = [cb]() {
+    if (auto maybe_error = cb(); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
           spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-          break;
-        case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
-          spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
-                                              "https://memgr.ph/durability"));
           break;
         case CreateSnapshotError::ReachedMaxNumTries:
           spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
@@ -1991,7 +2004,7 @@ void InMemoryStorage::CreateSnapshotHandler(
   // Run the snapshot thread (if enabled)
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
-                         [this]() { this->create_snapshot_handler(true); });
+                         [this]() { this->create_snapshot_handler(); });
   }
 }
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {

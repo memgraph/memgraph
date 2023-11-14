@@ -1,0 +1,14 @@
+queries_cluster: &queries_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "queries.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Queries validation"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["queries/queries.py"]
+    <<: *queries_cluster
