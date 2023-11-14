@@ -1237,7 +1237,11 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   if (!gc_guard.owns_lock()) {
     return;
   }
-
+  if constexpr (force) {
+    if (main_guard.owns_lock()) {
+      memgraph::memory::CleanTracker();
+    }
+  }
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
 
   // Deltas from previous GC runs or from aborts can be cleaned up here
@@ -1914,7 +1918,6 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 }
 
 void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) {
-  memgraph::memory::CleanTracker();
   CollectGarbage<true>(std::move(main_guard));
 
   // SkipList is already threadsafe

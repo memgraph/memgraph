@@ -155,6 +155,7 @@ inline int &Get_Thread_Tracker() {
 bool QueriesMemoryControl::IsThreadTracked() { return Get_Thread_Tracker() == 1; }
 
 void QueriesMemoryControl::ResetTrackings() {
+  Get_Thread_Tracker() = 0;
   transaction_id_to_tracker.clear();
   thread_id_to_transaction_id.clear();
 }
