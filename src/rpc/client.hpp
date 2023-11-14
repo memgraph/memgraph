@@ -19,6 +19,7 @@
 #include "io/network/endpoint.hpp"
 #include "rpc/exceptions.hpp"
 #include "rpc/messages.hpp"
+#include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/logging.hpp"
@@ -43,7 +44,7 @@ class Client {
         : self_(self),
           guard_(std::move(guard)),
           req_builder_([self](const uint8_t *data, size_t size, bool have_more) {
-            if (!self->client_->Write(data, size, have_more)) throw RpcFailedException(self->endpoint_);
+            if (!self->client_->Write(data, size, have_more)) throw GenericRpcFailedException();
           }),
           res_load_(res_load) {}
 
@@ -69,11 +70,11 @@ class Client {
       while (true) {
         auto ret = slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
         if (ret.status == slk::StreamStatus::INVALID) {
-          throw RpcFailedException(self_->endpoint_);
+          throw GenericRpcFailedException();
         } else if (ret.status == slk::StreamStatus::PARTIAL) {
           if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
                                     /* exactly_len = */ false)) {
-            throw RpcFailedException(self_->endpoint_);
+            throw GenericRpcFailedException();
           }
         } else {
           response_data_size = ret.stream_size;
@@ -88,11 +89,22 @@ class Client {
       utils::TypeId res_id{utils::TypeId::UNKNOWN};
       slk::Load(&res_id, &res_reader);
 
+      // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+      rpc::Version version;
+      slk::Load(&version, &res_reader);
+
+      if (version != rpc::current_version) {
+        // V1 we introduced versioning with, absolutely no backwards compatibility,
+        // because it's impossible to provide backwards compatibility with pre versioning.
+        // Future versions this may require mechanism for graceful version handling.
+        throw VersionMismatchRpcFailedException();
+      }
+
       // Check the response ID.
       if (res_id != res_type.id && res_id != utils::TypeId::UNKNOWN) {
         spdlog::error("Message response was of unexpected type");
         self_->client_ = std::nullopt;
-        throw RpcFailedException(self_->endpoint_);
+        throw GenericRpcFailedException();
       }
 
       SPDLOG_TRACE("[RpcClient] received {}", res_type.name);
@@ -153,7 +165,7 @@ class Client {
       if (!client_->Connect(endpoint_)) {
         SPDLOG_ERROR("Couldn't connect to remote address {}", endpoint_);
         client_ = std::nullopt;
-        throw RpcFailedException(endpoint_);
+        throw GenericRpcFailedException();
       }
     }
 
@@ -162,6 +174,8 @@ class Client {
 
     // Build and send the request.
     slk::Save(req_type.id, handler.GetBuilder());
+    slk::Save(rpc::current_version, handler.GetBuilder());
+
     TRequestResponse::Request::Save(request, handler.GetBuilder());
 
     // Return the handler to the user.

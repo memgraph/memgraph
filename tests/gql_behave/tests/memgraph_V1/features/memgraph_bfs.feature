@@ -103,3 +103,21 @@ Feature: Bfs
       Then the result should be:
           | s | r0 |
           | 1 | 1  |
+
+  Scenario: Test accessing a variable bound to a list within BFS function
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Node {id: 0})-[:LINK {date: '2023-03'}]->(:Node {id: 1}),
+          (:Node {id: 1})-[:LINK {date: '2023-04'}]->(:Node {id: 2}),
+          (:Node {id: 2})-[:LINK {date: '2023-03'}]->(:Node {id: 3});
+          """
+      When executing query:
+          """
+          WITH ['2023-03'] AS date
+          MATCH p = (:Node)-[*BFS ..2 (r, n | r.date IN date)]->(:Node {id: 3})
+          RETURN p
+          """
+      Then the result should be:
+         | p                                                              |
+         | <(:Node {id: 2})-[:LINK {date: '2023-03'}]->(:Node {id: 3})>   |

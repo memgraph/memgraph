@@ -39,7 +39,8 @@ class TransactionQueueMultipleTest : public ::testing::Test {
   const std::string testSuite = "transactin_queue_multiple";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() /
                                        "MG_tests_unit_transaction_queue_multiple_intr"};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+
+  memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
         config.durability.storage_directory = data_directory;
@@ -52,6 +53,8 @@ class TransactionQueueMultipleTest : public ::testing::Test {
       }()  // iile
   };
 
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -65,7 +68,7 @@ class TransactionQueueMultipleTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::query::InterpreterContext interpreter_context{{}, nullptr};
+  memgraph::query::InterpreterContext interpreter_context{{}, nullptr, &repl_state};
   InterpreterFaker main_interpreter{&interpreter_context, db};
   std::vector<InterpreterFaker *> running_interpreters;
 
