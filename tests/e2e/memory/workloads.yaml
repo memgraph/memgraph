@@ -194,7 +194,7 @@ workloads:
     <<: *in_memory_limited_global_limit_cluster
 
   - name: "Procedure memory control for multiple procedures"
-    binary: "tests/e2e/memory/memgraph__e2e__procedure_memory_limit"
+    binary: "tests/e2e/memory/memgraph__e2e__procedure_memory_limit_multi_proc"
     proc: "tests/e2e/memory/procedures/"
     args: ["--bolt-port", *bolt_port]
     <<: *in_memory_limited_global_limit_cluster
