@@ -35,7 +35,6 @@ struct Config {
 
     Type type{Type::PERIODIC};
     std::chrono::milliseconds interval{std::chrono::milliseconds(1000)};
-
     friend bool operator==(const Gc &lrh, const Gc &rhs) = default;
   } gc;
 
