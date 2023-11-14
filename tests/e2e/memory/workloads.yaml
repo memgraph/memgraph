@@ -175,7 +175,7 @@ workloads:
     args: ["--bolt-port", *bolt_port]
     <<: *disk_450_MiB_limit_cluster
 
-  - name: "Memory control for create from multi thread proc"
+  - name: "Memory control for create from multi thread proc create"
     binary: "tests/e2e/memory/memgraph__e2e__memory_limit_global_multi_thread_proc_create"
     proc: "tests/e2e/memory/procedures/"
     args: ["--bolt-port", *bolt_port]

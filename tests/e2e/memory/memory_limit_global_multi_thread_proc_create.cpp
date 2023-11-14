@@ -48,7 +48,8 @@ int main(int argc, char **argv) {
   bool error{false};
   try {
     client->Execute(
-        "CALL libglobal_memory_limit_multi_thread_create_proc.multi_create() YIELD allocated_all RETURN allocated_all "
+        "CALL libglobal_memory_limit_multi_thread_create_proc.multi_create() PROCEDURE MEMORY UNLIMITED YIELD "
+        "allocated_all RETURN allocated_all "
         "QUERY MEMORY LIMIT 50MB;");
     auto result_rows = client->FetchAll();
     if (result_rows) {

@@ -1546,6 +1546,7 @@ mgp_error mgp_duration_sub(mgp_duration *first, mgp_duration *second, mgp_memory
 
 mgp_error mgp_result_set_error_msg(mgp_result *res, const char *msg) {
   return WrapExceptions([=] {
+    memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker{};
     auto *memory = res->rows.get_allocator().GetMemoryResource();
     res->error_msg.emplace(msg, memory);
   });

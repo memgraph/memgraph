@@ -35,7 +35,7 @@ void CallCreate(mgp_graph *graph, mgp_memory *memory) {
   for (int i = 0; i < num_vertices_per_thread; i++) {
     struct mgp_vertex *vertex{nullptr};
     auto enum_error = mgp_graph_create_vertex(graph, memory, &vertex);
-    if (enum_error == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE || enum_error != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (enum_error != mgp_error::MGP_ERROR_NO_ERROR) {
       break;
     }
     created_vertices.fetch_add(1, std::memory_order_acq_rel);
@@ -65,9 +65,12 @@ void MultiCreate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, 
     for (int i = 0; i < num_threads; i++) {
       threads[i].join();
     }
+    if (created_vertices.load(std::memory_order_acquire) != num_vertices_per_thread * num_threads) {
+      record_factory.SetErrorMessage("Unable to allocate");
+      return;
+    }
 
     auto new_record = record_factory.NewRecord();
-
     new_record.Insert("allocated_all",
                       created_vertices.load(std::memory_order_acquire) == num_vertices_per_thread * num_threads);
   } catch (std::exception &e) {
@@ -77,7 +80,7 @@ void MultiCreate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, 
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::memory = memory;
+    mgp::MemoryDispatcherGuard guard{memory};
 
     AddProcedure(MultiCreate, std::string("multi_create").c_str(), mgp::ProcedureType::Write, {},
                  {mgp::Return(std::string("allocated_all").c_str(), mgp::Type::Bool)}, module, memory);
