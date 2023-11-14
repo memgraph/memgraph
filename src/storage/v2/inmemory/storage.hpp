@@ -429,9 +429,8 @@ class InMemoryStorage final : public Storage {
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
 
-    uint64_t mark_timestamp_{};  //!< linked: non-atomic copy of commit_timestamp_, unlinked: a timestamp no active
-                                 //!< transaction currently had
-    BondPmrLd deltas_;           //!< the deltas that need cleaning
+    uint64_t mark_timestamp_{};                                  //!< a timestamp no active transaction currently has
+    BondPmrLd deltas_;                                           //!< the deltas that need cleaning
     std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
   };
 

@@ -102,11 +102,9 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
           "those files into a .backup directory inside the storage directory.");
     }
   }
-
   if (config_.gc_jemalloc.type == Config::Gc::Type::PERIODIC) {
     gc_jemalloc_runner_.Run("GC jemalloc", config_.gc_jemalloc.interval, [] { memory::PurgeUnusedMemory(); });
   }
-
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     // TODO: move out of storage have one global gc_runner_
     gc_runner_.Run("Storage GC", config_.gc.interval, [this] {
@@ -123,11 +121,11 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
 InMemoryStorage::InMemoryStorage(Config config) : InMemoryStorage(config, StorageMode::IN_MEMORY_TRANSACTIONAL) {}
 
 InMemoryStorage::~InMemoryStorage() {
-  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    gc_runner_.Stop();
-  }
   if (config_.gc_jemalloc.type == Config::Gc::Type::PERIODIC) {
     gc_jemalloc_runner_.Stop();
+  }
+  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
+    gc_runner_.Stop();
   }
   {
     // Stop replication (Stop all clients or stop the REPLICA server)
@@ -998,14 +996,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     if (!transaction_.deltas.use().empty()) {
       // Only hand over delta to be GC'ed if there was any deltas
       mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
-        // using commit timestamp as mark, set here reduces atomic contention in GC,
-        // after unlinking, an actual mark_timestamp will be assigned
-        committed_transactions.emplace_back(*commit_timestamp_, std::move(transaction_.deltas),
+        // using mark of 0 as GC will assign a mark_timestamp after unlinking
+        committed_transactions.emplace_back(0, std::move(transaction_.deltas),
                                             std::move(transaction_.commit_timestamp));
       });
-    } else {
-      // proactively clear commit_timestamp, no deltas refer to it
-      transaction_.commit_timestamp.reset();
     }
     commit_timestamp_.reset();
   }
@@ -1253,20 +1247,19 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     return;
   }
 
+  uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
+
   // Deltas from previous GC runs or from aborts can be cleaned up here
   garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-    if (!garbage_undo_buffers.empty()) {
-      if constexpr (force) {
-        // if force is set to true we can simply delete all the leftover undos because
-        // no transaction is active
-        garbage_undo_buffers.clear();
-      } else {
-        uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
-        // garbage_undo_buffers is ordered, pop until we can't
-        while (!garbage_undo_buffers.empty() &&
-               garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
-          garbage_undo_buffers.pop_front();
-        }
+    if constexpr (force) {
+      // if force is set to true we can simply delete all the leftover undos because
+      // no transaction is active
+      garbage_undo_buffers.clear();
+    } else {
+      // garbage_undo_buffers is ordered, pop until we can't
+      while (!garbage_undo_buffers.empty() &&
+             garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
+        garbage_undo_buffers.pop_front();
       }
     }
   });
@@ -1275,10 +1268,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
   std::list<GCDeltas> unlinked_undo_buffers{};
-
-  // same as unlinked_undo_buffers, but it is known none of these deltas are accessible
-  // (because no unlinking was required)
-  std::list<GCDeltas> unlinked_undo_buffers_delete_ASAP{};
 
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
@@ -1296,13 +1285,20 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   committed_transactions_.WithLock(
       [&](auto &committed_transactions) { committed_transactions.swap(linked_undo_buffers); });
 
+  // Flag that will be used to determine whether the Index GC should be run. It
+  // should be run when there were any items that were cleaned up (there were
+  // updates between this run of the GC and the previous run of the GC). This
+  // eliminates high CPU usage when the GC doesn't have to clean up anything.
+  bool run_index_cleanup = !linked_undo_buffers.empty() || !garbage_undo_buffers_->empty() || need_full_scan_vertices ||
+                           need_full_scan_edges;
+
   auto const end_linked_undo_buffers = linked_undo_buffers.end();
-  uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
     auto const *const commit_timestamp_ptr = linked_entry->commit_timestamp_.get();
+    auto const commit_timestamp = commit_timestamp_ptr->load(std::memory_order_acquire);
 
-    // only process those that are no longer active (here mark_timestamp_ == *commit_timestamp_)
-    if (linked_entry->mark_timestamp_ >= oldest_active_start_timestamp) {
+    // only process those that are no longer active
+    if (commit_timestamp >= oldest_active_start_timestamp) {
       ++linked_entry;  // can not process, skip
       continue;        // must continue to next transaction, because committed_transactions_ was not ordered
     }
@@ -1338,7 +1334,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // chain in a broken state.
     // The chain can be only read without taking any locks.
 
-    bool any_unlinks = false;
     for (Delta &delta : linked_entry->deltas_.use()) {
       while (true) {
         auto prev = delta.prev.Get();
@@ -1352,7 +1347,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
               continue;
             }
             vertex->delta = nullptr;
-            any_unlinks = true;
             if (vertex->deleted) {
               DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
               current_deleted_vertices.push_back(vertex->gid);
@@ -1368,7 +1362,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
               continue;
             }
             edge->delta = nullptr;
-            any_unlinks = true;
             if (edge->deleted) {
               DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
               current_deleted_edges.push_back(edge->gid);
@@ -1425,8 +1418,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
               // chain.
               continue;
             }
-            prev.delta->next.store(nullptr, std::memory_order_release);
-            any_unlinks = true;
+            Delta *prev_delta = prev.delta;
+            prev_delta->next.store(nullptr, std::memory_order_release);
             break;
           }
           case PreviousPtr::Type::NULLPTR: {
@@ -1440,19 +1433,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // Now unlinked, move to unlinked_undo_buffers
     auto const to_move = linked_entry;
     ++linked_entry;  // advanced to next before we move the list node
-    if (any_unlinks) {
-      // At least one delta in this collection maybe accessible (move to unlinked_undo_buffers)
-      unlinked_undo_buffers.splice(unlinked_undo_buffers.end(), linked_undo_buffers, to_move);
-    } else {
-      // None of the deltas in this collection are accessible (move to unlinked_undo_buffers_delete_ASAP)
-      // Can't delete here because maybe another linked_entry unlinking way try to read these deltas
-      unlinked_undo_buffers_delete_ASAP.splice(unlinked_undo_buffers_delete_ASAP.end(), linked_undo_buffers, to_move);
-    }
+    unlinked_undo_buffers.splice(unlinked_undo_buffers.end(), linked_undo_buffers, to_move);
   }
-
-  // Now we have unlinked, we can clear the inaccessible deltas
-  // they are not accessible to any active transaction or any future unlinking
-  unlinked_undo_buffers_delete_ASAP.clear();
 
   if (!linked_undo_buffers.empty()) {
     // some were not able to be collected, add them back to committed_transactions_ for the next GC run
@@ -1460,13 +1442,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       committed_transactions.splice(committed_transactions.begin(), std::move(linked_undo_buffers));
     });
   }
-
-  // Flag that will be used to determine whether the Index GC should be run. It
-  // should be run when there were any items that were cleaned up (there were
-  // updates between this run of the GC and the previous run of the GC). This
-  // eliminates high CPU usage when the GC doesn't have to clean up anything.
-  bool run_index_cleanup = !current_deleted_vertices.empty() || !current_deleted_edges.empty() ||
-                           need_full_scan_vertices || need_full_scan_edges;
 
   // After unlinking deltas from vertices, we refresh the indices. That way
   // we're sure that none of the vertices from `current_deleted_vertices`
@@ -1480,7 +1455,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp);
   }
 
-  if (!unlinked_undo_buffers.empty()) {
+  {
     std::unique_lock<utils::SpinLock> guard(engine_lock_);
     uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
