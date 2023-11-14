@@ -197,21 +197,22 @@ void CreateIndices(const mgp::Map &indices_map, mgp_graph *memgraph_graph, const
     const auto properties = index.value.ValueList();
     if (properties.Empty() && mgp::CreateLabelIndexImpl(memgraph_graph, label)) {
       InsertRecordForCreatingIndexOrExistenceConstraint(record_factory, label);
-    }
-    for (const auto &property : properties) {
-      if (!property.IsString()) {
-        record_factory.SetErrorMessage("Index property must be a string");
-        return;
-      }
-      const auto property_str = property.ValueString();
-      auto success = std::invoke([memgraph_graph, label, property_str]() {
-        if (property_str.empty()) {
-          return mgp::CreateLabelIndexImpl(memgraph_graph, label);
+    } else {
+      for (const auto &property : properties) {
+        if (!property.IsString()) {
+          record_factory.SetErrorMessage("Index property must be a string!");
+          return;
         }
-        return mgp::CreateLabelPropertyIndexImpl(memgraph_graph, label, property_str);
-      });
-      if (success) {
-        InsertRecordForCreatingIndexOrExistenceConstraint(record_factory, label, property);
+        const auto property_str = property.ValueString();
+        auto success = std::invoke([memgraph_graph, label, property_str]() {
+          if (property_str.empty()) {
+            return mgp::CreateLabelIndexImpl(memgraph_graph, label);
+          }
+          return mgp::CreateLabelPropertyIndexImpl(memgraph_graph, label, property_str);
+        });
+        if (success) {
+          InsertRecordForCreatingIndexOrExistenceConstraint(record_factory, label, property);
+        }
       }
     }
   }
@@ -220,13 +221,26 @@ void CreateIndices(const mgp::Map &indices_map, mgp_graph *memgraph_graph, const
 void CreateExistenceConstraints(const mgp::Map &existence_constraints_map, mgp_graph *memgraph_graph,
                                 const auto &record_factory) {
   for (const auto &constraint : existence_constraints_map) {
-    const auto &properties = constraint.value;
-    // assert((properties.IsList(), "Existence constraint properties must be provided as a list"));
-
-    // assert((!property_str.empty()) && "Property name must be provided for existence constraint");
-    // if (mgp::CreateExistenceConstraintImpl(memgraph_graph, label_property.key, property_str)) {
-    // InsertRecordForCreatingIndexOrExistenceConstraint(record_factory, label_property);
-    // }
+    if (!constraint.value.IsList()) {
+      record_factory.SetErrorMessage("Properties for creating existence constraints must be provided as a list!");
+      return;
+    }
+    const auto &properties = constraint.value.ValueList();
+    for (const auto &property : properties) {
+      if (!property.IsString()) {
+        record_factory.SetErrorMessage("Property for creating existence constraint must be provided as a string!");
+        return;
+      }
+      const auto property_str = property.ValueString();
+      if (property_str.empty()) {
+        record_factory.SetErrorMessage(
+            "Property for creating existence constraint must be provided as non-empty string!");
+        return;
+      }
+      if (mgp::CreateExistenceConstraintImpl(memgraph_graph, constraint.key, property_str)) {
+        InsertRecordForCreatingIndexOrExistenceConstraint(record_factory, constraint.key, property);
+      }
+    }
   }
 }
 

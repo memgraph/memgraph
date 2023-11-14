@@ -15,7 +15,6 @@ import pytest
 from common import connect, execute_and_fetch_all
 
 
-# Empty list is a short way of creating only label index.
 def test_assert_creates_label_index_empty_list():
     cursor = connect().cursor()
     results = list(
@@ -30,7 +29,6 @@ def test_assert_creates_label_index_empty_list():
     execute_and_fetch_all(cursor, "DROP INDEX ON :Person;")
 
 
-# Having one empty string is equivalent to having empty list. User-friendly.
 def test_assert_creates_label_index_empty_string():
     cursor = connect().cursor()
     results = list(
@@ -73,7 +71,6 @@ def test_assert_property_is_not_a_string():
     assert False
 
 
-# Multiple empty strings will create just one label index
 def test_assert_creates_label_index_multiple_empty_strings():
     cursor = connect().cursor()
     results = list(
@@ -88,7 +85,6 @@ def test_assert_creates_label_index_multiple_empty_strings():
     execute_and_fetch_all(cursor, "DROP INDEX ON :Person;")
 
 
-# One label-property index
 def test_assert_creates_label_property_index():
     cursor = connect().cursor()
     results = list(
@@ -103,7 +99,6 @@ def test_assert_creates_label_property_index():
     execute_and_fetch_all(cursor, "DROP INDEX ON :Person(name);")
 
 
-# Duplicates are ignored
 def test_assert_creates_multiple_indices():
     cursor = connect().cursor()
     results = list(
@@ -130,6 +125,94 @@ def test_assert_creates_multiple_indices():
     execute_and_fetch_all(cursor, "DROP INDEX ON :Person(name);")
     execute_and_fetch_all(cursor, "DROP INDEX ON :Ball;")
     execute_and_fetch_all(cursor, "DROP INDEX ON :Ball(size);")
+
+
+def test_assert_creates_existence_constraints():
+    cursor = connect().cursor()
+    results = list(
+        execute_and_fetch_all(
+            cursor,
+            "CALL libschema.assert({}, {}, {Person: ['name', 'surname']}) YIELD * RETURN *;",
+        )
+    )
+    assert results == [
+        ("Created", "name", ["name"], "Person", False),
+        ("Created", "surname", ["surname"], "Person", False),
+    ]
+    show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+    assert show_index_results == []
+    show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
+    assert show_constraint_results == [("exists", "Person", "name"), ("exists", "Person", "surname")]
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.surname);")
+
+
+def test_assert_existence_constraint_properties_not_list():
+    cursor = connect().cursor()
+    try:
+        execute_and_fetch_all(cursor, "CALL libschema.assert({}, {}, {Person: 'name'}) YIELD * RETURN *;")
+    except Exception:
+        show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
+        assert show_constraint_results == []
+        return
+    assert False
+
+
+def test_assert_existence_constraint_property_not_string():
+    cursor = connect().cursor()
+    try:
+        execute_and_fetch_all(cursor, "CALL libschema.assert({}, {}, {Person: ['name', 1]}) YIELD * RETURN *;")
+    except Exception:
+        show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
+        assert show_constraint_results == []
+        return
+    assert False
+
+
+def test_assert_existence_constraint_property_empty_string():
+    cursor = connect().cursor()
+    try:
+        execute_and_fetch_all(cursor, "CALL libschema.assert({}, {}, {Person: ['']}) YIELD * RETURN *;")
+    except Exception:
+        show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
+        assert show_constraint_results == []
+        return
+    assert False
+
+
+def test_assert_existence_constraint_property_not_string():
+    cursor = connect().cursor()
+    try:
+        execute_and_fetch_all(cursor, "CALL libschema.assert({}, {}, {Person: ['name', 1]}) YIELD * RETURN *;")
+    except Exception:
+        show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
+        assert show_constraint_results == [("exists", "Person", "name")]
+        execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+        return
+    assert False
+
+
+def test_assert_creates_indices_and_existence_constraints():
+    cursor = connect().cursor()
+    results = list(
+        execute_and_fetch_all(
+            cursor,
+            "CALL libschema.assert({Person: ['', 'id']}, {}, {Person: ['name', 'surname']}) YIELD * RETURN *;",
+        )
+    )
+    assert len(results) == 4
+    assert results[0] == ("Created", "", [], "Person", False)
+    assert results[1] == ("Created", "id", ["id"], "Person", False)
+    assert results[2] == ("Created", "name", ["name"], "Person", False)
+    assert results[3] == ("Created", "surname", ["surname"], "Person", False)
+    show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+    assert show_index_results == [("label", "Person", None, 0), ("label+property", "Person", "id", 0)]
+    show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
+    assert show_constraint_results == [("exists", "Person", "name"), ("exists", "Person", "surname")]
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Person;")
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Person(id);")
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.surname);")
 
 
 def test_node_type_properties1():
