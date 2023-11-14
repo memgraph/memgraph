@@ -109,7 +109,10 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
   vertex_->labels.push_back(label);
-  storage_->stored_node_labels_.try_insert(label);
+
+  if (storage_->config_.items.enable_schema_metadata) {
+    storage_->stored_node_labels_.try_insert(label);
+  }
 
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
