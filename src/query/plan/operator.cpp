@@ -27,6 +27,7 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
@@ -57,6 +58,7 @@
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/message.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/pmr/deque.hpp"
 #include "utils/pmr/list.hpp"
 #include "utils/pmr/unordered_map.hpp"
@@ -130,9 +132,13 @@ extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
 extern const Event EvaluatePatternFilterOperator;
 extern const Event ApplyOperator;
+extern const Event IndexedJoinOperator;
+extern const Event HashJoinOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
+
+using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 
@@ -178,6 +184,7 @@ inline void AbortCheck(ExecutionContext const &context) {
 #define SCOPED_PROFILE_OP_BY_REF(ref) ScopedProfile profile{ComputeProfilingKey(this), ref, &context};
 
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Once");
 
   if (!did_pull_) {
@@ -265,6 +272,7 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("CreateNode");
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -355,6 +363,7 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
 }  // namespace
 
 bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -444,6 +453,7 @@ class ScanAllCursor : public Cursor {
         op_name_(op_name) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     AbortCheck(context);
@@ -747,6 +757,7 @@ Expand::ExpandCursor::ExpandCursor(const Expand &self, int64_t input_degree, int
       prev_existing_degree_(existing_node_degree) {}
 
 bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   // A helper function for expanding a node from an edge.
@@ -1027,6 +1038,7 @@ class ExpandVariableCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), edges_(mem), edges_it_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -1251,6 +1263,7 @@ class STShortestPathCursor : public query::plan::Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("STShortestPath");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -1508,6 +1521,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("SingleSourceShortestPath");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -1689,6 +1703,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         pq_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -1946,6 +1961,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         pq_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -2301,6 +2317,7 @@ class ConstructNamedPathCursor : public Cursor {
       : self_(self), input_cursor_(self_.input()->MakeCursor(mem)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ConstructNamedPath");
 
     if (!input_cursor_->Pull(frame, context)) return false;
@@ -2393,6 +2410,14 @@ Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
                const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression)
     : input_(input ? input : std::make_shared<Once>()), pattern_filters_(pattern_filters), expression_(expression) {}
 
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
+               const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
+               const Filters &all_filters)
+    : input_(input ? input : std::make_shared<Once>()),
+      pattern_filters_(pattern_filters),
+      expression_(expression),
+      all_filters_(all_filters) {}
+
 bool Filter::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
     input_->Accept(visitor);
@@ -2431,7 +2456,8 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
       pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Filter");
+  OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP_BY_REF(self_);
 
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
@@ -2470,6 +2496,7 @@ std::vector<Symbol> EvaluatePatternFilter::ModifiedSymbols(const SymbolTable &ta
 }
 
 bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("EvaluatePatternFilter");
 
   input_cursor_->Reset();
@@ -2508,6 +2535,7 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   if (input_cursor_->Pull(frame, context)) {
@@ -2562,44 +2590,74 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
     expression_results.emplace_back(expression->Accept(evaluator));
   }
 
+  auto vertex_auth_checker = [&context](const VertexAccessor &va) -> bool {
+#ifdef MG_ENTERPRISE
+    return !(license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+             !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE));
+#else
+    return true;
+#endif
+  };
+
+  auto edge_auth_checker = [&context](const EdgeAccessor &ea) -> bool {
+#ifdef MG_ENTERPRISE
+    return !(
+        license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+          context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
+          context.auth_checker->Has(ea.From(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE)));
+#else
+    return true;
+#endif
+  };
+
   for (TypedValue &expression_result : expression_results) {
     AbortCheck(context);
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
         auto va = expression_result.ValueVertex();
-#ifdef MG_ENTERPRISE
-        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-            !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+        if (vertex_auth_checker(va)) {
+          buffer_.nodes.push_back(va);
+        } else {
           throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
         }
-#endif
-        buffer_.nodes.push_back(va);
         break;
       }
       case TypedValue::Type::Edge: {
         auto ea = expression_result.ValueEdge();
-#ifdef MG_ENTERPRISE
-        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-            !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
-              context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
-              context.auth_checker->Has(ea.From(), storage::View::NEW,
-                                        query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
+        if (edge_auth_checker(ea)) {
+          buffer_.edges.push_back(ea);
+        } else {
           throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
         }
-#endif
-        buffer_.edges.push_back(ea);
         break;
+      }
+      case TypedValue::Type::Path: {
+        auto path = expression_result.ValuePath();
+#ifdef MG_ENTERPRISE
+        auto edges_res = std::any_of(path.edges().cbegin(), path.edges().cend(),
+                                     [&edge_auth_checker](const auto &ea) { return !edge_auth_checker(ea); });
+        auto vertices_res = std::any_of(path.vertices().cbegin(), path.vertices().cend(),
+                                        [&vertex_auth_checker](const auto &va) { return !vertex_auth_checker(va); });
+
+        if (edges_res || vertices_res) {
+          throw QueryRuntimeException(
+              "Path not deleted due to not having enough permission on all edges and vertices on the path!");
+        }
+#endif
+        buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
+        buffer_.edges.insert(buffer_.edges.begin(), path.edges().begin(), path.edges().end());
       }
       case TypedValue::Type::Null:
         break;
-      // check we're not trying to delete anything except vertices and edges
       default:
-        throw QueryRuntimeException("Only edges and vertices can be deleted.");
+        throw QueryRuntimeException("Edges, vertices and paths can be deleted.");
     }
   }
 }
 
 bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Delete");
 
   if (delete_executed_) {
@@ -2676,6 +2734,7 @@ SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetProperty");
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -2839,6 +2898,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 
   auto update_props = [&, record](PropertiesMap &new_properties) {
     auto updated_properties = UpdatePropertiesChecked(record, new_properties);
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+    context->execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += new_properties.size();
 
     if (should_register_change) {
       for (const auto &[id, old_value, new_value] : updated_properties) {
@@ -2891,6 +2952,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 }  // namespace
 
 bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetProperties");
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -2955,6 +3017,7 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetLabels");
 
 #ifdef MG_ENTERPRISE
@@ -3027,6 +3090,7 @@ RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(const RemoveProperty 
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveProperty");
 
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -3113,6 +3177,7 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveLabels");
 
 #ifdef MG_ENTERPRISE
@@ -3207,6 +3272,7 @@ bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
 }  // namespace
 
 bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("EdgeUniquenessFilter");
 
   auto expansion_ok = [&]() {
@@ -3292,6 +3358,7 @@ class AccumulateCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Accumulate");
 
     auto &dba = *context.db_accessor;
@@ -3392,10 +3459,11 @@ class AggregateCursor : public Cursor {
         reused_group_by_(self.group_by_.size(), mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!pulled_all_input_) {
-      ProcessAll(&frame, &context);
+      if (!ProcessAll(&frame, &context) && self_.AreAllAggregationsForCollecting()) return false;
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 
@@ -3419,7 +3487,6 @@ class AggregateCursor : public Cursor {
         return true;
       }
     }
-
     if (aggregation_it_ == aggregation_.end()) return false;
 
     // place aggregation values on the frame
@@ -3499,12 +3566,16 @@ class AggregateCursor : public Cursor {
    * cache cardinality depends on number of
    * aggregation results, and not on the number of inputs.
    */
-  void ProcessAll(Frame *frame, ExecutionContext *context) {
+  bool ProcessAll(Frame *frame, ExecutionContext *context) {
     ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
                                   storage::View::NEW);
+
+    bool pulled = false;
     while (input_cursor_->Pull(*frame, *context)) {
       ProcessOne(*frame, &evaluator);
+      pulled = true;
     }
+    if (!pulled) return false;
 
     // post processing
     for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
@@ -3538,6 +3609,7 @@ class AggregateCursor : public Cursor {
           break;
       }
     }
+    return true;
   }
 
   /**
@@ -3751,6 +3823,12 @@ UniqueCursorPtr Aggregate::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<AggregateCursor>(mem, *this, mem);
 }
 
+auto Aggregate::AreAllAggregationsForCollecting() const -> bool {
+  return std::all_of(aggregations_.begin(), aggregations_.end(), [](const auto &agg) {
+    return agg.op == Aggregation::Op::COLLECT_LIST || agg.op == Aggregation::Op::COLLECT_MAP;
+  });
+}
+
 Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
     : input_(input), expression_(expression) {}
 
@@ -3773,6 +3851,7 @@ Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Skip");
 
   while (input_cursor_->Pull(frame, context)) {
@@ -3826,6 +3905,7 @@ Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Limit");
 
   // We need to evaluate the limit expression before the first input Pull
@@ -3888,6 +3968,7 @@ class OrderByCursor : public Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), cache_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!did_pull_all_) {
@@ -3999,6 +4080,7 @@ Merge::MergeCursor::MergeCursor(const Merge &self, utils::MemoryResource *mem)
       merge_create_cursor_(self.merge_create_->MakeCursor(mem)) {}
 
 bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Merge");
 
   while (true) {
@@ -4075,6 +4157,7 @@ Optional::OptionalCursor::OptionalCursor(const Optional &self, utils::MemoryReso
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)), optional_cursor_(self.optional_->MakeCursor(mem)) {}
 
 bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Optional");
 
   while (true) {
@@ -4142,6 +4225,7 @@ class UnwindCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), input_value_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Unwind");
     while (true) {
       AbortCheck(context);
@@ -4201,6 +4285,7 @@ class DistinctCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), seen_rows_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Distinct");
 
     while (true) {
@@ -4290,6 +4375,7 @@ Union::UnionCursor::UnionCursor(const Union &self, utils::MemoryResource *mem)
     : self_(self), left_cursor_(self.left_op_->MakeCursor(mem)), right_cursor_(self.right_op_->MakeCursor(mem)) {}
 
 bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   utils::pmr::unordered_map<std::string, TypedValue> results(context.evaluation_context.memory);
@@ -4364,6 +4450,7 @@ class CartesianCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!cartesian_pull_initialized_) {
@@ -4456,6 +4543,7 @@ class OutputTableCursor : public Cursor {
   OutputTableCursor(const OutputTable &self) : self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     if (!pulled_) {
       rows_ = self_.callback_(&frame, &context);
       for (const auto &row : rows_) {
@@ -4508,6 +4596,7 @@ class OutputTableStreamCursor : public Cursor {
   explicit OutputTableStreamCursor(const OutputTableStream *self) : self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     const auto row = self_->callback_(&frame, &context);
     if (row) {
       MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
@@ -4540,7 +4629,7 @@ UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem) const 
 
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                             size_t memory_scale, bool is_write, bool void_procedure)
+                             size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(name),
       arguments_(args),
@@ -4549,6 +4638,7 @@ CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string
       memory_limit_(memory_limit),
       memory_scale_(memory_scale),
       is_write_(is_write),
+      procedure_id_(procedure_id),
       void_procedure_(void_procedure) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
@@ -4577,7 +4667,7 @@ namespace {
 void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result,
-                         const bool call_initializer = false) {
+                         int64_t procedure_id, uint64_t transaction_id, const bool call_initializer = false) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
@@ -4609,12 +4699,46 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
                 utils::GetReadableSize(*memory_limit));
-    utils::LimitedMemoryResource limited_mem(memory, *memory_limit);
-    mgp_memory proc_memory{&limited_mem};
+    // Only allocations which can leak memory are
+    // our own mgp object allocations. Jemalloc can track
+    // memory correctly, but some memory may not be released
+    // immediately, so we want to give user info on leak still
+    // considering our allocations
+    utils::MemoryTrackingResource memory_tracking_resource{memory, *memory_limit};
+    // if we are already tracking, no harm no faul
+    // if we are not tracking, we need to start now, with unlimited memory
+    // for query, but limited for procedure
+
+    // check if transaction is tracked currently, so we
+    // can disable tracking on that arena if it is not
+    // once we are done with procedure tracking
+
+    bool is_transaction_tracked = memgraph::memory::IsTransactionTracked(transaction_id);
+
+    if (!is_transaction_tracked) {
+      // start tracking with unlimited limit on query
+      // which is same as not being tracked at all
+      memgraph::memory::TryStartTrackingOnTransaction(transaction_id, memgraph::memory::UNLIMITED_MEMORY);
+    }
+    memgraph::memory::StartTrackingCurrentThreadTransaction(transaction_id);
+
+    // due to mgp_batch_read_proc and mgp_batch_write_proc
+    // we can return to execution without exhausting whole
+    // memory. Here we need to update tracking
+    memgraph::memory::CreateOrContinueProcedureTracking(transaction_id, procedure_id, *memory_limit);
+
+    mgp_memory proc_memory{&memory_tracking_resource};
     MG_ASSERT(result->signature == &proc.results);
+
+    utils::OnScopeExit on_scope_exit{[transaction_id = transaction_id]() {
+      memgraph::memory::StopTrackingCurrentThreadTransaction(transaction_id);
+      memgraph::memory::PauseProcedureTracking(transaction_id);
+    }};
+
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
-    size_t leaked_bytes = limited_mem.GetAllocatedBytes();
+
+    auto leaked_bytes = memory_tracking_resource.GetAllocatedBytes();
     if (leaked_bytes > 0U) {
       spdlog::warn("Query procedure '{}' leaked {} *tracked* bytes", fully_qualified_procedure_name, leaked_bytes);
     }
@@ -4653,6 +4777,7 @@ class CallProcedureCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
 
     AbortCheck(context);
@@ -4721,8 +4846,10 @@ class CallProcedureCursor : public Cursor {
       auto *memory = self_->memory_resource;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
+      const auto transaction_id = context.db_accessor->GetTransactionId();
+      MG_ASSERT(transaction_id.has_value());
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
-                          result_, call_initializer);
+                          result_, self_->procedure_id_, transaction_id.value(), call_initializer);
 
       if (call_initializer) call_initializer = false;
 
@@ -4794,6 +4921,7 @@ class CallValidateProcedureCursor : public Cursor {
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("CallValidateProcedureCursor");
 
     AbortCheck(context);
@@ -4932,6 +5060,7 @@ class LoadCsvCursor : public Cursor {
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), did_pull_{false} {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
 
     AbortCheck(context);
@@ -5020,6 +5149,7 @@ class ForeachCursor : public Cursor {
         expression(foreach.expression_) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP(op_name_);
 
     if (!input_->Pull(frame, context)) {
@@ -5127,6 +5257,7 @@ std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
 }
 
 bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Apply");
 
   while (true) {
@@ -5158,6 +5289,203 @@ void Apply::ApplyCursor::Reset() {
   input_->Reset();
   subquery_->Reset();
   pull_input_ = true;
+}
+
+IndexedJoin::IndexedJoin(const std::shared_ptr<LogicalOperator> main_branch,
+                         const std::shared_ptr<LogicalOperator> sub_branch)
+    : main_branch_(main_branch ? main_branch : std::make_shared<Once>()), sub_branch_(sub_branch) {}
+
+WITHOUT_SINGLE_INPUT(IndexedJoin);
+
+bool IndexedJoin::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    main_branch_->Accept(visitor) && sub_branch_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+UniqueCursorPtr IndexedJoin::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::IndexedJoinOperator);
+
+  return MakeUniqueCursorPtr<IndexedJoinCursor>(mem, *this, mem);
+}
+
+IndexedJoin::IndexedJoinCursor::IndexedJoinCursor(const IndexedJoin &self, utils::MemoryResource *mem)
+    : self_(self), main_branch_(self.main_branch_->MakeCursor(mem)), sub_branch_(self.sub_branch_->MakeCursor(mem)) {}
+
+std::vector<Symbol> IndexedJoin::ModifiedSymbols(const SymbolTable &table) const {
+  // Since Apply is the Cartesian product, modified symbols are combined from
+  // both execution branches.
+  auto symbols = main_branch_->ModifiedSymbols(table);
+  auto sub_branch_symbols = sub_branch_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), sub_branch_symbols.begin(), sub_branch_symbols.end());
+  return symbols;
+}
+
+bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("IndexedJoin");
+
+  while (true) {
+    if (pull_input_ && !main_branch_->Pull(frame, context)) {
+      return false;
+    };
+
+    if (sub_branch_->Pull(frame, context)) {
+      // if successful, next Pull from this should not pull_input_
+      pull_input_ = false;
+      return true;
+    }
+    // failed to pull from subquery cursor
+    // skip that row
+    pull_input_ = true;
+    sub_branch_->Reset();
+  }
+}
+
+void IndexedJoin::IndexedJoinCursor::Shutdown() {
+  main_branch_->Shutdown();
+  sub_branch_->Shutdown();
+}
+
+void IndexedJoin::IndexedJoinCursor::Reset() {
+  main_branch_->Reset();
+  sub_branch_->Reset();
+  pull_input_ = true;
+}
+
+std::vector<Symbol> HashJoin::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = left_op_->ModifiedSymbols(table);
+  auto right = right_op_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), right.begin(), right.end());
+  return symbols;
+}
+
+bool HashJoin::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    left_op_->Accept(visitor) && right_op_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+WITHOUT_SINGLE_INPUT(HashJoin);
+
+namespace {
+
+class HashJoinCursor : public Cursor {
+ public:
+  HashJoinCursor(const HashJoin &self, utils::MemoryResource *mem)
+      : self_(self),
+        left_op_cursor_(self.left_op_->MakeCursor(mem)),
+        right_op_cursor_(self_.right_op_->MakeCursor(mem)),
+        hashtable_(mem),
+        right_op_frame_(mem) {
+    MG_ASSERT(left_op_cursor_ != nullptr, "HashJoinCursor: Missing left operator cursor.");
+    MG_ASSERT(right_op_cursor_ != nullptr, "HashJoinCursor: Missing right operator cursor.");
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("HashJoin");
+
+    if (!hash_join_initialized_) {
+      InitializeHashJoin(frame, context);
+      hash_join_initialized_ = true;
+    }
+
+    // If left_op yielded zero results, there is no cartesian product.
+    if (hashtable_.empty()) {
+      return false;
+    }
+
+    auto restore_frame = [&frame, &context](const auto &symbols, const auto &restore_from) {
+      for (const auto &symbol : symbols) {
+        frame[symbol] = restore_from[symbol.position()];
+        if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
+          context.frame_change_collector->ResetTrackingValue(symbol.name());
+        }
+      }
+    };
+
+    if (!common_value_found_) {
+      // Pull from the right_op until there’s a mergeable frame
+      while (true) {
+        auto pulled = right_op_cursor_->Pull(frame, context);
+        if (!pulled) return false;
+
+        // Check if the join value from the pulled frame is shared with any left frames
+        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                      storage::View::OLD);
+        auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
+        if (hashtable_.contains(right_value)) {
+          // If so, finish pulling for now and proceed to joining the pulled frame
+          right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
+          common_value_found_ = true;
+          common_value = right_value;
+          left_op_frame_it_ = hashtable_[common_value].begin();
+          break;
+        }
+      }
+    } else {
+      // Restore the right frame ahead of restoring the left frame
+      restore_frame(self_.right_symbols_, right_op_frame_);
+    }
+
+    restore_frame(self_.left_symbols_, *left_op_frame_it_);
+
+    left_op_frame_it_++;
+    // When all left frames with the common value have been joined, move on to pulling and joining the next right
+    // frame
+    if (common_value_found_ && left_op_frame_it_ == hashtable_[common_value].end()) {
+      common_value_found_ = false;
+    }
+
+    return true;
+  }
+
+  void Shutdown() override {
+    left_op_cursor_->Shutdown();
+    right_op_cursor_->Shutdown();
+  }
+
+  void Reset() override {
+    left_op_cursor_->Reset();
+    right_op_cursor_->Reset();
+    hashtable_.clear();
+    right_op_frame_.clear();
+    left_op_frame_it_ = {};
+    hash_join_initialized_ = false;
+    common_value_found_ = false;
+  }
+
+ private:
+  void InitializeHashJoin(Frame &frame, ExecutionContext &context) {
+    // Pull all left_op_ frames
+    while (left_op_cursor_->Pull(frame, context)) {
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::View::OLD);
+      auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
+      if (left_value.type() != TypedValue::Type::Null) {
+        hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
+      }
+    }
+  }
+
+  const HashJoin &self_;
+  const UniqueCursorPtr left_op_cursor_;
+  const UniqueCursorPtr right_op_cursor_;
+  utils::pmr::unordered_map<TypedValue, utils::pmr::vector<utils::pmr::vector<TypedValue>>, TypedValue::Hash,
+                            TypedValue::BoolEqual>
+      hashtable_;
+  utils::pmr::vector<TypedValue> right_op_frame_;
+  utils::pmr::vector<utils::pmr::vector<TypedValue>>::iterator left_op_frame_it_;
+  bool hash_join_initialized_{false};
+  bool common_value_found_{false};
+  TypedValue common_value;
+};
+}  // namespace
+
+UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::HashJoinOperator);
+  return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem);
 }
 
 }  // namespace memgraph::query::plan

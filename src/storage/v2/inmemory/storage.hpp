@@ -31,6 +31,10 @@
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
 
+namespace memgraph::dbms {
+class InMemoryReplicationHandlers;
+}
+
 namespace memgraph::storage {
 
 // The storage is based on this paper:
@@ -39,15 +43,11 @@ namespace memgraph::storage {
 // only implement snapshot isolation for transactions.
 
 class InMemoryStorage final : public Storage {
-  friend class InMemoryReplicationServer;
+  friend class memgraph::dbms::InMemoryReplicationHandlers;
   friend class InMemoryReplicationClient;
 
  public:
-  enum class CreateSnapshotError : uint8_t {
-    DisabledForReplica,
-    DisabledForAnalyticsPeriodicCommit,
-    ReachedMaxNumTries
-  };
+  enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };
 
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -66,7 +66,7 @@ class InMemoryStorage final : public Storage {
     friend class InMemoryStorage;
 
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode);
+                              StorageMode storage_mode, bool is_main = true);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -183,6 +183,8 @@ class InMemoryStorage final : public Storage {
 
     Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) override;
 
+    Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, EdgeTypeId new_edge_type) override;
+
     bool LabelIndexExists(LabelId label) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_index_->IndexExists(label);
     }
@@ -202,8 +204,8 @@ class InMemoryStorage final : public Storage {
     /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {}) override;
+    utils::BasicResult<StorageManipulationError, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {},
+                                                              bool is_main = true) override;
 
     /// @throw std::bad_alloc
     void Abort() override;
@@ -309,9 +311,13 @@ class InMemoryStorage final : public Storage {
     Transaction &GetTransaction() { return transaction_; }
   };
 
-  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
+  using Storage::Access;
+  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
+                                            bool is_main) override;
 
-  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
+  using Storage::UniqueAccess;
+  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                  bool is_main) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) override;
 
@@ -319,16 +325,18 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
-      memgraph::replication::ReplicationState const &replicationState, std::optional<bool> is_periodic);
+  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot();
 
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
+  void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 
-  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
+  using Storage::CreateTransaction;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) override;
+
+  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
+                               const memgraph::replication::ReplicationEpoch *current_epoch)
       -> std::unique_ptr<ReplicationClient> override;
 
-  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
-      -> std::unique_ptr<ReplicationServer> override;
+  void SetStorageMode(StorageMode storage_mode);
 
  private:
   /// The force parameter determines the behaviour of the garbage collector.
@@ -375,7 +383,7 @@ class InMemoryStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  void PrepareForNewEpoch(std::string prev_epoch) override;
+  void PrepareForNewEpoch() override;
 
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
@@ -409,21 +417,31 @@ class InMemoryStorage final : public Storage {
   // whatever.
   std::optional<CommitLog> commit_log_;
 
-  utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
   using BondPmrLd = Bond<utils::pmr::list<Delta>>;
-  // Ownership of unlinked deltas is transfered to garabage_undo_buffers once transaction is commited
-  utils::Synchronized<std::list<std::pair<uint64_t, BondPmrLd>>, utils::SpinLock> garbage_undo_buffers_;
+  struct GCDeltas {
+    GCDeltas(uint64_t mark_timestamp, BondPmrLd deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
+        : mark_timestamp_{mark_timestamp}, deltas_{std::move(deltas)}, commit_timestamp_{std::move(commit_timestamp)} {}
+
+    GCDeltas(GCDeltas &&) = default;
+    GCDeltas &operator=(GCDeltas &&) = default;
+
+    uint64_t mark_timestamp_{};                                  //!< a timestamp no active transaction currently has
+    BondPmrLd deltas_;                                           //!< the deltas that need cleaning
+    std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
+  };
+
+  // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited
+  utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
+
+  // Ownership of unlinked deltas is transferred to garabage_undo_buffers once transaction is commited/aborted
+  utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> garbage_undo_buffers_{};
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_vertices_;
-
-  // Vertices that are logically deleted and removed from indices and now wait
-  // to be removed from the main storage.
-  std::list<std::pair<uint64_t, Gid>> garbage_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
@@ -432,6 +450,9 @@ class InMemoryStorage final : public Storage {
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
+
+  // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
+  std::function<void()> create_snapshot_handler{};
 };
 
 }  // namespace memgraph::storage

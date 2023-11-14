@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,25 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "memory_control.hpp"
+#pragma once
 
-#if USE_JEMALLOC
-#include <jemalloc/jemalloc.h>
-#endif
-
+#include <cstddef>
+#include "utils/logging.hpp"
 namespace memgraph::memory {
 
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define STRINGIFY_HELPER(x) #x
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define STRINGIFY(x) STRINGIFY_HELPER(x)
+void PurgeUnusedMemory();
+void SetHooks();
+void UnsetHooks();
 
-void PurgeUnusedMemory() {
-#if USE_JEMALLOC
-  mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
-#endif
-}
-
-#undef STRINGIFY
-#undef STRINGIFY_HELPER
 }  // namespace memgraph::memory

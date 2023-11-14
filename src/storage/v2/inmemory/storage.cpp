@@ -16,11 +16,11 @@
 #include "storage/v2/metadata_delta.hpp"
 
 /// REPLICATION ///
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "storage/v2/inmemory/replication/replication_client.hpp"
-#include "storage/v2/inmemory/replication/replication_server.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
-#include "storage/v2/replication/replication_handler.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/stat.hpp"
 
 namespace memgraph::storage {
 
@@ -60,12 +60,10 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
               "process!",
               config_.durability.storage_directory);
   }
-  auto &repl_state = repl_state_;
   if (config_.durability.recover_on_startup) {
-    auto &epoch = repl_state.GetEpoch();
-    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, epoch,
-                                        &repl_storage_state_.history, &vertices_, &edges_, &edge_count_,
-                                        name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
+    auto info =
+        durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, repl_storage_state_, &vertices_, &edges_,
+                                &edge_count_, name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -103,50 +101,13 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
           "those files into a .backup directory inside the storage directory.");
     }
   }
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
-      auto const &repl_state = repl_state_;
-      if (auto maybe_error = this->CreateSnapshot(repl_state, {true}); maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
-          case CreateSnapshotError::DisabledForReplica:
-            spdlog::warn(
-                utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-            break;
-          case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
-            spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
-                                                "https://memgr.ph/durability"));
-            break;
-          case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
-            spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
-            break;
-        }
-      }
-    });
-  }
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
   }
-
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
   } else {
     commit_log_.emplace(timestamp_);
-  }
-
-  if (config_.durability.restore_replication_state_on_startup) {
-    spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-    ReplicationHandler{repl_state, *this}.RestoreReplication();
-  } else {
-    spdlog::warn(
-        "Replication configuration will NOT be stored. When the server restarts, replication state will be "
-        "forgotten.");
-  }
-
-  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED && repl_state.IsMain()) {
-    spdlog::warn(
-        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
-        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-        "without write-ahead logs this instance is not replicating any data.");
   }
 }
 
@@ -167,44 +128,29 @@ InMemoryStorage::~InMemoryStorage() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Stop();
   }
-  if (config_.durability.snapshot_on_exit) {
-    auto const &repl_state = repl_state_;
-    if (auto maybe_error = this->CreateSnapshot(repl_state, {false}); maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
-        case CreateSnapshotError::DisabledForReplica:
-          spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-          break;
-        case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
-          spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
-                                              "https://memgr.ph/replication"));
-          break;
-        case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
-          break;
-      }
-    }
+  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
+    create_snapshot_handler();
   }
-  if (!committed_transactions_->empty()) {
-    committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
-  }
+  committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                                                    StorageMode storage_mode)
-    : Accessor(tag, storage, isolation_level, storage_mode), config_(storage->config_.items) {}
+                                                    StorageMode storage_mode, bool is_main)
+    : Accessor(tag, storage, isolation_level, storage_mode, is_main), config_(storage->config_.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
     Abort();
+    // We didn't actually commit
+    commit_timestamp_.reset();
   }
 
   FinalizeTransaction();
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
-  OOMExceptionEnabler oom_exception;
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   auto gid = mem_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = mem_storage->vertices_.access();
@@ -221,7 +167,6 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gid) {
-  OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
   // because this function is only called from the replication delta applier
@@ -272,6 +217,7 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
 
   // Need to inform the next CollectGarbage call that there are some
   // non-transactional deletions that need to be collected
+
   auto const inform_gc_vertex_deletion = utils::OnScopeExit{[this, &deleted_vertices = deleted_vertices]() {
     if (!deleted_vertices.empty() && transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -300,7 +246,6 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                                    EdgeTypeId edge_type) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(from->transaction_ == to->transaction_,
             "VertexAccessors must be from the same transaction when creating "
             "an edge!");
@@ -365,7 +310,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAccessor *from, VertexAccessor *to,
                                                                      EdgeTypeId edge_type, storage::Gid gid) {
-  OOMExceptionEnabler oom_exception;
   MG_ASSERT(from->transaction_ == to->transaction_,
             "VertexAccessors must be from the same transaction when creating "
             "an edge!");
@@ -639,9 +583,82 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
   return EdgeAccessor(edge_ref, edge_type, from_vertex, new_to_vertex, storage_, &transaction_);
 }
 
+Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAccessor *edge, EdgeTypeId new_edge_type) {
+  OOMExceptionEnabler oom_exception;
+  MG_ASSERT(&transaction_ == edge->transaction_,
+            "EdgeAccessor must be from the same transaction as the storage "
+            "accessor when changing the edge type!");
+
+  auto &edge_ref = edge->edge_;
+  auto &edge_type = edge->edge_type_;
+
+  std::unique_lock<utils::RWSpinLock> guard;
+  if (config_.properties_on_edges) {
+    auto *edge_ptr = edge_ref.ptr;
+    guard = std::unique_lock{edge_ptr->lock};
+
+    if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
+    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
+  }
+
+  auto *from_vertex = edge->from_vertex_;
+  auto *to_vertex = edge->to_vertex_;
+
+  // Obtain the locks by `gid` order to avoid lock cycles.
+  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
+  if (from_vertex->gid < to_vertex->gid) {
+    guard_from.lock();
+    guard_to.lock();
+  } else if (from_vertex->gid > to_vertex->gid) {
+    guard_to.lock();
+    guard_from.lock();
+  } else {
+    // The vertices are the same vertex, only lock one.
+    guard_from.lock();
+  }
+
+  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
+  MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
+
+  if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
+  MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
+
+  auto change_edge_type_in_storage = [&edge_type, &edge_ref, &new_edge_type, this](auto *vertex, auto *edges) {
+    std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
+    auto it = std::find(edges->begin(), edges->end(), link);
+    if (config_.properties_on_edges) {
+      MG_ASSERT(it != edges->end(), "Invalid database state!");
+    } else if (it == edges->end()) {
+      return false;
+    }
+    *it = std::tuple<EdgeTypeId, Vertex *, EdgeRef>{new_edge_type, vertex, edge_ref};
+    return true;
+  };
+
+  auto op1 = change_edge_type_in_storage(to_vertex, &from_vertex->out_edges);
+  auto op2 = change_edge_type_in_storage(from_vertex, &to_vertex->in_edges);
+
+  MG_ASSERT((op1 && op2), "Invalid database state!");
+
+  // "deleting" old edge
+  CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
+  CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
+
+  // "adding" new edge
+  CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), new_edge_type, to_vertex, edge_ref);
+  CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), new_edge_type, from_vertex, edge_ref);
+
+  // edge type is not used while invalidating cache so we can only call it once
+  transaction_.manyDeltasCache.Invalidate(from_vertex, new_edge_type, EdgeDirection::OUT);
+  transaction_.manyDeltasCache.Invalidate(to_vertex, new_edge_type, EdgeDirection::IN);
+
+  return EdgeAccessor(edge_ref, new_edge_type, from_vertex, to_vertex, storage_, &transaction_);
+}
+
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
-    const std::optional<uint64_t> desired_commit_timestamp) {
+    const std::optional<uint64_t> desired_commit_timestamp, bool is_main) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -649,7 +666,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto const &replState = mem_storage->repl_state_;
+  // TODO: duplicated transaction finalisation in md_deltas and deltas processing cases
   if (!transaction_.md_deltas.empty()) {
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
@@ -669,26 +686,19 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // modifications before they are written to disk.
     // Replica can log only the write transaction received from Main
     // so the Wal files are consistent
-    if (replState.IsMain() || desired_commit_timestamp.has_value()) {
-      could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);
-      // Take committed_transactions lock while holding the engine lock to
-      // make sure that committed transactions are sorted by the commit
-      // timestamp in the list.
-      mem_storage->committed_transactions_.WithLock([&](auto & /*committed_transactions*/) {
-        // TODO: release lock, and update all deltas to have a local copy
-        // of the commit timestamp
-        MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-        transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
-        // Replica can only update the last commit timestamp with
-        // the commits received from main.
-        if (replState.IsMain() || desired_commit_timestamp.has_value()) {
-          // Update the last commit timestamp
-          mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);
-        }
-        // Release engine lock because we don't have to hold it anymore
-        // and emplace back could take a long time.
-        engine_guard.unlock();
-      });
+    if (is_main || desired_commit_timestamp.has_value()) {
+      could_replicate_all_sync_replicas =
+          mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);  // protected by engine_guard
+      // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
+      transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);  // protected by engine_guard
+      // Replica can only update the last commit timestamp with
+      // the commits received from main.
+      if (is_main || desired_commit_timestamp.has_value()) {
+        // Update the last commit timestamp
+        mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);  // protected by engine_guard
+      }
+      // Release engine lock because we don't have to hold it anymore
+      engine_guard.unlock();
 
       mem_storage->commit_log_->MarkFinished(start_timestamp);
     }
@@ -697,20 +707,18 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // it.
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
-    // Validate that existence constraints are satisfied for all modified
-    // vertices.
-    for (const auto &delta : transaction_.deltas.use()) {
-      auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::VERTEX) {
-        continue;
-      }
-      // No need to take any locks here because we modified this vertex and no
-      // one else can touch it until we commit.
-      auto validation_result = storage_->constraints_.existence_constraints_->Validate(*prev.vertex);
-      if (validation_result) {
-        Abort();
-        return StorageManipulationError{*validation_result};
+    if (transaction_.constraint_verification_info.NeedsExistenceConstraintVerification()) {
+      const auto vertices_to_update =
+          transaction_.constraint_verification_info.GetVerticesForExistenceConstraintChecking();
+      for (auto const *vertex : vertices_to_update) {
+        // No need to take any locks here because we modified this vertex and no
+        // one else can touch it until we commit.
+        auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
+        if (validation_result) {
+          Abort();
+          DMG_ASSERT(!commit_timestamp_.has_value());
+          return StorageManipulationError{*validation_result};
+        }
       }
     }
 
@@ -728,32 +736,24 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
       commit_timestamp_.emplace(mem_storage->CommitTimestamp(desired_commit_timestamp));
 
-      // Before committing and validating vertices against unique constraints,
-      // we have to update unique constraints with the vertices that are going
-      // to be validated/committed.
-      for (const auto &delta : transaction_.deltas.use()) {
-        auto prev = delta.prev.Get();
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-        if (prev.type != PreviousPtr::Type::VERTEX) {
-          continue;
-        }
-        mem_unique_constraints->UpdateBeforeCommit(prev.vertex, transaction_);
-      }
+      if (transaction_.constraint_verification_info.NeedsUniqueConstraintVerification()) {
+        // Before committing and validating vertices against unique constraints,
+        // we have to update unique constraints with the vertices that are going
+        // to be validated/committed.
+        const auto vertices_to_update =
+            transaction_.constraint_verification_info.GetVerticesForUniqueConstraintChecking();
 
-      // Validate that unique constraints are satisfied for all modified
-      // vertices.
-      for (const auto &delta : transaction_.deltas.use()) {
-        auto prev = delta.prev.Get();
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-        if (prev.type != PreviousPtr::Type::VERTEX) {
-          continue;
+        for (auto const *vertex : vertices_to_update) {
+          mem_unique_constraints->UpdateBeforeCommit(vertex, transaction_);
         }
 
-        // No need to take any locks here because we modified this vertex and no
-        // one else can touch it until we commit.
-        unique_constraint_violation = mem_unique_constraints->Validate(*prev.vertex, transaction_, *commit_timestamp_);
-        if (unique_constraint_violation) {
-          break;
+        for (auto const *vertex : vertices_to_update) {
+          // No need to take any locks here because we modified this vertex and no
+          // one else can touch it until we commit.
+          unique_constraint_violation = mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);
+          if (unique_constraint_violation) {
+            break;
+          }
         }
       }
 
@@ -767,29 +767,24 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (replState.IsMain() || desired_commit_timestamp.has_value()) {
+        if (is_main || desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas =
-              mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
+              mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);  // protected by engine_guard
         }
 
-        // Take committed_transactions lock while holding the engine lock to
-        // make sure that committed transactions are sorted by the commit
-        // timestamp in the list.
-        mem_storage->committed_transactions_.WithLock([&](auto & /*committed_transactions*/) {
-          // TODO: release lock, and update all deltas to have a local copy
-          // of the commit timestamp
-          MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-          transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
-          // Replica can only update the last commit timestamp with
-          // the commits received from main.
-          if (replState.IsMain() || desired_commit_timestamp.has_value()) {
-            // Update the last commit timestamp
-            mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);
-          }
-          // Release engine lock because we don't have to hold it anymore
-          // and emplace back could take a long time.
-          engine_guard.unlock();
-        });
+        // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
+        MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+        transaction_.commit_timestamp->store(*commit_timestamp_,
+                                             std::memory_order_release);  // protected by engine_guard
+        // Replica can only update the last commit timestamp with
+        // the commits received from main.
+        if (is_main || desired_commit_timestamp.has_value()) {
+          // Update the last commit timestamp
+          mem_storage->repl_storage_state_.last_commit_timestamp_.store(
+              *commit_timestamp_);  // protected by engine_guard
+        }
+        // Release engine lock because we don't have to hold it anymore
+        engine_guard.unlock();
 
         mem_storage->commit_log_->MarkFinished(start_timestamp);
       }
@@ -797,6 +792,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
     if (unique_constraint_violation) {
       Abort();
+      DMG_ASSERT(commit_timestamp_.has_value());
+      commit_timestamp_.reset();  // We have aborted, hence we have not committed
       return StorageManipulationError{*unique_constraint_violation};
     }
   }
@@ -968,7 +965,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // emplace back could take a long time.
       engine_guard.unlock();
 
-      garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas));
+      garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
+                                        std::move(transaction_.commit_timestamp));
     });
     mem_storage->deleted_vertices_.WithLock(
         [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
@@ -984,8 +982,15 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
     mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
-    mem_storage->committed_transactions_.WithLock(
-        [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(transaction_)); });
+
+    if (!transaction_.deltas.use().empty()) {
+      // Only hand over delta to be GC'ed if there was any deltas
+      mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
+        // using mark of 0 as GC will assign a mark_timestamp after unlinking
+        committed_transactions.emplace_back(0, std::move(transaction_.deltas),
+                                            std::move(transaction_.commit_timestamp));
+      });
+    }
     commit_timestamp_.reset();
   }
 }
@@ -1137,7 +1142,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
       mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
-Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
+Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -1152,14 +1157,32 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    auto const &replState = repl_state_;
-    if (replState.IsReplica()) {
-      start_timestamp = timestamp_;
-    } else {
+    if (is_main) {
       start_timestamp = timestamp_++;
+    } else {
+      start_timestamp = timestamp_;
     }
   }
   return {transaction_id, start_timestamp, isolation_level, storage_mode, false};
+}
+
+void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
+  std::unique_lock main_guard{main_lock_};
+  MG_ASSERT(
+      (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
+      (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||
+       new_storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
+  if (storage_mode_ != new_storage_mode) {
+    if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      snapshot_runner_.Stop();
+    } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
+      snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
+                           [this]() { this->create_snapshot_handler(); });
+    }
+
+    storage_mode_ = new_storage_mode;
+    FreeMemory(std::move(main_guard));
+  }
 }
 
 template <bool force>
@@ -1215,10 +1238,26 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
 
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
+
+  // Deltas from previous GC runs or from aborts can be cleaned up here
+  garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
+    if constexpr (force) {
+      // if force is set to true we can simply delete all the leftover undos because
+      // no transaction is active
+      garbage_undo_buffers.clear();
+    } else {
+      // garbage_undo_buffers is ordered, pop until we can't
+      while (!garbage_undo_buffers.empty() &&
+             garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
+        garbage_undo_buffers.pop_front();
+      }
+    }
+  });
+
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
-  std::list<std::pair<uint64_t, BondPmrLd>> unlinked_undo_buffers;
+  std::list<GCDeltas> unlinked_undo_buffers{};
 
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
@@ -1231,28 +1270,27 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false);
   auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false);
 
+  // Short lock, to move to local variable. Hence allows other transactions to commit.
+  auto linked_undo_buffers = std::list<GCDeltas>{};
+  committed_transactions_.WithLock(
+      [&](auto &committed_transactions) { committed_transactions.swap(linked_undo_buffers); });
+
   // Flag that will be used to determine whether the Index GC should be run. It
   // should be run when there were any items that were cleaned up (there were
   // updates between this run of the GC and the previous run of the GC). This
   // eliminates high CPU usage when the GC doesn't have to clean up anything.
-  bool run_index_cleanup = !committed_transactions_->empty() || !garbage_undo_buffers_->empty() ||
-                           need_full_scan_vertices || need_full_scan_edges;
+  bool run_index_cleanup = !linked_undo_buffers.empty() || !garbage_undo_buffers_->empty() || need_full_scan_vertices ||
+                           need_full_scan_edges;
 
-  while (true) {
-    // We don't want to hold the lock on committed transactions for too long,
-    // because that prevents other transactions from committing.
-    Transaction *transaction = nullptr;
-    {
-      auto committed_transactions_ptr = committed_transactions_.Lock();
-      if (committed_transactions_ptr->empty()) {
-        break;
-      }
-      transaction = &committed_transactions_ptr->front();
-    }
+  auto const end_linked_undo_buffers = linked_undo_buffers.end();
+  for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
+    auto const *const commit_timestamp_ptr = linked_entry->commit_timestamp_.get();
+    auto const commit_timestamp = commit_timestamp_ptr->load(std::memory_order_acquire);
 
-    auto commit_timestamp = transaction->commit_timestamp->load(std::memory_order_acquire);
+    // only process those that are no longer active
     if (commit_timestamp >= oldest_active_start_timestamp) {
-      break;
+      ++linked_entry;  // can not process, skip
+      continue;        // must continue to next transaction, because committed_transactions_ was not ordered
     }
 
     // When unlinking a delta which is the first delta in its version chain,
@@ -1286,7 +1324,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // chain in a broken state.
     // The chain can be only read without taking any locks.
 
-    for (Delta &delta : transaction->deltas.use()) {
+    for (Delta &delta : linked_entry->deltas_.use()) {
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -1300,6 +1338,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
             vertex->delta = nullptr;
             if (vertex->deleted) {
+              DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
               current_deleted_vertices.push_back(vertex->gid);
             }
             break;
@@ -1314,37 +1353,56 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
             edge->delta = nullptr;
             if (edge->deleted) {
+              DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
               current_deleted_edges.push_back(edge->gid);
             }
             break;
           }
           case PreviousPtr::Type::DELTA: {
-            if (prev.delta->timestamp->load(std::memory_order_acquire) == commit_timestamp) {
+            //              kTransactionInitialId
+            //                     │
+            //                     ▼
+            // ┌───────────────────┬─────────────┐
+            // │     Committed     │ Uncommitted │
+            // ├──────────┬────────┴─────────────┤
+            // │ Inactive │      Active          │
+            // └──────────┴──────────────────────┘
+            //            ▲
+            //            │
+            //  oldest_active_start_timestamp
+
+            if (prev.delta->timestamp == commit_timestamp_ptr) {
               // The delta that is newer than this one is also a delta from this
               // transaction. We skip the current delta and will remove it as a
               // part of the suffix later.
               break;
             }
-            std::unique_lock<utils::RWSpinLock> guard;
-            {
-              // We need to find the parent object in order to be able to use
-              // its lock.
-              auto parent = prev;
-              while (parent.type == PreviousPtr::Type::DELTA) {
-                parent = parent.delta->prev.Get();
-              }
+
+            if (prev.delta->timestamp->load() < oldest_active_start_timestamp) {
+              // If previous is from another inactive transaction, no need to
+              // lock the edge/vertex, nothing will read this far or relink to
+              // us directly
+              break;
+            }
+
+            // Previous is either active (committed or uncommitted), we need to find
+            // the parent object in order to be able to use its lock.
+            auto parent = prev;
+            while (parent.type == PreviousPtr::Type::DELTA) {
+              parent = parent.delta->prev.Get();
+            }
+
+            auto const guard = std::invoke([&] {
               switch (parent.type) {
                 case PreviousPtr::Type::VERTEX:
-                  guard = std::unique_lock{parent.vertex->lock};
-                  break;
+                  return std::unique_lock{parent.vertex->lock};
                 case PreviousPtr::Type::EDGE:
-                  guard = std::unique_lock{parent.edge->lock};
-                  break;
+                  return std::unique_lock{parent.edge->lock};
                 case PreviousPtr::Type::DELTA:
                 case PreviousPtr::Type::NULLPTR:
                   LOG_FATAL("Invalid database state!");
               }
-            }
+            });
             if (delta.prev.Get() != prev) {
               // Something changed, we could now be the first delta in the
               // chain.
@@ -1362,9 +1420,16 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       }
     }
 
-    committed_transactions_.WithLock([&](auto &committed_transactions) {
-      unlinked_undo_buffers.emplace_back(0, std::move(transaction->deltas));
-      committed_transactions.pop_front();
+    // Now unlinked, move to unlinked_undo_buffers
+    auto const to_move = linked_entry;
+    ++linked_entry;  // advanced to next before we move the list node
+    unlinked_undo_buffers.splice(unlinked_undo_buffers.end(), linked_undo_buffers, to_move);
+  }
+
+  if (!linked_undo_buffers.empty()) {
+    // some were not able to be collected, add them back to committed_transactions_ for the next GC run
+    committed_transactions_.WithLock([&linked_undo_buffers](auto &committed_transactions) {
+      committed_transactions.splice(committed_transactions.begin(), std::move(linked_undo_buffers));
     });
   }
 
@@ -1382,60 +1447,33 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   {
     std::unique_lock<utils::SpinLock> guard(engine_lock_);
-    uint64_t mark_timestamp = timestamp_;
-    // Take garbage_undo_buffers lock while holding the engine lock to make
-    // sure that entries are sorted by mark timestamp in the list.
-    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-      // Release engine lock because we don't have to hold it anymore and
-      // this could take a long time.
-      guard.unlock();
-      // TODO(mtomic): holding garbage_undo_buffers_ lock here prevents
-      // transactions from aborting until we're done marking, maybe we should
-      // add them one-by-one or something
-      for (auto &[timestamp, transaction_deltas] : unlinked_undo_buffers) {
-        timestamp = mark_timestamp;
-      }
-      garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
-    });
-    for (auto vertex : current_deleted_vertices) {
-      garbage_vertices_.emplace_back(mark_timestamp, vertex);
+    uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
+
+    if (force or mark_timestamp == oldest_active_start_timestamp) {
+      // if lucky, there are no active transactions, hence nothing looking at the deltas
+      // remove them now
+      unlinked_undo_buffers.clear();
+    } else {
+      // Take garbage_undo_buffers lock while holding the engine lock to make
+      // sure that entries are sorted by mark timestamp in the list.
+      garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
+        // Release engine lock because we don't have to hold it anymore and
+        // this could take a long time.
+        guard.unlock();
+        // correct the markers, and defer until next GC run
+        for (auto &unlinked_undo_buffer : unlinked_undo_buffers) {
+          unlinked_undo_buffer.mark_timestamp_ = mark_timestamp;
+        }
+        // ensure insert at end to preserve the order
+        garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
+      });
     }
   }
 
-  garbage_undo_buffers_.WithLock([&](auto &undo_buffers) {
-    // if force is set to true we can simply delete all the leftover undos because
-    // no transaction is active
-    if constexpr (force) {
-      for (auto &[timestamp, transaction_deltas] : undo_buffers) {
-        transaction_deltas.~Bond<PmrListDelta>();
-      }
-      undo_buffers.clear();
-
-    } else {
-      while (!undo_buffers.empty() && undo_buffers.front().first <= oldest_active_start_timestamp) {
-        auto &[timestamp, transaction_deltas] = undo_buffers.front();
-        transaction_deltas.~Bond<PmrListDelta>();
-        // this will trigger destory of object
-        // but since we release pointer, it will just destory other stuff
-        undo_buffers.pop_front();
-      }
-    }
-  });
-
   {
     auto vertex_acc = vertices_.access();
-    if constexpr (force) {
-      // if force is set to true, then we have unique_lock and no transactions are active
-      // so we can clean all of the deleted vertices
-      while (!garbage_vertices_.empty()) {
-        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
-        garbage_vertices_.pop_front();
-      }
-    } else {
-      while (!garbage_vertices_.empty() && garbage_vertices_.front().first < oldest_active_start_timestamp) {
-        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
-        garbage_vertices_.pop_front();
-      }
+    for (auto vertex : current_deleted_vertices) {
+      MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
     }
   }
   {
@@ -1484,7 +1522,7 @@ StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
-  info.memory_usage = utils::GetMemoryUsage();
+  info.memory_res = utils::GetMemoryRES();
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {
     if (!force_directory && std::filesystem::is_directory(dir) && dir.has_filename()) {
@@ -1556,8 +1594,7 @@ void InMemoryStorage::FinalizeWalFile() {
 }
 
 bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  auto &replState = repl_state_;
-  if (!InitializeWalFile(replState.GetEpoch())) {
+  if (!InitializeWalFile(repl_storage_state_.epoch_)) {
     return true;
   }
   // Traverse deltas and append them to the WAL file.
@@ -1727,8 +1764,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
 }
 
 bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  auto &replState = repl_state_;
-  if (!InitializeWalFile(replState.GetEpoch())) {
+  if (!InitializeWalFile(repl_storage_state_.epoch_)) {
     return true;
   }
 
@@ -1837,13 +1873,8 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
   return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp);
 }
 
-utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
-    memgraph::replication::ReplicationState const &replicationState, std::optional<bool> is_periodic) {
-  if (replicationState.IsReplica()) {
-    return CreateSnapshotError::DisabledForReplica;
-  }
-
-  auto const &epoch = replicationState.GetEpoch();
+utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot() {
+  auto const &epoch = repl_storage_state_.epoch_;
   auto snapshot_creator = [this, &epoch]() {
     utils::Timer timer;
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
@@ -1870,9 +1901,6 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     } else {
       std::unique_lock main_guard{main_lock_};
       if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-        if (is_periodic && *is_periodic) {
-          return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;
-        }
         snapshot_creator();
         return {};
       }
@@ -1903,13 +1931,13 @@ uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_
   return *desired_commit_timestamp;
 }
 
-void InMemoryStorage::PrepareForNewEpoch(std::string prev_epoch) {
+void InMemoryStorage::PrepareForNewEpoch() {
   std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
-  repl_storage_state_.AddEpochToHistory(std::move(prev_epoch));
+  repl_storage_state_.TrackLatestHistory();
 }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {
@@ -1937,26 +1965,45 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
+auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
+                                              const memgraph::replication::ReplicationEpoch *current_epoch)
     -> std::unique_ptr<ReplicationClient> {
-  auto &replState = this->repl_state_;
-  return std::make_unique<InMemoryReplicationClient>(this, config, &replState.GetEpoch());
+  return std::make_unique<InMemoryReplicationClient>(this, config, current_epoch);
 }
 
-std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
-    const memgraph::replication::ReplicationServerConfig &config) {
-  auto &replState = this->repl_state_;
-  return std::make_unique<InMemoryReplicationServer>(this, config, &replState.GetEpoch());
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,
+                                                           bool is_main) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_, is_main});
+}
+std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                                 bool is_main) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_, is_main});
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
-      Storage::Accessor::shared_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
-}
-std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
-    std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
-      Storage::Accessor::unique_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
+void InMemoryStorage::CreateSnapshotHandler(
+    std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb) {
+  create_snapshot_handler = [cb]() {
+    if (auto maybe_error = cb(); maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case CreateSnapshotError::DisabledForReplica:
+          spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+          break;
+        case CreateSnapshotError::ReachedMaxNumTries:
+          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
+          break;
+      }
+    }
+  };
+
+  // Run the snapshot thread (if enabled)
+  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
+    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
+                         [this]() { this->create_snapshot_handler(); });
+  }
 }
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);

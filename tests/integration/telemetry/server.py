@@ -148,6 +148,7 @@ def verify_storage(storage, args):
             assert "cpu" in item["data"]["resources"]
             assert "memory" in item["data"]["resources"]
             assert "disk" in item["data"]["resources"]
+            assert "vm_max_map_count" in item["data"]["resources"]
             assert "uptime" in item["data"]
 
             uptime = item["data"]["uptime"]

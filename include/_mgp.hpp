@@ -267,6 +267,11 @@ inline mgp_edge *graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, 
   return MgInvoke<mgp_edge *>(mgp_graph_edge_set_to, graph, e, new_to, memory);
 }
 
+inline mgp_edge *graph_edge_change_type(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_edge_type new_type,
+                                        mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_change_type, graph, e, new_type, memory);
+}
+
 inline void graph_delete_edge(mgp_graph *graph, mgp_edge *edge) { MgInvokeVoid(mgp_graph_delete_edge, graph, edge); }
 
 inline mgp_vertex *graph_get_vertex_by_id(mgp_graph *g, mgp_vertex_id id, mgp_memory *memory) {
@@ -360,6 +365,8 @@ inline void map_erase(mgp_map *map, const char *key) { MgInvokeVoid(mgp_map_eras
 inline size_t map_size(mgp_map *map) { return MgInvoke<size_t>(mgp_map_size, map); }
 
 inline mgp_value *map_at(mgp_map *map, const char *key) { return MgInvoke<mgp_value *>(mgp_map_at, map, key); }
+
+inline bool key_exists(mgp_map *map, const char *key) { return MgInvoke<int>(mgp_key_exists, map, key); }
 
 inline const char *map_item_key(mgp_map_item *item) { return MgInvoke<const char *>(mgp_map_item_key, item); }
 

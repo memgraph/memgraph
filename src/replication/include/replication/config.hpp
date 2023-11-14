@@ -21,13 +21,12 @@ namespace memgraph::replication {
 
 inline constexpr uint16_t kDefaultReplicationPort = 10000;
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
-inline constexpr auto *kReservedReplicationRoleName{"__replication_role"};
 
 struct ReplicationClientConfig {
   std::string name;
-  ReplicationMode mode;
+  ReplicationMode mode{};
   std::string ip_address;
-  uint16_t port;
+  uint16_t port{};
 
   // The default delay between main checking/pinging replicas is 1s because
   // that seems like a reasonable timeframe in which main should notice a
@@ -42,18 +41,23 @@ struct ReplicationClientConfig {
   };
 
   std::optional<SSL> ssl;
+
+  friend bool operator==(ReplicationClientConfig const &, ReplicationClientConfig const &) = default;
 };
 
 struct ReplicationServerConfig {
   std::string ip_address;
-  uint16_t port;
+  uint16_t port{};
   struct SSL {
     std::string key_file;
     std::string cert_file;
     std::string ca_file;
-    bool verify_peer;
+    bool verify_peer{};
+    friend bool operator==(SSL const &, SSL const &) = default;
   };
 
   std::optional<SSL> ssl;
+
+  friend bool operator==(ReplicationServerConfig const &, ReplicationServerConfig const &) = default;
 };
 }  // namespace memgraph::replication

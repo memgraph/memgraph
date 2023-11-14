@@ -42,10 +42,6 @@ endif()
 
 project(memgraph LANGUAGES C CXX)
 
-# NOTE: once in a while this needs to be toggled to check headers are
-#       correct and PCH isn't masking any include issues
-set(CMAKE_DISABLE_PRECOMPILE_HEADERS OFF)
-
 #TODO: upgrade to cmake 3.24 + CheckIPOSupported
 #cmake_policy(SET CMP0138 NEW)
 #include(CheckIPOSupported)
@@ -239,7 +235,6 @@ else()
 endif()
 
 # -----------------------------------------------------------------------------
-
 # default build type is debug
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug")

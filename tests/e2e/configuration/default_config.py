@@ -65,6 +65,7 @@ startup_config_dict = {
         "1800",
         "Time in seconds after which inactive Bolt sessions will be closed.",
     ),
+    "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_recovery_on_startup": (
         "false",
@@ -183,7 +184,7 @@ startup_config_dict = {
         "Set to true to enable telemetry. We collect information about the running system (CPU and memory information) and information about the database runtime (vertex and edge counts and resource usage) to allow for easier improvement of the product.",
     ),
     "query_cost_planner": ("true", "true", "Use the cost-estimating query planner."),
-    "query_plan_cache_ttl": ("60", "60", "Time to live for cached query plans, in seconds."),
+    "query_plan_cache_max_size": ("1000", "1000", "Maximum number of query plans to cache."),
     "query_vertex_count_to_expand_existing": (
         "10",
         "10",

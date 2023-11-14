@@ -262,6 +262,8 @@ class Graph {
   void SetFrom(Relationship &relationship, const Node &new_from);
   /// @brief Changes a relationship to node.
   void SetTo(Relationship &relationship, const Node &new_to);
+  /// @brief Changes the relationship type.
+  void ChangeType(Relationship &relationship, std::string_view new_type);
   /// @brief Deletes a relationship from the graph.
   void DeleteRelationship(const Relationship &relationship);
 
@@ -637,6 +639,9 @@ class Map {
 
   /// @brief Returns the value at the given `key`.
   Value const At(std::string_view key) const;
+
+  /// @brief Returns true if the given `key` exists.
+  bool KeyExists(std::string_view key) const;
 
   class Iterator {
    public:
@@ -2046,6 +2051,13 @@ inline void Graph::SetTo(Relationship &relationship, const Node &new_to) {
   mgp::edge_destroy(edge);
 }
 
+inline void Graph::ChangeType(Relationship &relationship, std::string_view new_type) {
+  mgp_edge *edge = mgp::MemHandlerCallback(mgp::graph_edge_change_type, graph_, relationship.ptr_,
+                                           mgp_edge_type{.name = new_type.data()});
+  relationship = Relationship(edge);
+  mgp::edge_destroy(edge);
+}
+
 inline void Graph::DeleteRelationship(const Relationship &relationship) {
   mgp::graph_delete_edge(graph_, relationship.ptr_);
 }
@@ -2595,6 +2607,8 @@ inline const Value Map::At(std::string_view key) const {
 
   return Value();
 }
+
+inline bool Map::KeyExists(std::string_view key) const { return mgp::key_exists(ptr_, key.data()); }
 
 inline Map::Iterator::Iterator(mgp_map_items_iterator *map_items_iterator) : map_items_iterator_(map_items_iterator) {
   if (map_items_iterator_ == nullptr) return;
