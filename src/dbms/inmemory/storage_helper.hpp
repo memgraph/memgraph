@@ -43,7 +43,6 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(storage::Config c
         return storage->CreateSnapshot();
       });
 
-  // TODO Move to memgraph.cpp
   if (allow_mt_repl || name == dbms::kDefaultDB) {
     // Handle global replication state
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");

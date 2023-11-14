@@ -36,6 +36,14 @@ ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationCli
       replica_check_frequency_{config.replica_check_frequency},
       mode_{config.mode} {}
 
+void ReplicationClient::StartFrequentCheck(dbms::DbmsHandler &dbms_handler) {
+  // Help the user to get the most accurate replica state possible.
+  if (replica_check_frequency_ > std::chrono::seconds(0)) {
+    replica_checker_.Run("Replica Checker", replica_check_frequency_,
+                         [this, dbms_ptr = &dbms_handler] { this->FrequentCheck(dbms_ptr); });
+  }
+}
+
 ReplicationClient::~ReplicationClient() {
   auto endpoint = rpc_client_.Endpoint();
   spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
@@ -55,7 +63,7 @@ void ReplicationClient::FrequentCheck(dbms::DbmsHandler *dbms_handler) {
       // Working connection, check if any database has been left behind
       dbms_handler->ForEach([this](dbms::Database *db) {
         auto *client = db->storage()->repl_storage_state_.GetClient(name_);  // Specific database <-> replica client
-        if (client == nullptr) return;  // Skip as this databases does not replica to this replica
+        if (client == nullptr) return;  // Skip as this database does not replicate to this replica
         if (client->State() == replication::ReplicaState::MAYBE_BEHIND) {
           // Database <-> replica might be behind, check and recover
           client->TryCheckReplicaStateAsync(db->storage());

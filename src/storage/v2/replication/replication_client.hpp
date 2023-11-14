@@ -75,7 +75,7 @@ class ReplicaStream {
 };
 
 struct ReplicationClient {
-  ReplicationClient(const memgraph::replication::ReplicationClientConfig &config);
+  explicit ReplicationClient(const memgraph::replication::ReplicationClientConfig &config);
 
   ~ReplicationClient();
   ReplicationClient(ReplicationClient const &) = delete;
@@ -84,6 +84,7 @@ struct ReplicationClient {
   ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
 
   void Start(dbms::DbmsHandler *dbms_handler);
+  void StartFrequentCheck(dbms::DbmsHandler &dbms_handler);
   void FrequentCheck(dbms::DbmsHandler *dbms_handler);
 
   std::string name_;

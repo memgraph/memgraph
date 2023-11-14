@@ -133,6 +133,7 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   // No client error, start instance level client
   auto const &endpoint = instance_client.GetValue()->rpc_client_.Endpoint();
   spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
+  instance_client.GetValue()->StartFrequentCheck(dbms_handler_);
 
   if (!allow_mt_repl && dbms_handler_.All().size() > 1) {
     spdlog::warn("Multi-tenant replication is currently not supported!");
@@ -161,16 +162,10 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
           return true;
         });
   });
-  if (!all_clients_good) return RegisterReplicaError::CONNECTION_FAILED;  // TODO: this happen to 1 or many...what to do
-
-  // All good, startup the frequent checker
-  // Help the user to get the most accurate replica state possible.
-  if (instance_client.GetValue()->replica_check_frequency_ > std::chrono::seconds(0)) {
-    instance_client.GetValue()->replica_checker_.Run(
-        "Replica Checker", instance_client.GetValue()->replica_check_frequency_,
-        [instance_client = instance_client.GetValue(), dbms_ptr = &dbms_handler_] {
-          instance_client->FrequentCheck(dbms_ptr);
-        });
+  if (!all_clients_good) {
+    spdlog::error("Failed to register all databases to the REPLICA \"{}\"", config.name);
+    UnregisterReplica(config.name);
+    return RegisterReplicaError::CONNECTION_FAILED;  // TODO: this happen to 1 or many...what to do
   }
   return {};
 }

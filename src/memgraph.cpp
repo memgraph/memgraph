@@ -368,7 +368,8 @@ int main(int argc, char **argv) {
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   auth_glue(&auth_, auth_handler, auth_checker);
 
-  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(db_config));
+  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(
+      db_config));  // dbms needed for the frequent check, its start is postponed until after the dbms has been created
 
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
 #ifdef MG_ENTERPRISE
@@ -377,6 +378,16 @@ int main(int argc, char **argv) {
 #endif
   );
   auto db_acc = dbms_handler.Get();
+
+  // Replication frequent check start
+  auto replica = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do*/ };
+  auto main = [&dbms_handler](memgraph::replication::RoleMainData &data) {
+    for (const auto &replica : data.registered_replicas_) {
+      replica->StartFrequentCheck(dbms_handler);
+    }
+  };
+  std::visit(memgraph::utils::Overloaded{replica, main}, repl_state.ReplicationData());
+
   memgraph::query::InterpreterContext interpreter_context_(interp_config, &dbms_handler, &repl_state,
                                                            auth_handler.get(), auth_checker.get());
   MG_ASSERT(db_acc, "Failed to access the main database");

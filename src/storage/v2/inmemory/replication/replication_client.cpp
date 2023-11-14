@@ -91,7 +91,7 @@ replication::SnapshotRes TransferSnapshot(std::string db_name, rpc::Client &clie
 uint64_t ReplicateCurrentWal(CurrentWalHandler &stream, durability::WalFile const &wal_file) {
   stream.AppendFilename(wal_file.Path().filename());
   utils::InputFile file;
-  MG_ASSERT(file.Open(wal_file.Path()), "Failed to open current WAL file!");
+  MG_ASSERT(file.Open(wal_file.Path()), "Failed to open current WAL file at {}!", wal_file.Path());
   const auto [buffer, buffer_size] = wal_file.CurrentFileBuffer();
   stream.AppendSize(file.GetSize() + buffer_size);
   stream.AppendFileData(&file);
