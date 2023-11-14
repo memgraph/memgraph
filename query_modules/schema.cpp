@@ -92,34 +92,98 @@ void Schema::ProcessPropertiesRel(mgp::Record &record, const std::string_view &t
   record.Insert(std::string(kReturnMandatory).c_str(), mandatory);
 }
 
+struct VectorHash {
+  size_t operator()(const std::vector<std::string> &vec) const {
+    // Use the hash_combine function to hash each string in the vector
+    size_t hash = 0;
+    for (const auto &str : vec) {
+      hash ^= std::hash<std::string>{}(str) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+    }
+    return hash;
+  }
+};
+
+// Custom equality operator for vector of strings
+struct VectorEqual {
+  bool operator()(const std::vector<std::string> &lhs, const std::vector<std::string> &rhs) const {
+    // Sort and compare the vectors of strings
+    std::vector<std::string> sortedLhs = lhs;
+    std::vector<std::string> sortedRhs = rhs;
+    std::sort(sortedLhs.begin(), sortedLhs.end());
+    std::sort(sortedRhs.begin(), sortedRhs.end());
+
+    return sortedLhs == sortedRhs;
+  }
+};
+
 void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   ;
   const auto record_factory = mgp::RecordFactory(result);
   try {
+    std::unordered_map<std::vector<std::string>, std::set<std::string>, VectorHash, VectorEqual>
+        node_types;  // label list, property list
+    std::unordered_map<std::string, mgp::Value> properties;
     const mgp::Graph graph = mgp::Graph(memgraph_graph);
     for (auto node : graph.Nodes()) {
       std::string type = "";
       mgp::List labels = mgp::List();
+      std::vector<std::string> labels1;
       for (auto label : node.Labels()) {
         labels.AppendExtend(mgp::Value(label));
         type += ":`" + std::string(label) + "`";
+        labels1.emplace_back(std::string(label));
       }
+      node_types[labels1].insert({""});
 
       if (node.Properties().size() == 0) {
-        auto record = record_factory.NewRecord();
-        ProcessPropertiesNode<std::string>(record, type, labels, "", "", false);
         continue;
       }
 
       for (auto &[key, prop] : node.Properties()) {
         auto property_type = mgp::List();
-        auto record = record_factory.NewRecord();
+        // auto record = record_factory.NewRecord();
         property_type.AppendExtend(mgp::Value(TypeOf(prop.Type())));
-        ProcessPropertiesNode<mgp::List>(record, type, labels, key, property_type, true);
+        // ProcessPropertiesNode<mgp::List>(record, type, labels, key, property_type, true);
+        node_types[labels1].insert({key});
+        node_types[labels1].erase({""});
+        properties[key] = prop;
       }
     }
 
+    for (auto &[labels, props] : node_types) {
+      for (auto prop : props) {
+        auto record = record_factory.NewRecord();
+        std::string type = "";
+        mgp::List labels_to_process = mgp::List();
+        for (auto label : labels) {
+          type += ":`" + label + "`";
+          labels_to_process.AppendExtend(mgp::Value(label));
+        }
+        if (prop == "") {
+          ProcessPropertiesNode<std::string>(record, type, labels_to_process, "", "", false);
+          continue;
+        }
+        auto property_type = mgp::List();
+        property_type.AppendExtend(mgp::Value(TypeOf(properties[prop].Type())));
+        ProcessPropertiesNode<mgp::List>(record, type, labels_to_process, prop, property_type, true);
+      }
+    }
+
+    /*
+    for (auto &[type, props] : node_types) {
+      for (auto prop : props) {
+        auto record = record_factory.NewRecord();
+        if (prop == "") {
+          ProcessPropertiesNode<std::string>(record, type, mgp::List(), "", mgp::List(), false);
+          continue;
+        }
+        auto property_type = mgp::List();
+        property_type.AppendExtend(mgp::Value(TypeOf(properties[prop].Type())));
+        ProcessPropertiesNode<mgp::List>(record, type, mgp::List(), prop, property_type, true);
+      }
+    }
+    */
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
     return;
