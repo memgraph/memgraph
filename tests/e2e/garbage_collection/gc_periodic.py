@@ -47,9 +47,8 @@ def test_gc_periodic(connection):
     cursor = connection.cursor()
 
     memory_pre_creation = get_memory(cursor)
-    execute_and_fetch_all(cursor, "CALL garbage_collection.create_nodes();")
+    execute_and_fetch_all(cursor, "UNWIND range(1, 1000) AS index CREATE (:Node);")
     memory_after_creation = get_memory(cursor)
-    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
     time.sleep(2)
     memory_after_gc = get_memory(cursor)
 

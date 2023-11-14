@@ -1,1 +1,0 @@
-add_query_module(garbage_collection procedures.cpp)
