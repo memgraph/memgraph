@@ -27,11 +27,9 @@ def modify_graph(query):
     subprocess_cursor.execute(query)
 
 
-@pytest.mark.parametrize("api", [("c",), ("cpp",), ("python",)])
+@pytest.mark.parametrize("api", ["c", "cpp", "python"])
 def test_function_delete_result(cursor, api):
     cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
-
-    api = "python"
 
     deleter = Process(
         target=modify_graph,
@@ -48,11 +46,9 @@ def test_function_delete_result(cursor, api):
     assert len(result) == 1 and len(result[0]) == 1 and result[0][0].type == "DEPENDS_ON"
 
 
-@pytest.mark.parametrize("api", [("c",), ("cpp",), ("python",)])
+@pytest.mark.parametrize("api", ["c", "cpp", "python"])
 def test_function_delete_only_result(cursor, api):
     cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
-
-    api = "python"
 
     cursor.execute("MATCH (m:Component {id: '7X8X0'})-[e:DEPENDS_ON]->(n:Component {id: 'A7422'}) DELETE e;")
 
@@ -71,11 +67,9 @@ def test_function_delete_only_result(cursor, api):
     assert len(result) == 1 and len(result[0]) == 1 and result[0][0] is None
 
 
-@pytest.mark.parametrize("api", [("c",), ("cpp",), ("python",)])
+@pytest.mark.parametrize("api", ["c", "cpp", "python"])
 def test_procedure_delete_result(cursor, api):
     cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
-
-    api = "python"
 
     deleter = Process(
         target=modify_graph,
@@ -97,11 +91,9 @@ def test_procedure_delete_result(cursor, api):
     assert len(result) == 1 and len(result[0]) == 2 and result[0][0].properties["id"] == "7X8X0"
 
 
-@pytest.mark.parametrize("api", [("c",), ("cpp",), ("python",)])
+@pytest.mark.parametrize("api", ["c", "cpp", "python"])
 def test_procedure_delete_only_result(cursor, api):
     cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
-
-    api = "python"
 
     cursor.execute("MATCH (n {id: '7X8X0'}) DETACH DELETE n;")
 

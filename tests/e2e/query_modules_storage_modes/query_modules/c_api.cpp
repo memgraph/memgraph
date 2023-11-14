@@ -16,39 +16,44 @@
 #include "mg_exceptions.hpp"
 #include "mg_procedure.h"
 
-constexpr char const *kFunctionPassNode = "pass_node";
-constexpr char const *kProcedurePassNodeWithId = "get";
+constexpr std::string_view kFunctionPassRelationship = "pass_relationship";
+constexpr std::string_view kPassRelationshipArg = "relationship";
 
-constexpr char const *kFieldNode = "node";
-constexpr char const *kFieldId = "id";
+constexpr std::string_view kProcedurePassNodeWithId = "pass_node_with_id";
+constexpr std::string_view kPassNodeWithIdArg = "node";
+constexpr std::string_view kPassNodeWithIdFieldNode = "node";
+constexpr std::string_view kPassNodeWithIdFieldId = "id";
 
-void PassNode(mgp_list *args, mgp_func_context *ctx, mgp_func_result *result, mgp_memory *memory) {
-  mgp_value *value{nullptr};
-  auto err_code = mgp_list_at(args, 0, &value);
-  if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
-    static_cast<void>(mgp_func_result_set_error_msg(result, "Failed to fetch list!", memory));
-    return;
-  }
+void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+  auto *relationship = mgp::list_at(args, 0);
+
   std::this_thread::sleep_for(std::chrono::seconds(1));
-  err_code = mgp_func_result_set_value(result, value, memory);
-  if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
-    static_cast<void>(mgp_func_result_set_error_msg(result, "Failed to construct return value!", memory));
-    return;
+
+  mgp::func_result_set_value(res, relationship, memory);
+}
+
+void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  auto *node = mgp::value_get_vertex(mgp::list_at(args, 0));
+  auto node_id = mgp::vertex_get_id(node).as_int;
+
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+
+  if (!mgp::vertex_is_deleted(node)) {
+    auto *result_record = mgp::result_new_record(result);
+    mgp::result_record_insert(result_record, kPassNodeWithIdFieldNode.data(), mgp::value_make_vertex(node));
+    mgp::result_record_insert(result_record, kPassNodeWithIdFieldId.data(), mgp::value_make_int(node_id, memory));
   }
 }
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp_func *func{nullptr};
-    auto err_code = mgp_module_add_function(module, kFunctionPassNode, PassNode, &func);
-    if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
-      return 1;
-    }
+    auto *func = mgp::module_add_function(module, kFunctionPassRelationship.data(), PassRelationship);
+    mgp::func_add_arg(func, kPassRelationshipArg.data(), mgp::type_relationship());
 
-    err_code = mgp_func_add_arg(func, kFieldNode, mgp::type_node());
-    if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
-      return 1;
-    }
+    auto *proc = mgp::module_add_read_procedure(module, kProcedurePassNodeWithId.data(), PassNodeWithId);
+    mgp::proc_add_arg(proc, kPassNodeWithIdArg.data(), mgp::type_node());
+    mgp::proc_add_result(proc, kPassNodeWithIdFieldNode.data(), mgp::type_node());
+    mgp::proc_add_result(proc, kPassNodeWithIdFieldId.data(), mgp::type_int());
   } catch (const std::exception &e) {
     return 1;
   }
