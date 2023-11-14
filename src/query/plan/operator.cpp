@@ -4750,11 +4750,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
   }
-
-  mgp_memory proc_memory{memory};
-  MG_ASSERT(result->signature == &proc.results);
-  // TODO: What about cross library boundary exceptions? OMG C++?!
-  proc.cb(&proc_args, &graph, result, &proc_memory);
 }
 
 }  // namespace
