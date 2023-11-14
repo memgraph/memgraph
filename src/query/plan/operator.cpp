@@ -4578,19 +4578,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result,
                          const bool call_initializer = false) {
-  auto drop_records_with_deleted_values = [graph, result]() -> void {
-    if (MgpGraphIsTransactional(graph)) {
-      return;
-    }
-
-    std::erase_if(result->rows, [](mgp_result_record rec) {
-      return std::ranges::any_of(rec.values.begin(), rec.values.end(),
-                                 [](auto &item) { return item.second.ContainsDeleted(); });
-    });
-
-    return;
-  };
-
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
@@ -4627,7 +4614,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     MG_ASSERT(result->signature == &proc.results);
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
-    drop_records_with_deleted_values();
     size_t leaked_bytes = limited_mem.GetAllocatedBytes();
     if (leaked_bytes > 0U) {
       spdlog::warn("Query procedure '{}' leaked {} *tracked* bytes", fully_qualified_procedure_name, leaked_bytes);
@@ -4639,7 +4625,6 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     MG_ASSERT(result->signature == &proc.results);
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
-    drop_records_with_deleted_values();
   }
 }
 
