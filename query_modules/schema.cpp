@@ -189,19 +189,18 @@ void InsertRecordForCreatingIndexOrExistenceConstraint(const auto &record_factor
 
 void CreateIndices(const mgp::Map &indices_map, mgp_graph *memgraph_graph, const auto &record_factory) {
   for (const auto &index : indices_map) {
-    const auto label = index.key;
-    if (!index.value.IsList()) {
-      record_factory.SetErrorMessage("Index properties must be provided as a list");
-      return;
+    const auto &label = index.key;
+    const auto &properties_val = index.value;
+    if (!properties_val.IsList()) {
+      continue;
     }
-    const auto properties = index.value.ValueList();
+    const auto properties = properties_val.ValueList();
     if (properties.Empty() && mgp::CreateLabelIndexImpl(memgraph_graph, label)) {
       InsertRecordForCreatingIndexOrExistenceConstraint(record_factory, label);
     } else {
       for (const auto &property : properties) {
         if (!property.IsString()) {
-          record_factory.SetErrorMessage("Index property must be a string!");
-          return;
+          continue;
         }
         const auto property_str = property.ValueString();
         auto success = std::invoke([memgraph_graph, label, property_str]() {
@@ -220,25 +219,21 @@ void CreateIndices(const mgp::Map &indices_map, mgp_graph *memgraph_graph, const
 
 void CreateExistenceConstraints(const mgp::Map &existence_constraints_map, mgp_graph *memgraph_graph,
                                 const auto &record_factory) {
-  for (const auto &constraint : existence_constraints_map) {
-    if (!constraint.value.IsList()) {
-      record_factory.SetErrorMessage("Properties for creating existence constraints must be provided as a list!");
-      return;
+  for (const auto &[label, properties_val] : existence_constraints_map) {
+    if (!properties_val.IsList()) {
+      continue;
     }
-    const auto &properties = constraint.value.ValueList();
+    const auto &properties = properties_val.ValueList();
     for (const auto &property : properties) {
       if (!property.IsString()) {
-        record_factory.SetErrorMessage("Property for creating existence constraint must be provided as a string!");
-        return;
+        continue;
       }
       const auto property_str = property.ValueString();
       if (property_str.empty()) {
-        record_factory.SetErrorMessage(
-            "Property for creating existence constraint must be provided as non-empty string!");
-        return;
+        continue;
       }
-      if (mgp::CreateExistenceConstraintImpl(memgraph_graph, constraint.key, property_str)) {
-        InsertRecordForCreatingIndexOrExistenceConstraint(record_factory, constraint.key, property);
+      if (mgp::CreateExistenceConstraintImpl(memgraph_graph, label, property_str)) {
+        InsertRecordForCreatingIndexOrExistenceConstraint(record_factory, label, property);
       }
     }
   }
@@ -246,18 +241,36 @@ void CreateExistenceConstraints(const mgp::Map &existence_constraints_map, mgp_g
 
 void CreateUniqueConstraints(const mgp::Map &unique_constraints_map, mgp_graph *memgraph_graph,
                              const auto &record_factory) {
-  for (const auto &[label, properties] : unique_constraints_map) {
-    auto properties_list = properties.ValueList();
-    for (const auto &property : properties_list) {
-      // assert((!property.ValueString().empty()) && "Property name must be provided for unique constraint");
+  for (const auto &[label, unique_props_nested] : unique_constraints_map) {
+    if (!unique_props_nested.IsList()) {
+      continue;
     }
-    if (mgp::CreateUniqueConstraintImpl(memgraph_graph, label, properties.ptr())) {
-      auto record = record_factory.NewRecord();
-      record.Insert(std::string(Schema::kReturnLabel).c_str(), label);
-      record.Insert(std::string(Schema::kReturnKey).c_str(), "");
-      record.Insert(std::string(Schema::kReturnKeys).c_str(), properties);
-      record.Insert(std::string(Schema::kReturnUnique).c_str(), true);
-      record.Insert(std::string(Schema::kReturnAction).c_str(), "Created");
+    const auto unique_props_nested_list = unique_props_nested.ValueList();
+    for (const auto &properties : unique_props_nested_list) {
+      if (!properties.IsList()) {
+        continue;
+      }
+      auto properties_list = properties.ValueList();
+      bool unique_constraint_should_be_created = true;
+      for (const auto &property : properties_list) {
+        if (!property.IsString() || property.ValueString().empty()) {
+          unique_constraint_should_be_created = false;
+          break;
+        }
+      }
+      if (!unique_constraint_should_be_created) {
+        continue;
+      }
+
+      if (mgp::CreateUniqueConstraintImpl(memgraph_graph, label, properties.ptr())) {
+        auto record = record_factory.NewRecord();
+        record.Insert(std::string(Schema::kReturnLabel).c_str(), label);
+        /// TODO: (andi) Change tests for indices and existence constraints so that they support partial execution
+        record.Insert(std::string(Schema::kReturnKey).c_str(), properties_list.ToString());
+        record.Insert(std::string(Schema::kReturnKeys).c_str(), properties);
+        record.Insert(std::string(Schema::kReturnUnique).c_str(), true);
+        record.Insert(std::string(Schema::kReturnAction).c_str(), "Created");
+      }
     }
   }
 }
