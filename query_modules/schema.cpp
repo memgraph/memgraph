@@ -168,84 +168,6 @@ void Schema::RelTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, m
   }
 }
 
-/// TODO: (andi) Better handling of statuses will be needed
-
-void DropIndices(mgp_graph *memgraph_graph, const auto &record_factory) {
-  auto dropped_label_indices = mgp::DropAllLabelIndicesImpl(memgraph_graph);
-  for (const auto &dropped_label_index : dropped_label_indices) {
-    auto record = record_factory.NewRecord();
-    record.Insert(std::string(Schema::kReturnLabel).c_str(), dropped_label_index);
-    record.Insert(std::string(Schema::kReturnKey).c_str(), "");
-    record.Insert(std::string(Schema::kReturnKeys).c_str(), mgp::List());
-    record.Insert(std::string(Schema::kReturnUnique).c_str(), false);
-    record.Insert(std::string(Schema::kReturnAction).c_str(), "Dropped");
-  }
-
-  auto dropped_label_property_indices = mgp::DropAllLabelPropertyIndicesImpl(memgraph_graph);
-  for (const auto &dropped_label_property_index : dropped_label_property_indices) {
-    auto label_prop_str = dropped_label_property_index.ValueString();
-    auto label_size = label_prop_str.find(':');
-    if (label_size == std::string::npos) {
-      continue;
-    }
-    auto cut_label = std::string(label_prop_str.substr(0, label_size));
-    auto cut_property = std::string(label_prop_str.substr(label_size + 1));
-
-    auto record = record_factory.NewRecord();
-    record.Insert(std::string(Schema::kReturnLabel).c_str(), cut_label);
-    record.Insert(std::string(Schema::kReturnKey).c_str(), cut_property);
-    record.Insert(std::string(Schema::kReturnKeys).c_str(), mgp::List({mgp::Value(cut_property)}));
-    record.Insert(std::string(Schema::kReturnUnique).c_str(), false);
-    record.Insert(std::string(Schema::kReturnAction).c_str(), "Dropped");
-  }
-}
-
-void DropExistenceConstraints(mgp_graph *memgraph_graph, const auto &record_factory) {
-  auto dropped_existence_constraints = mgp::DropAllExistenceConstraintsImpl(memgraph_graph);
-  /// TODO: (andi) Extract if the impl will stay the same...
-  for (const auto &dropped_exist_constr : dropped_existence_constraints) {
-    auto label_prop_str = dropped_exist_constr.ValueString();
-    auto label_size = label_prop_str.find(':');
-    if (label_size == std::string::npos) {
-      continue;
-    }
-    auto cut_label = std::string(label_prop_str.substr(0, label_size));
-    auto cut_property = std::string(label_prop_str.substr(label_size + 1));
-
-    auto record = record_factory.NewRecord();
-    record.Insert(std::string(Schema::kReturnLabel).c_str(), cut_label);
-    record.Insert(std::string(Schema::kReturnKey).c_str(), cut_property);
-    record.Insert(std::string(Schema::kReturnKeys).c_str(), mgp::List({mgp::Value(cut_property)}));
-    record.Insert(std::string(Schema::kReturnUnique).c_str(), false);
-    record.Insert(std::string(Schema::kReturnAction).c_str(), "Dropped");
-  }
-}
-
-void DropUniqueConstraints(mgp_graph *memgraph_graph, const auto &record_factory) {
-  /*auto dropped_unique_constraints = mgp::DropAllUniqueConstraintsImpl(memgraph_graph);
-  for (const auto &dropped_unique_constr : dropped_unique_constraints) {
-    auto label_prop_str = dropped_unique_constr.ValueString();
-    auto label_size = label_prop_str.find(':');
-    if (label_size == std::string::npos) {
-      continue;
-    }
-    auto label = std::string(label_prop_str.substr(0, label_size));
-    auto properties_str = std::string(label_prop_str.substr(label_size + 1));
-
-    auto properties = mgp::List();
-    auto properties_tokens = memgraph::utils::Split(properties_str, ",");
-    std::for_each(properties_tokens.begin(), properties_tokens.end(),
-                  [&properties](const auto &property) { properties.AppendExtend(mgp::Value(property)); });
-
-    auto record = record_factory.NewRecord();
-    record.Insert(std::string(Schema::kReturnLabel).c_str(), label);
-    record.Insert(std::string(Schema::kReturnKey).c_str(), properties.ToString());
-    record.Insert(std::string(Schema::kReturnKeys).c_str(), properties);
-    record.Insert(std::string(Schema::kReturnUnique).c_str(), true);
-    record.Insert(std::string(Schema::kReturnAction).c_str(), "Dropped");
-  }*/
-}
-
 void InsertRecordForLabelIndex(const auto &record_factory, const std::string_view label, std::string status) {
   auto record = record_factory.NewRecord();
   record.Insert(std::string(Schema::kReturnLabel).c_str(), label);
@@ -275,14 +197,13 @@ void InsertRecordForLabelPropertyIndexAndExistenceConstraint(const auto &record_
   record.Insert(std::string(Schema::kReturnAction).c_str(), status);
 }
 
-void ProcessCreatingLabelIndex(const std::string_view label, std::vector<std::string_view> &existing_label_indices,
-                               mgp_graph *memgraph_graph, const auto &record_factory) {
+void ProcessCreatingLabelIndex(const std::string_view label,
+                               const std::vector<std::string_view> &existing_label_indices, mgp_graph *memgraph_graph,
+                               const auto &record_factory) {
   bool label_index_exists =
       std::find(existing_label_indices.begin(), existing_label_indices.end(), label) != existing_label_indices.end();
   if (label_index_exists) {
     InsertRecordForLabelIndex(record_factory, label, "Kept");
-    existing_label_indices.erase(std::remove(existing_label_indices.begin(), existing_label_indices.end(), label),
-                                 existing_label_indices.end());
   } else if (mgp::CreateLabelIndexImpl(memgraph_graph, label)) {
     InsertRecordForLabelIndex(record_factory, label, "Created");
   }
@@ -306,11 +227,18 @@ void ProcessCreatingLabelPropertyIndexAndExistenceConstraint(const std::string_v
   }
 }
 
-void CreateIndicesForLabel(const std::string_view label, const mgp::Value &properties_val, mgp_graph *memgraph_graph,
-                           const auto &record_factory, std::vector<std::string_view> &existing_label_indices,
-                           std::vector<std::string_view> &existing_label_property_indices) {
+using AssertedLabelIndices = std::vector<std::string_view>;
+using AssertedLabelPropertyIndices = std::vector<std::pair<std::string_view, std::string_view>>;
+using AssertedIndices = std::pair<AssertedLabelIndices, AssertedLabelPropertyIndices>;
+
+AssertedIndices CreateIndicesForLabel(const std::string_view label, const mgp::Value &properties_val,
+                                      mgp_graph *memgraph_graph, const auto &record_factory,
+                                      std::vector<std::string_view> &existing_label_indices,
+                                      std::vector<std::string_view> &existing_label_property_indices) {
+  AssertedLabelIndices asserted_label_indices;
+  AssertedLabelPropertyIndices asserted_label_property_indices;
   if (!properties_val.IsList()) {
-    return;
+    return {};
   }
   const auto properties = properties_val.ValueList();
   if (properties.Empty() && mgp::CreateLabelIndexImpl(memgraph_graph, label)) {
@@ -323,20 +251,26 @@ void CreateIndicesForLabel(const std::string_view label, const mgp::Value &prope
       const auto property_str = property.ValueString();
       if (property_str.empty()) {
         ProcessCreatingLabelIndex(label, existing_label_indices, memgraph_graph, record_factory);
+        asserted_label_indices.emplace_back(label);
       } else {
+        asserted_label_property_indices.emplace_back(label, property_str);
         ProcessCreatingLabelPropertyIndexAndExistenceConstraint(label, property_str, existing_label_property_indices,
                                                                 mgp::CreateLabelPropertyIndexImpl, memgraph_graph,
                                                                 record_factory);
       }
     }
   }
+  return std::make_pair(asserted_label_indices, asserted_label_property_indices);
 }
 
-void ProcessIndices(const mgp::Map &indices_map, mgp_graph *memgraph_graph, const auto &record_factory) {
+void ProcessIndices(const mgp::Map &indices_map, mgp_graph *memgraph_graph, const auto &record_factory,
+                    bool drop_existing) {
   auto mgp_existing_label_indices = mgp::ListAllLabelIndicesImpl(memgraph_graph);
   auto mgp_existing_label_property_indices = mgp::ListAllLabelPropertyIndicesImpl(memgraph_graph);
   std::vector<std::string_view> existing_label_indices;
   std::vector<std::string_view> existing_label_property_indices;
+  AssertedIndices asserted_indices;
+
   // TODO: (andi) You can improve it by doing this in ListAllLabelIndicesImpl
   std::transform(mgp_existing_label_indices.begin(), mgp_existing_label_indices.end(),
                  std::back_inserter(existing_label_indices), [](const auto &index) { return index.ValueString(); });
@@ -346,17 +280,68 @@ void ProcessIndices(const mgp::Map &indices_map, mgp_graph *memgraph_graph, cons
                  [](const auto &index) { return index.ValueString(); });
 
   for (const auto &[label, properties_val] : indices_map) {
-    CreateIndicesForLabel(label, properties_val, memgraph_graph, record_factory, existing_label_indices,
-                          existing_label_property_indices);
+    AssertedIndices asserted_indices_new = CreateIndicesForLabel(
+        label, properties_val, memgraph_graph, record_factory, existing_label_indices, existing_label_property_indices);
+    if (drop_existing) {
+      asserted_indices.first.insert(asserted_indices.first.end(), asserted_indices_new.first.begin(),
+                                    asserted_indices_new.first.end());
+      asserted_indices.second.insert(asserted_indices.second.end(), asserted_indices_new.second.begin(),
+                                     asserted_indices_new.second.end());
+    }
   }
-}
 
-void CreateExistenceConstraintsForLabel(const std::string_view label, const mgp::Value &properties_val,
-                                        mgp_graph *memgraph_graph, const auto &record_factory,
-                                        std::vector<std::string_view> &existing_existence_constraints) {
-  if (!properties_val.IsList()) {
+  if (!drop_existing) {
     return;
   }
+
+  std::vector<std::string_view> label_indices_to_drop;
+  std::vector<std::string_view> label_property_indices_to_drop;
+
+  std::copy_if(existing_label_indices.begin(), existing_label_indices.end(), std::back_inserter(label_indices_to_drop),
+               [&](const auto &label) {
+                 return std::find(asserted_indices.first.begin(), asserted_indices.first.end(), label) ==
+                        asserted_indices.first.end();
+               });
+
+  std::copy_if(existing_label_property_indices.begin(), existing_label_property_indices.end(),
+               std::back_inserter(label_property_indices_to_drop), [&](const auto &label_property) {
+                 const auto label_size = label_property.find(':');
+                 const auto label = label_property.substr(0, label_size);
+                 const auto property = label_property.substr(label_size + 1);
+
+                 const auto search_pair = std::make_pair(label, property);
+
+                 return std::find(asserted_indices.second.begin(), asserted_indices.second.end(), search_pair) ==
+                        asserted_indices.second.end();
+               });
+
+  std::for_each(label_indices_to_drop.begin(), label_indices_to_drop.end(), [&](const std::string_view label) {
+    if (mgp::DropLabelIndexImpl(memgraph_graph, label)) {
+      InsertRecordForLabelIndex(record_factory, label, "Dropped");
+    }
+  });
+
+  std::for_each(label_property_indices_to_drop.begin(), label_property_indices_to_drop.end(),
+                [&](const std::string_view label_property) {
+                  const auto label_size = label_property.find(':');
+                  const auto label = std::string(label_property.substr(0, label_size));
+                  const auto property = std::string(label_property.substr(label_size + 1));
+                  if (mgp::DropLabelPropertyIndexImpl(memgraph_graph, label, property)) {
+                    InsertRecordForLabelPropertyIndexAndExistenceConstraint(record_factory, label, property, "Dropped");
+                  }
+                });
+}
+
+using ExistenceConstraintsStorage = std::vector<std::pair<std::string_view, std::string_view>>;
+
+ExistenceConstraintsStorage CreateExistenceConstraintsForLabel(
+    const std::string_view label, const mgp::Value &properties_val, mgp_graph *memgraph_graph,
+    const auto &record_factory, std::vector<std::string_view> &existing_existence_constraints) {
+  ExistenceConstraintsStorage asserted_existence_constraints;
+  if (!properties_val.IsList()) {
+    return asserted_existence_constraints;
+  }
+
   const auto &properties = properties_val.ValueList();
   for (const auto &property : properties) {
     if (!property.IsString()) {
@@ -366,24 +351,62 @@ void CreateExistenceConstraintsForLabel(const std::string_view label, const mgp:
     if (property_str.empty()) {
       continue;
     }
+    asserted_existence_constraints.emplace_back(label, property_str);
     ProcessCreatingLabelPropertyIndexAndExistenceConstraint(label, property_str, existing_existence_constraints,
                                                             mgp::CreateExistenceConstraintImpl, memgraph_graph,
                                                             record_factory);
   }
+  return asserted_existence_constraints;
 }
 
 void ProcessExistenceConstraints(const mgp::Map &existence_constraints_map, mgp_graph *memgraph_graph,
-                                 const auto &record_factory) {
+                                 const auto &record_factory, bool drop_existing) {
   auto mgp_existing_existence_constraints = mgp::ListAllExistenceConstraintsImpl(memgraph_graph);
+  // TODO: (andi) pair instead of string processing
   std::vector<std::string_view> existing_existence_constraints;
   std::transform(mgp_existing_existence_constraints.begin(), mgp_existing_existence_constraints.end(),
                  std::back_inserter(existing_existence_constraints),
                  [](const auto &constraint) { return constraint.ValueString(); });
 
+  ExistenceConstraintsStorage asserted_existence_constraints;
+
   for (const auto &existing_constraint : existence_constraints_map) {
-    CreateExistenceConstraintsForLabel(existing_constraint.key, existing_constraint.value, memgraph_graph,
-                                       record_factory, existing_existence_constraints);
+    auto asserted_existence_constraints_new =
+        CreateExistenceConstraintsForLabel(existing_constraint.key, existing_constraint.value, memgraph_graph,
+                                           record_factory, existing_existence_constraints);
+    if (drop_existing) {
+      asserted_existence_constraints.insert(asserted_existence_constraints.end(),
+                                            asserted_existence_constraints_new.begin(),
+                                            asserted_existence_constraints_new.end());
+    }
   }
+
+  if (!drop_existing) {
+    return;
+  }
+
+  std::vector<std::string_view> existence_constraints_to_drop;
+
+  std::copy_if(existing_existence_constraints.begin(), existing_existence_constraints.end(),
+               std::back_inserter(existence_constraints_to_drop), [&](const auto &label_property) {
+                 const auto label_size = label_property.find(':');
+                 const auto label = label_property.substr(0, label_size);
+                 const auto property = label_property.substr(label_size + 1);
+                 const auto search_pair = std::make_pair(label, property);
+
+                 return std::find(asserted_existence_constraints.begin(), asserted_existence_constraints.end(),
+                                  search_pair) == asserted_existence_constraints.end();
+               });
+
+  std::for_each(existence_constraints_to_drop.begin(), existence_constraints_to_drop.end(),
+                [&](const auto &label_property) {
+                  const auto label_size = label_property.find(':');
+                  const auto label = std::string(label_property.substr(0, label_size));
+                  const auto property = std::string(label_property.substr(label_size + 1));
+                  if (mgp::DropExistenceConstraintImpl(memgraph_graph, label, property)) {
+                    InsertRecordForLabelPropertyIndexAndExistenceConstraint(record_factory, label, property, "Dropped");
+                  }
+                });
 }
 
 void CreateUniqueConstraintsForLabel(const std::string_view label, const mgp::Value &unique_props_nested,
@@ -449,15 +472,9 @@ void Schema::Assert(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
   auto existence_constraints_map = arguments[2].ValueMap();
   auto drop_existing = arguments[3].ValueBool();
 
-  ProcessIndices(indices_map, memgraph_graph, record_factory);
-  ProcessExistenceConstraints(existence_constraints_map, memgraph_graph, record_factory);
+  ProcessIndices(indices_map, memgraph_graph, record_factory, drop_existing);
+  ProcessExistenceConstraints(existence_constraints_map, memgraph_graph, record_factory, drop_existing);
   ProcessUniqueConstraints(unique_constraints_map, memgraph_graph, record_factory);
-
-  /*if (drop_existing) {
-    DropIndices(memgraph_graph, record_factory);
-    DropExistenceConstraints(memgraph_graph, record_factory);
-    DropUniqueConstraints(memgraph_graph, record_factory);
-  }*/
 }
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
