@@ -130,16 +130,17 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // recovery process.
 void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
                                   Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                                  NameIdMapper *name_id_mapper,
                                   const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   for (const auto &item : indices_constraints.indices.label) {
-    if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info))
+    if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info)) {
       throw RecoveryFailure("The label index must be created here!");
-
-    spdlog::info("A label index is recreated from metadata.");
+    }
+    spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
   }
   spdlog::info("Label indices are recreated.");
 
@@ -148,7 +149,8 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   spdlog::info("Recreating {} label index statistics from metadata.", indices_constraints.indices.label_stats.size());
   for (const auto &item : indices_constraints.indices.label_stats) {
     mem_label_index->SetIndexStats(item.first, item.second);
-    spdlog::info("A label index statistics is recreated from metadata.");
+    spdlog::info("Statistics for index on :{} are recreated from metadata",
+                 name_id_mapper->IdToName(item.first.AsUint()));
   }
   spdlog::info("Label indices statistics are recreated.");
 
@@ -159,7 +161,8 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   for (const auto &item : indices_constraints.indices.label_property) {
     if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label+property index must be created here!");
-    spdlog::info("A label+property index is recreated from metadata.");
+    spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
+                 name_id_mapper->IdToName(item.second.AsUint()));
   }
   spdlog::info("Label+property indices are recreated.");
 
@@ -171,7 +174,8 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
     const auto property_id = item.second.first;
     const auto &stats = item.second.second;
     mem_label_property_index->SetIndexStats({label_id, property_id}, stats);
-    spdlog::info("A label+property index statistics is recreated from metadata.");
+    spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
+                 name_id_mapper->IdToName(label_id.AsUint()), name_id_mapper->IdToName(property_id.AsUint()));
   }
   spdlog::info("Label+property indices statistics are recreated.");
 
@@ -191,8 +195,8 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
     }
 
     constraints->existence_constraints_->InsertConstraint(label, property);
-
-    spdlog::info("A existence constraint is recreated from metadata.");
+    spdlog::info("Existence constraint on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
+                 name_id_mapper->IdToName(property.AsUint()));
   }
   spdlog::info("Existence constraints are recreated from metadata.");
 
@@ -203,7 +207,15 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
     auto ret = mem_unique_constraints->CreateConstraint(item.first, item.second, vertices->access());
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
-    spdlog::info("A unique constraint is recreated from metadata.");
+
+    std::vector<std::string> property_names;
+    property_names.reserve(item.second.size());
+    for (const auto &prop : item.second) {
+      property_names.emplace_back(name_id_mapper->IdToName(prop.AsUint()));
+    }
+    const auto property_names_joined = utils::Join(property_names, ",");
+    spdlog::info("Unique constraint on :{}({}) is recreated from metadata",
+                 name_id_mapper->IdToName(item.first.AsUint()), property_names_joined);
   }
   spdlog::info("Unique constraints are recreated from metadata.");
   spdlog::info("Constraints are recreated from metadata.");
@@ -270,7 +282,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                      ? std::make_optional(std::make_pair(recovery_info.vertex_batches,
                                                                          config.durability.recovery_thread_count))
                                      : std::nullopt;
-      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, par_exec_info);
+      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, name_id_mapper, par_exec_info);
       return recovered_snapshot->recovery_info;
     }
   } else {
@@ -402,7 +414,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
           ? std::make_optional(std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count))
           : std::nullopt;
 
-  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, par_exec_info);
+  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, name_id_mapper, par_exec_info);
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
