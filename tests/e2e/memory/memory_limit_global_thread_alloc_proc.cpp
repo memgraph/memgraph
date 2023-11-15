@@ -14,7 +14,6 @@
 #include <exception>
 #include <ios>
 #include <iostream>
-#include <mgclient-value.hpp>
 #include <mgclient.hpp>
 
 #include "utils/logging.hpp"
@@ -24,8 +23,10 @@ DEFINE_uint64(bolt_port, 7687, "Bolt port");
 DEFINE_uint64(timeout, 120, "Timeout seconds");
 DEFINE_bool(multi_db, false, "Run test in multi db environment");
 
+// Test checks path of throwing error from different thread
+// than main thread which started test
 int main(int argc, char **argv) {
-  google::SetUsageMessage("Memgraph E2E Query Memory Limit In Multi-Thread For Global Allocators");
+  google::SetUsageMessage("Memgraph E2E Global Memory Limit In Multi-Thread For Procedures For Local Allocators");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   memgraph::logging::RedirectToStderr();
 
@@ -46,22 +47,22 @@ int main(int argc, char **argv) {
     client->DiscardAll();
   }
 
-  bool test_passed{false};
+  bool error{false};
   try {
     client->Execute(
-        "CALL libproc_memory_limit.alloc_256_mib() PROCEDURE MEMORY LIMIT 400MB YIELD allocated WITH allocated AS "
-        "allocated_1"
-        "CALL libproc_memory_limit.alloc_32_mib() PROCEDURE MEMORY LIMIT 10MB YIELD allocated AS allocated_2 RETURN "
-        "allocated_1, allocated_2");
+        "CALL libglobal_memory_limit_thread_proc.thread() YIELD allocated_all RETURN allocated_all QUERY MEMORY LIMIT "
+        "100MB;");
     auto result_rows = client->FetchAll();
-    if (result_rows && result_rows->empty()) {
-      test_passed = true;
+    if (result_rows) {
+      auto row = *result_rows->begin();
+      error = row[0].ValueBool() == false;
     }
+
   } catch (const std::exception &e) {
-    test_passed = true;
+    error = true;
   }
 
-  MG_ASSERT(test_passed, "Error should have happend");
+  MG_ASSERT(error, "Error should have happend");
 
   return 0;
 }
