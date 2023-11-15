@@ -1289,7 +1289,7 @@ class Value {
   std::string_view ValueString() const;
   std::string_view ValueString();
   /// @pre Value type needs to be Type::List.
-  const List ValueList() const;
+  List ValueList() const;
   List ValueList();
   /// @pre Value type needs to be Type::Map.
   const Map ValueMap() const;
@@ -3651,7 +3651,7 @@ inline std::string_view Value::ValueString() {
   return mgp::value_get_string(ptr_);
 }
 
-inline const List Value::ValueList() const {
+inline List Value::ValueList() const {
   if (Type() != Type::List) {
     throw ValueException("Type of value is wrong: expected List.");
   }
@@ -4283,6 +4283,39 @@ inline bool CreateLabelIndexImpl(mgp_graph *memgaph_graph, const std::string_vie
   return CreateLabelIndex(memgaph_graph, label);
 }
 
+inline List ListAllLabelIndicesImpl(mgp_graph *memgraph_graph) {
+  auto *label_indices = mgp::MemHandlerCallback(ListAllLabelIndices, memgraph_graph);
+  if (label_indices == nullptr) {
+    mgp::list_destroy(label_indices);
+    throw ValueException("Couldn't list all label indices");
+  }
+  auto label_indices_list = List(label_indices);
+  mgp::list_destroy(label_indices);
+  return label_indices_list;
+}
+
+inline List ListAllLabelPropertyIndicesImpl(mgp_graph *memgraph_graph) {
+  auto *label_property_indices = mgp::MemHandlerCallback(ListAllLabelPropertyIndices, memgraph_graph);
+  if (label_property_indices == nullptr) {
+    mgp::list_destroy(label_property_indices);
+    throw ValueException("Couldn't list all label+property indices");
+  }
+  auto label_property_indices_list = List(label_property_indices);
+  mgp::list_destroy(label_property_indices);
+  return label_property_indices_list;
+}
+
+inline List ListAllExistenceConstraintsImpl(mgp_graph *memgraph_graph) {
+  auto *existence_constraints = mgp::MemHandlerCallback(ListAllExistenceConstraints, memgraph_graph);
+  if (existence_constraints == nullptr) {
+    mgp::list_destroy(existence_constraints);
+    throw ValueException("Couldn't list all existence_constraints");
+  }
+  auto existence_constraints_list = List(existence_constraints);
+  mgp::list_destroy(existence_constraints);
+  return existence_constraints_list;
+}
+
 inline List DropAllLabelIndicesImpl(mgp_graph *memgraph_graph) {
   auto *dropped_label_indices = mgp::MemHandlerCallback(DropAllLabelIndices, memgraph_graph);
   if (dropped_label_indices == nullptr) {
@@ -4317,15 +4350,15 @@ inline List DropAllExistenceConstraintsImpl(mgp_graph *memgraph_graph) {
   return dropped_exist_constr_list;
 }
 
-inline List DropAllUniqueConstraintsImpl(mgp_graph *memgraph_graph) {
-  auto *dropped_unique_constraints = mgp::MemHandlerCallback(DropAllUniqueConstraints, memgraph_graph);
-  if (dropped_unique_constraints == nullptr) {
-    mgp::list_destroy(dropped_unique_constraints);
-    throw ValueException("Couldn't drop unique constraints");
+inline List ListAllUniqueConstraintsImpl(mgp_graph *memgraph_graph) {
+  auto *unique_constraints = mgp::MemHandlerCallback(ListAllUniqueConstraints, memgraph_graph);
+  if (unique_constraints == nullptr) {
+    mgp::list_destroy(unique_constraints);
+    throw ValueException("Couldn't list unique constraints");
   }
-  auto dropped_unique_constr_list = List(dropped_unique_constraints);
-  mgp::list_destroy(dropped_unique_constraints);
-  return dropped_unique_constr_list;
+  auto unique_constraints_list = List(unique_constraints);
+  mgp::list_destroy(unique_constraints);
+  return unique_constraints_list;
 }
 
 inline bool CreateLabelPropertyIndexImpl(mgp_graph *memgaph_graph, const std::string_view label,
