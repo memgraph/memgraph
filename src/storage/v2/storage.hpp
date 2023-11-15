@@ -247,6 +247,10 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
 
+    auto DropAllLabelIndices() -> std::vector<LabelId>;
+
+    auto DropAllLabelPropertyIndices() -> std::vector<std::pair<LabelId, PropertyId>>;
+
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
 
@@ -258,6 +262,10 @@ class Storage {
 
     virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                    const std::set<PropertyId> &properties) = 0;
+
+    auto DropAllExistenceConstraints() -> std::vector<std::pair<LabelId, PropertyId>>;
+
+    auto DropAllUniqueConstraints() -> std::vector<std::pair<LabelId, std::set<PropertyId>>>;
 
    protected:
     Storage *storage_;

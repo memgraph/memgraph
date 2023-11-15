@@ -242,8 +242,20 @@ inline bool CreateLabelIndex(mgp_graph *graph, const std::string_view label) {
   return MgInvoke<int>(mgp_create_label_index, graph, std::string(label).c_str());
 }
 
-inline bool DropLabelIndex(mgp_graph *graph, const std::string_view label) {
-  return MgInvoke<int>(mgp_create_label_index, graph, std::string(label).c_str());
+inline mgp_list *DropAllLabelIndices(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_drop_all_label_indices, graph, memory);
+}
+
+inline mgp_list *DropAllLabelPropertyIndices(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_drop_all_label_property_indices, graph, memory);
+}
+
+inline mgp_list *DropAllExistenceConstraints(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_drop_all_existence_constraints, graph, memory);
+}
+
+inline mgp_list *DropAllUniqueConstraints(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_drop_all_unique_constraints, graph, memory);
 }
 
 inline bool CreateLabelPropertyIndex(mgp_graph *graph, const std::string_view label, const std::string_view property) {

@@ -881,10 +881,20 @@ enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex
 /// if label index already exists, result will be 0, otherwise 1.
 enum mgp_error mgp_create_label_index(struct mgp_graph *graph, const char *label, int *result);
 
-/// Drops label index for provided label.
-/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
-/// If an error occurred, result will be 0, otherwise 1.
-enum mgp_error mgp_drop_label_index(struct mgp_graph *graph, const char *label, int *result);
+/// Drop all label indices.
+enum mgp_error mgp_drop_all_label_indices(struct mgp_graph *graph, struct mgp_memory *memory, struct mgp_list **result);
+
+/// Drop all label indices.
+enum mgp_error mgp_drop_all_label_property_indices(struct mgp_graph *graph, struct mgp_memory *memory,
+                                                   struct mgp_list **result);
+
+/// Drop all existence constraints
+enum mgp_error mgp_drop_all_existence_constraints(struct mgp_graph *graph, struct mgp_memory *memory,
+                                                  struct mgp_list **result);
+
+/// Drop all unique constraints
+enum mgp_error mgp_drop_all_unique_constraints(struct mgp_graph *graph, struct mgp_memory *memory,
+                                               struct mgp_list **result);
 
 /// Creates label-property index for given label and propery.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.

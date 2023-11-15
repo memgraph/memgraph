@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <mgp.hpp>
+#include "utils/string.hpp"
 
 #include <optional>
 
@@ -187,6 +188,38 @@ void InsertRecordForCreatingIndexOrExistenceConstraint(const auto &record_factor
   record.Insert(std::string(Schema::kReturnAction).c_str(), "Created");
 }
 
+/// TODO: (andi) Better handling of statuses will be needed
+
+void DropIndices(mgp_graph *memgraph_graph, const auto &record_factory) {
+  auto dropped_label_indices = mgp::DropAllLabelIndicesImpl(memgraph_graph);
+  for (const auto &dropped_label_index : dropped_label_indices) {
+    auto record = record_factory.NewRecord();
+    record.Insert(std::string(Schema::kReturnLabel).c_str(), dropped_label_index);
+    record.Insert(std::string(Schema::kReturnKey).c_str(), "");
+    record.Insert(std::string(Schema::kReturnKeys).c_str(), mgp::List());
+    record.Insert(std::string(Schema::kReturnUnique).c_str(), false);
+    record.Insert(std::string(Schema::kReturnAction).c_str(), "Dropped");
+  }
+
+  auto dropped_label_property_indices = mgp::DropAllLabelPropertyIndicesImpl(memgraph_graph);
+  for (const auto &dropped_label_property_index : dropped_label_property_indices) {
+    auto label_prop_str = dropped_label_property_index.ValueString();
+    auto label_size = label_prop_str.find(':');
+    if (label_size == std::string::npos) {
+      continue;
+    }
+    auto cut_label = std::string(label_prop_str.substr(0, label_size));
+    auto cut_property = std::string(label_prop_str.substr(label_size + 1));
+
+    auto record = record_factory.NewRecord();
+    record.Insert(std::string(Schema::kReturnLabel).c_str(), cut_label);
+    record.Insert(std::string(Schema::kReturnKey).c_str(), cut_property);
+    record.Insert(std::string(Schema::kReturnKeys).c_str(), mgp::List({mgp::Value(cut_property)}));
+    record.Insert(std::string(Schema::kReturnUnique).c_str(), false);
+    record.Insert(std::string(Schema::kReturnAction).c_str(), "Dropped");
+  }
+}
+
 void CreateIndices(const mgp::Map &indices_map, mgp_graph *memgraph_graph, const auto &record_factory) {
   for (const auto &index : indices_map) {
     const auto &label = index.key;
@@ -217,6 +250,30 @@ void CreateIndices(const mgp::Map &indices_map, mgp_graph *memgraph_graph, const
   }
 }
 
+void DropExistenceConstraints(mgp_graph *memgraph_graph, const auto &record_factory) {
+  auto dropped_existence_constraints = mgp::DropAllExistenceConstraintsImpl(memgraph_graph);
+  /// TODO: (andi) Extract if the impl will stay the same...
+  for (const auto &dropped_exist_constr : dropped_existence_constraints) {
+    auto label_prop_str = dropped_exist_constr.ValueString();
+    auto label_size = label_prop_str.find(':');
+    if (label_size == std::string::npos) {
+      continue;
+    }
+    auto cut_label = std::string(label_prop_str.substr(0, label_size));
+    auto cut_property = std::string(label_prop_str.substr(label_size + 1));
+
+    auto record = record_factory.NewRecord();
+    record.Insert(std::string(Schema::kReturnLabel).c_str(), cut_label);
+    record.Insert(std::string(Schema::kReturnKey).c_str(), cut_property);
+    record.Insert(std::string(Schema::kReturnKeys).c_str(), mgp::List({mgp::Value(cut_property)}));
+    record.Insert(std::string(Schema::kReturnUnique).c_str(), false);
+    record.Insert(std::string(Schema::kReturnAction).c_str(), "Dropped");
+  }
+}
+
+/// TODO: (andi) Rewrite in a functional way so that you could decouple one into two collections and process them
+/// separately.
+/// TODO: (andi) Make use of status keep.
 void CreateExistenceConstraints(const mgp::Map &existence_constraints_map, mgp_graph *memgraph_graph,
                                 const auto &record_factory) {
   for (const auto &[label, properties_val] : existence_constraints_map) {
@@ -236,6 +293,31 @@ void CreateExistenceConstraints(const mgp::Map &existence_constraints_map, mgp_g
         InsertRecordForCreatingIndexOrExistenceConstraint(record_factory, label, property);
       }
     }
+  }
+}
+
+void DropUniqueConstraints(mgp_graph *memgraph_graph, const auto &record_factory) {
+  auto dropped_unique_constraints = mgp::DropAllUniqueConstraintsImpl(memgraph_graph);
+  for (const auto &dropped_unique_constr : dropped_unique_constraints) {
+    auto label_prop_str = dropped_unique_constr.ValueString();
+    auto label_size = label_prop_str.find(':');
+    if (label_size == std::string::npos) {
+      continue;
+    }
+    auto label = std::string(label_prop_str.substr(0, label_size));
+    auto properties_str = std::string(label_prop_str.substr(label_size + 1));
+
+    auto properties = mgp::List();
+    auto properties_tokens = memgraph::utils::Split(properties_str, ",");
+    std::for_each(properties_tokens.begin(), properties_tokens.end(),
+                  [&properties](const auto &property) { properties.AppendExtend(mgp::Value(property)); });
+
+    auto record = record_factory.NewRecord();
+    record.Insert(std::string(Schema::kReturnLabel).c_str(), label);
+    record.Insert(std::string(Schema::kReturnKey).c_str(), properties.ToString());
+    record.Insert(std::string(Schema::kReturnKeys).c_str(), properties);
+    record.Insert(std::string(Schema::kReturnUnique).c_str(), true);
+    record.Insert(std::string(Schema::kReturnAction).c_str(), "Dropped");
   }
 }
 
@@ -265,7 +347,6 @@ void CreateUniqueConstraints(const mgp::Map &unique_constraints_map, mgp_graph *
       if (mgp::CreateUniqueConstraintImpl(memgraph_graph, label, properties.ptr())) {
         auto record = record_factory.NewRecord();
         record.Insert(std::string(Schema::kReturnLabel).c_str(), label);
-        /// TODO: (andi) Change tests for indices and existence constraints so that they support partial execution
         record.Insert(std::string(Schema::kReturnKey).c_str(), properties_list.ToString());
         record.Insert(std::string(Schema::kReturnKeys).c_str(), properties);
         record.Insert(std::string(Schema::kReturnUnique).c_str(), true);
@@ -282,6 +363,13 @@ void Schema::Assert(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
   auto indices_map = arguments[0].ValueMap();
   auto unique_constraints_map = arguments[1].ValueMap();
   auto existence_constraints_map = arguments[2].ValueMap();
+  auto drop_existing = arguments[3].ValueBool();
+
+  if (drop_existing) {
+    DropIndices(memgraph_graph, record_factory);
+    DropExistenceConstraints(memgraph_graph, record_factory);
+    DropUniqueConstraints(memgraph_graph, record_factory);
+  }
 
   CreateIndices(indices_map, memgraph_graph, record_factory);
   CreateUniqueConstraints(unique_constraints_map, memgraph_graph, record_factory);

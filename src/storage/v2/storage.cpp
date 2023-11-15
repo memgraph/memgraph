@@ -516,4 +516,48 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
   }
 }
 
+auto Storage::Accessor::DropAllLabelIndices() -> std::vector<LabelId> {
+  auto label_indices = storage_->indices_.label_index_->ListIndices();
+  std::vector<LabelId> dropped_label_ids;
+  dropped_label_ids.reserve(label_indices.size());
+  std::copy_if(label_indices.begin(), label_indices.end(), std::back_inserter(dropped_label_ids),
+               [this](const auto &label_index) { return !DropIndex(label_index).HasError(); });
+  return dropped_label_ids;
+}
+
+auto Storage::Accessor::DropAllLabelPropertyIndices() -> std::vector<std::pair<LabelId, PropertyId>> {
+  auto label_property_indices = storage_->indices_.label_property_index_->ListIndices();
+  std::vector<std::pair<LabelId, PropertyId>> dropped_label_property_ids;
+  dropped_label_property_ids.reserve(label_property_indices.size());
+  std::copy_if(label_property_indices.begin(), label_property_indices.end(),
+               std::back_inserter(dropped_label_property_ids), [this](const auto &label_property) {
+                 return !DropIndex(label_property.first, label_property.second).HasError();
+               });
+
+  return dropped_label_property_ids;
+}
+
+auto Storage::Accessor::DropAllExistenceConstraints() -> std::vector<std::pair<LabelId, PropertyId>> {
+  auto existence_constraints = storage_->constraints_.existence_constraints_->ListConstraints();
+  std::vector<std::pair<LabelId, PropertyId>> dropped_existence_constraints;
+  dropped_existence_constraints.reserve(existence_constraints.size());
+  std::copy_if(existence_constraints.begin(), existence_constraints.end(),
+               std::back_inserter(dropped_existence_constraints), [this](const auto &existence_constraint) {
+                 return !DropExistenceConstraint(existence_constraint.first, existence_constraint.second).HasError();
+               });
+  return dropped_existence_constraints;
+}
+
+auto Storage::Accessor::DropAllUniqueConstraints() -> std::vector<std::pair<LabelId, std::set<PropertyId>>> {
+  auto unique_constraints = storage_->constraints_.unique_constraints_->ListConstraints();
+  std::vector<std::pair<LabelId, std::set<PropertyId>>> dropped_unique_constraints;
+  dropped_unique_constraints.reserve(unique_constraints.size());
+  std::copy_if(std::make_move_iterator(unique_constraints.begin()), std::make_move_iterator(unique_constraints.end()),
+               std::back_inserter(dropped_unique_constraints), [this](auto &&unique_constraint) {
+                 return DropUniqueConstraint(unique_constraint.first, unique_constraint.second) ==
+                        UniqueConstraints::DeletionStatus::SUCCESS;
+               });
+  return dropped_unique_constraints;
+}
+
 }  // namespace memgraph::storage
