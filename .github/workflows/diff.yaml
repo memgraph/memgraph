@@ -19,7 +19,7 @@ on:
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, Linux, X64, Diff, scarlet-witch]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -154,7 +154,7 @@ jobs:
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, Linux, X64, Diff, scarlet-witch]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -215,7 +215,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, Linux, X64, Diff, scarlet-witch]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -368,7 +368,7 @@ jobs:
 
   release_benchmarks:
     name: "Release benchmarks"
-    runs-on: [self-hosted, Linux, X64, Diff, Gen7]
+    runs-on: [self-hosted, Linux, X64, Diff, Gen7, scarlet-witch]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
