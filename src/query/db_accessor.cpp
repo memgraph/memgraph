@@ -140,7 +140,7 @@ std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, s
 
 query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
 
-storage::StorageMode SubgraphDbAccessor::GetStorageMode() const { return db_accessor_.GetStorageMode(); }
+storage::StorageMode SubgraphDbAccessor::GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }
 
 VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_; }
 

@@ -235,7 +235,7 @@ class Storage {
 
     EdgeTypeId NameToEdgeType(std::string_view name) { return storage_->NameToEdgeType(name); }
 
-    StorageMode GetCreationStorageMode() const;
+    StorageMode GetCreationStorageMode() const noexcept;
 
     const std::string &id() const { return storage_->id(); }
 
@@ -301,7 +301,7 @@ class Storage {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
 
-  StorageMode GetStorageMode() const;
+  StorageMode GetStorageMode() const noexcept;
 
   virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) = 0;
 

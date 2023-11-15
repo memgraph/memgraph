@@ -545,7 +545,7 @@ class DbAccessor final {
 
   void Abort() { accessor_->Abort(); }
 
-  storage::StorageMode GetStorageMode() const { return accessor_->GetCreationStorageMode(); }
+  storage::StorageMode GetStorageMode() const noexcept { return accessor_->GetCreationStorageMode(); }
 
   bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
 
