@@ -119,6 +119,22 @@ def test_assert_creates_multiple_indices():
     execute_and_fetch_all(cursor, "DROP INDEX ON :Ball(size);")
 
 
+def test_assert_dropping_indices():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :Person(name);")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :Person(id);")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :Ball(size);")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :Ball;")
+    results = list(execute_and_fetch_all(cursor, "CALL libschema.assert({}, {}) YIELD * RETURN *;"))
+    assert len(results) == 4
+    assert results[0] == ("Dropped", "", [], "Ball", False)
+    assert results[1] == ("Dropped", "name", ["name"], "Person", False)
+    assert results[2] == ("Dropped", "id", ["id"], "Person", False)
+    assert results[3] == ("Dropped", "size", ["size"], "Ball", False)
+    show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+    assert show_index_results == []
+
+
 def test_assert_creates_existence_constraints():
     cursor = connect().cursor()
     results = list(
@@ -179,6 +195,18 @@ def test_assert_creates_indices_and_existence_constraints():
     execute_and_fetch_all(cursor, "DROP INDEX ON :Person(id);")
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.surname);")
+
+
+def test_assert_drops_existence_constraints():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.surname);")
+    results = list(execute_and_fetch_all(cursor, "CALL libschema.assert({}, {}, {}) YIELD * RETURN *;"))
+    assert len(results) == 2
+    assert results[0] == ("Dropped", "name", ["name"], "Person", False)
+    assert results[1] == ("Dropped", "surname", ["surname"], "Person", False)
+    show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
+    assert show_constraint_results == []
 
 
 def test_assert_creates_unique_constraints():
@@ -275,6 +303,61 @@ def test_assert_creates_constraints_and_indices():
     execute_and_fetch_all(cursor, "DROP INDEX ON :Person(id);")
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.surname);")
+
+
+def test_assert_drops_unique_constraints():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT n.name, n.surname IS UNIQUE;")
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
+    results = list(execute_and_fetch_all(cursor, "CALL libschema.assert({}, {}, {}) YIELD * RETURN *;"))
+    assert len(results) == 2
+    assert results[0] == ("Dropped", "[name, surname]", ["name", "surname"], "Person", True)
+    assert results[1] == ("Dropped", "[id]", ["id"], "Person", True)
+    show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
+    assert show_constraint_results == []
+
+
+def test_assert_drops_indices_and_constraints():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :Person;")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :Person(id);")
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT n.name, n.surname IS UNIQUE;")
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.surname);")
+    results = list(execute_and_fetch_all(cursor, "CALL libschema.assert({}, {}, {}) YIELD * RETURN *;"))
+    assert len(results) == 6
+    assert results[0] == ("Dropped", "", [], "Person", False)
+    assert results[1] == ("Dropped", "id", ["id"], "Person", False)
+    assert results[2] == ("Dropped", "name", ["name"], "Person", False)
+    assert results[3] == ("Dropped", "surname", ["surname"], "Person", False)
+    assert results[4] == ("Dropped", "[name, surname]", ["name", "surname"], "Person", True)
+    assert results[5] == ("Dropped", "[id]", ["id"], "Person", True)
+    show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+    assert show_index_results == []
+    show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
+    assert show_constraint_results == []
+
+
+def test_assert_does_not_drop_indices_and_constraints():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :Person;")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :Person(id);")
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT n.name, n.surname IS UNIQUE;")
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
+    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.surname);")
+    results = list(execute_and_fetch_all(cursor, "CALL libschema.assert({}, {}, {}, false) YIELD * RETURN *;"))
+    assert len(results) == 0
+    show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
+    assert show_index_results == [("label", "Person", None, 0), ("label+property", "Person", "id", 0)]
+    show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
+    assert show_constraint_results == [
+        ("exists", "Person", "name"),
+        ("exists", "Person", "surname"),
+        ("unique", "Person", ["name", "surname"]),
+        ("unique", "Person", ["id"]),
+    ]
 
 
 def test_node_type_properties1():
