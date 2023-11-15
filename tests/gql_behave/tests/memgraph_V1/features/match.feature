@@ -699,3 +699,55 @@ Feature: Match
         Then the result should be
             | date(n.time) |
             | 2021-10-05   |
+
+    Scenario: Variable expand with filter by size of accumulated path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4});
+            """
+        When executing query:
+            """
+            MATCH path = (:Person {id: 1})-[* (e, n, p | size(p) < 4)]->(:Person {id: 4}) RETURN path
+            """
+        Then the result should be
+            | path                                        |
+            | <(:Person{id:1})-[:KNOWS]->(:Person{id:2})-[:KNOWS]->(:Person{id:3})-[:KNOWS]->(:Person{id:4})> |
+
+    Scenario: Variable expand with filter by last edge type of accumulated path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4});
+            """
+        When executing query:
+            """
+            MATCH path = (:Person {id: 1})-[* (e, n, p | type(relationships(p)[-1]) = 'KNOWS')]->(:Person {id: 4}) RETURN path
+            """
+        Then the result should be
+            | path                                        |
+            | <(:Person{id:1})-[:KNOWS]->(:Person{id:2})-[:KNOWS]->(:Person{id:3})-[:KNOWS]->(:Person{id:4})> |
+
+    Scenario: Variable expand with too restricted filter by size of accumulated path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4});
+            """
+        When executing query:
+            """
+            MATCH path = (:Person {id: 1})-[* (e, n, p | size(p) < 3)]->(:Person {id: 4}) RETURN path
+            """
+        Then the result should be empty
+
+    Scenario: Variable expand with too restricted filter by last edge type of accumulated path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4});
+            """
+        When executing query:
+            """
+            MATCH path = (:Person {id: 1})-[* (e, n, p | type(relationships(p)[-1]) = 'Invalid')]->(:Person {id: 4}) RETURN path
+            """
+        Then the result should be empty

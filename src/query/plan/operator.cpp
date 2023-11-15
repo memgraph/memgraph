@@ -1138,6 +1138,10 @@ class ExpandVariableCursor : public Cursor {
         edges_it_.emplace_back(edges_.back().begin());
       }
 
+      if (frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsNull()) {
+        frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(vertex);
+      }
+
       // reset the frame value to an empty edge list
       auto *pull_memory = context.evaluation_context.memory;
       frame[self_.common_.edge_symbol] = TypedValue::TVector(pull_memory);
@@ -1235,7 +1239,15 @@ class ExpandVariableCursor : public Cursor {
       frame[self_.filter_lambda_.inner_edge_symbol] = current_edge.first;
       frame[self_.filter_lambda_.inner_node_symbol] = current_vertex;
       if (self_.filter_lambda_.accumulated_path_symbol) {
-        // frame[self_.filter_lambda_.accumulated_path_symbol.value()] = current_path (TODO use edges_on_frame);
+        if (frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsNull()) {
+          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(current_vertex);
+        } else {
+          MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
+                    "Accumulated path must be path");
+          Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
+          accumulated_path.Expand(current_edge.first);
+          accumulated_path.Expand(current_vertex);
+        }
       }
       if (self_.filter_lambda_.expression && !EvaluateFilter(evaluator, self_.filter_lambda_.expression)) continue;
 
@@ -1339,8 +1351,16 @@ class STShortestPathCursor : public query::plan::Cursor {
     frame->at(self_.filter_lambda_.inner_node_symbol) = vertex;
     frame->at(self_.filter_lambda_.inner_edge_symbol) = edge;
     if (self_.filter_lambda_.accumulated_path_symbol) {
-      // frame[self_.filter_lambda_.accumulated_path_symbol.value()] = current_path (TODO use
-      // frame->at(self_.common_.edge_symbol));
+      if (self_.filter_lambda_.accumulated_path_symbol) {
+        if (frame->at(self_.filter_lambda_.accumulated_path_symbol.value()).IsNull()) {
+          frame->at(self_.filter_lambda_.accumulated_path_symbol.value()) = Path(vertex);
+        } else {
+          MG_ASSERT(frame->at(self_.filter_lambda_.accumulated_path_symbol.value()).IsPath(),
+                    "Accumulated path must be path");
+          Path &accumulated_path = frame->at(self_.filter_lambda_.accumulated_path_symbol.value()).ValuePath();
+          accumulated_path.Expand(vertex);
+        }
+      }
     }
 
     TypedValue result = self_.filter_lambda_.expression->Accept(*evaluator);
@@ -1554,8 +1574,15 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;
       frame[self_.filter_lambda_.inner_node_symbol] = vertex;
       if (self_.filter_lambda_.accumulated_path_symbol) {
-        // frame[self_.filter_lambda_.accumulated_path_symbol.value()] = current_path (TODO; the edges are at
-        // frame[self_.common_.edge_symbol]);
+        if (frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsNull()) {
+          MG_ASSERT(false, "Shouldn't be null");
+        } else {
+          MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
+                    "Accumulated path must have Path type");
+          Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
+          accumulated_path.Expand(edge);
+          accumulated_path.Expand(vertex);
+        }
       }
 
       if (self_.filter_lambda_.expression) {
@@ -1617,6 +1644,10 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
         const auto &vertex = vertex_value.ValueVertex();
         processed_.emplace(vertex, std::nullopt);
+
+        if (frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsNull()) {
+          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(vertex);
+        }
 
         expand_from_vertex(vertex);
 
@@ -1746,8 +1777,14 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
         frame[self_.filter_lambda_.inner_node_symbol] = vertex;
         if (self_.filter_lambda_.accumulated_path_symbol) {
-          // frame[self_.filter_lambda_.accumulated_path_symbol.value()] = current_path (TODO; the edges are at
-          // frame[self_.common_.edge_symbol]);
+          if (frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsNull()) {
+            frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(vertex);
+          } else {
+            MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
+                      "Accumulated path must be path");
+            Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
+            accumulated_path.Expand(vertex);
+          }
         }
         if (self_.filter_lambda_.accumulated_weight_symbol) {
           frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = total_weight;
@@ -2006,8 +2043,14 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
         frame[self_.filter_lambda_.inner_node_symbol] = next_vertex;
         if (self_.filter_lambda_.accumulated_path_symbol) {
-          // frame[self_.filter_lambda_.accumulated_path_symbol.value()] = current_path (TODO; the edges are at
-          // frame[self_.common_.edge_symbol);
+          if (frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsNull()) {
+            frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(next_vertex);
+          } else {
+            MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
+                      "Accumulated path must be path");
+            Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
+            accumulated_path.Expand(next_vertex);
+          }
         }
         if (self_.filter_lambda_.accumulated_weight_symbol) {
           frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = total_weight;
