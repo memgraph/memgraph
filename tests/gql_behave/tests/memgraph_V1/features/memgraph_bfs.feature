@@ -121,3 +121,29 @@ Feature: Bfs
       Then the result should be:
          | p                                                              |
          | <(:Node {id: 2})-[:LINK {date: '2023-03'}]->(:Node {id: 3})>   |
+
+    Scenario: Test BFS variable expand with filter by last edge type of accumulated path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3});
+          """
+      When executing query:
+          """
+          MATCH pth=(:label1)-[*BFS (e,n,p | type(relationships(p)[-1]) = 'type1')]->(:label3) return pth;
+          """
+      Then the result should be:
+          | pth                                        |
+          | <(:label1{id:1})-[:type1{id:1}]->(:label2{id:2})-[:type1{id:2}]->(:label3{id:3})> |
+
+    Scenario: Test BFS variable expand with restict filter by last edge type of accumulated path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3});
+          """
+      When executing query:
+          """
+          MATCH pth=(:label1)-[*BFS (e,n,p | type(relationships(p)[-1]) = 'type2')]->(:label2) return pth;
+          """
+    Then the result should be empty
