@@ -229,9 +229,10 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   if (maybe_nodes_to_delete.HasError()) {
     return maybe_nodes_to_delete.GetError();
   }
-  const std::unordered_set<Vertex *> nodes_to_delete = *maybe_nodes_to_delete.GetValue();
+  const auto &nodes_to_delete = *maybe_nodes_to_delete.GetValue();
 
   // 2. Gather edges and corresponding node on the other end of the edge for the deletable nodes
+  // TODO(gitbuda): Somehow nodes_to_delete here is completely broken.
   EdgeInfoForDeletion edge_deletion_info = PrepareDeletableEdges(nodes_to_delete, edges, detach);
 
   // Detach nodes which need to be deleted

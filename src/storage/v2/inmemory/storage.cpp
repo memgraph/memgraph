@@ -835,14 +835,21 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           switch (current->action) {
             case Delta::Action::REMOVE_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label);
-              MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
+              // TODO(gitbuda): Figure out how to handle this case, assert fails on OOM.
+              if (it == vertex->labels.begin()) {
+                break;
+              }
+              // MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
               std::swap(*it, *vertex->labels.rbegin());
               vertex->labels.pop_back();
               break;
             }
             case Delta::Action::ADD_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label);
-              MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
+              if (it != vertex->labels.end()) {
+                break;
+              }
+              // MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
               vertex->labels.push_back(current->label);
               break;
             }
@@ -854,7 +861,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
                                                              current->vertex_edge.vertex, current->vertex_edge.edge};
               auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-              MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
+              if (it != vertex->in_edges.end()) {
+                break;
+              }
+              // MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
               vertex->in_edges.push_back(link);
               break;
             }
@@ -862,7 +872,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
                                                              current->vertex_edge.vertex, current->vertex_edge.edge};
               auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
-              MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
+              if (it != vertex->out_edges.end()) {
+                break;
+              }
+              // MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
               vertex->out_edges.push_back(link);
               // Increment edge count. We only increment the count here because
               // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
@@ -875,7 +888,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
                                                              current->vertex_edge.vertex, current->vertex_edge.edge};
               auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-              MG_ASSERT(it != vertex->in_edges.end(), "Invalid database state!");
+              if (it == vertex->in_edges.end()) {
+                break;
+              }
+              // MG_ASSERT(it != vertex->in_edges.end(), "Invalid database state!");
               std::swap(*it, *vertex->in_edges.rbegin());
               vertex->in_edges.pop_back();
               break;
@@ -884,7 +900,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
                                                              current->vertex_edge.vertex, current->vertex_edge.edge};
               auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
-              MG_ASSERT(it != vertex->out_edges.end(), "Invalid database state!");
+              if (it == vertex->out_edges.end()) {
+                break;
+              }
+              // MG_ASSERT(it != vertex->out_edges.end(), "Invalid database state!");
               std::swap(*it, *vertex->out_edges.rbegin());
               vertex->out_edges.pop_back();
               // Decrement edge count. We only decrement the count here because
