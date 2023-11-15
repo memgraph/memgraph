@@ -695,7 +695,7 @@ class SubgraphDbAccessor final {
 
   Graph *getGraph();
 
-  storage::StorageMode GetStorageMode() const;
+  storage::StorageMode GetStorageMode() const noexcept;
 };
 
 }  // namespace memgraph::query
