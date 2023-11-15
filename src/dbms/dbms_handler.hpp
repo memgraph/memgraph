@@ -26,6 +26,7 @@
 #include "auth/auth.hpp"
 #include "constants.hpp"
 #include "dbms/database.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #ifdef MG_ENTERPRISE
 #include "dbms/database_handler.hpp"
 #endif
@@ -102,12 +103,11 @@ class DbmsHandler {
    * @param recovery_on_startup restore databases (and its content) and authentication data
    * @param delete_on_drop when dropping delete any associated directories on disk
    */
-  DbmsHandler(storage::Config config, replication::ReplicationState &repl_state, auto *auth, bool recovery_on_startup,
-              bool delete_on_drop)
+  DbmsHandler(storage::Config config, auto *auth, bool recovery_on_startup, bool delete_on_drop)
       : lock_{utils::RWLock::Priority::READ},
         default_config_{std::move(config)},
-        repl_state_(repl_state),
-        delete_on_drop_(delete_on_drop) {
+        delete_on_drop_(delete_on_drop),
+        repl_state_{ReplicationStateRootPath(default_config_)} {
     // TODO: Decouple storage config from dbms config
     // TODO: Save individual db configs inside the kvstore and restore from there
     storage::UpdatePaths(default_config_, default_config_.durability.storage_directory / "databases");
@@ -119,6 +119,7 @@ class DbmsHandler {
 
     // Generate the default database
     MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
+
     // Recover previous databases
     if (recovery_on_startup) {
       for (const auto &[name, _] : *durability_) {
@@ -135,6 +136,27 @@ class DbmsHandler {
         durability_->Delete(name);
       }
     }
+
+    // Startup replication state (if recovered at startup)
+    auto replica = [&](memgraph::replication::RoleReplicaData const &data) {
+      // Register handlers
+      InMemoryReplicationHandlers::Register(this, *data.server);
+      if (!data.server->Start()) {
+        spdlog::error("Unable to start the replication server.");
+        return false;
+      }
+      return true;
+    };
+    // Replication frequent check start (this has been postponed until after the dbms creation)
+    auto main = [this](memgraph::replication::RoleMainData &data) {
+      for (const auto &replica : data.registered_replicas_) {
+        replica->StartFrequentCheck(*this);
+      }
+      return true;
+    };
+    // Startup proccess for main/replica
+    MG_ASSERT(std::visit(memgraph::utils::Overloaded{replica, main}, repl_state_.ReplicationData()),
+              "Replica recovery failure!");
   }
 #else
   /**
@@ -142,12 +164,13 @@ class DbmsHandler {
    *
    * @param configs storage configuration
    */
-  DbmsHandler(storage::Config config, replication::ReplicationState &repl_state)
-      : db_gatekeeper_{[&] {
+  DbmsHandler(storage::Config config)
+      : repl_state_{ReplicationStateRootPath(config)},
+        db_gatekeeper_{[&] {
                          config.name = kDefaultDB;
                          return std::move(config);
                        }(),
-                       repl_state} {}
+                       repl_state_} {}
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -247,6 +270,12 @@ class DbmsHandler {
     return {db_gatekeeper_.access()->get()->id()};
 #endif
   }
+
+  replication::ReplicationState &ReplicationState() { return repl_state_; }
+  replication::ReplicationState const &ReplicationState() const { return repl_state_; }
+
+  bool IsMain() const { return repl_state_.IsMain(); }
+  bool IsReplica() const { return repl_state_.IsReplica(); }
 
   /**
    * @brief Return the statistics all databases.
@@ -538,12 +567,13 @@ class DbmsHandler {
 
   mutable LockT lock_;                            //!< protective lock
   storage::Config default_config_;                //!< Storage configuration used when creating new databases
-  replication::ReplicationState &repl_state_;     //!< Global replication state
   DatabaseHandler db_handler_;                    //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
   bool delete_on_drop_;                           //!< Flag defining if dropping storage also deletes its directory
   std::set<std::string> defunct_dbs_;             //!< Databases that are in an unknown state due to various failures
-#else
+#endif
+  replication::ReplicationState repl_state_;  //!< Global replication state
+#ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
 #endif
 };

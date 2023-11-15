@@ -36,8 +36,7 @@ enum class UnregisterReplicaResult : uint8_t {
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 /// TODO: extend to do multiple storages
 struct ReplicationHandler {
-  ReplicationHandler(memgraph::replication::ReplicationState &replState, DbmsHandler &dbms_handler)
-      : repl_state_(replState), dbms_handler_(dbms_handler) {}
+  explicit ReplicationHandler(DbmsHandler &dbms_handler);
 
   // as REPLICA, become MAIN
   bool SetReplicationRoleMain();
@@ -58,8 +57,8 @@ struct ReplicationHandler {
   bool IsReplica() const;
 
  private:
-  memgraph::replication::ReplicationState &repl_state_;
   DbmsHandler &dbms_handler_;
+  replication::ReplicationState &repl_state_;
 };
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage

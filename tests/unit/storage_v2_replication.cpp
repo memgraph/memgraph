@@ -102,8 +102,7 @@ class ReplicationTest : public ::testing::Test {
 
 struct MinMemgraph {
   MinMemgraph(const memgraph::storage::Config &conf)
-      : repl_state{ReplicationStateRootPath(conf)},
-        dbms{conf, repl_state
+      : dbms{conf
 #ifdef MG_ENTERPRISE
              ,
              reinterpret_cast<
@@ -111,11 +110,12 @@ struct MinMemgraph {
              true, false
 #endif
         },
+        repl_state{dbms.ReplicationState()},
         db{*dbms.Get().get()},
-        repl_handler(repl_state, dbms) {
+        repl_handler(dbms) {
   }
-  memgraph::replication::ReplicationState repl_state;
   memgraph::dbms::DbmsHandler dbms;
+  memgraph::replication::ReplicationState &repl_state;
   memgraph::dbms::Database &db;
   ReplicationHandler repl_handler;
 };
@@ -965,14 +965,14 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
       .ip_address = local_host,
       .port = ports[0],
   });
-  ASSERT_FALSE(res.HasError());
+  ASSERT_FALSE(res.HasError()) << (int)res.GetError();
   res = main->repl_handler.RegisterReplica(ReplicationClientConfig{
       .name = replicas[1],
       .mode = ReplicationMode::SYNC,
       .ip_address = local_host,
       .port = ports[1],
   });
-  ASSERT_FALSE(res.HasError());
+  ASSERT_FALSE(res.HasError()) << (int)res.GetError();
 
   auto replica_infos = main->db.storage()->ReplicasInfo();
 
