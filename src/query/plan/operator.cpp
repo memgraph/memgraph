@@ -1346,18 +1346,6 @@ class STShortestPathCursor : public query::plan::Cursor {
 
     frame->at(self_.filter_lambda_.inner_node_symbol) = vertex;
     frame->at(self_.filter_lambda_.inner_edge_symbol) = edge;
-    if (self_.filter_lambda_.accumulated_path_symbol) {
-      if (self_.filter_lambda_.accumulated_path_symbol) {
-        if (frame->at(self_.filter_lambda_.accumulated_path_symbol.value()).IsNull()) {
-          frame->at(self_.filter_lambda_.accumulated_path_symbol.value()) = Path(vertex);
-        } else {
-          MG_ASSERT(frame->at(self_.filter_lambda_.accumulated_path_symbol.value()).IsPath(),
-                    "Accumulated path must be path");
-          Path &accumulated_path = frame->at(self_.filter_lambda_.accumulated_path_symbol.value()).ValuePath();
-          accumulated_path.Expand(vertex);
-        }
-      }
-    }
 
     TypedValue result = self_.filter_lambda_.expression->Accept(*evaluator);
     if (result.IsNull()) return false;

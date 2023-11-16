@@ -171,6 +171,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (expand.common_.existing_node) {
       return true;
     }
+    if (expand.filter_lambda_.accumulated_path_symbol) {
+      // When accumulated path is used, we cannot use ST shortest path algorithm.
+      return false;
+    }
+
     std::unique_ptr<ScanAll> indexed_scan;
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
     // With expand to existing we only get real gains with BFS, because we use a

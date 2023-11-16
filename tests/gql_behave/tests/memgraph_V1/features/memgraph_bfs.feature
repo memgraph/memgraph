@@ -147,3 +147,23 @@ Feature: Bfs
           MATCH pth=(:label1)-[*BFS (e,n,p | type(relationships(p)[-1]) = 'type2')]->(:label2) return pth;
           """
     Then the result should be empty
+
+    Scenario: Test BFS variable expand with filter by order of ids in accumulated path when target vertex is indexed
+        Given graph "graph_index"
+        When executing query:
+            """
+            MATCH pth=(:label1)-[*BFS (e,n,p | (nodes(p)[-1]).id > (nodes(p)[-2]).id)]->(:label4) return pth;
+            """
+        Then the result should be:
+            | pth                                        |
+            | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})-[:type1 {id: 3}]->(:label4 {id: 4})> |
+
+    Scenario: Test BFS variable expand with filter by order of ids in accumulated path when target vertex is NOT indexed
+        Given graph "graph_index"
+        When executing query:
+            """
+            MATCH pth=(:label1)-[*BFS (e,n,p | (nodes(p)[-1]).id > (nodes(p)[-2]).id)]->(:label3) return pth;
+            """
+        Then the result should be:
+            | pth                                        |
+            | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |
