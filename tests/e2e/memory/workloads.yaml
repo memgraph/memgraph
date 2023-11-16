@@ -144,6 +144,7 @@ workloads:
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_query_alloc_create_multi_thread"
     args: ["--bolt-port", *bolt_port]
     <<: *in_memory_query_limit_cluster
+
   - name: "Memory control for detach delete"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_delete"
     args: ["--bolt-port", *bolt_port]
@@ -174,6 +175,18 @@ workloads:
     args: ["--bolt-port", *bolt_port]
     <<: *disk_450_MiB_limit_cluster
 
+  - name: "Memory control for create from multi thread proc create"
+    binary: "tests/e2e/memory/memgraph__e2e__memory_limit_global_multi_thread_proc_create"
+    proc: "tests/e2e/memory/procedures/"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_cluster
+
+  - name: "Memory control for memory limit global thread alloc"
+    binary: "tests/e2e/memory/memgraph__e2e__memory_limit_global_thread_alloc_proc"
+    proc: "tests/e2e/memory/procedures/"
+    args: ["--bolt-port", *bolt_port]
+    <<: *in_memory_cluster
+
   - name: "Procedure memory control for single procedure"
     binary: "tests/e2e/memory/memgraph__e2e__procedure_memory_limit"
     proc: "tests/e2e/memory/procedures/"
@@ -181,7 +194,7 @@ workloads:
     <<: *in_memory_limited_global_limit_cluster
 
   - name: "Procedure memory control for multiple procedures"
-    binary: "tests/e2e/memory/memgraph__e2e__procedure_memory_limit"
+    binary: "tests/e2e/memory/memgraph__e2e__procedure_memory_limit_multi_proc"
     proc: "tests/e2e/memory/procedures/"
     args: ["--bolt-port", *bolt_port]
     <<: *in_memory_limited_global_limit_cluster
