@@ -3410,7 +3410,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       }
       return PreparedQuery{{"STATUS"},
                            std::move(parsed_query.required_privileges),
-                           [db_name = query->db_name_, db_handler, &current_db, on_change_cb](
+                           [db_name = query->db_name_, db_handler, &current_db, on_change_cb = std::move(on_change_cb)](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
                              std::vector<std::vector<TypedValue>> status;
                              std::string res;

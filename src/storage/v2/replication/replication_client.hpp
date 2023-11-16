@@ -27,6 +27,7 @@
 #include "utils/thread_pool.hpp"
 
 #include <atomic>
+#include <concepts>
 #include <functional>
 #include <optional>
 #include <set>
@@ -36,7 +37,6 @@
 namespace memgraph::dbms {
 class DbmsHandler;
 }  // namespace memgraph::dbms
-
 namespace memgraph::storage {
 
 struct Delta;
@@ -73,6 +73,9 @@ class ReplicaStream {
   Storage *storage_;
   rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
 };
+
+template <typename F>
+concept InvocableWithStream = std::invocable<F, ReplicaStream &>;
 
 struct ReplicationClient {
   explicit ReplicationClient(const memgraph::replication::ReplicationClientConfig &config);
@@ -130,16 +133,34 @@ class ReplicationStorageClient {
   auto Name() const -> std::string const & { return client_.name_; }
   auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
   auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
-  auto GetTimestampInfo(Storage *storage) -> TimestampInfo;
+  auto GetTimestampInfo(Storage const *storage) -> TimestampInfo;
 
   void Start(Storage *storage);
   void StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage);
+
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
   // we want to send part of transaction and to avoid adding some GC logic this
   // function will run a callback if, after previously callling
   // StartTransactionReplication, stream is created.
-  void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback);
+  template <InvocableWithStream F>
+  void IfStreamingTransaction(F &&callback) {
+    // We can only check the state because it guarantees to be only
+    // valid during a single transaction replication (if the assumption
+    // that this and other transaction replication functions can only be
+    // called from a one thread stands)
+    if (State() != replication::ReplicaState::REPLICATING) {
+      return;
+    }
+    if (replica_stream_->IsDefunct()) return;
+    try {
+      callback(*replica_stream_);  // failure state what if not streaming (std::nullopt)
+    } catch (const rpc::RpcFailedException &) {
+      return replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
+      LogRpcFailure();
+    }
+  }
+
   // Return whether the transaction could be finalized on the replication client or not.
   [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage);
 

@@ -138,7 +138,7 @@ class DbmsHandler {
     }
 
     // Startup replication state (if recovered at startup)
-    auto replica = [&](memgraph::replication::RoleReplicaData const &data) {
+    auto replica = [this](replication::RoleReplicaData const &data) {
       // Register handlers
       InMemoryReplicationHandlers::Register(this, *data.server);
       if (!data.server->Start()) {
@@ -148,9 +148,9 @@ class DbmsHandler {
       return true;
     };
     // Replication frequent check start (this has been postponed until after the dbms creation)
-    auto main = [this](memgraph::replication::RoleMainData &data) {
-      for (const auto &replica : data.registered_replicas_) {
-        replica->StartFrequentCheck(*this);
+    auto main = [this](const replication::RoleMainData &data) {
+      for (const auto &client : data.registered_replicas_) {
+        client->Start(this);
       }
       return true;
     };

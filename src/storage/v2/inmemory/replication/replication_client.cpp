@@ -13,6 +13,7 @@
 
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
 
@@ -25,7 +26,7 @@ template <typename>
 // contained in the internal buffer and the file.
 class CurrentWalHandler {
  public:
-  explicit CurrentWalHandler(Storage *storage, rpc::Client &rpc_client);
+  explicit CurrentWalHandler(Storage const *storage, rpc::Client &rpc_client);
   void AppendFilename(const std::string &filename);
 
   void AppendSize(size_t size);
@@ -42,7 +43,7 @@ class CurrentWalHandler {
 };
 
 ////// CurrentWalHandler //////
-CurrentWalHandler::CurrentWalHandler(Storage *storage, rpc::Client &rpc_client)
+CurrentWalHandler::CurrentWalHandler(Storage const *storage, rpc::Client &rpc_client)
     : stream_(rpc_client.Stream<replication::CurrentWalRpc>(storage->id())) {}
 
 void CurrentWalHandler::AppendFilename(const std::string &filename) {
@@ -116,35 +117,37 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
       spdlog::trace("Recovering in step: {}", i++);
       try {
         rpc::Client &rpcClient = client_.rpc_client_;
-        std::visit(
-            [&]<typename T>(T &&arg) {
-              using StepType = std::remove_cvref_t<T>;
-              if constexpr (std::is_same_v<StepType, RecoverySnapshot>) {  // TODO: split into 3 overloads
-                spdlog::debug("Sending the latest snapshot file: {}", arg);
-                auto response = TransferSnapshot(storage->id(), rpcClient, arg);
-                replica_commit = response.current_commit_timestamp;
-              } else if constexpr (std::is_same_v<StepType, RecoveryWals>) {
-                spdlog::debug("Sending the latest wal files");
-                auto response = TransferWalFiles(storage->id(), rpcClient, arg);
-                replica_commit = response.current_commit_timestamp;
-                spdlog::debug("Wal files successfully transferred.");
-              } else if constexpr (std::is_same_v<StepType, RecoveryCurrentWal>) {
-                std::unique_lock transaction_guard(storage->engine_lock_);
-                if (mem_storage->wal_file_ && mem_storage->wal_file_->SequenceNumber() == arg.current_wal_seq_num) {
-                  mem_storage->wal_file_->DisableFlushing();
-                  transaction_guard.unlock();
-                  spdlog::debug("Sending current wal file");
-                  auto streamHandler = CurrentWalHandler{storage, rpcClient};
-                  replica_commit = ReplicateCurrentWal(streamHandler, *mem_storage->wal_file_);
-                  mem_storage->wal_file_->EnableFlushing();
-                } else {
-                  spdlog::debug("Cannot recover using current wal file");
-                }
-              } else {
-                static_assert(always_false_v<T>, "Missing type from variant visitor");
-              }
-            },
-            recovery_step);
+        std::visit(utils::Overloaded{
+                       [&replica_commit, storage, &rpcClient](RecoverySnapshot const &snapshot) {
+                         spdlog::debug("Sending the latest snapshot file: {}", snapshot);
+                         auto response = TransferSnapshot(storage->id(), rpcClient, snapshot);
+                         replica_commit = response.current_commit_timestamp;
+                       },
+                       [&replica_commit, storage, &rpcClient](RecoveryWals const &wals) {
+                         spdlog::debug("Sending the latest wal files");
+                         auto response = TransferWalFiles(storage->id(), rpcClient, wals);
+                         replica_commit = response.current_commit_timestamp;
+                         spdlog::debug("Wal files successfully transferred.");
+                       },
+                       [&replica_commit, mem_storage, &rpcClient](RecoveryCurrentWal const &current_wal) {
+                         std::unique_lock transaction_guard(mem_storage->engine_lock_);
+                         if (mem_storage->wal_file_ &&
+                             mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
+                           mem_storage->wal_file_->DisableFlushing();
+                           transaction_guard.unlock();
+                           spdlog::debug("Sending current wal file");
+                           auto streamHandler = CurrentWalHandler{mem_storage, rpcClient};
+                           replica_commit = ReplicateCurrentWal(streamHandler, *mem_storage->wal_file_);
+                           mem_storage->wal_file_->EnableFlushing();
+                         } else {
+                           spdlog::debug("Cannot recover using current wal file");
+                         }
+                       },
+                       [](auto const &in) {
+                         static_assert(always_false_v<decltype(in)>, "Missing type from variant visitor");
+                       },
+                   },
+                   recovery_step);
       } catch (const rpc::RpcFailedException &) {
         replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
         LogRpcFailure();
@@ -166,7 +169,7 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
     SPDLOG_INFO("Replica timestamp: {}", replica_commit);
     SPDLOG_INFO("Last commit: {}", last_commit_timestamp);
     if (last_commit_timestamp == replica_commit) {
-      replica_state_.WithLock([&](auto &val) { val = replication::ReplicaState::READY; });
+      replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::READY; });
       return;
     }
   }

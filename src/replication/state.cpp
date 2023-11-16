@@ -130,7 +130,6 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               auto res = RoleMainData{std::move(r.epoch)};
               auto b = durability_->begin(durability::kReplicationReplicaPrefix);
               auto e = durability_->end(durability::kReplicationReplicaPrefix);
-              // res.registered_replicas_.reserve(durability_->Size(durability::kReplicationReplicaPrefix));
               for (; b != e; ++b) {
                 auto const &[replica_name, replica_data] = *b;
                 auto json = nlohmann::json::parse(replica_data, nullptr, false);
@@ -238,11 +237,11 @@ utils::BasicResult<RegisterReplicaError, storage::ReplicationClient *> Replicati
     const ReplicationClientConfig &config) {
   auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaError::NOT_MAIN; };
   storage::ReplicationClient *client{nullptr};
-  auto const main_handler = [&, this](RoleMainData &mainData) -> RegisterReplicaError {
+  auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaError {
     // name check
     auto name_check = [&config](auto const &replicas) {
-      auto name_matches = [&name = config.name](std::unique_ptr<storage::ReplicationClient> const &client) {
-        return client->name_ == name;
+      auto name_matches = [&name = config.name](std::unique_ptr<storage::ReplicationClient> const &replica) {
+        return replica->name_ == name;
       };
       return std::any_of(replicas.begin(), replicas.end(), name_matches);
     };
@@ -252,8 +251,8 @@ utils::BasicResult<RegisterReplicaError, storage::ReplicationClient *> Replicati
 
     // endpoint check
     auto endpoint_check = [&](auto const &replicas) {
-      auto endpoint_matches = [&config](std::unique_ptr<storage::ReplicationClient> const &client) {
-        const auto &ep = client->rpc_client_.Endpoint();
+      auto endpoint_matches = [&config](std::unique_ptr<storage::ReplicationClient> const &replica) {
+        const auto &ep = replica->rpc_client_.Endpoint();
         return ep.address == config.ip_address && ep.port == config.port;
       };
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);

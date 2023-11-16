@@ -50,7 +50,12 @@ ReplicationClient::~ReplicationClient() {
   thread_pool_.Shutdown();
 }
 
-void ReplicationClient::Start(dbms::DbmsHandler *dbms_handler) {}
+void ReplicationClient::Start(dbms::DbmsHandler *dbms_handler) {
+  // No client error, start instance level client
+  auto const &endpoint = rpc_client_.Endpoint();
+  spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
+  StartFrequentCheck(*dbms_handler);
+}
 
 void ReplicationClient::FrequentCheck(dbms::DbmsHandler *dbms_handler) {
   try {
@@ -117,12 +122,13 @@ void ReplicationStorageClient::CheckReplicaState(Storage *storage) {
     } else {
       spdlog::debug("Replica '{}' is behind", client_.name_);
       state = replication::ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask([=, this] { this->RecoverReplica(current_commit_timestamp, storage); });
+      client_.thread_pool_.AddTask(
+          [storage, current_commit_timestamp, this] { this->RecoverReplica(current_commit_timestamp, storage); });
     }
   });
 }
 
-TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage *storage) {
+TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) {
   TimestampInfo info;
   info.current_timestamp_of_replica = 0;
   info.current_number_of_timestamp_behind_master = 0;
@@ -153,7 +159,7 @@ void ReplicationStorageClient::LogRpcFailure() {
 }
 
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *storage) {
-  client_.thread_pool_.AddTask([=, this] { this->TryCheckReplicaStateSync(storage); });
+  client_.thread_pool_.AddTask([storage, this] { this->TryCheckReplicaStateSync(storage); });
 }
 
 void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *storage) {
@@ -175,10 +181,11 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *storage) {
 void ReplicationStorageClient::StartTransactionReplication(const uint64_t current_wal_seq_num, Storage *storage) {
   auto locked_state = replica_state_.Lock();
   switch (*locked_state) {
-    case replication::ReplicaState::RECOVERY:
+    using enum replication::ReplicaState;
+    case RECOVERY:
       spdlog::debug("Replica {} is behind MAIN instance", client_.name_);
       return;
-    case replication::ReplicaState::REPLICATING:
+    case REPLICATING:
       spdlog::debug("Replica {} missed a transaction", client_.name_);
       // We missed a transaction because we're still replicating
       // the previous transaction so we need to go to RECOVERY
@@ -190,20 +197,20 @@ void ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
       //
       // This is a signal to any async streams that are still finalizing to start recovery, since this commit will be
       // missed.
-      *locked_state = replication::ReplicaState::RECOVERY;
+      *locked_state = RECOVERY;
       return;
-    case replication::ReplicaState::MAYBE_BEHIND:
+    case MAYBE_BEHIND:
       spdlog::error(
           utils::MessageWithLink("Couldn't replicate data to {}.", client_.name_, "https://memgr.ph/replication"));
       TryCheckReplicaStateAsync(storage);
       return;
-    case replication::ReplicaState::READY:
+    case READY:
       MG_ASSERT(!replica_stream_);
       try {
         replica_stream_.emplace(storage, client_.rpc_client_, current_wal_seq_num);
-        *locked_state = replication::ReplicaState::REPLICATING;
+        *locked_state = REPLICATING;
       } catch (const rpc::RpcFailedException &) {
-        *locked_state = replication::ReplicaState::MAYBE_BEHIND;
+        *locked_state = MAYBE_BEHIND;
         LogRpcFailure();
       }
       return;
@@ -221,22 +228,23 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage) 
 
   if (replica_stream_->IsDefunct()) return false;
 
-  auto task = [=, this]() {
+  auto task = [storage, this]() {
     MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
     try {
       auto response = replica_stream_->Finalize();
-      return replica_state_.WithLock([&](auto &state) {
+      return replica_state_.WithLock([storage, &response, this](auto &state) {
         replica_stream_.reset();
         if (!response.success || state == replication::ReplicaState::RECOVERY) {
           state = replication::ReplicaState::RECOVERY;
-          client_.thread_pool_.AddTask([=, this] { this->RecoverReplica(response.current_commit_timestamp, storage); });
+          client_.thread_pool_.AddTask(
+              [storage, &response, this] { this->RecoverReplica(response.current_commit_timestamp, storage); });
           return false;
         }
         state = replication::ReplicaState::READY;
         return true;
       });
     } catch (const rpc::RpcFailedException &) {
-      replica_state_.WithLock([&](auto &state) {
+      replica_state_.WithLock([this](auto &state) {
         replica_stream_.reset();
         state = replication::ReplicaState::MAYBE_BEHIND;
       });
@@ -246,7 +254,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage) 
   };
 
   if (client_.mode_ == memgraph::replication::ReplicationMode::ASYNC) {
-    client_.thread_pool_.AddTask([=] { (void)task(); });
+    client_.thread_pool_.AddTask([task = std::move(task)] { (void)task(); });
     return true;
   }
 
@@ -256,25 +264,6 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage) 
 void ReplicationStorageClient::Start(Storage *storage) {
   spdlog::trace("Replication client started for database \"{}\"", storage->id());
   TryCheckReplicaStateSync(storage);
-}
-
-void ReplicationStorageClient::IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback) {
-  // We can only check the state because it guarantees to be only
-  // valid during a single transaction replication (if the assumption
-  // that this and other transaction replication functions can only be
-  // called from a one thread stands)
-  if (State() != replication::ReplicaState::REPLICATING) {
-    return;
-  }
-
-  if (replica_stream_->IsDefunct()) return;
-
-  try {
-    callback(*replica_stream_);  // failure state what if not streaming (std::nullopt)
-  } catch (const rpc::RpcFailedException &) {
-    return replica_state_.WithLock([&](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
-    LogRpcFailure();
-  }
 }
 
 ////// ReplicaStream //////

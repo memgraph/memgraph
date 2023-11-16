@@ -97,7 +97,7 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
 
   // Start
   const auto success =
-      std::visit(utils::Overloaded{[](RoleMainData &) {
+      std::visit(utils::Overloaded{[](RoleMainData const &) {
                                      // ASSERT
                                      return false;
                                    },
@@ -134,9 +134,7 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
         break;
     }
   // No client error, start instance level client
-  auto const &endpoint = instance_client.GetValue()->rpc_client_.Endpoint();
-  spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
-  instance_client.GetValue()->StartFrequentCheck(dbms_handler_);
+  instance_client.GetValue()->Start(&dbms_handler_);
 
   if (!allow_mt_repl && dbms_handler_.All().size() > 1) {
     spdlog::warn("Multi-tenant replication is currently not supported!");
@@ -153,7 +151,6 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
     // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
     if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
-    // TODO Move to the client?
     all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
         [storage, &instance_client](auto &storage_clients) -> bool {
           auto client = storage->CreateReplicationClient(*instance_client.GetValue());
@@ -166,10 +163,12 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
           return true;
         });
   });
+
+  // NOTE Currently if any databases fails, we revert back
   if (!all_clients_good) {
     spdlog::error("Failed to register all databases to the REPLICA \"{}\"", config.name);
     UnregisterReplica(config.name);
-    return RegisterReplicaError::CONNECTION_FAILED;  // TODO: this happen to 1 or many...what to do
+    return RegisterReplicaError::CONNECTION_FAILED;
   }
   return {};
 }
@@ -183,14 +182,14 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterR
       return UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
     }
     // Remove database specific clients
-    dbms_handler_.ForEach([&](Database *db) {
-      db->storage()->repl_storage_state_.replication_clients_.WithLock(
-          [&](auto &clients) { std::erase_if(clients, [&](const auto &client) { return client->Name() == name; }); });
+    dbms_handler_.ForEach([name](Database *db) {
+      db->storage()->repl_storage_state_.replication_clients_.WithLock([&name](auto &clients) {
+        std::erase_if(clients, [name](const auto &client) { return client->Name() == name; });
+      });
     });
     // Remove instance level clients
     auto const n_unregistered =
-        std::erase_if(mainData.registered_replicas_, [&](auto const &client) { return client->name_ == name; });
-    // != 0 or != size()
+        std::erase_if(mainData.registered_replicas_, [name](auto const &client) { return client->name_ == name; });
     return n_unregistered != 0 ? UnregisterReplicaResult::SUCCESS : UnregisterReplicaResult::CAN_NOT_UNREGISTER;
   };
 

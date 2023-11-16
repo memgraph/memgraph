@@ -79,10 +79,10 @@ std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaStat
 }
 
 std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo(Storage *storage) const {
-  return replication_clients_.WithReadLock([=](auto const &clients) {
+  return replication_clients_.WithReadLock([storage](auto const &clients) {
     std::vector<ReplicaInfo> replica_infos;
     replica_infos.reserve(clients.size());
-    auto const asReplicaInfo = [=](ReplicationClientPtr const &client) -> ReplicaInfo {
+    auto const asReplicaInfo = [storage](ReplicationClientPtr const &client) -> ReplicaInfo {
       return {client->Name(), client->Mode(), client->Endpoint(), client->State(), client->GetTimestampInfo(storage)};
     };
     std::transform(clients.begin(), clients.end(), std::back_inserter(replica_infos), asReplicaInfo);
@@ -108,7 +108,7 @@ void ReplicationStorageState::AddEpochToHistoryForce(std::string prev_epoch) {
 }
 
 ReplicationStorageClient *ReplicationStorageState::GetClient(std::string_view replica_name) {
-  return replication_clients_.WithLock([=](auto &clients) -> ReplicationStorageClient * {
+  return replication_clients_.WithLock([replica_name](auto &clients) -> ReplicationStorageClient * {
     for (const auto &client : clients) {
       if (client->Name() == replica_name) {
         return client.get();
