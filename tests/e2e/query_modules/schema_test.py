@@ -311,8 +311,8 @@ def test_assert_drops_unique_constraints():
     execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
     results = list(execute_and_fetch_all(cursor, "CALL libschema.assert({}, {}, {}) YIELD * RETURN *;"))
     assert len(results) == 2
-    assert results[0] == ("Dropped", "[name, surname]", ["name", "surname"], "Person", True)
-    assert results[1] == ("Dropped", "[id]", ["id"], "Person", True)
+    assert results[0] == ("Dropped", "[id]", ["id"], "Person", True)
+    assert results[1] == ("Dropped", "[name, surname]", ["name", "surname"], "Person", True)
     show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
     assert show_constraint_results == []
 
@@ -331,8 +331,8 @@ def test_assert_drops_indices_and_constraints():
     assert results[1] == ("Dropped", "id", ["id"], "Person", False)
     assert results[2] == ("Dropped", "name", ["name"], "Person", False)
     assert results[3] == ("Dropped", "surname", ["surname"], "Person", False)
-    assert results[4] == ("Dropped", "[name, surname]", ["name", "surname"], "Person", True)
-    assert results[5] == ("Dropped", "[id]", ["id"], "Person", True)
+    assert results[4] == ("Dropped", "[id]", ["id"], "Person", True)
+    assert results[5] == ("Dropped", "[name, surname]", ["name", "surname"], "Person", True)
     show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
     assert show_index_results == []
     show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
