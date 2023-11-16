@@ -17,26 +17,6 @@
 namespace memgraph::storage {
 class InMemoryStorage;
 
-// Handler for transferring the current WAL file whose data is
-// contained in the internal buffer and the file.
-class InMemoryCurrentWalHandler {
- public:
-  explicit InMemoryCurrentWalHandler(InMemoryStorage const *storage, rpc::Client &rpc_client);
-  void AppendFilename(const std::string &filename);
-
-  void AppendSize(size_t size);
-
-  void AppendFileData(utils::InputFile *file);
-
-  void AppendBufferData(const uint8_t *buffer, size_t buffer_size);
-
-  /// @throw rpc::RpcFailedException
-  replication::CurrentWalRes Finalize();
-
- private:
-  rpc::Client::StreamHandler<replication::CurrentWalRpc> stream_;
-};
-
 ////// ReplicationClient Helpers //////
 
 replication::WalFilesRes TransferWalFiles(std::string db_name, rpc::Client &client,
@@ -44,7 +24,7 @@ replication::WalFilesRes TransferWalFiles(std::string db_name, rpc::Client &clie
 
 replication::SnapshotRes TransferSnapshot(std::string db_name, rpc::Client &client, const std::filesystem::path &path);
 
-uint64_t ReplicateCurrentWal(InMemoryCurrentWalHandler &stream, durability::WalFile const &wal_file);
+uint64_t ReplicateCurrentWal(const InMemoryStorage *storage, rpc::Client &client, durability::WalFile const &wal_file);
 
 auto GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,
                       const InMemoryStorage *storage) -> std::vector<RecoveryStep>;

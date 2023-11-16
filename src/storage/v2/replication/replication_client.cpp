@@ -307,8 +307,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
                            mem_storage->wal_file_->DisableFlushing();
                            transaction_guard.unlock();
                            spdlog::debug("Sending current wal file");
-                           auto streamHandler = InMemoryCurrentWalHandler{mem_storage, rpcClient};
-                           replica_commit = ReplicateCurrentWal(streamHandler, *mem_storage->wal_file_);
+                           replica_commit = ReplicateCurrentWal(mem_storage, rpcClient, *mem_storage->wal_file_);
                            mem_storage->wal_file_->EnableFlushing();
                          } else {
                            spdlog::debug("Cannot recover using current wal file");

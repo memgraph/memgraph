@@ -15,6 +15,26 @@
 
 namespace memgraph::storage {
 
+// Handler for transferring the current WAL file whose data is
+// contained in the internal buffer and the file.
+class InMemoryCurrentWalHandler {
+ public:
+  explicit InMemoryCurrentWalHandler(InMemoryStorage const *storage, rpc::Client &rpc_client);
+  void AppendFilename(const std::string &filename);
+
+  void AppendSize(size_t size);
+
+  void AppendFileData(utils::InputFile *file);
+
+  void AppendBufferData(const uint8_t *buffer, size_t buffer_size);
+
+  /// @throw rpc::RpcFailedException
+  replication::CurrentWalRes Finalize();
+
+ private:
+  rpc::Client::StreamHandler<replication::CurrentWalRpc> stream_;
+};
+
 ////// CurrentWalHandler //////
 InMemoryCurrentWalHandler::InMemoryCurrentWalHandler(InMemoryStorage const *storage, rpc::Client &rpc_client)
     : stream_(rpc_client.Stream<replication::CurrentWalRpc>(storage->id())) {}
@@ -61,7 +81,8 @@ replication::SnapshotRes TransferSnapshot(std::string db_name, rpc::Client &clie
   return stream.AwaitResponse();
 }
 
-uint64_t ReplicateCurrentWal(InMemoryCurrentWalHandler &stream, durability::WalFile const &wal_file) {
+uint64_t ReplicateCurrentWal(const InMemoryStorage *storage, rpc::Client &client, durability::WalFile const &wal_file) {
+  InMemoryCurrentWalHandler stream{storage, client};
   stream.AppendFilename(wal_file.Path().filename());
   utils::InputFile file;
   MG_ASSERT(file.Open(wal_file.Path()), "Failed to open current WAL file at {}!", wal_file.Path());
