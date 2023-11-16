@@ -426,5 +426,37 @@ Feature: Aggregations
       MATCH (subnet:Subnet) WHERE FALSE WITH subnet, count(subnet.ip) as ips RETURN id(subnet) as id
       """
       Then the result should be:
-        | id |
-        | null  |
+        | id   |
+        | null |
+
+    Scenario: Count directly without WITH clause 01
+      Given an empty graph
+      And having executed
+          """
+          CREATE (:Node {prop1: 1, prop2: 2, prop3: 3}), (:Node {prop1: 10, prop2: 11, prop3: 12}), (:Node {prop1: 20, prop2: 21, prop3: 22})
+          """
+      When executing query:
+      """
+      MATCH (n) RETURN n.prop1, n.prop2, n.prop3, count(*) AS cnt
+      """
+      Then the result should be:
+        | n.prop1 | n.prop2 | n.prop3 | cnt |
+        | 20      | 21      | 22      | 1   |
+        | 10      | 11      | 12      | 1   |
+        | 1       | 2       | 3       | 1   |
+
+    Scenario: Count directly without WITH clause 02
+      Given an empty graph
+      And having executed
+          """
+          CREATE (:Node {prop1: 1, prop2: 2, prop3: 3}), (:Node {prop1: 10, prop2: 11, prop3: 12}), (:Node {prop1: 20, prop2: 21, prop3: 22})
+          """
+      When executing query:
+      """
+      MATCH (n) WITH n.prop1 AS prop1, n.prop2 AS prop2, n.prop3 AS prop3 RETURN prop1, prop2, prop3, count(*) AS cnt;
+      """
+      Then the result should be:
+        | prop1 | prop2 | prop3 | cnt |
+        | 20    | 21    | 22    | 1   |
+        | 10    | 11    | 12    | 1   |
+        | 1     | 2     | 3     | 1   |
