@@ -96,6 +96,12 @@ SMALL_DATASET = [
         DatasetConstants.MODE: [get_default_database_mode()],
     },
     {
+        DatasetConstants.TEST: "high_delta_transaction_abort.py",
+        DatasetConstants.OPTIONS: ["--edge-size", "2000000"],
+        DatasetConstants.TIMEOUT: 5,
+        DatasetConstants.MODE: [get_default_database_mode()],
+    },
+    {
         DatasetConstants.TEST: "parser.cpp",
         DatasetConstants.OPTIONS: ["--per-worker-query-count", "1000"],
         DatasetConstants.TIMEOUT: 5,
@@ -163,6 +169,12 @@ LARGE_DATASET = (
             DatasetConstants.TEST: "match_create_delete.py",
             DatasetConstants.OPTIONS: ["--repetition-count", "3000000"],
             DatasetConstants.TIMEOUT: 30,
+            DatasetConstants.MODE: [get_default_database_mode()],
+        },
+        {
+            DatasetConstants.TEST: "high_delta_transaction_abort.py",
+            DatasetConstants.OPTIONS: ["--edge-size", "2000000"],
+            DatasetConstants.TIMEOUT: 5,
             DatasetConstants.MODE: [get_default_database_mode()],
         },
     ]
