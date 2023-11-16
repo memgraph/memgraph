@@ -601,12 +601,6 @@ class DbAccessor final {
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
-  std::vector<storage::LabelId> DropAllLabelIndices() { return accessor_->DropAllLabelIndices(); }
-
-  std::vector<std::pair<storage::LabelId, storage::PropertyId>> DropAllLabelPropertyIndices() {
-    return accessor_->DropAllLabelPropertyIndices();
-  }
-
   const std::string &id() const { return accessor_->id(); }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::LabelId label) {
@@ -637,10 +631,6 @@ class DbAccessor final {
     return accessor_->DropExistenceConstraint(label, property);
   }
 
-  std::vector<std::pair<storage::LabelId, storage::PropertyId>> DropAllExistenceConstraints() {
-    return accessor_->DropAllExistenceConstraints();
-  }
-
   utils::BasicResult<storage::StorageUniqueConstraintDefinitionError, storage::UniqueConstraints::CreationStatus>
   CreateUniqueConstraint(storage::LabelId label, const std::set<storage::PropertyId> &properties) {
     return accessor_->CreateUniqueConstraint(label, properties);
@@ -649,10 +639,6 @@ class DbAccessor final {
   storage::UniqueConstraints::DeletionStatus DropUniqueConstraint(storage::LabelId label,
                                                                   const std::set<storage::PropertyId> &properties) {
     return accessor_->DropUniqueConstraint(label, properties);
-  }
-
-  std::vector<std::pair<storage::LabelId, std::set<storage::PropertyId>>> DropAllUniqueConstraints() {
-    return accessor_->DropAllUniqueConstraints();
   }
 };
 

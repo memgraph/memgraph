@@ -2570,22 +2570,19 @@ mgp_error mgp_list_all_label_indices(mgp_graph *graph, mgp_memory *memory, mgp_l
           [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->ListAllIndices().label; }},
       graph->impl);
 
-  auto err = mgp_list_make_empty(index_res.size(), memory, result);
-  if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+  if (auto err = mgp_list_make_empty(index_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     return err;
   }
 
-  /// TODO: (andi) Change to std::for_each
   for (const auto &label : index_res) {
-    const std::string label_id_str =
-        std::visit([label](const auto *impl) { return impl->LabelToName(label); }, graph->impl);
+    const auto label_id_str = std::visit([label](const auto *impl) { return impl->LabelToName(label); }, graph->impl);
+
     mgp_value *label_value = nullptr;
-    auto err_str = mgp_value_make_string(label_id_str.c_str(), memory, &label_value);
-    if (err_str != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (auto err_str = mgp_value_make_string(label_id_str.c_str(), memory, &label_value);
+        err_str != mgp_error::MGP_ERROR_NO_ERROR) {
       return err_str;
     }
-    auto err_list = mgp_list_append_extend(*result, label_value);
-    if (err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (auto err_list = mgp_list_append_extend(*result, label_value); err_list != mgp_error::MGP_ERROR_NO_ERROR) {
       return err_list;
     }
   }
@@ -2628,6 +2625,29 @@ mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, con
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
+mgp_error create_mgp_list_of_label_property(mgp_graph *graph, mgp_memory *memory, mgp_list **result,
+                                            const auto &label_property_pair) {
+  const auto label_id_str = std::visit(
+      [label_id = label_property_pair.first](const auto *impl) { return impl->LabelToName(label_id); }, graph->impl);
+  const auto property_id_str = std::visit(
+      [property_id = label_property_pair.second](const auto *impl) { return impl->PropertyToName(property_id); },
+      graph->impl);
+
+  // This is hack to avoid dealing with pairs
+  mgp_value *label_property = nullptr;
+  auto final_str = label_id_str + ":";
+  final_str += property_id_str;
+
+  if (auto err_str = mgp_value_make_string(final_str.c_str(), memory, &label_property);
+      err_str != mgp_error::MGP_ERROR_NO_ERROR) {
+    return err_str;
+  }
+  if (auto err_list = mgp_list_append_extend(*result, label_property); err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+    return err_list;
+  }
+  return mgp_error::MGP_ERROR_NO_ERROR;
+}
+
 mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
   const auto index_res =
       std::visit(memgraph::utils::Overloaded{
@@ -2637,29 +2657,14 @@ mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memo
                      }},
                  graph->impl);
 
-  auto err = mgp_list_make_empty(index_res.size(), memory, result);
-  if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+  if (auto err = mgp_list_make_empty(index_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     return err;
   }
 
-  /// TODO: (andi) Change to std::for_each
   for (const auto &label_property_pair : index_res) {
-    const std::string label_id_str = std::visit(
-        [label_id = label_property_pair.first](const auto *impl) { return impl->LabelToName(label_id); }, graph->impl);
-    const std::string property_id_str = std::visit(
-        [property_id = label_property_pair.second](const auto *impl) { return impl->PropertyToName(property_id); },
-        graph->impl);
-    // This is hack to avoid dealing with pairs
-    mgp_value *label_property = nullptr;
-    auto final_str = label_id_str + ":";
-    final_str += property_id_str;
-    auto err_str = mgp_value_make_string(final_str.c_str(), memory, &label_property);
-    if (err_str != mgp_error::MGP_ERROR_NO_ERROR) {
-      return err_str;
-    }
-    auto err_list = mgp_list_append_extend(*result, label_property);
-    if (err_list != mgp_error::MGP_ERROR_NO_ERROR) {
-      return err_list;
+    if (auto err = create_mgp_list_of_label_property(graph, memory, result, label_property_pair);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      return err;
     }
   }
 
@@ -2703,7 +2708,7 @@ mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, con
 }
 
 mgp_error mgp_list_all_existence_constraints(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
-  const auto index_res =
+  const auto constraint_res =
       std::visit(memgraph::utils::Overloaded{
                      [](memgraph::query::DbAccessor *impl) { return impl->ListAllConstraints().existence; },
                      [](memgraph::query::SubgraphDbAccessor *impl) {
@@ -2711,29 +2716,14 @@ mgp_error mgp_list_all_existence_constraints(mgp_graph *graph, mgp_memory *memor
                      }},
                  graph->impl);
 
-  auto err = mgp_list_make_empty(index_res.size(), memory, result);
-  if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+  if (auto err = mgp_list_make_empty(constraint_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     return err;
   }
 
-  /// TODO: (andi) Change to std::for_each
-  for (const auto &label_property_pair : index_res) {
-    const std::string label_id_str = std::visit(
-        [label_id = label_property_pair.first](const auto *impl) { return impl->LabelToName(label_id); }, graph->impl);
-    const std::string property_id_str = std::visit(
-        [property_id = label_property_pair.second](const auto *impl) { return impl->PropertyToName(property_id); },
-        graph->impl);
-    // This is hack to avoid dealing with pairs
-    mgp_value *label_property = nullptr;
-    auto final_str = label_id_str + ":";
-    final_str += property_id_str;
-    auto err_str = mgp_value_make_string(final_str.c_str(), memory, &label_property);
-    if (err_str != mgp_error::MGP_ERROR_NO_ERROR) {
-      return err_str;
-    }
-    auto err_list = mgp_list_append_extend(*result, label_property);
-    if (err_list != mgp_error::MGP_ERROR_NO_ERROR) {
-      return err_list;
+  for (const auto &label_property_pair : constraint_res) {
+    if (auto err = create_mgp_list_of_label_property(graph, memory, result, label_property_pair);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      return err;
     }
   }
 
@@ -2792,8 +2782,7 @@ mgp_error mgp_list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory, 
           [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->ListAllConstraints().unique; }},
       graph->impl);
 
-  auto err = mgp_list_make_empty(constraints_res.size(), memory, result);
-  if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+  if (auto err = mgp_list_make_empty(constraints_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     return err;
   }
 
@@ -2812,36 +2801,36 @@ mgp_error mgp_list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory, 
         graph->impl);
 
     mgp_list *label_properties_mgp_list = nullptr;
-    auto properties_mgp_list_err = mgp_list_make_empty(properties_str.size() + 1, memory, &label_properties_mgp_list);
-    if (properties_mgp_list_err != mgp_error::MGP_ERROR_NO_ERROR) {
-      return err;
+    if (auto properties_mgp_list_err =
+            mgp_list_make_empty(properties_str.size() + 1, memory, &label_properties_mgp_list);
+        properties_mgp_list_err != mgp_error::MGP_ERROR_NO_ERROR) {
+      return properties_mgp_list_err;
     }
 
     mgp_value *mgp_value_label = nullptr;
-    auto err_label = mgp_value_make_string(label_id_str.c_str(), memory, &mgp_value_label);
-    if (err_label != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (auto err_label = mgp_value_make_string(label_id_str.c_str(), memory, &mgp_value_label);
+        err_label != mgp_error::MGP_ERROR_NO_ERROR) {
       return err_label;
     }
-    auto err_label_into_list = mgp_list_append_extend(label_properties_mgp_list, mgp_value_label);
-    if (err_label_into_list != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (auto err_label_into_list = mgp_list_append_extend(label_properties_mgp_list, mgp_value_label);
+        err_label_into_list != mgp_error::MGP_ERROR_NO_ERROR) {
       return err_label_into_list;
     }
 
     for (const std::string &property_str : properties_str) {
       mgp_value *property_mgp_value = nullptr;
-      auto err_str = mgp_value_make_string(property_str.c_str(), memory, &property_mgp_value);
-      if (err_str != mgp_error::MGP_ERROR_NO_ERROR) {
+      if (auto err_str = mgp_value_make_string(property_str.c_str(), memory, &property_mgp_value);
+          err_str != mgp_error::MGP_ERROR_NO_ERROR) {
         return err_str;
       }
-      auto err_list = mgp_list_append_extend(label_properties_mgp_list, property_mgp_value);
-      if (err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+      if (auto err_list = mgp_list_append_extend(label_properties_mgp_list, property_mgp_value);
+          err_list != mgp_error::MGP_ERROR_NO_ERROR) {
         return err_list;
       }
     }
     mgp_value value(label_properties_mgp_list, label_properties_mgp_list->GetMemoryResource());
 
-    auto err_list = mgp_list_append_extend(*result, &value);
-    if (err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (auto err_list = mgp_list_append_extend(*result, &value); err_list != mgp_error::MGP_ERROR_NO_ERROR) {
       return err_list;
     }
   }
