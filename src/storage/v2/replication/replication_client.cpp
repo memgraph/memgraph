@@ -9,17 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/replication_client.hpp"
-
-#include <algorithm>
-#include <type_traits>
-
-#include "dbms/database.hpp"
-#include "dbms/dbms_handler.hpp"
+#include "replication/replication_client.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/variant_helpers.hpp"
+
+#include <algorithm>
+#include <type_traits>
 
 namespace {
 template <typename>
@@ -28,65 +26,8 @@ template <typename>
 
 namespace memgraph::storage {
 
-static auto CreateClientContext(const memgraph::replication::ReplicationClientConfig &config)
-    -> communication::ClientContext {
-  return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
-                      : communication::ClientContext{};
-}
-
-ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
-    : name_{config.name},
-      rpc_context_{CreateClientContext(config)},
-      rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
-                  &rpc_context_},
-      replica_check_frequency_{config.replica_check_frequency},
-      mode_{config.mode} {}
-
-void ReplicationClient::StartFrequentCheck(dbms::DbmsHandler &dbms_handler) {
-  // Help the user to get the most accurate replica state possible.
-  if (replica_check_frequency_ > std::chrono::seconds(0)) {
-    replica_checker_.Run("Replica Checker", replica_check_frequency_,
-                         [this, dbms_ptr = &dbms_handler] { this->FrequentCheck(dbms_ptr); });
-  }
-}
-
-ReplicationClient::~ReplicationClient() {
-  auto endpoint = rpc_client_.Endpoint();
-  spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
-  thread_pool_.Shutdown();
-}
-
-void ReplicationClient::Start(dbms::DbmsHandler *dbms_handler) {
-  // No client error, start instance level client
-  auto const &endpoint = rpc_client_.Endpoint();
-  spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
-  StartFrequentCheck(*dbms_handler);
-}
-
-void ReplicationClient::FrequentCheck(dbms::DbmsHandler *dbms_handler) {
-  try {
-    bool success = false;
-    {
-      auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
-      success = stream.AwaitResponse().success;
-    }
-    if (success) {
-      // Working connection, check if any database has been left behind
-      dbms_handler->ForEach([this](dbms::Database *db) {
-        auto *client = db->storage()->repl_storage_state_.GetClient(name_);  // Specific database <-> replica client
-        if (client == nullptr) return;  // Skip as this database does not replicate to this replica
-        if (client->State() == replication::ReplicaState::MAYBE_BEHIND) {
-          // Database <-> replica might be behind, check and recover
-          client->TryCheckReplicaStateAsync(db->storage());
-        }
-      });
-    }
-  } catch (const rpc::RpcFailedException &) {
-    // Nothing to do...wait for a reconnect
-  }
-}
-
-ReplicationStorageClient::ReplicationStorageClient(ReplicationClient &client) : client_{client} {}
+ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::ReplicationClient &client)
+    : client_{client} {}
 
 void ReplicationStorageClient::CheckReplicaState(Storage *storage) {
   uint64_t current_commit_timestamp{kTimestampInitialId};

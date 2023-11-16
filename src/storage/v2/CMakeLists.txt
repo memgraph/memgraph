@@ -41,5 +41,5 @@ add_library(mg-storage-v2 STATIC
         replication/replication_storage_state.cpp
         inmemory/replication/recovery.cpp
 )
-# TODO Don't link dbms
-target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk mg-events mg-memory mg-dbms)
+
+target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk mg-events mg-memory)

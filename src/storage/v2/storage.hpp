@@ -355,14 +355,7 @@ class Storage {
 
   virtual void PrepareForNewEpoch() = 0;
 
-  auto CreateReplicationClient(ReplicationClient &client) -> std::unique_ptr<ReplicationStorageClient> {
-    if (storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
-      throw utils::BasicException("Only InMemory Transactional supports replication.");
-    }
-    return std::make_unique<ReplicationStorageClient>(client);
-  }
-
-  auto ReplicasInfo() { return repl_storage_state_.ReplicasInfo(this); }
+  auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(this); }
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
   }

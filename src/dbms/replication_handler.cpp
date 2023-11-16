@@ -15,6 +15,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
+#include "dbms/replication_client.hpp"
 #include "replication/state.hpp"
 
 using memgraph::replication::ReplicationClientConfig;
@@ -134,7 +135,7 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
         break;
     }
   // No client error, start instance level client
-  instance_client.GetValue()->Start(&dbms_handler_);
+  StartReplicaClient(dbms_handler_, *instance_client.GetValue());
 
   if (!allow_mt_repl && dbms_handler_.All().size() > 1) {
     spdlog::warn("Multi-tenant replication is currently not supported!");
@@ -151,11 +152,10 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
     // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
     if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
-    all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
-        [storage, &instance_client](auto &storage_clients) -> bool {
-          auto client = storage->CreateReplicationClient(*instance_client.GetValue());
+    all_clients_good &=
+        storage->repl_storage_state_.replication_clients_.WithLock([storage, &instance_client](auto &storage_clients) {
+          auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client.GetValue());
           client->Start(storage);
-
           if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
             return false;
           }
@@ -216,9 +216,8 @@ void RestoreReplication(replication::ReplicationState &repl_state, storage::Stor
 
       const auto &ret = storage.repl_storage_state_.replication_clients_.WithLock(
           [&](auto &storage_clients) -> utils::BasicResult<RegisterReplicaError> {
-            auto client = storage.CreateReplicationClient(*instance_client);
+            auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client);
             client->Start(&storage);
-
             if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
               spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
                            client->Name());

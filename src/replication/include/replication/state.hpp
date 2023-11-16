@@ -11,21 +11,21 @@
 
 #pragma once
 
+#include "kvstore/kvstore.hpp"
+#include "replication/config.hpp"
+#include "replication/epoch.hpp"
+#include "replication/mode.hpp"
+#include "replication/replication_client.hpp"
+#include "replication/role.hpp"
+#include "replication_server.hpp"
+#include "status.hpp"
+#include "utils/result.hpp"
+
 #include <atomic>
 #include <cstdint>
 #include <list>
 #include <variant>
 #include <vector>
-
-#include "kvstore/kvstore.hpp"
-#include "replication/config.hpp"
-#include "replication/epoch.hpp"
-#include "replication/mode.hpp"
-#include "replication/role.hpp"
-#include "replication_server.hpp"
-#include "status.hpp"
-#include "storage/v2/replication/replication_client.hpp"
-#include "utils/result.hpp"
 
 namespace memgraph::replication {
 
@@ -44,7 +44,7 @@ struct RoleMainData {
   RoleMainData &operator=(RoleMainData &&) = default;
 
   ReplicationEpoch epoch_;
-  std::list<std::unique_ptr<storage::ReplicationClient>> registered_replicas_{};
+  std::list<std::unique_ptr<ReplicationClient>> registered_replicas_{};
 };
 
 struct RoleReplicaData {
@@ -87,8 +87,7 @@ struct ReplicationState {
   // TODO: locked access
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
-  utils::BasicResult<RegisterReplicaError, storage::ReplicationClient *> RegisterReplica(
-      const ReplicationClientConfig &config);
+  utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain();
 

@@ -78,7 +78,7 @@ std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaStat
   });
 }
 
-std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo(Storage *storage) const {
+std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo(const Storage *storage) const {
   return replication_clients_.WithReadLock([storage](auto const &clients) {
     std::vector<ReplicaInfo> replica_infos;
     replica_infos.reserve(clients.size());

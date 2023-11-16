@@ -30,6 +30,7 @@
 #ifdef MG_ENTERPRISE
 #include "dbms/database_handler.hpp"
 #endif
+#include "dbms/replication_client.hpp"
 #include "global.hpp"
 #include "query/config.hpp"
 #include "query/interpreter_context.hpp"
@@ -103,61 +104,9 @@ class DbmsHandler {
    * @param recovery_on_startup restore databases (and its content) and authentication data
    * @param delete_on_drop when dropping delete any associated directories on disk
    */
-  DbmsHandler(storage::Config config, auto *auth, bool recovery_on_startup, bool delete_on_drop)
-      : lock_{utils::RWLock::Priority::READ},
-        default_config_{std::move(config)},
-        delete_on_drop_(delete_on_drop),
-        repl_state_{ReplicationStateRootPath(default_config_)} {
-    // TODO: Decouple storage config from dbms config
-    // TODO: Save individual db configs inside the kvstore and restore from there
-    storage::UpdatePaths(default_config_, default_config_.durability.storage_directory / "databases");
-    const auto &db_dir = default_config_.durability.storage_directory;
-    const auto durability_dir = db_dir / ".durability";
-    utils::EnsureDirOrDie(db_dir);
-    utils::EnsureDirOrDie(durability_dir);
-    durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
-
-    // Generate the default database
-    MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
-
-    // Recover previous databases
-    if (recovery_on_startup) {
-      for (const auto &[name, _] : *durability_) {
-        if (name == kDefaultDB) continue;  // Already set
-        spdlog::info("Restoring database {}.", name);
-        MG_ASSERT(!New_(name).HasError(), "Failed while creating database {}.", name);
-        spdlog::info("Database {} restored.", name);
-      }
-    } else {  // Clear databases from the durability list and auth
-      auto locked_auth = auth->Lock();
-      for (const auto &[name, _] : *durability_) {
-        if (name == kDefaultDB) continue;
-        locked_auth->DeleteDatabase(name);
-        durability_->Delete(name);
-      }
-    }
-
-    // Startup replication state (if recovered at startup)
-    auto replica = [this](replication::RoleReplicaData const &data) {
-      // Register handlers
-      InMemoryReplicationHandlers::Register(this, *data.server);
-      if (!data.server->Start()) {
-        spdlog::error("Unable to start the replication server.");
-        return false;
-      }
-      return true;
-    };
-    // Replication frequent check start (this has been postponed until after the dbms creation)
-    auto main = [this](const replication::RoleMainData &data) {
-      for (const auto &client : data.registered_replicas_) {
-        client->Start(this);
-      }
-      return true;
-    };
-    // Startup proccess for main/replica
-    MG_ASSERT(std::visit(memgraph::utils::Overloaded{replica, main}, repl_state_.ReplicationData()),
-              "Replica recovery failure!");
-  }
+  DbmsHandler(storage::Config config,
+              memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+              bool recovery_on_startup, bool delete_on_drop);
 #else
   /**
    * @brief Initialize the handler. A single database is supported in community edition.

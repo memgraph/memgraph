@@ -11,9 +11,9 @@
 
 #include "replication/state.hpp"
 
+#include "replication/replication_client.hpp"
 #include "replication/replication_server.hpp"
 #include "replication/status.hpp"
-#include "storage/v2/replication/replication_client.hpp"
 #include "utils/file.hpp"
 #include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
@@ -141,7 +141,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                     return FetchReplicationError::PARSE_ERROR;
                   }
                   // Instance clients
-                  res.registered_replicas_.emplace_back(std::make_unique<storage::ReplicationClient>(data.config));
+                  res.registered_replicas_.emplace_back(std::make_unique<ReplicationClient>(data.config));
                 } catch (...) {
                   return FetchReplicationError::PARSE_ERROR;
                 }
@@ -233,14 +233,14 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   return true;
 }
 
-utils::BasicResult<RegisterReplicaError, storage::ReplicationClient *> ReplicationState::RegisterReplica(
+utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::RegisterReplica(
     const ReplicationClientConfig &config) {
   auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaError::NOT_MAIN; };
-  storage::ReplicationClient *client{nullptr};
+  ReplicationClient *client{nullptr};
   auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaError {
     // name check
     auto name_check = [&config](auto const &replicas) {
-      auto name_matches = [&name = config.name](std::unique_ptr<storage::ReplicationClient> const &replica) {
+      auto name_matches = [&name = config.name](std::unique_ptr<ReplicationClient> const &replica) {
         return replica->name_ == name;
       };
       return std::any_of(replicas.begin(), replicas.end(), name_matches);
@@ -251,7 +251,7 @@ utils::BasicResult<RegisterReplicaError, storage::ReplicationClient *> Replicati
 
     // endpoint check
     auto endpoint_check = [&](auto const &replicas) {
-      auto endpoint_matches = [&config](std::unique_ptr<storage::ReplicationClient> const &replica) {
+      auto endpoint_matches = [&config](std::unique_ptr<ReplicationClient> const &replica) {
         const auto &ep = replica->rpc_client_.Endpoint();
         return ep.address == config.ip_address && ep.port == config.port;
       };
@@ -267,7 +267,7 @@ utils::BasicResult<RegisterReplicaError, storage::ReplicationClient *> Replicati
     }
 
     // set
-    client = mainData.registered_replicas_.emplace_back(std::make_unique<storage::ReplicationClient>(config)).get();
+    client = mainData.registered_replicas_.emplace_back(std::make_unique<ReplicationClient>(config)).get();
     return RegisterReplicaError::SUCCESS;
   };
 
