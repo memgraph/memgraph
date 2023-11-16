@@ -9,67 +9,39 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/inmemory/replication/replication_client.hpp"
-
-#include "storage/v2/durability/durability.hpp"
+#include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
 
-namespace {
-template <typename>
-[[maybe_unused]] inline constexpr bool always_false_v = false;
-}  // namespace
-
-// Handler for transfering the current WAL file whose data is
-// contained in the internal buffer and the file.
-class CurrentWalHandler {
- public:
-  explicit CurrentWalHandler(Storage const *storage, rpc::Client &rpc_client);
-  void AppendFilename(const std::string &filename);
-
-  void AppendSize(size_t size);
-
-  void AppendFileData(utils::InputFile *file);
-
-  void AppendBufferData(const uint8_t *buffer, size_t buffer_size);
-
-  /// @throw rpc::RpcFailedException
-  replication::CurrentWalRes Finalize();
-
- private:
-  rpc::Client::StreamHandler<replication::CurrentWalRpc> stream_;
-};
-
 ////// CurrentWalHandler //////
-CurrentWalHandler::CurrentWalHandler(Storage const *storage, rpc::Client &rpc_client)
+InMemoryCurrentWalHandler::InMemoryCurrentWalHandler(InMemoryStorage const *storage, rpc::Client &rpc_client)
     : stream_(rpc_client.Stream<replication::CurrentWalRpc>(storage->id())) {}
 
-void CurrentWalHandler::AppendFilename(const std::string &filename) {
+void InMemoryCurrentWalHandler::AppendFilename(const std::string &filename) {
   replication::Encoder encoder(stream_.GetBuilder());
   encoder.WriteString(filename);
 }
 
-void CurrentWalHandler::AppendSize(const size_t size) {
+void InMemoryCurrentWalHandler::AppendSize(const size_t size) {
   replication::Encoder encoder(stream_.GetBuilder());
   encoder.WriteUint(size);
 }
 
-void CurrentWalHandler::AppendFileData(utils::InputFile *file) {
+void InMemoryCurrentWalHandler::AppendFileData(utils::InputFile *file) {
   replication::Encoder encoder(stream_.GetBuilder());
   encoder.WriteFileData(file);
 }
 
-void CurrentWalHandler::AppendBufferData(const uint8_t *buffer, const size_t buffer_size) {
+void InMemoryCurrentWalHandler::AppendBufferData(const uint8_t *buffer, const size_t buffer_size) {
   replication::Encoder encoder(stream_.GetBuilder());
   encoder.WriteBuffer(buffer, buffer_size);
 }
 
-replication::CurrentWalRes CurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
+replication::CurrentWalRes InMemoryCurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
 
 ////// ReplicationClient Helpers //////
-
 replication::WalFilesRes TransferWalFiles(std::string db_name, rpc::Client &client,
                                           const std::vector<std::filesystem::path> &wal_files) {
   MG_ASSERT(!wal_files.empty(), "Wal files list is empty!");
@@ -89,7 +61,7 @@ replication::SnapshotRes TransferSnapshot(std::string db_name, rpc::Client &clie
   return stream.AwaitResponse();
 }
 
-uint64_t ReplicateCurrentWal(CurrentWalHandler &stream, durability::WalFile const &wal_file) {
+uint64_t ReplicateCurrentWal(InMemoryCurrentWalHandler &stream, durability::WalFile const &wal_file) {
   stream.AppendFilename(wal_file.Path().filename());
   utils::InputFile file;
   MG_ASSERT(file.Open(wal_file.Path()), "Failed to open current WAL file at {}!", wal_file.Path());
@@ -99,80 +71,6 @@ uint64_t ReplicateCurrentWal(CurrentWalHandler &stream, durability::WalFile cons
   stream.AppendBufferData(buffer, buffer_size);
   auto response = stream.Finalize();
   return response.current_commit_timestamp;
-}
-
-////// ReplicationClient //////
-
-InMemoryReplicationClient::InMemoryReplicationClient(ReplicationClient &client) : ReplicationStorageClient{client} {}
-
-void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) {
-  spdlog::debug("Starting replica recover");
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage);
-  while (true) {
-    auto file_locker = mem_storage->file_retainer_.AddLocker();
-
-    const auto steps = GetRecoverySteps(replica_commit, &file_locker, mem_storage);
-    int i = 0;
-    for (const InMemoryReplicationClient::RecoveryStep &recovery_step : steps) {
-      spdlog::trace("Recovering in step: {}", i++);
-      try {
-        rpc::Client &rpcClient = client_.rpc_client_;
-        std::visit(utils::Overloaded{
-                       [&replica_commit, storage, &rpcClient](RecoverySnapshot const &snapshot) {
-                         spdlog::debug("Sending the latest snapshot file: {}", snapshot);
-                         auto response = TransferSnapshot(storage->id(), rpcClient, snapshot);
-                         replica_commit = response.current_commit_timestamp;
-                       },
-                       [&replica_commit, storage, &rpcClient](RecoveryWals const &wals) {
-                         spdlog::debug("Sending the latest wal files");
-                         auto response = TransferWalFiles(storage->id(), rpcClient, wals);
-                         replica_commit = response.current_commit_timestamp;
-                         spdlog::debug("Wal files successfully transferred.");
-                       },
-                       [&replica_commit, mem_storage, &rpcClient](RecoveryCurrentWal const &current_wal) {
-                         std::unique_lock transaction_guard(mem_storage->engine_lock_);
-                         if (mem_storage->wal_file_ &&
-                             mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
-                           mem_storage->wal_file_->DisableFlushing();
-                           transaction_guard.unlock();
-                           spdlog::debug("Sending current wal file");
-                           auto streamHandler = CurrentWalHandler{mem_storage, rpcClient};
-                           replica_commit = ReplicateCurrentWal(streamHandler, *mem_storage->wal_file_);
-                           mem_storage->wal_file_->EnableFlushing();
-                         } else {
-                           spdlog::debug("Cannot recover using current wal file");
-                         }
-                       },
-                       [](auto const &in) {
-                         static_assert(always_false_v<decltype(in)>, "Missing type from variant visitor");
-                       },
-                   },
-                   recovery_step);
-      } catch (const rpc::RpcFailedException &) {
-        replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
-        LogRpcFailure();
-        return;
-      }
-    }
-
-    spdlog::trace("Current timestamp on replica: {}", replica_commit);
-    // To avoid the situation where we read a correct commit timestamp in
-    // one thread, and after that another thread commits a different a
-    // transaction and THEN we set the state to READY in the first thread,
-    // we set this lock before checking the timestamp.
-    // We will detect that the state is invalid during the next commit,
-    // because replication::AppendDeltasRpc sends the last commit timestamp which
-    // replica checks if it's the same last commit timestamp it received
-    // and we will go to recovery.
-    // By adding this lock, we can avoid that, and go to RECOVERY immediately.
-    const auto last_commit_timestamp = storage->repl_storage_state_.last_commit_timestamp_.load();
-    SPDLOG_INFO("Replica timestamp: {}", replica_commit);
-    SPDLOG_INFO("Last commit: {}", last_commit_timestamp);
-    if (last_commit_timestamp == replica_commit) {
-      replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::READY; });
-      return;
-    }
-  }
 }
 
 /// This method tries to find the optimal path for recoverying a single replica.
@@ -195,8 +93,8 @@ void InMemoryReplicationClient::RecoverReplica(uint64_t replica_commit, memgraph
 /// recovery steps, so we can safely send it to the replica.
 /// We assume that the property of preserving at least 1 WAL before the snapshot
 /// is satisfied as we extract the timestamp information from it.
-std::vector<InMemoryReplicationClient::RecoveryStep> InMemoryReplicationClient::GetRecoverySteps(
-    uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker, const InMemoryStorage *storage) {
+std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,
+                                           const InMemoryStorage *storage) {
   // First check if we can recover using the current wal file only
   // otherwise save the seq_num of the current wal file
   // This lock is also necessary to force the missed transaction to finish.

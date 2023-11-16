@@ -127,7 +127,7 @@ class ReplicationStorageClient {
   ReplicationStorageClient(ReplicationStorageClient &&) noexcept = delete;
   ReplicationStorageClient &operator=(ReplicationStorageClient &&) noexcept = delete;
 
-  virtual ~ReplicationStorageClient() = default;
+  ~ReplicationStorageClient() = default;
 
   auto Mode() const -> memgraph::replication::ReplicationMode { return client_.mode_; }
   auto Name() const -> std::string const & { return client_.name_; }
@@ -165,7 +165,7 @@ class ReplicationStorageClient {
   [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage);
 
  protected:
-  virtual void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) = 0;
+  void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage);
 
   void CheckReplicaState(Storage *storage);
   void LogRpcFailure();

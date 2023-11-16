@@ -18,7 +18,7 @@
 
 /// REPLICATION ///
 #include "dbms/inmemory/replication_handlers.hpp"
-#include "storage/v2/inmemory/replication/replication_client.hpp"
+#include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
@@ -1970,10 +1970,6 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   // after we call clean queue.
   file_retainer_.CleanQueue();
   return true;
-}
-
-auto InMemoryStorage::CreateReplicationClient(ReplicationClient &client) -> std::unique_ptr<ReplicationStorageClient> {
-  return std::make_unique<InMemoryReplicationClient>(client);
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,

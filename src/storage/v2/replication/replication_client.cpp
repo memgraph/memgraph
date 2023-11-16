@@ -19,6 +19,12 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/exceptions.hpp"
+
+namespace {
+template <typename>
+[[maybe_unused]] inline constexpr bool always_false_v = false;
+}  // namespace
 
 namespace memgraph::storage {
 
@@ -264,6 +270,80 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage) 
 void ReplicationStorageClient::Start(Storage *storage) {
   spdlog::trace("Replication client started for database \"{}\"", storage->id());
   TryCheckReplicaStateSync(storage);
+}
+
+void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) {
+  if (storage->storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    throw utils::BasicException("Only InMemoryTransactional mode supports replication!");
+  }
+  spdlog::debug("Starting replica recover");
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage);
+
+  while (true) {
+    auto file_locker = mem_storage->file_retainer_.AddLocker();
+
+    const auto steps = GetRecoverySteps(replica_commit, &file_locker, mem_storage);
+    int i = 0;
+    for (const RecoveryStep &recovery_step : steps) {
+      spdlog::trace("Recovering in step: {}", i++);
+      try {
+        rpc::Client &rpcClient = client_.rpc_client_;
+        std::visit(utils::Overloaded{
+                       [&replica_commit, mem_storage, &rpcClient](RecoverySnapshot const &snapshot) {
+                         spdlog::debug("Sending the latest snapshot file: {}", snapshot);
+                         auto response = TransferSnapshot(mem_storage->id(), rpcClient, snapshot);
+                         replica_commit = response.current_commit_timestamp;
+                       },
+                       [&replica_commit, mem_storage, &rpcClient](RecoveryWals const &wals) {
+                         spdlog::debug("Sending the latest wal files");
+                         auto response = TransferWalFiles(mem_storage->id(), rpcClient, wals);
+                         replica_commit = response.current_commit_timestamp;
+                         spdlog::debug("Wal files successfully transferred.");
+                       },
+                       [&replica_commit, mem_storage, &rpcClient](RecoveryCurrentWal const &current_wal) {
+                         std::unique_lock transaction_guard(mem_storage->engine_lock_);
+                         if (mem_storage->wal_file_ &&
+                             mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
+                           mem_storage->wal_file_->DisableFlushing();
+                           transaction_guard.unlock();
+                           spdlog::debug("Sending current wal file");
+                           auto streamHandler = InMemoryCurrentWalHandler{mem_storage, rpcClient};
+                           replica_commit = ReplicateCurrentWal(streamHandler, *mem_storage->wal_file_);
+                           mem_storage->wal_file_->EnableFlushing();
+                         } else {
+                           spdlog::debug("Cannot recover using current wal file");
+                         }
+                       },
+                       [](auto const &in) {
+                         static_assert(always_false_v<decltype(in)>, "Missing type from variant visitor");
+                       },
+                   },
+                   recovery_step);
+      } catch (const rpc::RpcFailedException &) {
+        replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
+        LogRpcFailure();
+        return;
+      }
+    }
+
+    spdlog::trace("Current timestamp on replica: {}", replica_commit);
+    // To avoid the situation where we read a correct commit timestamp in
+    // one thread, and after that another thread commits a different a
+    // transaction and THEN we set the state to READY in the first thread,
+    // we set this lock before checking the timestamp.
+    // We will detect that the state is invalid during the next commit,
+    // because replication::AppendDeltasRpc sends the last commit timestamp which
+    // replica checks if it's the same last commit timestamp it received
+    // and we will go to recovery.
+    // By adding this lock, we can avoid that, and go to RECOVERY immediately.
+    const auto last_commit_timestamp = storage->repl_storage_state_.last_commit_timestamp_.load();
+    SPDLOG_INFO("Replica timestamp: {}", replica_commit);
+    SPDLOG_INFO("Last commit: {}", last_commit_timestamp);
+    if (last_commit_timestamp == replica_commit) {
+      replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::READY; });
+      return;
+    }
+  }
 }
 
 ////// ReplicaStream //////
