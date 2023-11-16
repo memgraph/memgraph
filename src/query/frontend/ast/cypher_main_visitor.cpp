@@ -1236,11 +1236,13 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
       throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
     }
   }
-  call_proc->is_write_ = maybe_found->second->info.is_write;
+  if (maybe_found) {
+    call_proc->is_write_ = maybe_found->second->info.is_write;
+  }
 
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
-    if (!maybe_found->second->results.empty() && !call_proc->void_procedure_) {
+    if ((maybe_found && !maybe_found->second->results.empty()) && !call_proc->void_procedure_) {
       throw SemanticException(
           "CALL without YIELD may only be used on procedures which do not "
           "return any result fields.");
