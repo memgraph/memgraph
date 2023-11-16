@@ -147,9 +147,9 @@ def test_assert_dropping_indices():
     results = list(execute_and_fetch_all(cursor, "CALL libschema.assert({}, {}) YIELD * RETURN *;"))
     assert len(results) == 4
     assert results[0] == ("Dropped", "", [], "Ball", False)
-    assert results[1] == ("Dropped", "name", ["name"], "Person", False)
+    assert results[1] == ("Dropped", "size", ["size"], "Ball", False)
     assert results[2] == ("Dropped", "id", ["id"], "Person", False)
-    assert results[3] == ("Dropped", "size", ["size"], "Ball", False)
+    assert results[3] == ("Dropped", "name", ["name"], "Person", False)
     show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
     assert show_index_results == []
 
@@ -387,36 +387,36 @@ def test_assert_keeps_existing_indices_and_constraints():
 
     assert len(results) == 6
 
-    assert results[0] == ("Dropped", "", [], "Person", False)  # label index on Person should be deleted
-    assert results[1] == ("Kept", "id", ["id"], "Person", False)  # label+property index on Person(id) should be kept
+    assert results[0] == ("Kept", "id", ["id"], "Person", False)  # label+property index on Person(id) should be kept
+    assert results[1] == ("Dropped", "", [], "Person", False)  # label index on Person should be deleted
     assert results[2] == (
+        "Kept",
+        "name",
+        ["name"],
+        "Person",
+        False,
+    )  # existence constraint on Person(name) should be kept
+    assert results[3] == (
         "Dropped",
         "surname",
         ["surname"],
         "Person",
         False,
     )  # existence constraint on surname should be deleted
-    assert results[3] == (
-        "Created",
+    assert results[4] == (
+        "Kept",
         "[name, surname]",
         ["name", "surname"],
         "Person",
         True,
     )  # unique constraint on Person(name, surname) should be kept
-    assert results[4] == (
+    assert results[5] == (
         "Dropped",
         "[id]",
         ["id"],
         "Person",
         True,
     )  # unique constraint on Person(id) should be deleted
-    assert results[5] == (
-        "Created",
-        "name",
-        ["name"],
-        "Person",
-        False,
-    )  # existence constraint on Person(name) should be kept
 
 
 def test_node_type_properties1():
