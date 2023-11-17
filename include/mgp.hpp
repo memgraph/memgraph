@@ -21,12 +21,10 @@
 #include <string>
 #include <string_view>
 #include <thread>
-#include <unordered_map>
-#include <vector>
-
-#include <functional>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "_mgp.hpp"
 #include "mg_exceptions.hpp"
@@ -4279,85 +4277,72 @@ inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &param
 }
 }  // namespace detail
 
-inline bool CreateLabelIndexImpl(mgp_graph *memgaph_graph, const std::string_view label) {
-  return CreateLabelIndex(memgaph_graph, label);
+inline bool CreateLabelIndex(mgp_graph *memgaph_graph, const std::string_view label) {
+  return create_label_index(memgaph_graph, label.data());
 }
 
-inline bool DropLabelIndexImpl(mgp_graph *memgaph_graph, const std::string_view label) {
-  return DropLabelIndex(memgaph_graph, label);
+inline bool DropLabelIndex(mgp_graph *memgaph_graph, const std::string_view label) {
+  return drop_label_index(memgaph_graph, label.data());
 }
 
-inline List ListAllLabelIndicesImpl(mgp_graph *memgraph_graph) {
-  auto *label_indices = mgp::MemHandlerCallback(ListAllLabelIndices, memgraph_graph);
+inline List ListAllLabelIndices(mgp_graph *memgraph_graph) {
+  auto *label_indices = mgp::MemHandlerCallback(list_all_label_indices, memgraph_graph);
   if (label_indices == nullptr) {
-    mgp::list_destroy(label_indices);
     throw ValueException("Couldn't list all label indices");
   }
-  auto label_indices_list = List(label_indices);
-  mgp::list_destroy(label_indices);
-  return label_indices_list;
+  return List(label_indices);
 }
 
-inline bool CreateLabelPropertyIndexImpl(mgp_graph *memgaph_graph, const std::string_view label,
-                                         const std::string_view property) {
-  return CreateLabelPropertyIndex(memgaph_graph, label, property);
+inline bool CreateLabelPropertyIndex(mgp_graph *memgaph_graph, const std::string_view label,
+                                     const std::string_view property) {
+  return create_label_property_index(memgaph_graph, label.data(), property.data());
 }
 
-inline bool DropLabelPropertyIndexImpl(mgp_graph *memgaph_graph, const std::string_view label,
-                                       const std::string_view property) {
-  return DropLabelPropertyIndex(memgaph_graph, label, property);
+inline bool DropLabelPropertyIndex(mgp_graph *memgaph_graph, const std::string_view label,
+                                   const std::string_view property) {
+  return drop_label_property_index(memgaph_graph, label.data(), property.data());
 }
 
-inline List ListAllLabelPropertyIndicesImpl(mgp_graph *memgraph_graph) {
-  auto *label_property_indices = mgp::MemHandlerCallback(ListAllLabelPropertyIndices, memgraph_graph);
+inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
+  auto *label_property_indices = mgp::MemHandlerCallback(list_all_label_property_indices, memgraph_graph);
   if (label_property_indices == nullptr) {
-    mgp::list_destroy(label_property_indices);
     throw ValueException("Couldn't list all label+property indices");
   }
-  auto label_property_indices_list = List(label_property_indices);
-  mgp::list_destroy(label_property_indices);
-  return label_property_indices_list;
+  return List(label_property_indices);
 }
 
-inline bool CreateExistenceConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
-                                          const std::string_view property) {
-  return CreateExistenceConstraint(memgraph_graph, label, property);
+inline bool CreateExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label,
+                                      const std::string_view property) {
+  return create_existence_constraint(memgraph_graph, label.data(), property.data());
 }
 
-inline bool DropExistenceConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label,
-                                        const std::string_view property) {
-  return MgInvoke<int>(mgp_drop_existence_constraint, memgraph_graph, std::string(label).c_str(),
-                       std::string(property).c_str());
+inline bool DropExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label,
+                                    const std::string_view property) {
+  return drop_existence_constraint(memgraph_graph, label.data(), property.data());
 }
 
-inline List ListAllExistenceConstraintsImpl(mgp_graph *memgraph_graph) {
-  auto *existence_constraints = mgp::MemHandlerCallback(ListAllExistenceConstraints, memgraph_graph);
+inline List ListAllExistenceConstraints(mgp_graph *memgraph_graph) {
+  auto *existence_constraints = mgp::MemHandlerCallback(list_all_existence_constraints, memgraph_graph);
   if (existence_constraints == nullptr) {
-    mgp::list_destroy(existence_constraints);
     throw ValueException("Couldn't list all existence_constraints");
   }
-  auto existence_constraints_list = List(existence_constraints);
-  mgp::list_destroy(existence_constraints);
-  return existence_constraints_list;
+  return List(existence_constraints);
 }
 
-inline bool CreateUniqueConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
-  return MgInvoke<int>(mgp_create_unique_constraint, memgraph_graph, std::string(label).c_str(), properties);
+inline bool CreateUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
+  return create_unique_constraint(memgraph_graph, label.data(), properties);
 }
 
-inline bool DropUniqueConstraintImpl(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
-  return MgInvoke<int>(mgp_drop_unique_constraint, memgraph_graph, std::string(label).c_str(), properties);
+inline bool DropUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
+  return drop_unique_constraint(memgraph_graph, label.data(), properties);
 }
 
-inline List ListAllUniqueConstraintsImpl(mgp_graph *memgraph_graph) {
-  auto *unique_constraints = mgp::MemHandlerCallback(ListAllUniqueConstraints, memgraph_graph);
+inline List ListAllUniqueConstraints(mgp_graph *memgraph_graph) {
+  auto *unique_constraints = mgp::MemHandlerCallback(list_all_unique_constraints, memgraph_graph);
   if (unique_constraints == nullptr) {
-    mgp::list_destroy(unique_constraints);
     throw ValueException("Couldn't list all unique_constraints");
   }
-  auto unique_constraints_list = List(unique_constraints);
-  mgp::list_destroy(unique_constraints);
-  return unique_constraints_list;
+  return List(unique_constraints);
 }
 
 void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
@@ -4370,7 +4355,7 @@ void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType pro
 
 void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
                        std::string_view name, ProcedureType proc_type, std::vector<Parameter> parameters,
-                       std::vector<Return> returns, mgp_module *module, mgp_memory *memory) {
+                       std::vector<Return> returns, mgp_module *module, mgp_memory * /*memory*/) {
   auto *proc = (proc_type == ProcedureType::Read)
                    ? mgp::module_add_batch_read_procedure(module, name.data(), callback, initializer, cleanup)
                    : mgp::module_add_batch_write_procedure(module, name.data(), callback, initializer, cleanup);

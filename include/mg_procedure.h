@@ -925,7 +925,7 @@ enum mgp_error mgp_list_all_existence_constraints(struct mgp_graph *graph, struc
 enum mgp_error mgp_create_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
                                             int *result);
 
-/// Drops unique constraint for given label and properties..
+/// Drops unique constraint for given label and properties.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.
 /// if dropping unique constraint failed, result will be 0, otherwise 1.
 enum mgp_error mgp_drop_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
