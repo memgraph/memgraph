@@ -54,6 +54,63 @@ def test_node_type_properties1():
     assert (result) == [":`Dog`", ["Dog"], "owner", ["String"], True]
 
 
+def test_node_type_properties2():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:MyNode)
+        CREATE (n:MyNode)
+        """,
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        f"CALL libschema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes , mandatory RETURN nodeType, nodeLabels, propertyName, propertyTypes , mandatory ORDER BY propertyName, nodeLabels[0];",
+    )
+    assert (list(result[0])) == [":`MyNode`", ["MyNode"], "", "", False]
+    assert (result.__len__()) == 1
+
+
+def test_node_type_properties3():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:Dog {name: 'Rex', owner: 'Carl'})
+        CREATE (n:Dog)
+        """,
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        f"CALL libschema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes , mandatory RETURN nodeType, nodeLabels, propertyName, propertyTypes , mandatory ORDER BY propertyName, nodeLabels[0];",
+    )
+
+    assert (list(result[0])) == [":`Dog`", ["Dog"], "name", ["String"], True]
+    assert (list(result[1])) == [":`Dog`", ["Dog"], "owner", ["String"], True]
+    assert (result.__len__()) == 2
+
+
+def test_node_type_properties4():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (n:Label1:Label2 {property1: 'value1', property2: 'value2'})
+        CREATE (m:Label2:Label1 {property3: 'value3'})
+        """,
+    )
+    result = list(
+        execute_and_fetch_all(
+            cursor,
+            f"CALL libschema.node_type_properties() YIELD nodeType, nodeLabels, propertyName, propertyTypes , mandatory RETURN nodeType, nodeLabels, propertyName, propertyTypes , mandatory ORDER BY propertyName, nodeLabels[0];",
+        )
+    )
+    assert (list(result[0])) == [":`Label1`:`Label2`", ["Label1", "Label2"], "property1", ["String"], True]
+    assert (list(result[1])) == [":`Label1`:`Label2`", ["Label1", "Label2"], "property2", ["String"], True]
+    assert (list(result[2])) == [":`Label1`:`Label2`", ["Label1", "Label2"], "property3", ["String"], True]
+    assert (result.__len__()) == 3
+
+
 def test_rel_type_properties1():
     cursor = connect().cursor()
     execute_and_fetch_all(
@@ -67,6 +124,23 @@ def test_rel_type_properties1():
         )[0]
     )
     assert (result) == [":`LOVES`", "", "", False]
+
+
+def test_rel_type_properties2():
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        """
+        CREATE (d:Dog {name: 'Rex', owner: 'Carl'})-[l:LOVES]->(a:Activity {name: 'Running', location: 'Zadar'})
+        CREATE (n:Dog {name: 'Simba', owner: 'Lucy'})-[j:LOVES {duration: 30}]->(b:Activity {name: 'Running', location: 'Zadar'})
+        """,
+    )
+    result = execute_and_fetch_all(
+        cursor,
+        f"CALL libschema.rel_type_properties() YIELD relType,propertyName, propertyTypes , mandatory RETURN relType, propertyName, propertyTypes , mandatory;",
+    )
+    assert (list(result[0])) == [":`LOVES`", "duration", ["Int"], True]
+    assert (result.__len__()) == 1
 
 
 if __name__ == "__main__":
