@@ -114,19 +114,17 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
         node_types;  // map of node types, key is vector of labels, value is tuple of set of properties, type of node
                      // and list of labels
     std::unordered_map<std::string, mgp::Value> properties;
-    const mgp::Graph graph = mgp::Graph(memgraph_graph);
-    for (auto node : graph.Nodes()) {
+    for (auto node : mgp::Graph(memgraph_graph).Nodes()) {
       std::string type = "";
       mgp::List labels = mgp::List();
       std::vector<std::string> labels_vector = {};
       for (auto label : node.Labels()) {
         labels.AppendExtend(mgp::Value(label));
         type += ":`" + std::string(label) + "`";
-        labels_vector.emplace_back(std::string(label));
+        labels_vector.emplace_back(label);
       }
 
-      auto it = node_types.find(labels_vector);
-      if (it == node_types.end()) {
+      if (node_types.find(labels_vector) == node_types.end()) {
         node_types[labels_vector] = std::make_tuple(std::set<std::string>({""}), type, labels);
       }
 
@@ -144,7 +142,7 @@ void Schema::NodeTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_r
     }
 
     for (auto &[labels, props] : node_types) {
-      for (auto prop : std::get<0>(props)) {
+      for (auto const &prop : std::get<0>(props)) {
         auto record = record_factory.NewRecord();
         if (prop == "") {
           ProcessPropertiesNode<std::string>(record, std::get<1>(props), std::get<2>(props), "", "", false);
@@ -171,8 +169,7 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
     const mgp::Graph graph = mgp::Graph(memgraph_graph);
     for (auto rel : graph.Relationships()) {
       std::string type = ":`" + std::string(rel.Type()) + "`";
-      auto it = rel_types.find(type);
-      if (it == rel_types.end()) {
+      if (rel_types.find(type) == rel_types.end()) {
         rel_types[type] = std::make_tuple(std::set<std::string>({""}), type);
       }
 
@@ -190,7 +187,7 @@ void Schema::RelTypeProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_re
     }
 
     for (auto &[type, props] : rel_types) {
-      for (auto prop : std::get<0>(props)) {
+      for (auto const &prop : std::get<0>(props)) {
         auto record = record_factory.NewRecord();
         if (prop == "") {
           ProcessPropertiesRel<std::string>(record, std::get<1>(props), "", "", false);
