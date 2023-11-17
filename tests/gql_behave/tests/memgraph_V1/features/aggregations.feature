@@ -415,7 +415,7 @@ Feature: Aggregations
       """
       Then the result should be empty
 
-    Scenario: Empty count aggregation:
+    Scenario: Empty count aggregation
       Given an empty graph
       And having executed
           """
@@ -425,9 +425,7 @@ Feature: Aggregations
       """
       MATCH (subnet:Subnet) WHERE FALSE WITH subnet, count(subnet.ip) as ips RETURN id(subnet) as id
       """
-      Then the result should be:
-        | id   |
-        | null |
+      Then the result should be empty
 
     Scenario: Count directly without WITH clause 01
       Given an empty graph
@@ -460,3 +458,11 @@ Feature: Aggregations
         | 20    | 21    | 22    | 1   |
         | 10    | 11    | 12    | 1   |
         | 1     | 2     | 3     | 1   |
+
+    Scenario: Property count aggregation with no nodes
+      Given an empty graph
+      When executing query:
+      """
+      MATCH (n) WHERE n.prop = "xxx" RETURN n.prop, count(n);
+      """
+      Then the result should be empty
