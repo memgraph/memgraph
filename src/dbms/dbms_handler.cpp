@@ -17,8 +17,7 @@ DbmsHandler::DbmsHandler(
     storage::Config config,
     memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
     bool recovery_on_startup, bool delete_on_drop)
-    : lock_{utils::RWLock::Priority::READ},
-      default_config_{std::move(config)},
+    : default_config_{std::move(config)},
       delete_on_drop_(delete_on_drop),
       repl_state_{ReplicationStateRootPath(default_config_)} {
   // TODO: Decouple storage config from dbms config
@@ -60,7 +59,7 @@ DbmsHandler::DbmsHandler(
     }
     return true;
   };
-  // Replication frequent check start (this has been postponed until after the dbms creation)
+  // Replication frequent check start
   auto main = [this](const replication::RoleMainData &data) {
     for (const auto &client : data.registered_replicas_) {
       StartReplicaClient(*this, *client);

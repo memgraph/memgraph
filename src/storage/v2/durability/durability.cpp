@@ -96,13 +96,13 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
     MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
   }
 
+  std::sort(snapshot_files.begin(), snapshot_files.end());
   return snapshot_files;
 }
 
 std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
                                                           const std::string_view uuid,
-                                                          const std::optional<size_t> current_seq_num,
-                                                          utils::FileRetainer::FileLockerAccessor *file_locker) {
+                                                          const std::optional<size_t> current_seq_num) {
   if (!utils::DirExists(wal_directory)) return std::nullopt;
 
   std::vector<WalDurabilityInfo> wal_files;
@@ -113,11 +113,6 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!item.is_regular_file()) continue;
     try {
-      // protect file from being deleted while we are reading it
-      if (file_locker && file_locker->AddPath(item.path()).HasError()) {
-        // File deleted before we locked, skip
-        continue;
-      }
       auto info = ReadWalInfo(item.path());
       if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num)) {
         wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, std::move(info.uuid),
@@ -257,8 +252,6 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   std::optional<uint64_t> snapshot_timestamp;
   if (!snapshot_files.empty()) {
     spdlog::info("Try recovering from snapshot directory {}.", snapshot_directory);
-    // Order the files by name
-    std::sort(snapshot_files.begin(), snapshot_files.end());
 
     // UUID used for durability is the UUID of the last snapshot file.
     *uuid = snapshot_files.back().uuid;

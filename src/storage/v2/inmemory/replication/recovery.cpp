@@ -10,7 +10,14 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/replication/recovery.hpp"
+#include <algorithm>
+#include <cstdint>
+#include <iterator>
+#include <type_traits>
+#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/replication/recovery.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
@@ -116,158 +123,112 @@ uint64_t ReplicateCurrentWal(const InMemoryStorage *storage, rpc::Client &client
 /// is satisfied as we extract the timestamp information from it.
 std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,
                                            const InMemoryStorage *storage) {
+  std::vector<RecoveryStep> recovery_steps;
+  auto locker_acc = file_locker->Access();
+
   // First check if we can recover using the current wal file only
   // otherwise save the seq_num of the current wal file
   // This lock is also necessary to force the missed transaction to finish.
   std::optional<uint64_t> current_wal_seq_num;
   std::optional<uint64_t> current_wal_from_timestamp;
-  if (std::unique_lock transtacion_guard(storage->engine_lock_); storage->wal_file_) {
+
+  std::unique_lock transaction_guard(
+      storage->engine_lock_);                         // Hold the storage lock so the current wal file cannot be changed
+  (void)locker_acc.AddPath(storage->wal_directory_);  // Protect all WALs from being deleted
+
+  if (storage->wal_file_) {
     current_wal_seq_num.emplace(storage->wal_file_->SequenceNumber());
     current_wal_from_timestamp.emplace(storage->wal_file_->FromTimestamp());
+    // No need to hold the lock since the current WAL is present and we can simply skip them
+    transaction_guard.unlock();
   }
 
-  auto locker_acc = file_locker->Access();
-  auto wal_files = durability::GetWalFiles(storage->wal_directory_, storage->uuid_, current_wal_seq_num, &locker_acc);
+  // Read in finalized WAL files (excluding the current/active WAL)
+  utils::OnScopeExit
+      release_wal_dir(  // Each individually used file will be locked, so at the end, the dir can be released
+          [&locker_acc, &wal_dir = storage->wal_directory_]() { (void)locker_acc.RemovePath(wal_dir); });
+  // Get WAL files, ordered by timestamp, from oldest to newest
+  auto wal_files = durability::GetWalFiles(storage->wal_directory_, storage->uuid_, current_wal_seq_num);
   MG_ASSERT(wal_files, "Wal files could not be loaded");
+  if (transaction_guard.owns_lock())
+    transaction_guard.unlock();  // In case we didn't have a current wal file, we can unlock only now since there is no
+                                 // guarantee what we'll see after we add the wal file
 
-  (void)locker_acc.AddPath(
-      storage->snapshot_directory_);  // protect snapshots from getting deleted while we are reading them
+  // Read in snapshot files
+  (void)locker_acc.AddPath(storage->snapshot_directory_);  // Protect all snapshots from being deleted
+  utils::OnScopeExit
+      release_snapshot_dir(  // Each individually used file will be locked, so at the end, the dir can be released
+          [&locker_acc, &snapshot_dir = storage->snapshot_directory_]() { (void)locker_acc.RemovePath(snapshot_dir); });
   auto snapshot_files = durability::GetSnapshotFiles(storage->snapshot_directory_, storage->uuid_);
-  std::optional<durability::SnapshotDurabilityInfo> latest_snapshot;
+  std::optional<durability::SnapshotDurabilityInfo> latest_snapshot{};
   if (!snapshot_files.empty()) {
-    std::sort(snapshot_files.begin(), snapshot_files.end());
     latest_snapshot.emplace(std::move(snapshot_files.back()));
   }
 
-  std::vector<RecoveryStep> recovery_steps;
+  auto add_snapshot = [&]() {
+    if (!latest_snapshot) return;
+    const auto lock_success = locker_acc.AddPath(latest_snapshot->path);
+    MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant snapshot path.");
+    recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
+  };
 
-  // No finalized WAL files were found. This means the difference is contained
-  // inside the current WAL or the snapshot.
-  if (wal_files->empty()) {
-    if (current_wal_from_timestamp && replica_commit >= *current_wal_from_timestamp) {
-      MG_ASSERT(current_wal_seq_num);
-      recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
-      return recovery_steps;
-    }
-
-    // Without the finalized WAL containing the current timestamp of replica,
-    // we cannot know if the difference is only in the current WAL or we need
-    // to send the snapshot.
-    if (latest_snapshot) {
-      const auto lock_success = locker_acc.AddPath(latest_snapshot->path);
-      MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant path.");
-      recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
-    }
-    // if there are no finalized WAL files, snapshot left the current WAL
-    // as the WAL file containing a transaction before snapshot creation
-    // so we can be sure that the current WAL is present
-    MG_ASSERT(current_wal_seq_num);
-    recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
-    return recovery_steps;
-  }
-
-  // Find the longest chain of WALs for recovery.
-  // The chain consists ONLY of sequential WALs.
-  auto rwal_it = wal_files->rbegin();
-
-  // if the last finalized WAL is before the replica commit
-  // then we can recovery only from current WAL
-  if (rwal_it->to_timestamp <= replica_commit) {
-    MG_ASSERT(current_wal_seq_num);
-    recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
-    for (const auto &wal : *wal_files) {
-      (void)locker_acc.RemovePath(wal.path);  // unlock so it can be deleted
-    }
-    return recovery_steps;
-  }
-
-  uint64_t previous_seq_num{rwal_it->seq_num};
-  for (; rwal_it != wal_files->rend(); ++rwal_it) {
-    // If the difference between two consecutive wal files is not 0 or 1
-    // we have a missing WAL in our chain
-    if (previous_seq_num - rwal_it->seq_num > 1) {
-      break;
-    }
-
-    // Find first WAL that contains up to replica commit, i.e. WAL
-    // that is before the replica commit or conatins the replica commit
-    // as the last committed transaction OR we managed to find the first WAL
-    // file.
-    if (replica_commit >= rwal_it->from_timestamp || rwal_it->seq_num == 0) {
-      if (replica_commit >= rwal_it->to_timestamp) {
-        // We want the WAL after because the replica already contains all the
-        // commits from this WAL
-        (void)locker_acc.RemovePath(rwal_it->path);  // unlock so it can be deleted
-        --rwal_it;
-      }
-      std::vector<std::filesystem::path> wal_chain;
-      auto distance_from_first = std::distance(rwal_it, wal_files->rend() - 1);
-      // We have managed to create WAL chain
-      // We need to lock these files and add them to the chain
-      for (auto result_wal_it = wal_files->begin() + distance_from_first; result_wal_it != wal_files->end();
-           ++result_wal_it) {
-        const auto lock_success = locker_acc.AddPath(result_wal_it->path);
-        MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant path.");
-        wal_chain.push_back(std::move(result_wal_it->path));
+  // Check if we need the snapshot or if the WAL chain is enough
+  if (!wal_files->empty()) {
+    // Find WAL chain that contains the replica's commit timestamp
+    auto wal_chain_it = wal_files->rbegin();
+    auto prev_seq{wal_chain_it->seq_num};
+    for (; wal_chain_it != wal_files->rend(); ++wal_chain_it) {
+      if (prev_seq - wal_chain_it->seq_num > 1) {
+        // Broken chain, must have a snapshot that covers the missing commits
+        if (wal_chain_it->from_timestamp > replica_commit) {
+          // Chain does not go far enough, check the snapshot
+          MG_ASSERT(latest_snapshot, "Missing snapshot, while the WAL chain does not cover enough time.");
+          // Check for a WAL file that connects the snapshot to the chain
+          for (;; --wal_chain_it) {
+            // Going from the newest WAL files, find the first one that has a from_timestamp older than the snapshot
+            // NOTE: It could be that the only WAL needed is the current one
+            if (wal_chain_it->from_timestamp <= latest_snapshot->start_timestamp) {
+              break;
+            }
+            if (wal_chain_it == wal_files->rbegin()) break;
+          }
+          // Add snapshot to recovery steps
+          add_snapshot();
+        }
+        break;
       }
 
-      recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(wal_chain));
-
-      if (current_wal_seq_num) {
-        recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
+      if (wal_chain_it->to_timestamp <= replica_commit) {
+        // Got to a WAL that is older than what we need to recover the replica
+        break;
       }
-      return recovery_steps;
+
+      prev_seq = wal_chain_it->seq_num;
     }
 
-    previous_seq_num = rwal_it->seq_num;
-  }
-
-  MG_ASSERT(latest_snapshot, "Invalid durability state, missing snapshot");
-  // We didn't manage to find a WAL chain, we need to send the latest snapshot
-  // with its WALs
-  const auto lock_success = locker_acc.AddPath(latest_snapshot->path);
-  MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant path.");
-  recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
-
-  (void)locker_acc.RemovePath(storage->snapshot_directory_);  // No need to protect the whole directory anymore
-
-  std::vector<std::filesystem::path> recovery_wal_files;
-  auto wal_it = wal_files->begin();
-  for (; wal_it != wal_files->end(); ++wal_it) {
-    // Assuming recovery process is correct the snapshot should
-    // always retain a single WAL that contains a transaction
-    // before its creation
-    if (latest_snapshot->start_timestamp < wal_it->to_timestamp) {
-      if (latest_snapshot->start_timestamp < wal_it->from_timestamp) {
-        MG_ASSERT(wal_it != wal_files->begin(), "Invalid durability files state");
-        --wal_it;
-      } else {
-        if (wal_it != wal_files->begin())
-          (void)locker_acc.RemovePath((wal_it - 1)->path);  // unlock so the file can be deleted
-      }
-      break;
+    // Copy and lock the chain part we need, from oldest to newest
+    RecoveryWals rw{};
+    rw.reserve(std::distance(wal_files->rbegin(), wal_chain_it));
+    for (auto wal_it = wal_chain_it.base(); wal_it != wal_files->end(); ++wal_it) {
+      const auto lock_success = locker_acc.AddPath(wal_it->path);
+      MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant WAL path.");
+      rw.emplace_back(std::move(wal_it->path));
     }
-    if (wal_it != wal_files->begin()) {
-      (void)locker_acc.RemovePath((wal_it - 1)->path);  // unlock so the file can be deleted
+    if (!rw.empty()) {
+      recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(rw));
+    }
+
+  } else {
+    // No WAL chain, check if we need the snapshot
+    if (!current_wal_from_timestamp || replica_commit < *current_wal_from_timestamp) {
+      // No current wal or current wal too new
+      add_snapshot();
     }
   }
 
-  for (; wal_it != wal_files->end(); ++wal_it) {
-    const auto lock_success = locker_acc.AddPath(wal_it->path);
-    MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant path.");
-    recovery_wal_files.push_back(std::move(wal_it->path));
-  }
-
-  // We only have a WAL before the snapshot
-  if (recovery_wal_files.empty()) {
-    const auto lock_success = locker_acc.AddPath(wal_files->back().path);
-    MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant path.");
-    recovery_wal_files.push_back(std::move(wal_files->back().path));
-  }
-
-  recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(recovery_wal_files));
-
+  // In all cases, if we have a current wal file we need to use itW
   if (current_wal_seq_num) {
+    // NOTE: File not handled directly, so no need to lock it
     recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
   }
 

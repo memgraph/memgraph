@@ -208,10 +208,10 @@ void RestoreReplication(replication::ReplicationState &repl_state, storage::Stor
   spdlog::info("Restoring replication role.");
 
   /// MAIN
-  auto const recover_main = [&storage](RoleMainData &mainData) {
+  auto const recover_main = [&storage](RoleMainData const &mainData) {
     // Each individual client has already been restored and started. Here we just go through each database and start its
     // client
-    for (auto &instance_client : mainData.registered_replicas_) {
+    for (const auto &instance_client : mainData.registered_replicas_) {
       spdlog::info("Replica {} restoration started for {}.", instance_client->name_, storage.id());
 
       const auto &ret = storage.repl_storage_state_.replication_clients_.WithLock(

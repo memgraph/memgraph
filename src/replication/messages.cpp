@@ -24,8 +24,12 @@ void Load(memgraph::replication::FrequentHeartbeatRes *self, memgraph::slk::Read
 }
 
 // Serialize code for FrequentHeartbeatReq
-void Save(const memgraph::replication::FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {}
-void Load(memgraph::replication::FrequentHeartbeatReq *self, memgraph::slk::Reader *reader) {}
+void Save(const memgraph::replication::FrequentHeartbeatReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
+  /* Nothing to serialize */
+}
+void Load(memgraph::replication::FrequentHeartbeatReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
+  /* Nothing to serialize */
+}
 
 }  // namespace memgraph::slk
 

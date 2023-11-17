@@ -217,7 +217,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
   if (storage->storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
     throw utils::BasicException("Only InMemoryTransactional mode supports replication!");
   }
-  spdlog::debug("Starting replica recover");
+  spdlog::debug("Starting replica recovery");
   auto *mem_storage = static_cast<InMemoryStorage *>(storage);
 
   while (true) {
