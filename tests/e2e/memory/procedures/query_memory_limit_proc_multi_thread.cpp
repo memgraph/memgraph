@@ -13,7 +13,7 @@
 #include <cassert>
 #include <exception>
 #include <functional>
-#include <mgp.hpp>
+
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "mg_procedure.h"
+#include "mgp.hpp"
 #include "utils/on_scope_exit.hpp"
 
 enum mgp_error Alloc(void *ptr) {

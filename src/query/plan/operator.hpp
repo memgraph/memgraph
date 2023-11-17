@@ -1758,6 +1758,9 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   Aggregate() = default;
   Aggregate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Element> &aggregations,
             const std::vector<Expression *> &group_by, const std::vector<Symbol> &remember);
+
+  auto AreAllAggregationsForCollecting() const -> bool;
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -2361,7 +2364,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   CallProcedure() = default;
   CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> arguments,
                 std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                size_t memory_scale, bool is_write, bool void_procedure = false);
+                size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure = false);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -2383,6 +2386,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
   bool is_write_;
+  int64_t procedure_id_;
   bool void_procedure_;
   mutable utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
   utils::MemoryResource *memory_resource = &monotonic_memory;
@@ -2405,6 +2409,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
+    object->procedure_id_ = procedure_id_;
     object->void_procedure_ = void_procedure_;
     return object;
   }
