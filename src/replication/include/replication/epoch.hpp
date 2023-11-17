@@ -19,15 +19,20 @@ namespace memgraph::replication {
 
 struct ReplicationEpoch {
   ReplicationEpoch() : id_(memgraph::utils::GenerateUUID()) {}
-  ReplicationEpoch(ReplicationEpoch const &) = delete;
-  ReplicationEpoch(ReplicationEpoch &&) = delete;
-  ReplicationEpoch &operator=(ReplicationEpoch const &) = delete;
-  ReplicationEpoch &operator=(ReplicationEpoch &&) = delete;
+  explicit ReplicationEpoch(std::string explicit_id) : id_(std::move(explicit_id)) {}
+  ReplicationEpoch(ReplicationEpoch const &) = default;  // TODO: passkey idiom
+  ReplicationEpoch(ReplicationEpoch &&) = default;
+  ReplicationEpoch &operator=(ReplicationEpoch const &) = default;  // TODO: passkey idiom
+  ReplicationEpoch &operator=(ReplicationEpoch &&) = default;
 
   auto id() const -> std::string_view { return id_; }
 
-  auto NewEpoch() -> std::string { return std::exchange(id_, memgraph::utils::GenerateUUID()); }
+  // TODO: passkey idiom
+  friend struct ReplicationState;
+
   auto SetEpoch(std::string new_epoch) -> std::string { return std::exchange(id_, std::move(new_epoch)); }
+
+  friend bool operator==(ReplicationEpoch const &, ReplicationEpoch const &) = default;
 
  private:
   // UUID to distinguish different main instance runs for replication process

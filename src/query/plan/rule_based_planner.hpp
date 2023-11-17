@@ -12,6 +12,7 @@
 /// @file
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <variant>
 
@@ -175,7 +176,10 @@ class RuleBasedPlanner {
   PlanResult Plan(const QueryParts &query_parts) {
     auto &context = *context_;
     std::unique_ptr<LogicalOperator> final_plan;
-
+    // procedures need to start from 1
+    // due to swapping mechanism of procedure
+    // tracking
+    uint64_t procedure_id = 1;
     for (const auto &query_part : query_parts.query_parts) {
       std::unique_ptr<LogicalOperator> input_op;
 
@@ -224,7 +228,7 @@ class RuleBasedPlanner {
             input_op = std::make_unique<plan::CallProcedure>(
                 std::move(input_op), call_proc->procedure_name_, call_proc->arguments_, call_proc->result_fields_,
                 result_symbols, call_proc->memory_limit_, call_proc->memory_scale_, call_proc->is_write_,
-                call_proc->void_procedure_);
+                procedure_id++, call_proc->void_procedure_);
           } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
             context.bound_symbols.insert(row_sym);

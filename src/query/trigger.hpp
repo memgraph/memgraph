@@ -62,7 +62,7 @@ struct Trigger {
 
     explicit TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers);
 
-    CachedPlan cached_plan;
+    PlanWrapper cached_plan;
     std::vector<IdentifierInfo> identifiers;
   };
   std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, const query::AuthChecker *auth_checker) const;

@@ -11,16 +11,17 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 #include "dbms/constants.hpp"
+#include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/metadata_delta.hpp"
 
 /// REPLICATION ///
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "storage/v2/inmemory/replication/replication_client.hpp"
-#include "storage/v2/inmemory/replication/replication_server.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
-#include "storage/v2/replication/replication_handler.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/stat.hpp"
 
 namespace memgraph::storage {
 
@@ -60,12 +61,10 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
               "process!",
               config_.durability.storage_directory);
   }
-  auto &repl_state = repl_state_;
   if (config_.durability.recover_on_startup) {
-    auto &epoch = repl_state.GetEpoch();
-    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, epoch,
-                                        &repl_storage_state_.history, &vertices_, &edges_, &edge_count_,
-                                        name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
+    auto info =
+        durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, repl_storage_state_, &vertices_, &edges_,
+                                &edge_count_, name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -103,50 +102,18 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
           "those files into a .backup directory inside the storage directory.");
     }
   }
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
-      auto const &repl_state = repl_state_;
-      if (auto maybe_error = this->CreateSnapshot(repl_state, {true}); maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
-          case CreateSnapshotError::DisabledForReplica:
-            spdlog::warn(
-                utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-            break;
-          case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
-            spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
-                                                "https://memgr.ph/durability"));
-            break;
-          case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
-            spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
-            break;
-        }
-      }
-    });
-  }
-  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
-  }
 
+  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
+    // TODO: move out of storage have one global gc_runner_
+    gc_runner_.Run("Storage GC", config_.gc.interval, [this] {
+      this->FreeMemory(std::unique_lock<utils::ResourceLock>{main_lock_, std::defer_lock});
+    });
+    gc_jemalloc_runner_.Run("Jemalloc GC", config_.gc.interval, [] { memory::PurgeUnusedMemory(); });
+  }
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
   } else {
     commit_log_.emplace(timestamp_);
-  }
-
-  if (config_.durability.restore_replication_state_on_startup) {
-    spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-    ReplicationHandler{repl_state, *this}.RestoreReplication();
-  } else {
-    spdlog::warn(
-        "Replication configuration will NOT be stored. When the server restarts, replication state will be "
-        "forgotten.");
-  }
-
-  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED && repl_state.IsMain()) {
-    spdlog::warn(
-        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
-        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-        "without write-ahead logs this instance is not replicating any data.");
   }
 }
 
@@ -155,6 +122,7 @@ InMemoryStorage::InMemoryStorage(Config config) : InMemoryStorage(config, Storag
 InMemoryStorage::~InMemoryStorage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
+    gc_jemalloc_runner_.Stop();
   }
   {
     // Stop replication (Stop all clients or stop the REPLICA server)
@@ -167,29 +135,15 @@ InMemoryStorage::~InMemoryStorage() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Stop();
   }
-  if (config_.durability.snapshot_on_exit) {
-    auto const &repl_state = repl_state_;
-    if (auto maybe_error = this->CreateSnapshot(repl_state, {false}); maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
-        case CreateSnapshotError::DisabledForReplica:
-          spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-          break;
-        case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
-          spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
-                                              "https://memgr.ph/replication"));
-          break;
-        case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
-          break;
-      }
-    }
+  if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
+    create_snapshot_handler();
   }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                                                    StorageMode storage_mode)
-    : Accessor(tag, storage, isolation_level, storage_mode), config_(storage->config_.items) {}
+                                                    StorageMode storage_mode, bool is_main)
+    : Accessor(tag, storage, isolation_level, storage_mode, is_main), config_(storage->config_.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -711,7 +665,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
-    const std::optional<uint64_t> desired_commit_timestamp) {
+    const std::optional<uint64_t> desired_commit_timestamp, bool is_main) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -719,7 +673,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto const &replState = mem_storage->repl_state_;
+  // TODO: duplicated transaction finalisation in md_deltas and deltas processing cases
   if (!transaction_.md_deltas.empty()) {
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
@@ -739,14 +693,14 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // modifications before they are written to disk.
     // Replica can log only the write transaction received from Main
     // so the Wal files are consistent
-    if (replState.IsMain() || desired_commit_timestamp.has_value()) {
+    if (is_main || desired_commit_timestamp.has_value()) {
       could_replicate_all_sync_replicas =
           mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);  // protected by engine_guard
       // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
       transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);  // protected by engine_guard
       // Replica can only update the last commit timestamp with
       // the commits received from main.
-      if (replState.IsMain() || desired_commit_timestamp.has_value()) {
+      if (is_main || desired_commit_timestamp.has_value()) {
         // Update the last commit timestamp
         mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);  // protected by engine_guard
       }
@@ -820,7 +774,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (replState.IsMain() || desired_commit_timestamp.has_value()) {
+        if (is_main || desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);  // protected by engine_guard
         }
@@ -831,7 +785,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
                                              std::memory_order_release);  // protected by engine_guard
         // Replica can only update the last commit timestamp with
         // the commits received from main.
-        if (replState.IsMain() || desired_commit_timestamp.has_value()) {
+        if (is_main || desired_commit_timestamp.has_value()) {
           // Update the last commit timestamp
           mem_storage->repl_storage_state_.last_commit_timestamp_.store(
               *commit_timestamp_);  // protected by engine_guard
@@ -1195,7 +1149,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
       mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
-Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
+Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -1210,14 +1164,32 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    auto const &replState = repl_state_;
-    if (replState.IsReplica()) {
-      start_timestamp = timestamp_;
-    } else {
+    if (is_main) {
       start_timestamp = timestamp_++;
+    } else {
+      start_timestamp = timestamp_;
     }
   }
   return {transaction_id, start_timestamp, isolation_level, storage_mode, false};
+}
+
+void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
+  std::unique_lock main_guard{main_lock_};
+  MG_ASSERT(
+      (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
+      (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||
+       new_storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
+  if (storage_mode_ != new_storage_mode) {
+    if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      snapshot_runner_.Stop();
+    } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
+      snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
+                           [this]() { this->create_snapshot_handler(); });
+    }
+
+    storage_mode_ = new_storage_mode;
+    FreeMemory(std::move(main_guard));
+  }
 }
 
 template <bool force>
@@ -1245,7 +1217,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       main_lock_.lock_shared();
     }
   } else {
-    MG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
+    DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
   }
 
   utils::OnScopeExit lock_releaser{[&] {
@@ -1557,7 +1529,7 @@ StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
-  info.memory_usage = utils::GetMemoryUsage();
+  info.memory_res = utils::GetMemoryRES();
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {
     if (!force_directory && std::filesystem::is_directory(dir) && dir.has_filename()) {
@@ -1629,8 +1601,7 @@ void InMemoryStorage::FinalizeWalFile() {
 }
 
 bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  auto &replState = repl_state_;
-  if (!InitializeWalFile(replState.GetEpoch())) {
+  if (!InitializeWalFile(repl_storage_state_.epoch_)) {
     return true;
   }
   // Traverse deltas and append them to the WAL file.
@@ -1800,8 +1771,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
 }
 
 bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  auto &replState = repl_state_;
-  if (!InitializeWalFile(replState.GetEpoch())) {
+  if (!InitializeWalFile(repl_storage_state_.epoch_)) {
     return true;
   }
 
@@ -1910,13 +1880,8 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
   return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp);
 }
 
-utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
-    memgraph::replication::ReplicationState const &replicationState, std::optional<bool> is_periodic) {
-  if (replicationState.IsReplica()) {
-    return CreateSnapshotError::DisabledForReplica;
-  }
-
-  auto const &epoch = replicationState.GetEpoch();
+utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot() {
+  auto const &epoch = repl_storage_state_.epoch_;
   auto snapshot_creator = [this, &epoch]() {
     utils::Timer timer;
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
@@ -1943,9 +1908,6 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
     } else {
       std::unique_lock main_guard{main_lock_};
       if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-        if (is_periodic && *is_periodic) {
-          return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;
-        }
         snapshot_creator();
         return {};
       }
@@ -1976,13 +1938,13 @@ uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_
   return *desired_commit_timestamp;
 }
 
-void InMemoryStorage::PrepareForNewEpoch(std::string prev_epoch) {
+void InMemoryStorage::PrepareForNewEpoch() {
   std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
-  repl_storage_state_.AddEpochToHistory(std::move(prev_epoch));
+  repl_storage_state_.TrackLatestHistory();
 }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {
@@ -2010,26 +1972,45 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
+auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
+                                              const memgraph::replication::ReplicationEpoch *current_epoch)
     -> std::unique_ptr<ReplicationClient> {
-  auto &replState = this->repl_state_;
-  return std::make_unique<InMemoryReplicationClient>(this, config, &replState.GetEpoch());
+  return std::make_unique<InMemoryReplicationClient>(this, config, current_epoch);
 }
 
-std::unique_ptr<ReplicationServer> InMemoryStorage::CreateReplicationServer(
-    const memgraph::replication::ReplicationServerConfig &config) {
-  auto &replState = this->repl_state_;
-  return std::make_unique<InMemoryReplicationServer>(this, config, &replState.GetEpoch());
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,
+                                                           bool is_main) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_, is_main});
+}
+std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                                 bool is_main) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
+                                                                override_isolation_level.value_or(isolation_level_),
+                                                                storage_mode_, is_main});
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
-      Storage::Accessor::shared_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
-}
-std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
-    std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
-      Storage::Accessor::unique_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
+void InMemoryStorage::CreateSnapshotHandler(
+    std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb) {
+  create_snapshot_handler = [cb]() {
+    if (auto maybe_error = cb(); maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case CreateSnapshotError::DisabledForReplica:
+          spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+          break;
+        case CreateSnapshotError::ReachedMaxNumTries:
+          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
+          break;
+      }
+    }
+  };
+
+  // Run the snapshot thread (if enabled)
+  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
+    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
+                         [this]() { this->create_snapshot_handler(); });
+  }
 }
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);

@@ -277,13 +277,11 @@ TYPED_TEST(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
   }
   {
     auto results = this->AggregationResults(true, false, {Aggregation::Op::COLLECT_LIST});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::List);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, false, {Aggregation::Op::COLLECT_MAP});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Map);
+    EXPECT_EQ(results.size(), 0);
   }
 }
 
@@ -695,13 +693,11 @@ TYPED_TEST(QueryPlanAggregateOps, WithoutDataWithDistinctAndWithGroupBy) {
   }
   {
     auto results = this->AggregationResults(true, true, {Aggregation::Op::COLLECT_LIST});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::List);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, true, {Aggregation::Op::COLLECT_MAP});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Map);
+    EXPECT_EQ(results.size(), 0);
   }
 }
 

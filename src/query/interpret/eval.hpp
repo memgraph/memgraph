@@ -270,36 +270,33 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(InListOperator &in_list) override {
-    TypedValue *_list_ptr = nullptr;
-    TypedValue _list;
     auto literal = in_list.expression1_->Accept(*this);
 
-    auto get_list_literal = [this, &in_list, &_list, &_list_ptr]() -> void {
+    auto get_list_literal = [this, &in_list]() -> TypedValue {
       ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
-      _list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
-      if (nullptr == _list_ptr) {
-        _list = in_list.expression2_->Accept(*this);
-        _list_ptr = &_list;
+      auto *list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
+      if (nullptr == list_ptr) {
+        return in_list.expression2_->Accept(*this);
       }
+      return *list_ptr;
     };
 
-    auto do_list_literal_checks = [this, &literal, &_list_ptr]() -> std::optional<TypedValue> {
-      MG_ASSERT(_list_ptr, "List literal should have been defined");
-      if (_list_ptr->IsNull()) {
+    auto do_list_literal_checks = [this, &literal](const TypedValue &list) -> std::optional<TypedValue> {
+      if (list.IsNull()) {
         return TypedValue(ctx_->memory);
       }
       // Exceptions have higher priority than returning nulls when list expression
       // is not null.
-      if (_list_ptr->type() != TypedValue::Type::List) {
-        throw QueryRuntimeException("IN expected a list, got {}.", _list_ptr->type());
+      if (list.type() != TypedValue::Type::List) {
+        throw QueryRuntimeException("IN expected a list, got {}.", list.type());
       }
-      const auto &list = _list_ptr->ValueList();
+      const auto &list_value = list.ValueList();
 
       // If literal is NULL there is no need to try to compare it with every
       // element in the list since result of every comparison will be NULL. There
       // is one special case that we must test explicitly: if list is empty then
       // result is false since no comparison will be performed.
-      if (list.empty()) return TypedValue(false, ctx_->memory);
+      if (list_value.empty()) return TypedValue(false, ctx_->memory);
       if (literal.IsNull()) return TypedValue(ctx_->memory);
       return {};
     };
@@ -312,14 +309,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!frame_change_collector_->IsKeyValueCached(*cached_id)) {
         // Check only first time if everything is okay, later when we use
         // cache there is no need to check again as we did check first time
-        get_list_literal();
-        auto preoperational_checks = do_list_literal_checks();
+        auto list = get_list_literal();
+        auto preoperational_checks = do_list_literal_checks(list);
         if (preoperational_checks) {
           return std::move(*preoperational_checks);
         }
         auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
-        cached_value.CacheValue(*_list_ptr);
-        spdlog::trace("Value cached {}", *cached_id);
+        // Don't move here because we don't want to remove the element from the frame
+        cached_value.CacheValue(list);
       }
       const auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
 
@@ -334,16 +331,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     // When caching is not an option, we need to evaluate list literal every time
     // and do the checks
-    get_list_literal();
-    auto preoperational_checks = do_list_literal_checks();
+    const auto list = get_list_literal();
+    auto preoperational_checks = do_list_literal_checks(list);
     if (preoperational_checks) {
       return std::move(*preoperational_checks);
     }
 
-    const auto &list = _list.ValueList();
-    spdlog::trace("Not using cache on IN LIST operator");
+    const auto &list_value = list.ValueList();
     auto has_null = false;
-    for (const auto &element : list) {
+    for (const auto &element : list_value) {
       auto result = literal == element;
       if (result.IsNull()) {
         has_null = true;
@@ -548,13 +544,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Vertex:
         if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
           auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-          if (!ctx_->property_lookups_cache.contains(symbol_pos)) {
-            ctx_->property_lookups_cache.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueVertex()));
+          if (!property_lookup_cache_.contains(symbol_pos)) {
+            property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueVertex()));
           }
 
           auto property_id = ctx_->properties[property_lookup.property_.ix];
-          if (ctx_->property_lookups_cache[symbol_pos].contains(property_id)) {
-            return TypedValue(ctx_->property_lookups_cache[symbol_pos][property_id], ctx_->memory);
+          if (property_lookup_cache_[symbol_pos].contains(property_id)) {
+            return TypedValue(property_lookup_cache_[symbol_pos][property_id], ctx_->memory);
           }
           return TypedValue(ctx_->memory);
         } else {
@@ -563,13 +559,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Edge:
         if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
           auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-          if (!ctx_->property_lookups_cache.contains(symbol_pos)) {
-            ctx_->property_lookups_cache.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueEdge()));
+          if (!property_lookup_cache_.contains(symbol_pos)) {
+            property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueEdge()));
           }
 
           auto property_id = ctx_->properties[property_lookup.property_.ix];
-          if (ctx_->property_lookups_cache[symbol_pos].contains(property_id)) {
-            return TypedValue(ctx_->property_lookups_cache[symbol_pos][property_id], ctx_->memory);
+          if (property_lookup_cache_[symbol_pos].contains(property_id)) {
+            return TypedValue(property_lookup_cache_[symbol_pos][property_id], ctx_->memory);
           }
           return TypedValue(ctx_->memory);
         } else {
@@ -783,10 +779,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     for (const auto &pair : literal.elements_) {
       result.emplace(pair.first.name, pair.second->Accept(*this));
     }
-
-    ctx_->property_lookups_cache.clear();
-    // TODO Don’t clear the cache if there are remaining MapLiterals with PropertyLookups that read the same properties
-    // from the same variable (symbol & value)
 
     return TypedValue(result, ctx_->memory);
   }
@@ -1171,6 +1163,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   // which switching approach should be used when evaluating
   storage::View view_;
   FrameChangeCollector *frame_change_collector_;
+  /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
+  mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.

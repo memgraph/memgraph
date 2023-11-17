@@ -27,6 +27,7 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
@@ -56,7 +57,9 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/pmr/deque.hpp"
 #include "utils/pmr/list.hpp"
 #include "utils/pmr/unordered_map.hpp"
@@ -2456,17 +2459,16 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
-  
+
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::OLD, context.frame_change_collector);
-  while (input_cursor_->Pull(frame, context) || UNLIKELY(context.is_profile_query)) {
+  while (input_cursor_->Pull(frame, context)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
     }
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
-    if (UNLIKELY(context.is_profile_query)) return false;
   }
   return false;
 }
@@ -2589,39 +2591,68 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
     expression_results.emplace_back(expression->Accept(evaluator));
   }
 
+  auto vertex_auth_checker = [&context](const VertexAccessor &va) -> bool {
+#ifdef MG_ENTERPRISE
+    return !(license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+             !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE));
+#else
+    return true;
+#endif
+  };
+
+  auto edge_auth_checker = [&context](const EdgeAccessor &ea) -> bool {
+#ifdef MG_ENTERPRISE
+    return !(
+        license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+          context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
+          context.auth_checker->Has(ea.From(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE)));
+#else
+    return true;
+#endif
+  };
+
   for (TypedValue &expression_result : expression_results) {
     AbortCheck(context);
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
         auto va = expression_result.ValueVertex();
-#ifdef MG_ENTERPRISE
-        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-            !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+        if (vertex_auth_checker(va)) {
+          buffer_.nodes.push_back(va);
+        } else {
           throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
         }
-#endif
-        buffer_.nodes.push_back(va);
         break;
       }
       case TypedValue::Type::Edge: {
         auto ea = expression_result.ValueEdge();
-#ifdef MG_ENTERPRISE
-        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-            !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
-              context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
-              context.auth_checker->Has(ea.From(), storage::View::NEW,
-                                        query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
+        if (edge_auth_checker(ea)) {
+          buffer_.edges.push_back(ea);
+        } else {
           throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
         }
-#endif
-        buffer_.edges.push_back(ea);
         break;
+      }
+      case TypedValue::Type::Path: {
+        auto path = expression_result.ValuePath();
+#ifdef MG_ENTERPRISE
+        auto edges_res = std::any_of(path.edges().cbegin(), path.edges().cend(),
+                                     [&edge_auth_checker](const auto &ea) { return !edge_auth_checker(ea); });
+        auto vertices_res = std::any_of(path.vertices().cbegin(), path.vertices().cend(),
+                                        [&vertex_auth_checker](const auto &va) { return !vertex_auth_checker(va); });
+
+        if (edges_res || vertices_res) {
+          throw QueryRuntimeException(
+              "Path not deleted due to not having enough permission on all edges and vertices on the path!");
+        }
+#endif
+        buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
+        buffer_.edges.insert(buffer_.edges.begin(), path.edges().begin(), path.edges().end());
       }
       case TypedValue::Type::Null:
         break;
-      // check we're not trying to delete anything except vertices and edges
       default:
-        throw QueryRuntimeException("Only edges and vertices can be deleted.");
+        throw QueryRuntimeException("Edges, vertices and paths can be deleted.");
     }
   }
 }
@@ -2868,6 +2899,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 
   auto update_props = [&, record](PropertiesMap &new_properties) {
     auto updated_properties = UpdatePropertiesChecked(record, new_properties);
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+    context->execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += new_properties.size();
 
     if (should_register_change) {
       for (const auto &[id, old_value, new_value] : updated_properties) {
@@ -3431,7 +3464,7 @@ class AggregateCursor : public Cursor {
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!pulled_all_input_) {
-      ProcessAll(&frame, &context);
+      if (!ProcessAll(&frame, &context) && self_.AreAllAggregationsForCollecting()) return false;
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 
@@ -3455,7 +3488,6 @@ class AggregateCursor : public Cursor {
         return true;
       }
     }
-
     if (aggregation_it_ == aggregation_.end()) return false;
 
     // place aggregation values on the frame
@@ -3535,12 +3567,16 @@ class AggregateCursor : public Cursor {
    * cache cardinality depends on number of
    * aggregation results, and not on the number of inputs.
    */
-  void ProcessAll(Frame *frame, ExecutionContext *context) {
+  bool ProcessAll(Frame *frame, ExecutionContext *context) {
     ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
                                   storage::View::NEW);
+
+    bool pulled = false;
     while (input_cursor_->Pull(*frame, *context)) {
       ProcessOne(*frame, &evaluator);
+      pulled = true;
     }
+    if (!pulled) return false;
 
     // post processing
     for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
@@ -3574,6 +3610,7 @@ class AggregateCursor : public Cursor {
           break;
       }
     }
+    return true;
   }
 
   /**
@@ -3785,6 +3822,12 @@ UniqueCursorPtr Aggregate::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::AggregateOperator);
 
   return MakeUniqueCursorPtr<AggregateCursor>(mem, *this, mem);
+}
+
+auto Aggregate::AreAllAggregationsForCollecting() const -> bool {
+  return std::all_of(aggregations_.begin(), aggregations_.end(), [](const auto &agg) {
+    return agg.op == Aggregation::Op::COLLECT_LIST || agg.op == Aggregation::Op::COLLECT_MAP;
+  });
 }
 
 Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
@@ -4587,7 +4630,7 @@ UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem) const 
 
 CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> args,
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                             size_t memory_scale, bool is_write, bool void_procedure)
+                             size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure)
     : input_(input ? input : std::make_shared<Once>()),
       procedure_name_(name),
       arguments_(args),
@@ -4596,6 +4639,7 @@ CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string
       memory_limit_(memory_limit),
       memory_scale_(memory_scale),
       is_write_(is_write),
+      procedure_id_(procedure_id),
       void_procedure_(void_procedure) {}
 
 ACCEPT_WITH_INPUT(CallProcedure);
@@ -4624,7 +4668,7 @@ namespace {
 void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result,
-                         const bool call_initializer = false) {
+                         int64_t procedure_id, uint64_t transaction_id, const bool call_initializer = false) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,
                 "Expected mgp_value to use custom allocator and makes STL "
                 "containers aware of that");
@@ -4656,12 +4700,46 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,
                 utils::GetReadableSize(*memory_limit));
-    utils::LimitedMemoryResource limited_mem(memory, *memory_limit);
-    mgp_memory proc_memory{&limited_mem};
+    // Only allocations which can leak memory are
+    // our own mgp object allocations. Jemalloc can track
+    // memory correctly, but some memory may not be released
+    // immediately, so we want to give user info on leak still
+    // considering our allocations
+    utils::MemoryTrackingResource memory_tracking_resource{memory, *memory_limit};
+    // if we are already tracking, no harm no faul
+    // if we are not tracking, we need to start now, with unlimited memory
+    // for query, but limited for procedure
+
+    // check if transaction is tracked currently, so we
+    // can disable tracking on that arena if it is not
+    // once we are done with procedure tracking
+
+    bool is_transaction_tracked = memgraph::memory::IsTransactionTracked(transaction_id);
+
+    if (!is_transaction_tracked) {
+      // start tracking with unlimited limit on query
+      // which is same as not being tracked at all
+      memgraph::memory::TryStartTrackingOnTransaction(transaction_id, memgraph::memory::UNLIMITED_MEMORY);
+    }
+    memgraph::memory::StartTrackingCurrentThreadTransaction(transaction_id);
+
+    // due to mgp_batch_read_proc and mgp_batch_write_proc
+    // we can return to execution without exhausting whole
+    // memory. Here we need to update tracking
+    memgraph::memory::CreateOrContinueProcedureTracking(transaction_id, procedure_id, *memory_limit);
+
+    mgp_memory proc_memory{&memory_tracking_resource};
     MG_ASSERT(result->signature == &proc.results);
+
+    utils::OnScopeExit on_scope_exit{[transaction_id = transaction_id]() {
+      memgraph::memory::StopTrackingCurrentThreadTransaction(transaction_id);
+      memgraph::memory::PauseProcedureTracking(transaction_id);
+    }};
+
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);
-    size_t leaked_bytes = limited_mem.GetAllocatedBytes();
+
+    auto leaked_bytes = memory_tracking_resource.GetAllocatedBytes();
     if (leaked_bytes > 0U) {
       spdlog::warn("Query procedure '{}' leaked {} *tracked* bytes", fully_qualified_procedure_name, leaked_bytes);
     }
@@ -4769,8 +4847,10 @@ class CallProcedureCursor : public Cursor {
       auto *memory = self_->memory_resource;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
+      const auto transaction_id = context.db_accessor->GetTransactionId();
+      MG_ASSERT(transaction_id.has_value());
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
-                          result_, call_initializer);
+                          result_, self_->procedure_id_, transaction_id.value(), call_initializer);
 
       if (call_initializer) call_initializer = false;
 
@@ -4780,6 +4860,7 @@ class CallProcedureCursor : public Cursor {
       result_signature_size_ = result_->signature->size();
       result_->signature = nullptr;
       if (result_->error_msg) {
+        memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_->error_msg);
       }
       result_row_it_ = result_->rows.begin();
@@ -5335,7 +5416,7 @@ class HashJoinCursor : public Cursor {
         // Check if the join value from the pulled frame is shared with any left frames
         ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                       storage::View::OLD);
-        auto right_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
+        auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
         if (hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
           right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
@@ -5353,7 +5434,8 @@ class HashJoinCursor : public Cursor {
     restore_frame(self_.left_symbols_, *left_op_frame_it_);
 
     left_op_frame_it_++;
-    // When all left frames with the common value have been joined, move on to pulling and joining the next right frame
+    // When all left frames with the common value have been joined, move on to pulling and joining the next right
+    // frame
     if (common_value_found_ && left_op_frame_it_ == hashtable_[common_value].end()) {
       common_value_found_ = false;
     }
@@ -5382,7 +5464,7 @@ class HashJoinCursor : public Cursor {
     while (left_op_cursor_->Pull(frame, context)) {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
-      auto left_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
+      auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
       if (left_value.type() != TypedValue::Type::Null) {
         hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
       }

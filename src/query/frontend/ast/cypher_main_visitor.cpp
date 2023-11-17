@@ -202,6 +202,20 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
   }
 
+  if (auto *index_hints_ctx = ctx->indexHints()) {
+    for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
+      auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
+      if (!index_hint_ctx->propertyKeyName()) {
+        cypher_query->index_hints_.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
+        continue;
+      }
+      cypher_query->index_hints_.emplace_back(
+          IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
+                    .label_ = label,
+                    .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
+    }
+  }
+
   if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
     const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx->memoryLimit(), this);
     if (memory_limit_info) {
@@ -1202,10 +1216,6 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
       call_proc->memory_limit_ = memory_limit_info->first;
       call_proc->memory_scale_ = memory_limit_info->second;
     }
-  } else {
-    // Default to 100 MB
-    call_proc->memory_limit_ = storage_->Create<PrimitiveLiteral>(TypedValue(100));
-    call_proc->memory_scale_ = 1024U * 1024U;
   }
 
   const auto &maybe_found =
@@ -1226,11 +1236,13 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
       throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
     }
   }
-  call_proc->is_write_ = maybe_found->second->info.is_write;
+  if (maybe_found) {
+    call_proc->is_write_ = maybe_found->second->info.is_write;
+  }
 
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
-    if (!maybe_found->second->results.empty() && !call_proc->void_procedure_) {
+    if ((maybe_found && !maybe_found->second->results.empty()) && !call_proc->void_procedure_) {
       throw SemanticException(
           "CALL without YIELD may only be used on procedures which do not "
           "return any result fields.");

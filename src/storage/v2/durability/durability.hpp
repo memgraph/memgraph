@@ -19,6 +19,7 @@
 #include <variant>
 
 #include "replication/epoch.hpp"
+#include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
@@ -26,6 +27,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
@@ -102,7 +104,7 @@ using ParallelizedIndexCreationInfo =
 /// @throw RecoveryFailure
 void RecoverIndicesAndConstraints(
     const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices, Constraints *constraints,
-    utils::SkipList<Vertex> *vertices,
+    utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
     const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info = std::nullopt);
 
 /// Recovers data either from a snapshot and/or WAL files.
@@ -110,11 +112,9 @@ void RecoverIndicesAndConstraints(
 /// @throw std::bad_alloc
 std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
                                         const std::filesystem::path &wal_directory, std::string *uuid,
-                                        memgraph::replication::ReplicationEpoch &epoch,
-                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                        Indices *indices, Constraints *constraints, const Config &config,
-                                        uint64_t *wal_seq_num);
+                                        ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
+                                        utils::SkipList<Edge> *edges, std::atomic<uint64_t> *edge_count,
+                                        NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints,
+                                        const Config &config, uint64_t *wal_seq_num);
 
 }  // namespace memgraph::storage::durability

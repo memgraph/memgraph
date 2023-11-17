@@ -1131,8 +1131,12 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   static std::string SingleFilterName(const query::plan::FilterInfo &single_filter) {
     using Type = query::plan::FilterInfo::Type;
     if (single_filter.type == Type::Generic) {
-      return fmt::format("Generic {{{}}}", utils::IterableToString(single_filter.used_symbols, ", ",
-                                                                   [](const auto &symbol) { return symbol.name(); }));
+      std::set<std::string> symbol_names;
+      for (const auto &symbol : single_filter.used_symbols) {
+        symbol_names.insert(symbol.name());
+      }
+      return fmt::format("Generic {{{}}}",
+                         utils::IterableToString(symbol_names, ", ", [](const auto &name) { return name; }));
     } else if (single_filter.type == Type::Id) {
       return fmt::format("id({})", single_filter.id_filter->symbol_.name());
     } else if (single_filter.type == Type::Label) {
@@ -1140,16 +1144,18 @@ class Filter : public memgraph::query::plan::LogicalOperator {
         LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
       }
       auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+      std::set<std::string> label_names;
+      for (const auto &label : filter_expression->labels_) {
+        label_names.insert(label.name);
+      }
 
       if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
-        return fmt::format("(:{})", utils::IterableToString(filter_expression->labels_, ":",
-                                                            [](const auto &label) { return label.name; }));
+        return fmt::format("(:{})", utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
       }
       auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
 
-      return fmt::format(
-          "({} :{})", identifier_expression->name_,
-          utils::IterableToString(filter_expression->labels_, ":", [](const auto &label) { return label.name; }));
+      return fmt::format("({} :{})", identifier_expression->name_,
+                         utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
     } else if (single_filter.type == Type::Pattern) {
       return "Pattern";
     } else if (single_filter.type == Type::Property) {
@@ -1161,9 +1167,11 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   }
 
   std::string ToString() const override {
-    return fmt::format("Filter {}", utils::IterableToString(all_filters_, ", ", [](const auto &single_filter) {
-                         return Filter::SingleFilterName(single_filter);
-                       }));
+    std::set<std::string> filter_names;
+    for (const auto &filter : all_filters_) {
+      filter_names.insert(Filter::SingleFilterName(filter));
+    }
+    return fmt::format("Filter {}", utils::IterableToString(filter_names, ", ", [](const auto &name) { return name; }));
   }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
@@ -1750,6 +1758,9 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   Aggregate() = default;
   Aggregate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Element> &aggregations,
             const std::vector<Expression *> &group_by, const std::vector<Symbol> &remember);
+
+  auto AreAllAggregationsForCollecting() const -> bool;
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -2353,7 +2364,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   CallProcedure() = default;
   CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> arguments,
                 std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                size_t memory_scale, bool is_write, bool void_procedure = false);
+                size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure = false);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -2375,6 +2386,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
   bool is_write_;
+  int64_t procedure_id_;
   bool void_procedure_;
   mutable utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
   utils::MemoryResource *memory_resource = &monotonic_memory;
@@ -2397,6 +2409,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
+    object->procedure_id_ = procedure_id_;
     object->void_procedure_ = void_procedure_;
     return object;
   }
