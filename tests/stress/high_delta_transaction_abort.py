@@ -18,6 +18,7 @@ Large bipartite graph stress test.
 
 import atexit
 import logging
+import multiprocessing
 import time
 from argparse import Namespace as Args
 from dataclasses import dataclass
@@ -36,6 +37,7 @@ output_data = OutputData()
 
 DELETE_FUNCTION = "DELETE"
 MATCH_FUNCTION = "MATCH"
+SHOW_STORAGE_FUNCTION = "SHOW_STORAGE"
 
 
 atexit.register(SessionCache.cleanup)
@@ -74,7 +76,8 @@ class Worker:
     """
 
     type: str
-    id: int
+    repetition_count: int
+    sleep_sec: int
 
 
 def timed_function(name) -> Callable:
@@ -116,6 +119,25 @@ def setup_database_mode() -> None:
     execute_till_success(session, f"SET GLOBAL TRANSACTION ISOLATION LEVEL {args.isolation_level}")
 
 
+def execute_function(worker: Worker) -> Worker:
+    """
+    Executes the function based on the worker type
+    """
+    if worker.type == SHOW_STORAGE_FUNCTION:
+        run_show_storage(worker.repetition_count, worker.sleep_sec)
+        return worker
+
+    if worker.type == DELETE_FUNCTION:
+        run_deleter()
+        return worker
+
+    if worker.type == MATCH_FUNCTION:
+        run_matcher(worker.repetition_count, worker.sleep_sec)
+        return worker
+
+    raise Exception("Worker function not recognized, raising exception!")
+
+
 def create_data() -> None:
     edge_size = args.edge_size
     session = SessionCache.argument_session(args)
@@ -143,14 +165,42 @@ def run_deleter() -> None:
         print(e)
 
 
-def run_matcher() -> None:
+def run_matcher(rep_count: int, sleep_sec: int) -> None:
     """
     Matching edges and returning the count.
     """
     session = SessionCache.argument_session(args)
     print("Starting matcher")
-    execute_till_success(session, "MATCH (s:Supernode) RETURN COUNT(s)", 1)
+    try:
+        for i in range(rep_count):
+            execute_till_success(session, "MATCH (s:Supernode) RETURN COUNT(s)")
+            print(f"{i+1}. Executed matcher")
+            time.sleep(sleep_sec)
+    except Exception as e:
+        print("Matcher failed")
+        print(e)
+        raise
+
     print("Matcher ended")
+
+
+def run_show_storage(rep_count: int, sleep_sec: int) -> None:
+    """
+    Running show storage info periodically to see if it always returns.
+    """
+    session = SessionCache.argument_session(args)
+    print("Starting show storage")
+    try:
+        for i in range(rep_count):
+            execute_till_success(session, "SHOW STORAGE INFO")
+            print(f"{i+1}. Executed show storage info")
+            time.sleep(sleep_sec)
+    except Exception as e:
+        print("Show storage failed")
+        print(e)
+        raise
+
+    print("Show storage ended")
 
 
 @timed_function("total_execution_time")
@@ -161,6 +211,19 @@ def execution_handler() -> None:
     setup_database_mode()
     create_indices()
     create_data()
+
+    sleep_sec = 0.5
+    rep_count = 1000
+
+    workers = [
+        Worker(DELETE_FUNCTION, rep_count, sleep_sec),
+        Worker(MATCH_FUNCTION, rep_count, sleep_sec),
+        Worker(SHOW_STORAGE_FUNCTION, rep_count, sleep_sec),
+    ]
+
+    with multiprocessing.Pool(processes=args.worker_count) as p:
+        for worker in p.map(execute_function, workers):
+            print(f"Worker {worker.type} finished!")
 
     run_deleter()
     run_matcher()
