@@ -1,0 +1,114 @@
+name: Publish memgraph-builder docker images
+
+on:
+  workflow_dispatch:
+    inputs:
+      toolchain_version:
+        type: choice
+        description: "Toolchain version the builder will use. Default is v4"
+        options:
+          - v4
+          - v5
+      target_os:
+        type: choice
+        description: "Target OS for the builder. Default is Debian 11"
+        default: 'ubuntu-22_04'
+        options:
+          - all
+          - all-amd64
+          - all-arm
+          - amzn-2
+          - centos-7
+          - centos-9
+          - debian-10
+          - debian-11
+          - debian-11-arm
+          - fedora-36
+          - ubuntu-18_04
+          - ubuntu-20_04
+          - ubuntu-22_04
+          - ubuntu-22_04-arm
+
+jobs:
+  amd_build:
+    if: ${{ !startsWith(github.event.inputs.target_os, 'all') && !endsWith(github.event.inputs.target_os, '-arm') }}
+    name: "Build and publish specific amd64 image"
+    runs-on: [self-hosted, DockerMgBuild, X64]
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: "Build and publish image" 
+        run: |
+          echo "Building and publishing memgraph/memgraph-builder:${{ github.event.inputs.toolchain_version }}_${{ github.event.inputs.target_os }}"
+          ./release/package/run.sh build ${{ github.event.inputs.target_os }} ${{ github.event.inputs.toolchain_version }} --publish
+
+  arm_build:
+    if: ${{ !startsWith(github.event.inputs.target_os, 'all') && endsWith(github.event.inputs.target_os, '-arm') }}
+    name: "Build and publish specific arm image"
+    runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: "Build and publish image" 
+        run: |
+          echo "Building and publishing memgraph/memgraph-builder:${{ github.event.inputs.toolchain_version }}_${{ github.event.inputs.target_os }}"
+          ./release/package/run.sh build ${{ github.event.inputs.target_os }} ${{ github.event.inputs.toolchain_version }} --publish
+
+  all_amd_build:
+    if: ${{ github.event.inputs.target_os == 'all-amd64' ||  github.event.inputs.target_os == 'all'}}
+    name: "Build and publish all amd64 images"
+    runs-on: [self-hosted, DockerMgBuild, X64]
+    strategy:
+      matrix:
+        target_os: [amzn-2, centos-7, centos-9, debian-10, debian-11, fedora-36, ubuntu-18_04, ubuntu-20_04, ubuntu-22_04]
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: "Build and publish image" 
+        run: |
+          echo "Building and publishing memgraph/memgraph-builder:${{ github.event.inputs.toolchain_version }}_${{ matrix.target_os }}"
+          ./release/package/run.sh build ${{ matrix.target_os }} ${{ github.event.inputs.toolchain_version }} --publish
+
+
+  all_arm_build:
+    if: ${{ github.event.inputs.target_os == 'all-arm' ||  github.event.inputs.target_os == 'all'}}
+    name: "Build and publish all arm images"
+    runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
+    strategy:
+      matrix:
+        target_os: [debian-11-arm, ubuntu-22_04-arm]
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: "Build and publish image" 
+        run: |
+          echo "Building and publishing memgraph/memgraph-builder:${{ github.event.inputs.toolchain_version }}_${{ matrix.target_os }}"
+          ./release/package/run.sh build ${{ github.event.inputs.target_os }} ${{ matrix.toolchain_version }} --publish
