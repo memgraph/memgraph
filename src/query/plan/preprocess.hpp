@@ -365,7 +365,7 @@ class Filters final {
   /// Remove a label filter for symbol; may invalidate iterators.
   /// If removed_filters is not nullptr, fills the vector with original
   /// `Expression *` which are now completely removed.
-  void EraseLabelFilter(const Symbol &, LabelIx, std::vector<Expression *> *removed_filters = nullptr);
+  void EraseLabelFilter(const Symbol &, const LabelIx &, std::vector<Expression *> *removed_filters = nullptr);
 
   /// Returns a vector of FilterInfo for properties.
   auto PropertyFilters(const Symbol &symbol) const {

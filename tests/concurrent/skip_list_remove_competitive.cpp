@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,15 +31,16 @@ int main() {
   std::atomic<uint64_t> success{0};
 
   std::vector<std::thread> threads;
+  threads.reserve(kNumThreads);
   for (int i = 0; i < kNumThreads; ++i) {
-    threads.push_back(std::thread([&list, &success] {
+    threads.emplace_back([&list, &success] {
       for (uint64_t num = 0; num < kMaxNum; ++num) {
         auto acc = list.access();
         if (acc.remove(num)) {
           success.fetch_add(1, std::memory_order_relaxed);
         }
       }
-    }));
+    });
   }
   for (int i = 0; i < kNumThreads; ++i) {
     threads[i].join();

@@ -17,14 +17,8 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-#include "utils/event_counter.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/file.hpp"
 #include "utils/logging.hpp"
-#include "utils/stat.hpp"
-#include "utils/timer.hpp"
-#include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::storage {
@@ -32,19 +26,19 @@ namespace memgraph::storage {
 class InMemoryStorage;
 
 Storage::Storage(Config config, StorageMode storage_mode)
-    : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
+    : name_id_mapper_(std::invoke([&config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
           return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
                                                     config.disk.id_name_mapper_directory);
         }
         return std::make_unique<NameIdMapper>();
       })),
-      config_(config),
-      isolation_level_(config.transaction.isolation_level),
+      config_(std::move(config)),
+      isolation_level_(config_.transaction.isolation_level),
       storage_mode_(storage_mode),
-      indices_(config, storage_mode),
-      constraints_(config, storage_mode),
-      id_(config.name) {
+      indices_(config_, storage_mode),
+      constraints_(config_, storage_mode),
+      id_(config_.name) {
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 

@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "query/frontend/ast/ast.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
@@ -113,7 +115,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{Scope()} {}
 
   CostEstimator(TDbAccessor *db_accessor, const SymbolTable &table, const Parameters &parameters, Scope scope)
-      : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{scope} {}
+      : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{std::move(scope)} {}
 
   bool PostVisit(ScanAll &) override {
     cardinality_ *= db_accessor_->VerticesCount();

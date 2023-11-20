@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,7 +41,8 @@ class Listener : public std::enable_shared_from_this<Listener> {
   tcp::endpoint GetEndpoint() const;
 
  private:
-  Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::endpoint endpoint, AuthenticationInterface &auth);
+  Listener(boost::asio::io_context &ioc, ServerContext *context, const tcp::endpoint &endpoint,
+           AuthenticationInterface &auth);
 
   void DoAccept();
   void OnAccept(boost::beast::error_code ec, tcp::socket socket);

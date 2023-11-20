@@ -39,7 +39,8 @@ TEST(Network, Server) {
   const auto &ep = server.endpoint();
   // start clients
   std::vector<std::thread> clients;
-  for (int i = 0; i < N; ++i) clients.push_back(std::thread(client_run, i, interface, ep.port, data, 30000, SIZE));
+  clients.reserve(N);
+  for (int i = 0; i < N; ++i) clients.emplace_back(client_run, i, interface, ep.port, data, 30000, SIZE);
 
   // cleanup clients
   for (int i = 0; i < N; ++i) clients[i].join();

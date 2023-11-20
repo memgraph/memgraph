@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <utility>
 
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
@@ -79,7 +80,7 @@ struct HeartbeatRes {
       : db_name(std::move(name)),
         success(success),
         current_commit_timestamp(current_commit_timestamp),
-        epoch_id(epoch_id) {}
+        epoch_id(std::move(epoch_id)) {}
 
   std::string db_name;
   bool success;

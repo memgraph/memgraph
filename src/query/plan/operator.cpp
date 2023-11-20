@@ -303,7 +303,7 @@ CreateExpand::CreateExpand(const NodeCreationInfo &node_info, const EdgeCreation
     : node_info_(node_info),
       edge_info_(edge_info),
       input_(input ? input : std::make_shared<Once>()),
-      input_symbol_(input_symbol),
+      input_symbol_(std::move(input_symbol)),
       existing_node_(existing_node) {}
 
 ACCEPT_WITH_INPUT(CreateExpand)
@@ -447,7 +447,7 @@ class ScanAllCursor : public Cursor {
   explicit ScanAllCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View view,
                          TVerticesFun get_vertices, const char *op_name)
       : self_(self),
-        output_symbol_(output_symbol),
+        output_symbol_(std::move(output_symbol)),
         input_cursor_(std::move(input_cursor)),
         view_(view),
         get_vertices_(std::move(get_vertices)),
@@ -518,7 +518,7 @@ class ScanAllCursor : public Cursor {
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)
-    : input_(input ? input : std::make_shared<Once>()), output_symbol_(output_symbol), view_(view) {}
+    : input_(input ? input : std::make_shared<Once>()), output_symbol_(std::move(output_symbol)), view_(view) {}
 
 ACCEPT_WITH_INPUT(ScanAll)
 
@@ -541,7 +541,7 @@ std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
 
 ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                storage::LabelId label, storage::View view)
-    : ScanAll(input, output_symbol, view), label_(label) {}
+    : ScanAll(input, std::move(output_symbol), view), label_(label) {}
 
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
@@ -564,7 +564,7 @@ ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(const std::shared_ptr<L
                                                          storage::PropertyId property, const std::string &property_name,
                                                          std::optional<Bound> lower_bound,
                                                          std::optional<Bound> upper_bound, storage::View view)
-    : ScanAll(input, output_symbol, view),
+    : ScanAll(input, std::move(output_symbol), view),
       label_(label),
       property_(property),
       property_name_(property_name),
@@ -625,7 +625,7 @@ ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<L
                                                          Symbol output_symbol, storage::LabelId label,
                                                          storage::PropertyId property, const std::string &property_name,
                                                          Expression *expression, storage::View view)
-    : ScanAll(input, output_symbol, view),
+    : ScanAll(input, std::move(output_symbol), view),
       label_(label),
       property_(property),
       property_name_(property_name),
@@ -656,7 +656,10 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                                storage::LabelId label, storage::PropertyId property,
                                                const std::string &property_name, storage::View view)
-    : ScanAll(input, output_symbol, view), label_(label), property_(property), property_name_(property_name) {}
+    : ScanAll(input, std::move(output_symbol), view),
+      label_(label),
+      property_(property),
+      property_name_(property_name) {}
 
 ACCEPT_WITH_INPUT(ScanAllByLabelProperty)
 
@@ -673,7 +676,7 @@ UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) c
 
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
                          storage::View view)
-    : ScanAll(input, output_symbol, view), expression_(expression) {
+    : ScanAll(input, std::move(output_symbol), view), expression_(expression) {
   MG_ASSERT(expression);
 }
 
@@ -728,8 +731,8 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
                Symbol edge_symbol, EdgeAtom::Direction direction, const std::vector<storage::EdgeTypeId> &edge_types,
                bool existing_node, storage::View view)
     : input_(input ? input : std::make_shared<Once>()),
-      input_symbol_(input_symbol),
-      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
+      input_symbol_(std::move(input_symbol)),
+      common_{std::move(node_symbol), std::move(edge_symbol), direction, edge_types, existing_node},
       view_(view) {}
 
 ACCEPT_WITH_INPUT(Expand)
@@ -962,15 +965,15 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
                                ExpansionLambda filter_lambda, std::optional<ExpansionLambda> weight_lambda,
                                std::optional<Symbol> total_weight)
     : input_(input ? input : std::make_shared<Once>()),
-      input_symbol_(input_symbol),
-      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
+      input_symbol_(std::move(input_symbol)),
+      common_{std::move(node_symbol), std::move(edge_symbol), direction, edge_types, existing_node},
       type_(type),
       is_reverse_(is_reverse),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
-      filter_lambda_(filter_lambda),
-      weight_lambda_(weight_lambda),
-      total_weight_(total_weight) {
+      filter_lambda_(std::move(filter_lambda)),
+      weight_lambda_(std::move(weight_lambda)),
+      total_weight_(std::move(total_weight)) {
   DMG_ASSERT(type_ == EdgeAtom::Type::DEPTH_FIRST || type_ == EdgeAtom::Type::BREADTH_FIRST ||
                  type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS,
              "ExpandVariable can only be used with breadth first, depth first, "
@@ -2478,7 +2481,7 @@ void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
 
 EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol)
-    : input_(input), output_symbol_(output_symbol) {}
+    : input_(input), output_symbol_(std::move(output_symbol)) {}
 
 ACCEPT_WITH_INPUT(EvaluatePatternFilter);
 
@@ -2801,7 +2804,7 @@ void SetProperty::SetPropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
 void SetProperty::SetPropertyCursor::Reset() { input_cursor_->Reset(); }
 
 SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Expression *rhs, Op op)
-    : input_(input), input_symbol_(input_symbol), rhs_(rhs), op_(op) {}
+    : input_(input), input_symbol_(std::move(input_symbol)), rhs_(rhs), op_(op) {}
 
 ACCEPT_WITH_INPUT(SetProperties)
 
@@ -3000,7 +3003,7 @@ void SetProperties::SetPropertiesCursor::Reset() { input_cursor_->Reset(); }
 
 SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                      const std::vector<storage::LabelId> &labels)
-    : input_(input), input_symbol_(input_symbol), labels_(labels) {}
+    : input_(input), input_symbol_(std::move(input_symbol)), labels_(labels) {}
 
 ACCEPT_WITH_INPUT(SetLabels)
 
@@ -3160,7 +3163,7 @@ void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                            const std::vector<storage::LabelId> &labels)
-    : input_(input), input_symbol_(input_symbol), labels_(labels) {}
+    : input_(input), input_symbol_(std::move(input_symbol)), labels_(labels) {}
 
 ACCEPT_WITH_INPUT(RemoveLabels)
 
@@ -3234,7 +3237,7 @@ void RemoveLabels::RemoveLabelsCursor::Reset() { input_cursor_->Reset(); }
 
 EdgeUniquenessFilter::EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator> &input, Symbol expand_symbol,
                                            const std::vector<Symbol> &previous_symbols)
-    : input_(input), expand_symbol_(expand_symbol), previous_symbols_(previous_symbols) {}
+    : input_(input), expand_symbol_(std::move(expand_symbol)), previous_symbols_(previous_symbols) {}
 
 ACCEPT_WITH_INPUT(EdgeUniquenessFilter)
 
@@ -4204,7 +4207,7 @@ void Optional::OptionalCursor::Reset() {
 Unwind::Unwind(const std::shared_ptr<LogicalOperator> &input, Expression *input_expression, Symbol output_symbol)
     : input_(input ? input : std::make_shared<Once>()),
       input_expression_(input_expression),
-      output_symbol_(output_symbol) {}
+      output_symbol_(std::move(output_symbol)) {}
 
 ACCEPT_WITH_INPUT(Unwind)
 
@@ -4336,14 +4339,13 @@ std::vector<Symbol> Distinct::OutputSymbols(const SymbolTable &symbol_table) con
 
 std::vector<Symbol> Distinct::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
-Union::Union(const std::shared_ptr<LogicalOperator> &left_op, const std::shared_ptr<LogicalOperator> &right_op,
-             const std::vector<Symbol> &union_symbols, const std::vector<Symbol> &left_symbols,
-             const std::vector<Symbol> &right_symbols)
-    : left_op_(left_op),
-      right_op_(right_op),
-      union_symbols_(union_symbols),
-      left_symbols_(left_symbols),
-      right_symbols_(right_symbols) {}
+Union::Union(std::shared_ptr<LogicalOperator> left_op, std::shared_ptr<LogicalOperator> right_op,
+             std::vector<Symbol> union_symbols, std::vector<Symbol> left_symbols, std::vector<Symbol> right_symbols)
+    : left_op_(std::move(left_op)),
+      right_op_(std::move(right_op)),
+      union_symbols_(std::move(union_symbols)),
+      left_symbols_(std::move(left_symbols)),
+      right_symbols_(std::move(right_symbols)) {}
 
 UniqueCursorPtr Union::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::UnionOperator);
@@ -4626,10 +4628,10 @@ CallProcedure::CallProcedure(std::shared_ptr<LogicalOperator> input, std::string
                              std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
                              size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure)
     : input_(input ? input : std::make_shared<Once>()),
-      procedure_name_(name),
-      arguments_(args),
-      result_fields_(fields),
-      result_symbols_(symbols),
+      procedure_name_(std::move(name)),
+      arguments_(std::move(args)),
+      result_fields_(std::move(fields)),
+      result_symbols_(std::move(symbols)),
       memory_limit_(memory_limit),
       memory_scale_(memory_scale),
       is_write_(is_write),
@@ -4983,7 +4985,7 @@ LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool 
       delimiter_(delimiter),
       quote_(quote),
       nullif_(nullif),
-      row_var_(row_var) {
+      row_var_(std::move(row_var)) {
   MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
 }
 
@@ -5197,7 +5199,7 @@ Foreach::Foreach(std::shared_ptr<LogicalOperator> input, std::shared_ptr<Logical
     : input_(input ? std::move(input) : std::make_shared<Once>()),
       update_clauses_(std::move(updates)),
       expression_(expr),
-      loop_variable_symbol_(loop_variable_symbol) {}
+      loop_variable_symbol_(std::move(loop_variable_symbol)) {}
 
 UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ForeachOperator);

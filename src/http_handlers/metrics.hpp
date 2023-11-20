@@ -72,7 +72,7 @@ class MetricsService {
                            .event_histograms = GetEventHistograms()};
   }
 
-  nlohmann::json AsJson(MetricsResponse response) {
+  nlohmann::json AsJson(const MetricsResponse &response) {
     auto metrics_response = nlohmann::json();
     const auto *general_type = "General";
 

@@ -26,7 +26,7 @@ class Server final {
   using tcp = boost::asio::ip::tcp;
 
  public:
-  explicit Server(io::network::Endpoint endpoint, TSessionContext *session_context, ServerContext *context);
+  explicit Server(const io::network::Endpoint &endpoint, TSessionContext *session_context, ServerContext *context);
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
@@ -57,8 +57,8 @@ class Server final {
   std::optional<std::thread> background_thread_;
 };
 template <class TRequestHandler, typename TSessionContext>
-Server<TRequestHandler, TSessionContext>::Server(io::network::Endpoint endpoint, TSessionContext *session_context,
-                                                 ServerContext *context)
+Server<TRequestHandler, TSessionContext>::Server(const io::network::Endpoint &endpoint,
+                                                 TSessionContext *session_context, ServerContext *context)
     : listener_{Listener<TRequestHandler, TSessionContext>::Create(
           ioc_, session_context, context,
           tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port})} {}

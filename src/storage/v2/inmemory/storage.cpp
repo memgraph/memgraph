@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+
+#include <utility>
 #include "dbms/constants.hpp"
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -117,7 +119,8 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   }
 }
 
-InMemoryStorage::InMemoryStorage(Config config) : InMemoryStorage(config, StorageMode::IN_MEMORY_TRANSACTIONAL) {}
+InMemoryStorage::InMemoryStorage(Config config)
+    : InMemoryStorage(std::move(config), StorageMode::IN_MEMORY_TRANSACTIONAL) {}
 
 InMemoryStorage::~InMemoryStorage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
@@ -1993,7 +1996,7 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<I
 
 void InMemoryStorage::CreateSnapshotHandler(
     std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb) {
-  create_snapshot_handler = [cb]() {
+  create_snapshot_handler = [cb = std::move(cb)]() {
     if (auto maybe_error = cb(); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:

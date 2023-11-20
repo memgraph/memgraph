@@ -58,6 +58,7 @@ void MultiCreate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, 
   try {
     std::vector<std::thread> threads;
 
+    threads.reserve(2);
     for (int i = 0; i < 2; i++) {
       threads.emplace_back(AllocFunc, memgraph_graph, memory);
     }

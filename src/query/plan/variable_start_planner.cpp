@@ -13,6 +13,7 @@
 
 #include <limits>
 #include <queue>
+#include <utility>
 
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
@@ -170,7 +171,7 @@ FilterMatching ToFilterMatching(Matching &matching) {
 }  // namespace
 
 VaryMatchingStart::VaryMatchingStart(Matching matching, const SymbolTable &symbol_table)
-    : matching_(matching), symbol_table_(symbol_table), nodes_(ExpansionNodes(matching.expansions, symbol_table)) {}
+    : matching_(matching), symbol_table_(symbol_table), nodes_(ExpansionNodes(matching_.expansions, symbol_table)) {}
 
 VaryMatchingStart::iterator::iterator(VaryMatchingStart *self, bool is_done)
     : self_(self),
@@ -257,17 +258,17 @@ VaryQueryPartMatching::iterator::iterator(const SingleQueryPart &query_part,
                                           CartesianProduct<VaryMatchingStart>::iterator filter_begin,
                                           CartesianProduct<VaryMatchingStart>::iterator filter_end)
     : current_query_part_(query_part),
-      matchings_it_(matchings_begin),
-      matchings_end_(matchings_end),
+      matchings_it_(std::move(matchings_begin)),
+      matchings_end_(std::move(matchings_end)),
       optional_it_(optional_begin),
-      optional_begin_(optional_begin),
-      optional_end_(optional_end),
+      optional_begin_(std::move(optional_begin)),
+      optional_end_(std::move(optional_end)),
       merge_it_(merge_begin),
-      merge_begin_(merge_begin),
-      merge_end_(merge_end),
+      merge_begin_(std::move(merge_begin)),
+      merge_end_(std::move(merge_end)),
       filter_it_(filter_begin),
-      filter_begin_(filter_begin),
-      filter_end_(filter_end) {
+      filter_begin_(std::move(filter_begin)),
+      filter_end_(std::move(filter_end)) {
   if (matchings_it_ != matchings_end_) {
     // Fill the query part with the first variation of matchings
     SetCurrentQueryPart();

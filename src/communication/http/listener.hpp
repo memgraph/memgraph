@@ -51,7 +51,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
 
  private:
   Listener(boost::asio::io_context &ioc, TSessionContext *session_context, ServerContext *context,
-           tcp::endpoint endpoint)
+           const tcp::endpoint &endpoint)
       : ioc_(ioc), session_context_(session_context), context_(context), acceptor_(ioc) {
     boost::beast::error_code ec;
 

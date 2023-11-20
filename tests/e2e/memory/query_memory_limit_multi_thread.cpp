@@ -83,6 +83,7 @@ int main(int argc, char **argv) {
 
   std::vector<std::thread> my_threads;
 
+  my_threads.reserve(kNumberClients);
   for (int i = 0; i < kNumberClients; i++) {
     my_threads.emplace_back(Func, std::move(my_promises[i]));
   }

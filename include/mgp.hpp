@@ -302,8 +302,8 @@ class Nodes {
 
     Iterator operator++(int);
 
-    bool operator==(Iterator other) const;
-    bool operator!=(Iterator other) const;
+    bool operator==(const Iterator &other) const;
+    bool operator!=(const Iterator &other) const;
 
     const Node operator*() const;
 
@@ -349,8 +349,8 @@ class GraphRelationships {
     Iterator &operator++();
     Iterator operator++(int);
 
-    bool operator==(Iterator other) const;
-    bool operator!=(Iterator other) const;
+    bool operator==(const Iterator &other) const;
+    bool operator!=(const Iterator &other) const;
 
     const Relationship operator*() const;
 
@@ -395,8 +395,8 @@ class Relationships {
     Iterator &operator++();
     Iterator operator++(int);
 
-    bool operator==(Iterator other) const;
-    bool operator!=(Iterator other) const;
+    bool operator==(const Iterator &other) const;
+    bool operator!=(const Iterator &other) const;
 
     const Relationship operator*() const;
 
@@ -653,8 +653,8 @@ class Map {
     Iterator &operator++();
     Iterator operator++(int);
 
-    bool operator==(Iterator other) const;
-    bool operator!=(Iterator other) const;
+    bool operator==(const Iterator &other) const;
+    bool operator!=(const Iterator &other) const;
 
     const MapItem operator*() const;
 
@@ -743,10 +743,10 @@ class Node {
   std::unordered_map<std::string, Value> Properties() const;
 
   /// @brief Sets the chosen property to the given value.
-  void SetProperty(std::string property, Value value);
+  void SetProperty(std::string property, const Value &value);
 
   /// @brief Sets the chosen properties to the given values.
-  void SetProperties(std::unordered_map<std::string_view, Value> properties);
+  void SetProperties(const std::unordered_map<std::string_view, Value> &properties);
 
   /// @brief Removes the chosen property.
   void RemoveProperty(std::string property);
@@ -821,10 +821,10 @@ class Relationship {
   std::unordered_map<std::string, Value> Properties() const;
 
   /// @brief Sets the chosen property to the given value.
-  void SetProperty(std::string property, Value value);
+  void SetProperty(std::string property, const Value &value);
 
   /// @brief Sets the chosen properties to the given values.
-  void SetProperties(std::unordered_map<std::string_view, Value> properties);
+  void SetProperties(const std::unordered_map<std::string_view, Value> &properties);
 
   /// @brief Removes the chosen property.
   void RemoveProperty(std::string property);
@@ -1547,7 +1547,7 @@ enum class ProcedureType : uint8_t {
 /// @param module - the query module that the procedure is added to
 /// @param memory - access to memory
 inline void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
-                         std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
+                         std::vector<Parameter> parameters, const std::vector<Return> &returns, mgp_module *module,
                          mgp_memory *memory);
 
 /// @brief Adds a batch procedure to the query module.
@@ -1562,7 +1562,7 @@ inline void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureT
 /// @param memory - access to memory
 inline void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
                               std::string_view name, ProcedureType proc_type, std::vector<Parameter> parameters,
-                              std::vector<Return> returns, mgp_module *module, mgp_memory *memory);
+                              const std::vector<Return> &returns, mgp_module *module, mgp_memory *memory);
 
 /// @brief Adds a function to the query module.
 /// @param callback - function callback
@@ -1570,7 +1570,7 @@ inline void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initial
 /// @param parameters - function parameters
 /// @param module - the query module that the function is added to
 /// @param memory - access to memory
-inline void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<Parameter> parameters,
+inline void AddFunction(mgp_func_cb callback, std::string_view name, const std::vector<Parameter> &parameters,
                         mgp_module *module, mgp_memory *memory);
 
 /* #endregion */
@@ -2084,7 +2084,7 @@ inline Nodes::Iterator Nodes::Iterator::operator++(int) {
   return retval;
 }
 
-inline bool Nodes::Iterator::operator==(Iterator other) const {
+inline bool Nodes::Iterator::operator==(const Iterator &other) const {
   if (nodes_iterator_ == nullptr && other.nodes_iterator_ == nullptr) {
     return true;
   }
@@ -2096,7 +2096,7 @@ inline bool Nodes::Iterator::operator==(Iterator other) const {
          index_ == other.index_;
 }
 
-inline bool Nodes::Iterator::operator!=(Iterator other) const { return !(*this == other); }
+inline bool Nodes::Iterator::operator!=(const Iterator &other) const { return !(*this == other); }
 
 inline const Node Nodes::Iterator::operator*() const {
   if (nodes_iterator_ == nullptr) {
@@ -2208,7 +2208,7 @@ inline GraphRelationships::Iterator GraphRelationships::Iterator::operator++(int
   return retval;
 }
 
-inline bool GraphRelationships::Iterator::operator==(Iterator other) const {
+inline bool GraphRelationships::Iterator::operator==(const Iterator &other) const {
   if (out_relationships_iterator_ == nullptr && other.out_relationships_iterator_ == nullptr) {
     return true;
   }
@@ -2220,7 +2220,7 @@ inline bool GraphRelationships::Iterator::operator==(Iterator other) const {
          index_ == other.index_;
 }
 
-inline bool GraphRelationships::Iterator::operator!=(Iterator other) const { return !(*this == other); }
+inline bool GraphRelationships::Iterator::operator!=(const Iterator &other) const { return !(*this == other); }
 
 inline const Relationship GraphRelationships::Iterator::operator*() const {
   if (out_relationships_iterator_ != nullptr) {
@@ -2286,7 +2286,7 @@ inline Relationships::Iterator Relationships::Iterator::operator++(int) {
   return retval;
 }
 
-inline bool Relationships::Iterator::operator==(Iterator other) const {
+inline bool Relationships::Iterator::operator==(const Iterator &other) const {
   if (relationships_iterator_ == nullptr && other.relationships_iterator_ == nullptr) {
     return true;
   }
@@ -2298,7 +2298,7 @@ inline bool Relationships::Iterator::operator==(Iterator other) const {
          index_ == other.index_;
 }
 
-inline bool Relationships::Iterator::operator!=(Iterator other) const { return !(*this == other); }
+inline bool Relationships::Iterator::operator!=(const Iterator &other) const { return !(*this == other); }
 
 inline const Relationship Relationships::Iterator::operator*() const {
   if (relationships_iterator_ == nullptr) {
@@ -2620,7 +2620,7 @@ inline Map::Iterator Map::Iterator::operator++(int) {
   return retval;
 }
 
-inline bool Map::Iterator::operator==(Iterator other) const {
+inline bool Map::Iterator::operator==(const Iterator &other) const {
   if (map_items_iterator_ == nullptr && other.map_items_iterator_ == nullptr) {
     return true;
   }
@@ -2630,7 +2630,7 @@ inline bool Map::Iterator::operator==(Iterator other) const {
   return mgp::map_items_iterator_get(map_items_iterator_) == mgp::map_items_iterator_get(other.map_items_iterator_);
 }
 
-inline bool Map::Iterator::operator!=(Iterator other) const { return !(*this == other); }
+inline bool Map::Iterator::operator!=(const Iterator &other) const { return !(*this == other); }
 
 inline const MapItem Map::Iterator::operator*() const {
   if (map_items_iterator_ == nullptr) {
@@ -2781,11 +2781,11 @@ inline std::unordered_map<std::string, Value> Node::Properties() const {
   return property_map;
 }
 
-inline void Node::SetProperty(std::string property, Value value) {
+inline void Node::SetProperty(std::string property, const Value &value) {
   mgp::vertex_set_property(ptr_, property.data(), value.ptr());
 }
 
-inline void Node::SetProperties(std::unordered_map<std::string_view, Value> properties) {
+inline void Node::SetProperties(const std::unordered_map<std::string_view, Value> &properties) {
   mgp_map *map = mgp::MemHandlerCallback(map_make_empty);
 
   for (auto const &[k, v] : properties) {
@@ -2796,7 +2796,7 @@ inline void Node::SetProperties(std::unordered_map<std::string_view, Value> prop
   mgp::map_destroy(map);
 }
 
-inline void Node::RemoveProperty(std::string property) { SetProperty(property, Value()); }
+inline void Node::RemoveProperty(std::string property) { SetProperty(std::move(property), Value()); }
 
 inline Value Node::GetProperty(const std::string &property) const {
   mgp_value *vertex_prop = mgp::MemHandlerCallback(vertex_get_property, ptr_, property.data());
@@ -2899,11 +2899,11 @@ inline std::unordered_map<std::string, Value> Relationship::Properties() const {
   return property_map;
 }
 
-inline void Relationship::SetProperty(std::string property, Value value) {
+inline void Relationship::SetProperty(std::string property, const Value &value) {
   mgp::edge_set_property(ptr_, property.data(), value.ptr());
 }
 
-inline void Relationship::SetProperties(std::unordered_map<std::string_view, Value> properties) {
+inline void Relationship::SetProperties(const std::unordered_map<std::string_view, Value> &properties) {
   mgp_map *map = mgp::MemHandlerCallback(map_make_empty);
 
   for (auto const &[k, v] : properties) {
@@ -2914,7 +2914,7 @@ inline void Relationship::SetProperties(std::unordered_map<std::string_view, Val
   mgp::map_destroy(map);
 }
 
-inline void Relationship::RemoveProperty(std::string property) { SetProperty(property, Value()); }
+inline void Relationship::RemoveProperty(std::string property) { SetProperty(std::move(property), Value()); }
 
 inline Value Relationship::GetProperty(const std::string &property) const {
   mgp_value *edge_prop = mgp::MemHandlerCallback(edge_get_property, ptr_, property.data());
@@ -4222,7 +4222,7 @@ inline Parameter::Parameter(std::string_view name, Type type, const char *defaul
     : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, Value default_value)
-    : name(name), type_(type), optional(true), default_value(default_value) {}
+    : name(name), type_(type), optional(true), default_value(std::move(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, std::pair<Type, Type> list_type)
     : name(name), type_(list_type.first), list_item_type_(list_type.second) {}
@@ -4232,7 +4232,7 @@ inline Parameter::Parameter(std::string_view name, std::pair<Type, Type> list_ty
       type_(list_type.first),
       list_item_type_(list_type.second),
       optional(true),
-      default_value(default_value) {}
+      default_value(std::move(default_value)) {}
 
 inline mgp_type *Parameter::GetMGPType() const {
   if (type_ == Type::List) {
@@ -4278,7 +4278,7 @@ inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &param
 }  // namespace detail
 
 void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
-                  std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
+                  std::vector<Parameter> parameters, const std::vector<Return> &returns, mgp_module *module,
                   mgp_memory *memory) {
   auto *proc = (proc_type == ProcedureType::Read) ? mgp::module_add_read_procedure(module, name.data(), callback)
                                                   : mgp::module_add_write_procedure(module, name.data(), callback);
@@ -4287,15 +4287,15 @@ void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType pro
 
 void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
                        std::string_view name, ProcedureType proc_type, std::vector<Parameter> parameters,
-                       std::vector<Return> returns, mgp_module *module, mgp_memory *memory) {
+                       const std::vector<Return> &returns, mgp_module *module, mgp_memory *memory) {
   auto *proc = (proc_type == ProcedureType::Read)
                    ? mgp::module_add_batch_read_procedure(module, name.data(), callback, initializer, cleanup)
                    : mgp::module_add_batch_write_procedure(module, name.data(), callback, initializer, cleanup);
   detail::AddParamsReturnsToProc(proc, parameters, returns);
 }
 
-void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<Parameter> parameters, mgp_module *module,
-                 mgp_memory *memory) {
+void AddFunction(mgp_func_cb callback, std::string_view name, const std::vector<Parameter> &parameters,
+                 mgp_module *module, mgp_memory *memory) {
   auto *func = mgp::module_add_function(module, name.data(), callback);
 
   for (const auto &parameter : parameters) {

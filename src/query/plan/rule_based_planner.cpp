@@ -602,8 +602,10 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table) {
-  return std::make_unique<Union>(left_op, right_op, cypher_union.union_symbols_, left_op->OutputSymbols(symbol_table),
-                                 right_op->OutputSymbols(symbol_table));
+  auto left_symbols = left_op->OutputSymbols(symbol_table);
+  auto right_symbols = right_op->OutputSymbols(symbol_table);
+  return std::make_unique<Union>(std::move(left_op), std::move(right_op), cypher_union.union_symbols_,
+                                 std::move(left_symbols), std::move(right_symbols));
 }
 
 Symbol GetSymbol(NodeAtom *atom, const SymbolTable &symbol_table) { return symbol_table.at(*atom->identifier_); }

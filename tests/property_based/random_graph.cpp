@@ -42,14 +42,14 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
 
   auto dba = db->Access();
 
-  for (auto label : vertex_labels) {
+  for (const auto &label : vertex_labels) {
     auto vertex_accessor = dba->CreateVertex();
     RC_ASSERT(vertex_accessor.AddLabel(dba->NameToLabel(label)).HasValue());
     vertex_label_map.emplace(vertex_accessor, label);
     vertices.push_back(vertex_accessor);
   }
 
-  for (auto type : edge_types) {
+  for (const auto &type : edge_types) {
     auto &from = vertices[*rc::gen::inRange(0, vertices_num)];
     auto &to = vertices[*rc::gen::inRange(0, vertices_num)];
     auto maybe_edge_accessor = dba->CreateEdge(&from, &to, dba->NameToEdgeType(type));

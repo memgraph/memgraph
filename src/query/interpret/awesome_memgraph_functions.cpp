@@ -1007,11 +1007,12 @@ TypedValue Right(const TypedValue *args, int64_t nargs, const FunctionContext &c
                            : TypedValue(str, ctx.memory);
 }
 
+template <typename Func>
 TypedValue CallStringFunction(const TypedValue *args, int64_t nargs, utils::MemoryResource *memory, const char *name,
-                              std::function<TypedValue::TString(const TypedValue::TString &)> fun) {
+                              Func &&fun) {
   FType<Or<Null, String>>(name, args, nargs);
   if (args[0].IsNull()) return TypedValue(memory);
-  return TypedValue(fun(args[0].ValueString()), memory);
+  return TypedValue(std::forward<Func>(fun)(args[0].ValueString()), memory);
 }
 
 TypedValue LTrim(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {

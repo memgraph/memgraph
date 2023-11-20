@@ -52,6 +52,7 @@ int main(int argc, char **argv) {
                            FLAGS_worker_count, FLAGS_per_worker_query_count));
   std::vector<std::thread> threads;
   memgraph::utils::Timer timer;
+  threads.reserve(FLAGS_worker_count);
   for (int i = 0; i < FLAGS_worker_count; ++i) {
     threads.emplace_back([]() {
       auto client = make_client();

@@ -26,7 +26,7 @@
 namespace memgraph::io::network {
 
 /// Resolves hostname to ip, if already an ip, just returns it
-std::string ResolveHostname(std::string hostname) {
+std::string ResolveHostname(const std::string &hostname) {
   addrinfo hints;
   memset(&hints, 0, sizeof hints);
   hints.ai_family = AF_UNSPEC;  // use AF_INET6 to force IPv6

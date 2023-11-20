@@ -13,6 +13,7 @@
 
 #include <map>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 #include "communication/server.hpp"
@@ -46,7 +47,7 @@ class Server {
     RpcCallback rpc;
     rpc.req_type = TRequestResponse::Request::kType;
     rpc.res_type = TRequestResponse::Response::kType;
-    rpc.callback = callback;
+    rpc.callback = std::move(callback);
 
     if (extended_callbacks_.find(TRequestResponse::Request::kType.id) != extended_callbacks_.end()) {
       LOG_FATAL("Callback for that message type already registered!");
@@ -64,7 +65,7 @@ class Server {
     RpcExtendedCallback rpc;
     rpc.req_type = TRequestResponse::Request::kType;
     rpc.res_type = TRequestResponse::Response::kType;
-    rpc.callback = callback;
+    rpc.callback = std::move(callback);
 
     auto got = extended_callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
     MG_ASSERT(got.second, "Callback for that message type already registered");

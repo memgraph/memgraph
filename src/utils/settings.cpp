@@ -41,11 +41,11 @@ void Settings::RegisterSetting(std::string name, const std::string &default_valu
     MG_ASSERT(storage_->Put(name, default_value), "Failed to register a setting");
   }
   {
-    const auto [_, inserted] = on_change_callbacks_.emplace(name, callback);
+    const auto [_, inserted] = on_change_callbacks_.emplace(name, std::move(callback));
     MG_ASSERT(inserted, "Settings storage is out of sync");
   }
   {
-    const auto [_, inserted] = validations_.emplace(std::move(name), validation);
+    const auto [_, inserted] = validations_.emplace(std::move(name), std::move(validation));
     MG_ASSERT(inserted, "Settings storage is out of sync");
   }
 }

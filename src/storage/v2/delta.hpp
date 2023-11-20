@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <utility>
 
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -157,11 +158,11 @@ struct Delta {
   // DELETE_DESERIALIZED_OBJECT is used to load data from disk committed by past txs.
   // Because of this object was created in past txs, we create timestamp by ourselves inside instead of having it from
   // current tx. This timestamp we got from RocksDB timestamp stored in key.
-  Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, const std::optional<std::string> &old_disk_key)
+  Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, std::optional<std::string> old_disk_key)
       : action(Action::DELETE_DESERIALIZED_OBJECT),
         timestamp(new std::atomic<uint64_t>(ts)),
         command_id(0),
-        old_disk_key(old_disk_key) {}
+        old_disk_key(std::move(old_disk_key)) {}
 
   Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::DELETE_OBJECT), timestamp(timestamp), command_id(command_id) {}

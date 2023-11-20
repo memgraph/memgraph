@@ -1101,7 +1101,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   template <class TRecordAccessor>
-  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
+  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx const &prop) {
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
     if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE work.
@@ -1154,7 +1154,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *maybe_prop;
   }
 
-  storage::LabelId GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }
+  storage::LabelId GetLabel(const LabelIx &label) { return ctx_->labels[label.ix]; }
 
   Frame *frame_;
   const SymbolTable *symbol_table_;

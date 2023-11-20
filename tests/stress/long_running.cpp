@@ -430,6 +430,7 @@ int main(int argc, char **argv) {
 
   // workers
   std::vector<std::thread> threads;
+  threads.reserve(FLAGS_worker_count);
   for (int i = 0; i < FLAGS_worker_count; ++i) {
     threads.emplace_back([&, i]() { sessions[i].Run(); });
   }

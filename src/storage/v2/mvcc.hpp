@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <optional>
+#include <utility>
 
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
@@ -133,19 +134,19 @@ inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std:
   transaction->EnsureCommitTimestampExists();
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
-  return &transaction->deltas.use().emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, old_disk_key);
+  return &transaction->deltas.use().emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
 }
 
 inline Delta *CreateDeleteDeserializedObjectDelta(std::list<Delta> *deltas, std::optional<std::string> old_disk_key,
                                                   std::string &&ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
-  return &deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, old_disk_key);
+  return &deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
 }
 
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
                                                        std::optional<std::string> old_disk_key, const uint64_t ts) {
-  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts, old_disk_key);
+  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts, std::move(old_disk_key));
 }
 
 /// TODO: what if in-memory analytical
@@ -153,7 +154,7 @@ inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
                                                        std::optional<std::string> old_disk_key, const std::string &ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
-  return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, ts_id);
+  return CreateDeleteDeserializedIndexObjectDelta(deltas, std::move(old_disk_key), ts_id);
 }
 
 /// This function creates a delta in the transaction for the object and links

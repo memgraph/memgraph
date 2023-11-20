@@ -21,6 +21,7 @@
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include <gflags/gflags.h>
@@ -37,7 +38,7 @@ struct IndexHints {
   IndexHints() = default;
 
   template <class TDbAccessor>
-  IndexHints(std::vector<IndexHint> index_hints, TDbAccessor *db) {
+  IndexHints(std::vector<IndexHint> const &index_hints, TDbAccessor *db) {
     for (const auto &index_hint : index_hints) {
       const auto index_type = index_hint.index_type_;
       const auto label_name = index_hint.label_.name;
@@ -84,7 +85,7 @@ template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
   IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(index_hints) {}
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(std::move(index_hints)) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;

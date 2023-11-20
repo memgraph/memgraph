@@ -431,7 +431,7 @@ class DbmsHandler {
    * @param storage_subdir undelying RocksDB directory
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(const std::string &name, std::filesystem::path storage_subdir) {
+  NewResultT New_(const std::string &name, const std::filesystem::path &storage_subdir) {
     auto config_copy = default_config_;
     storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / storage_subdir);
     return New_(name, config_copy);

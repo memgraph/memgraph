@@ -1074,7 +1074,7 @@ class ConstructNamedPath : public memgraph::query::plan::LogicalOperator {
   ConstructNamedPath() = default;
   ConstructNamedPath(const std::shared_ptr<LogicalOperator> &input, Symbol path_symbol,
                      const std::vector<Symbol> &path_elements)
-      : input_(input), path_symbol_(path_symbol), path_elements_(path_elements) {}
+      : input_(input), path_symbol_(std::move(path_symbol)), path_elements_(path_elements) {}
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -2200,9 +2200,8 @@ class Union : public memgraph::query::plan::LogicalOperator {
 
   Union() = default;
 
-  Union(const std::shared_ptr<LogicalOperator> &left_op, const std::shared_ptr<LogicalOperator> &right_op,
-        const std::vector<Symbol> &union_symbols, const std::vector<Symbol> &left_symbols,
-        const std::vector<Symbol> &right_symbols);
+  Union(std::shared_ptr<LogicalOperator> left_op, std::shared_ptr<LogicalOperator> right_op,
+        std::vector<Symbol> union_symbols, std::vector<Symbol> left_symbols, std::vector<Symbol> right_symbols);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;

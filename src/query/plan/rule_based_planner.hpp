@@ -241,7 +241,7 @@ class RuleBasedPlanner {
             input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
                                            single_query_part, merge_id);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
-            input_op = HandleSubquery(std::move(input_op), single_query_part.subqueries[subquery_id++],
+            input_op = HandleSubquery(std::move(input_op), *single_query_part.subqueries[subquery_id++],
                                       *context.symbol_table, *context_->ast_storage);
           } else {
             throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
@@ -821,17 +821,16 @@ class RuleBasedPlanner {
                                            symbol);
   }
 
-  std::unique_ptr<LogicalOperator> HandleSubquery(std::unique_ptr<LogicalOperator> last_op,
-                                                  std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
-                                                  AstStorage &storage) {
+  std::unique_ptr<LogicalOperator> HandleSubquery(std::unique_ptr<LogicalOperator> last_op, QueryParts const &subquery,
+                                                  SymbolTable &symbol_table, AstStorage &storage) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
                                      std::make_move_iterator(context_->bound_symbols.end()));
 
     context_->bound_symbols =
-        impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage);
+        impl::GetSubqueryBoundSymbols(subquery.query_parts[0].single_query_parts, symbol_table, storage);
 
-    auto subquery_op = Plan(*subquery);
+    auto subquery_op = Plan(subquery);
 
     context_->bound_symbols.clear();
     context_->bound_symbols.insert(std::make_move_iterator(outer_scope_bound_symbols.begin()),
@@ -845,7 +844,8 @@ class RuleBasedPlanner {
     last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), subquery_has_return);
 
     if (context_->is_write_query) {
-      last_op = std::make_unique<Accumulate>(std::move(last_op), last_op->ModifiedSymbols(symbol_table), true);
+      auto symbols = last_op->ModifiedSymbols(symbol_table);
+      last_op = std::make_unique<Accumulate>(std::move(last_op), std::move(symbols), true);
     }
 
     return last_op;

@@ -11,6 +11,8 @@
 
 #include "utils/signals.hpp"
 
+#include <utility>
+
 namespace memgraph::utils {
 
 bool SignalIgnore(const Signal signal) {
@@ -31,12 +33,12 @@ void SignalHandler::Handle(int signal) { handlers_[signal](); }
 bool SignalHandler::RegisterHandler(Signal signal, std::function<void()> func) {
   sigset_t signal_mask;
   sigemptyset(&signal_mask);
-  return RegisterHandler(signal, func, signal_mask);
+  return RegisterHandler(signal, std::move(func), signal_mask);
 }
 
 bool SignalHandler::RegisterHandler(Signal signal, std::function<void()> func, sigset_t signal_mask) {
   int signal_number = static_cast<int>(signal);
-  handlers_[signal_number] = func;
+  handlers_[signal_number] = std::move(func);
   struct sigaction action;
   // `sa_sigaction` must be cleared before `sa_handler` is set because on some
   // platforms the two are a union.

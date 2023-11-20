@@ -14,6 +14,7 @@
 #include <stack>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 
 #include "query/exceptions.hpp"
@@ -27,13 +28,15 @@ namespace memgraph::query::plan {
 
 namespace {
 
-void ForEachPattern(Pattern &pattern, std::function<void(NodeAtom *)> base,
-                    std::function<void(NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
+// BaseFunc = void(NodeAtom *)
+// CollectFunc = void(NodeAtom *, EdgeAtom *, NodeAtom *)
+template <typename BaseFunc, typename CollectFunc>
+void ForEachPattern(Pattern &pattern, BaseFunc &&base, CollectFunc const &collect) {
   DMG_ASSERT(!pattern.atoms_.empty(), "Missing atoms in pattern");
   auto atoms_it = pattern.atoms_.begin();
   auto current_node = utils::Downcast<NodeAtom>(*atoms_it++);
   DMG_ASSERT(current_node, "First pattern atom is not a node");
-  base(current_node);
+  std::forward<BaseFunc>(base)(current_node);
   // Remaining atoms need to follow sequentially as (EdgeAtom, NodeAtom)*
   while (atoms_it != pattern.atoms_.end()) {
     auto edge = utils::Downcast<EdgeAtom>(*atoms_it++);
@@ -91,7 +94,7 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
 void AssignExpansionGroupIds(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
   ExpansionGroupId next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_expansion_groups + 1);
 
-  auto assign_expansion_group_id = [&matching, &next_expansion_group_id](Symbol symbol, Expansion &expansion) {
+  auto assign_expansion_group_id = [&matching, &next_expansion_group_id](const Symbol &symbol, Expansion &expansion) {
     ExpansionGroupId expansion_group_id_to_assign = next_expansion_group_id;
     if (matching.node_symbol_to_expansion_group_id.contains(symbol)) {
       expansion_group_id_to_assign = matching.node_symbol_to_expansion_group_id[symbol];
@@ -199,7 +202,7 @@ auto SplitExpressionOnAnd(Expression *expression) {
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                Expression *value, Type type)
-    : symbol_(symbol), property_(property), type_(type), value_(value) {
+    : symbol_(symbol), property_(std::move(property)), type_(type), value_(value) {
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
@@ -209,7 +212,11 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                const std::optional<PropertyFilter::Bound> &lower_bound,
                                const std::optional<PropertyFilter::Bound> &upper_bound)
-    : symbol_(symbol), property_(property), type_(Type::RANGE), lower_bound_(lower_bound), upper_bound_(upper_bound) {
+    : symbol_(symbol),
+      property_(std::move(property)),
+      type_(Type::RANGE),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {
   UsedSymbolsCollector collector(symbol_table);
   if (lower_bound) {
     lower_bound->value()->Accept(collector);
@@ -221,7 +228,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
 }
 
 PropertyFilter::PropertyFilter(const Symbol &symbol, PropertyIx property, Type type)
-    : symbol_(symbol), property_(property), type_(type) {
+    : symbol_(symbol), property_(std::move(property)), type_(type) {
   // As this constructor is used for property filters where
   // we don't have to evaluate the filter expression, we set
   // the is_symbol_in_value_ to false, although the filter
@@ -245,7 +252,7 @@ void Filters::EraseFilter(const FilterInfo &filter) {
                      all_filters_.end());
 }
 
-void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label, std::vector<Expression *> *removed_filters) {
+void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::vector<Expression *> *removed_filters) {
   for (auto filter_it = all_filters_.begin(); filter_it != all_filters_.end();) {
     if (filter_it->type != FilterInfo::Type::Label) {
       ++filter_it;

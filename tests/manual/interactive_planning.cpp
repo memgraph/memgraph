@@ -183,8 +183,8 @@ class InteractiveDbAccessor {
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id,
-                        const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> lower,
-                        const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> upper) {
+                        const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> &lower,
+                        const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> &upper) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     std::stringstream range_string;

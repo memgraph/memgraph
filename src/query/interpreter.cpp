@@ -13,18 +13,12 @@
 #include <bits/ranges_algo.h>
 #include <fmt/core.h>
 
-#include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <concepts>
-#include <cstddef>
-#include <cstdint>
-#include <functional>
 #include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
-#include <stdexcept>
 #include <thread>
 #include <tuple>
 #include <unordered_map>
@@ -190,11 +184,6 @@ void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
       break;
   }
 }
-
-template <typename T>
-concept HasEmpty = requires(T t) {
-  { t.empty() } -> std::convertible_to<bool>;
-};
 
 template <typename T>
 inline std::optional<T> GenOptional(const T &in) {
@@ -867,7 +856,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
   }
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
 
-  const auto get_config_map = [&evaluator](std::unordered_map<Expression *, Expression *> map,
+  const auto get_config_map = [&evaluator](const std::unordered_map<Expression *, Expression *> &map,
                                            std::string_view map_name) -> std::unordered_map<std::string, std::string> {
     std::unordered_map<std::string, std::string> config_map;
     for (const auto [key_expr, value_expr] : map) {
@@ -1212,13 +1201,13 @@ struct TxTimeout {
 };
 
 struct PullPlan {
-  explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
+  explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool const is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::optional<std::string> username, std::atomic<TransactionStatus> *transaction_status,
                     std::shared_ptr<utils::AsyncTimer> tx_timer,
                     TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, bool use_monotonic_memory = true,
-                    FrameChangeCollector *frame_change_collector_ = nullptr);
+                    std::optional<size_t> const memory_limit = {}, bool use_monotonic_memory = true,
+                    FrameChangeCollector *frame_change_collector = nullptr);
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -1252,23 +1241,23 @@ struct PullPlan {
   bool use_monotonic_memory_;
 };
 
-PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
+PullPlan::PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::optional<std::string> username, std::atomic<TransactionStatus> *transaction_status,
                    std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, bool use_monotonic_memory,
+                   std::optional<size_t> const memory_limit, bool use_monotonic_memory,
                    FrameChangeCollector *frame_change_collector)
-    : plan_(plan),
-      cursor_(plan->plan().MakeCursor(execution_memory)),
-      frame_(plan->symbol_table().max_position(), execution_memory),
+    : plan_(std::move(plan)),
+      cursor_(plan_->plan().MakeCursor(execution_memory)),
+      frame_(plan_->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit),
       use_monotonic_memory_(use_monotonic_memory) {
   ctx_.db_accessor = dba;
-  ctx_.symbol_table = plan->symbol_table();
+  ctx_.symbol_table = plan_->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
-  ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
-  ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
+  ctx_.evaluation_context.properties = NamesToProperties(plan_->ast_storage().properties_, dba);
+  ctx_.evaluation_context.labels = NamesToLabels(plan_->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && username.has_value() && dba) {
     // TODO How can we avoid creating this every time? If we must create it, it would be faster with an auth::User
@@ -3179,10 +3168,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
-                  [storage, &label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
+                  [storage, &label_name, &properties_stringified, &constraint_notification]<typename T>(T const &arg) {
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
-                      auto &violation = arg;
+                      auto const &violation = arg;
                       MG_ASSERT(violation.properties.size() == 1U);
                       auto property_name = storage->PropertyToName(*violation.properties.begin());
                       throw QueryRuntimeException(
@@ -3220,10 +3209,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
-                  [storage, &label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
+                  [storage, &label_name, &properties_stringified, &constraint_notification]<typename T>(T const &arg) {
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
-                      auto &violation = arg;
+                      auto const &violation = arg;
                       auto violation_label_name = storage->LabelToName(violation.label);
                       std::stringstream property_names_stream;
                       utils::PrintIterable(
@@ -3935,7 +3924,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       const auto &error = maybe_commit_error.GetError();
 
       std::visit(
-          [&trigger, &db_accessor]<typename T>(T &&arg) {
+          [&trigger, &db_accessor]<typename T>(T const &arg) {
             using ErrorType = std::remove_cvref_t<T>;
             if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
               spdlog::warn("At least one SYNC replica has not confirmed execution of the trigger '{}'.",
@@ -4063,7 +4052,7 @@ void Interpreter::Commit() {
 
     std::visit(
         [&execution_db_accessor = current_db_.execution_db_accessor_,
-         &commit_confirmed_by_all_sync_repplicas]<typename T>(T &&arg) {
+         &commit_confirmed_by_all_sync_repplicas]<typename T>(T const &arg) {
           using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
             commit_confirmed_by_all_sync_repplicas = false;

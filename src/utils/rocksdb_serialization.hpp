@@ -115,11 +115,11 @@ inline std::string PutIndexingLabelAndPropertiesFirst(const std::string &target_
   return result;
 }
 
-inline storage::Gid ExtractSrcVertexGidFromEdgeValue(const std::string value) {
+inline storage::Gid ExtractSrcVertexGidFromEdgeValue(const std::string &value) {
   return storage::Gid::FromString(FindPartOfStringView(value, '|', 1));
 }
 
-inline storage::Gid ExtractDstVertexGidFromEdgeValue(const std::string value) {
+inline storage::Gid ExtractDstVertexGidFromEdgeValue(const std::string &value) {
   return storage::Gid::FromString(FindPartOfStringView(value, '|', 2));
 }
 

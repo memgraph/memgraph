@@ -751,7 +751,7 @@ struct mgp_proc {
            std::function<void(mgp_list *, mgp_graph *, mgp_memory *)> initializer, std::function<void()> cleanup,
            memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
       : name(name, memory),
-        cb(cb),
+        cb(std::move(cb)),
         initializer(initializer),
         cleanup(cleanup),
         args(memory),
@@ -763,13 +763,13 @@ struct mgp_proc {
   /// @throw std::length_error
   mgp_proc(const char *name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
            memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
-      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
+      : name(name, memory), cb(std::move(cb)), args(memory), opt_args(memory), results(memory), info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_proc(const std::string_view name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
            memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
-      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
+      : name(name, memory), cb(std::move(cb)), args(memory), opt_args(memory), results(memory), info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -838,7 +838,7 @@ struct mgp_trans {
   /// @throw std::length_error
   mgp_trans(const char *name, std::function<void(mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
             memgraph::utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), results(memory) {}
+      : name(name, memory), cb(std::move(cb)), results(memory) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -878,7 +878,7 @@ struct mgp_func {
   /// @throw std::length_error
   mgp_func(const char *name, std::function<void(mgp_list *, mgp_func_context *, mgp_func_result *, mgp_memory *)> cb,
            memgraph::utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), args(memory), opt_args(memory) {}
+      : name(name, memory), cb(std::move(cb)), args(memory), opt_args(memory) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error

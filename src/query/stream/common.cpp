@@ -27,14 +27,14 @@ void to_json(nlohmann::json &data, CommonStreamInfo &&common_info) {
 }
 
 void from_json(const nlohmann::json &data, CommonStreamInfo &common_info) {
-  if (const auto batch_interval = data.at(kBatchIntervalKey); !batch_interval.is_null()) {
+  if (const auto &batch_interval = data.at(kBatchIntervalKey); !batch_interval.is_null()) {
     using BatchInterval = decltype(common_info.batch_interval);
     common_info.batch_interval = BatchInterval{batch_interval.get<typename BatchInterval::rep>()};
   } else {
     common_info.batch_interval = kDefaultBatchInterval;
   }
 
-  if (const auto batch_size = data.at(kBatchSizeKey); !batch_size.is_null()) {
+  if (const auto &batch_size = data.at(kBatchSizeKey); !batch_size.is_null()) {
     common_info.batch_size = batch_size.get<decltype(common_info.batch_size)>();
   } else {
     common_info.batch_size = kDefaultBatchSize;
