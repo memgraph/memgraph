@@ -38,6 +38,11 @@ jobs:
   debian_11_build:
     name: "Build and publish Debian 11 image"
     runs-on: [self-hosted, DockerMgBuild, X64]
+    env:
+      FORCE_RELEASE: ${{ github.event.inputs.force_release || 'false' }}
+      DOCKER_ORG: "memgraph"
+      DOCKER_REPO: "memgraph-builder"
+      DOCKER_IMAGE_TAG: "v4_debian-11"
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v3
@@ -50,21 +55,29 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Check if specified image is already pushed
         run: |
-          if [[ ${{ github.event.inputs.force_release }} = true ]]; then
+          if [[ $FORCE_RELEASE = true ]]; then
             EXISTS=1
           else
-            EXISTS=$(docker manifest inspect memgraph/memgraph-builder:v4_debian-11 > /dev/null; echo $?)
+            EXISTS=$(docker manifest inspect $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG > /dev/null; echo $?)
+          fi
+          if [[ $EXISTS -eq 0 ]]; then
+            echo "Image $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG already exists, skipping next step ..."
           fi
           echo "EXISTS=$EXISTS" >> $GITHUB_ENV
       - name: "Build and publish image" 
         if: env.EXISTS == 1
         run: |
-          echo "Building and publishing memgraph/memgraph-builder:v4_debian-11"
+          echo "Building and publishing $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG"
           ./release/package/run.sh build v4 debian-11 --publish
 
   debian_11_arm_build:
     name: "Build and publish Debian 11 ARM image"
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
+    env:
+      FORCE_RELEASE: ${{ github.event.inputs.force_release || 'false' }}
+      DOCKER_ORG: "memgraph"
+      DOCKER_REPO: "memgraph-builder"
+      DOCKER_IMAGE_TAG: "v4_debian-11"
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v3
@@ -79,18 +92,21 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Check if specified image is already pushed
         run: |
-          if [[ ${{ github.event.inputs.force_release }} = true ]]; then
+          if [[ $FORCE_RELEASE = true ]]; then
             EXISTS=1
           else
-            EXISTS=$(docker manifest inspect memgraph/memgraph-builder:v4_debian-11 > /dev/null; echo $?)
+            EXISTS=$(docker manifest inspect $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG > /dev/null; echo $?)
+          fi
+          if [[ $EXISTS -eq 0 ]]; then
+            echo "Image $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG already exists, skipping next step ..."
           fi
           echo "EXISTS=$EXISTS" >> $GITHUB_ENV
       - name: "Build and publish image" 
         if: env.EXISTS == 1
         run: |
-          echo "Building and publishing memgraph/memgraph-builder:v4_debian-11-arm"
+          echo "Building and publishing $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG"
           ./release/package/run.sh build v4 debian-11-arm --publish
-  #
+
   # amd_build:
   #   if: ${{ !startsWith(github.event.inputs.target_os, 'all') && !endsWith(github.event.inputs.target_os, '-arm') }}
   #   name: "Build and publish specific amd64 image"
