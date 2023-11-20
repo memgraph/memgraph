@@ -19,8 +19,6 @@
 #include "mg_exceptions.hpp"
 #include "mg_procedure.h"
 
-#include <vector>
-
 namespace mgp {
 
 namespace {
