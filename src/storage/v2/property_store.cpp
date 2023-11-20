@@ -179,7 +179,7 @@ class Writer {
  public:
   class MetadataHandle {
    public:
-    MetadataHandle() {}
+    MetadataHandle() = default;
 
     explicit MetadataHandle(uint8_t *value) : value_(value) {}
 
@@ -195,7 +195,7 @@ class Writer {
     uint8_t *value_{nullptr};
   };
 
-  Writer() {}
+  Writer() = default;
 
   Writer(uint8_t *data, uint64_t size) : data_(data), size_(size) {}
 

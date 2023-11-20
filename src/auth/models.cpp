@@ -560,7 +560,7 @@ Databases Databases::Deserialize(const nlohmann::json &data) {
 }
 #endif
 
-User::User() {}
+User::User() = default;
 
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
 User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions)

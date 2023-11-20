@@ -48,7 +48,7 @@ inline constexpr int64_t kDefaultBatchSize{1000};
 }  // namespace
 
 struct ConsumerTest : public ::testing::Test {
-  ConsumerTest() {}
+  ConsumerTest() = default;
 
   ConsumerInfo CreateDefaultConsumerInfo() const {
     const auto test_name = std::string{::testing::UnitTest::GetInstance()->current_test_info()->name()};

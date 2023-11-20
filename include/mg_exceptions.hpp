@@ -25,8 +25,8 @@ namespace mg_exception {
 template <typename FirstArg, typename... Args>
 std::string StringSerialize(FirstArg &&firstArg, Args &&...args) {
   std::stringstream stream;
-  stream << firstArg;
-  ((stream << " " << args), ...);
+  stream << std::forward<FirstArg>(firstArg);
+  ((stream << " " << std::forward<Args>(args)), ...);
   return stream.str();
 }
 

@@ -59,7 +59,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
 
 ModuleRegistry gModuleRegistry;
 
-Module::~Module() {}
+Module::~Module() = default;
 
 class BuiltinModule final : public Module {
  public:
@@ -91,9 +91,9 @@ class BuiltinModule final : public Module {
   std::map<std::string, mgp_func, std::less<>> functions_;
 };
 
-BuiltinModule::BuiltinModule() {}
+BuiltinModule::BuiltinModule() = default;
 
-BuiltinModule::~BuiltinModule() {}
+BuiltinModule::~BuiltinModule() = default;
 
 bool BuiltinModule::Close() { return true; }
 
@@ -966,7 +966,7 @@ class PythonModule final : public Module {
   std::map<std::string, mgp_func, std::less<>> functions_;
 };
 
-PythonModule::PythonModule() {}
+PythonModule::PythonModule() = default;
 
 PythonModule::~PythonModule() {
   if (py_module_) Close();

@@ -448,7 +448,7 @@ struct mgp_vertex {
       : memory(memory), impl(other.impl), graph(other.graph) {}
 
   // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
-  mgp_vertex(mgp_vertex &&other) : memory(other.memory), impl(other.impl), graph(other.graph) {}
+  mgp_vertex(mgp_vertex &&other) noexcept : memory(other.memory), impl(other.impl), graph(other.graph) {}
 
   memgraph::query::VertexAccessor getImpl() const {
     return std::visit(
@@ -503,7 +503,7 @@ struct mgp_edge {
       : memory(other.memory), impl(other.impl), from(std::move(other.from), memory), to(std::move(other.to), memory) {}
 
   // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
-  mgp_edge(mgp_edge &&other)
+  mgp_edge(mgp_edge &&other) noexcept
       : memory(other.memory), impl(other.impl), from(std::move(other.from)), to(std::move(other.to)) {}
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
@@ -602,7 +602,7 @@ struct mgp_result {
 };
 
 struct mgp_func_result {
-  mgp_func_result() {}
+  mgp_func_result() = default;
   /// Return Magic function result. If user forgets it, the error is raised
   std::optional<memgraph::query::TypedValue> value;
   /// Return Magic function result with potential error

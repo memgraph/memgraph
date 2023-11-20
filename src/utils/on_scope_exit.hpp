@@ -37,7 +37,8 @@ namespace memgraph::utils {
 template <typename Callable>
 class [[nodiscard]] OnScopeExit {
  public:
-  explicit OnScopeExit(Callable &&function) : function_{std::forward<Callable>(function)}, doCall_{true} {}
+  template <typename Func>
+  explicit OnScopeExit(Func &&function) : function_{std::forward<Func>(function)}, doCall_{true} {}
   OnScopeExit(OnScopeExit const &) = delete;
   OnScopeExit(OnScopeExit &&) = delete;
   OnScopeExit &operator=(OnScopeExit const &) = delete;
@@ -49,7 +50,7 @@ class [[nodiscard]] OnScopeExit {
   void Disable() { doCall_ = false; }
 
  private:
-  std::function<void()> function_;
+  Callable function_;
   bool doCall_;
 };
 template <typename Callable>

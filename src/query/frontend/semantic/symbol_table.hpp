@@ -22,7 +22,7 @@ namespace memgraph::query {
 
 class SymbolTable final {
  public:
-  SymbolTable() {}
+  SymbolTable() = default;
   const Symbol &CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
                              int32_t token_position = -1) {
     MG_ASSERT(table_.size() <= std::numeric_limits<int32_t>::max(),

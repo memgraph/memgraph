@@ -53,7 +53,7 @@ class BadAlloc final : public std::bad_alloc {
 /// Abstract class for writing custom memory management, i.e. allocators.
 class MemoryResource {
  public:
-  virtual ~MemoryResource() {}
+  virtual ~MemoryResource() = default;
 
   /// Allocate storage with a size of at least `bytes` bytes.
   ///

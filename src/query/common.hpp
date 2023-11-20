@@ -41,7 +41,7 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b);
 /// the define how respective elements compare.
 class TypedValueVectorCompare final {
  public:
-  TypedValueVectorCompare() {}
+  TypedValueVectorCompare() = default;
   explicit TypedValueVectorCompare(const std::vector<Ordering> &ordering) : ordering_(ordering) {}
 
   template <class TAllocator>

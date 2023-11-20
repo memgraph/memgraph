@@ -41,6 +41,8 @@ class CsvReadException : public utils::BasicException {
 class FileCsvSource {
  public:
   explicit FileCsvSource(std::filesystem::path path);
+  FileCsvSource(FileCsvSource &&) = default;
+  FileCsvSource &operator=(FileCsvSource &&) = default;
   std::istream &GetStream();
 
  private:
@@ -51,6 +53,8 @@ class FileCsvSource {
 class StreamCsvSource {
  public:
   StreamCsvSource(std::stringstream stream) : stream_{std::move(stream)} {}
+  StreamCsvSource(StreamCsvSource &&) = default;
+  StreamCsvSource &operator=(StreamCsvSource &&) = default;
   std::istream &GetStream() { return stream_; }
 
  private:
@@ -60,14 +64,19 @@ class StreamCsvSource {
 class UrlCsvSource : public StreamCsvSource {
  public:
   UrlCsvSource(char const *url);
+  UrlCsvSource(UrlCsvSource &&) = default;
+  UrlCsvSource &operator=(UrlCsvSource &&) = default;
 };
 
 class CsvSource {
  public:
   static auto Create(utils::pmr::string const &csv_location) -> CsvSource;
+
   CsvSource(FileCsvSource source) : source_{std::move(source)} {}
   CsvSource(StreamCsvSource source) : source_{std::move(source)} {}
   CsvSource(UrlCsvSource source) : source_{std::move(source)} {}
+  CsvSource(CsvSource &&) = default;
+  CsvSource &operator=(CsvSource &&) = default;
   std::istream &GetStream();
 
  private:

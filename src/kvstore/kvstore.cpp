@@ -44,12 +44,9 @@ KVStore::~KVStore() {
   if (!close.ok()) spdlog::error("KVStore close failed!");
 }
 
-KVStore::KVStore(KVStore &&other) { pimpl_ = std::move(other.pimpl_); }
+KVStore::KVStore(KVStore &&) noexcept = default;
 
-KVStore &KVStore::operator=(KVStore &&other) {
-  pimpl_ = std::move(other.pimpl_);
-  return *this;
-}
+KVStore &KVStore::operator=(KVStore &&) noexcept = default;
 
 bool KVStore::Put(const std::string &key, const std::string &value) {
   auto s = pimpl_->db->Put(rocksdb::WriteOptions(), key, value);
@@ -126,14 +123,11 @@ KVStore::iterator::iterator(const KVStore *kvstore, const std::string &prefix, b
   if (!pimpl_->it->Valid() || !pimpl_->it->key().starts_with(pimpl_->prefix) || at_end) pimpl_->it = nullptr;
 }
 
-KVStore::iterator::iterator(KVStore::iterator &&other) { pimpl_ = std::move(other.pimpl_); }
+KVStore::iterator::iterator(KVStore::iterator &&) noexcept = default;
 
-KVStore::iterator::~iterator() {}
+KVStore::iterator::~iterator() = default;
 
-KVStore::iterator &KVStore::iterator::operator=(KVStore::iterator &&other) {
-  pimpl_ = std::move(other.pimpl_);
-  return *this;
-}
+KVStore::iterator &KVStore::iterator::operator=(KVStore::iterator &&) noexcept = default;
 
 KVStore::iterator &KVStore::iterator::operator++() {
   pimpl_->it->Next();

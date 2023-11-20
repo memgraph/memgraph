@@ -34,7 +34,7 @@ class Symbol {
     return enum_string[static_cast<int>(type)];
   }
 
-  Symbol() {}
+  Symbol() = default;
   Symbol(const std::string &name, int position, bool user_declared, Type type = Type::ANY, int token_position = -1)
       : name_(name), position_(position), user_declared_(user_declared), type_(type), token_position_(token_position) {}
 

@@ -33,7 +33,7 @@ namespace memgraph::query::procedure {
 
 class Module {
  public:
-  Module() {}
+  Module() = default;
   virtual ~Module();
   Module(const Module &) = delete;
   Module(Module &&) = delete;

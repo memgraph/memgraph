@@ -45,10 +45,10 @@ class KVStore final {
   explicit KVStore(std::filesystem::path storage);
 
   KVStore(const KVStore &other) = delete;
-  KVStore(KVStore &&other);
+  KVStore(KVStore &&) noexcept;
 
   KVStore &operator=(const KVStore &other) = delete;
-  KVStore &operator=(KVStore &&other);
+  KVStore &operator=(KVStore &&other) noexcept;
 
   ~KVStore();
 
@@ -171,11 +171,11 @@ class KVStore final {
 
     iterator(const iterator &other) = delete;
 
-    iterator(iterator &&other);
+    iterator(iterator &&) noexcept;
 
     ~iterator();
 
-    iterator &operator=(iterator &&other);
+    iterator &operator=(iterator &&) noexcept;
 
     iterator &operator=(const iterator &other) = delete;
 

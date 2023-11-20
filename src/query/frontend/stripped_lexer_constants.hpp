@@ -33,7 +33,7 @@ inline int Noop(int x) { return x; }
 
 class Trie {
  public:
-  Trie() {}
+  Trie() = default;
   Trie(std::initializer_list<std::string> l) {
     for (const auto &s : l) {
       Insert(s);

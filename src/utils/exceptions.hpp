@@ -61,7 +61,7 @@ class BasicException : public std::exception {
   /**
    * @brief Virtual destructor to allow for subclassing.
    */
-  virtual ~BasicException() {}
+  virtual ~BasicException() = default;
 
   /**
    * @brief Returns a pointer to the (constant) error description.
@@ -116,7 +116,7 @@ class StacktraceException : public std::exception {
   /**
    * @brief Virtual destructor to allow for subclassing.
    */
-  virtual ~StacktraceException() {}
+  virtual ~StacktraceException() = default;
 
   /**
    * @brief Returns a pointer to the (constant) error description.
