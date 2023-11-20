@@ -47,7 +47,7 @@ jobs:
       - name: "Build and publish image" 
         run: |
           echo "Building and publishing memgraph/memgraph-builder:v4_debian-11"
-          ./release/package/run.sh build debian-11 v4 --publish
+          ./release/package/run.sh build v4 debian-11 --publish
 
   debian_11_arm_build:
     name: "Build and publish Debian 11 ARM image"
@@ -65,7 +65,7 @@ jobs:
       - name: "Build and publish image" 
         run: |
           echo "Building and publishing memgraph/memgraph-builder:v4_debian-11-arm"
-          ./release/package/run.sh build debian-11-arm v4 --publish
+          ./release/package/run.sh build v4 debian-11-arm --publish
   #
   # amd_build:
   #   if: ${{ !startsWith(github.event.inputs.target_os, 'all') && !endsWith(github.event.inputs.target_os, '-arm') }}
@@ -84,7 +84,7 @@ jobs:
   #     - name: "Build and publish image" 
   #       run: |
   #         echo "Building and publishing memgraph/memgraph-builder:${{ github.event.inputs.toolchain_version }}_${{ github.event.inputs.target_os }}"
-  #         ./release/package/run.sh build ${{ github.event.inputs.target_os }} ${{ github.event.inputs.toolchain_version }} --publish
+  #         ./release/package/run.sh build ${{ github.event.inputs.toolchain_version }} ${{ github.event.inputs.target_os }} --publish
   #
   # arm_build:
   #   if: ${{ !startsWith(github.event.inputs.target_os, 'all') && endsWith(github.event.inputs.target_os, '-arm') }}
@@ -103,7 +103,7 @@ jobs:
   #     - name: "Build and publish image" 
   #       run: |
   #         echo "Building and publishing memgraph/memgraph-builder:${{ github.event.inputs.toolchain_version }}_${{ github.event.inputs.target_os }}"
-  #         ./release/package/run.sh build ${{ github.event.inputs.target_os }} ${{ github.event.inputs.toolchain_version }} --publish
+  #         ./release/package/run.sh build ${{ github.event.inputs.toolchain_version }} ${{ github.event.inputs.target_os }} --publish
   #
   # all_amd_build:
   #   if: ${{ github.event.inputs.target_os == 'all-amd64' ||  github.event.inputs.target_os == 'all'}}
@@ -125,7 +125,7 @@ jobs:
   #     - name: "Build and publish image" 
   #       run: |
   #         echo "Building and publishing memgraph/memgraph-builder:${{ github.event.inputs.toolchain_version }}_${{ matrix.target_os }}"
-  #         ./release/package/run.sh build ${{ matrix.target_os }} ${{ github.event.inputs.toolchain_version }} --publish
+  #         ./release/package/run.sh build ${{ github.event.inputs.toolchain_version }} ${{ matrix.target_os }} --publish
   #
   #
   # all_arm_build:
@@ -148,5 +148,5 @@ jobs:
   #     - name: "Build and publish image" 
   #       run: |
   #         echo "Building and publishing memgraph/memgraph-builder:${{ github.event.inputs.toolchain_version }}_${{ matrix.target_os }}"
-  #         ./release/package/run.sh build ${{ github.event.inputs.target_os }} ${{ matrix.toolchain_version }} --publish
+  #         ./release/package/run.sh build ${{ matrix.toolchain_version }} ${{ github.event.inputs.target_os }} --publish
   # 
