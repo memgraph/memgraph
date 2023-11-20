@@ -425,6 +425,4 @@ Feature: Aggregations
       """
       MATCH (subnet:Subnet) WHERE FALSE WITH subnet, count(subnet.ip) as ips RETURN id(subnet) as id
       """
-      Then the result should be:
-        | id |
-        | null  |
+      Then the result should be empty
