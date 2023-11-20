@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,7 +32,7 @@ class Timestamp final {
   Timestamp() : Timestamp(0, 0) {}
 
   Timestamp(std::time_t time, long nsec = 0) : unix_time(time), nsec(nsec) {
-    auto result = gmtime_r(&time, &this->time);
+    auto *result = gmtime_r(&time, &this->time);
 
     if (result == nullptr) throw TimestampError("Unable to construct from {}", time);
   }
@@ -64,11 +64,9 @@ class Timestamp final {
 
   long Usec() const { return nsec / 1000; }
 
-  const std::string ToIso8601() const {
-    return fmt::format(fiso8601, Year(), Month(), Day(), Hour(), Min(), Sec(), Usec());
-  }
+  std::string ToIso8601() const { return fmt::format(fiso8601, Year(), Month(), Day(), Hour(), Min(), Sec(), Usec()); }
 
-  const std::string ToString(const std::string &format = fiso8601) const {
+  std::string ToString(const std::string &format = fiso8601) const {
     return fmt::format(fmt::runtime(format), Year(), Month(), Day(), Hour(), Min(), Sec(), Usec());
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,8 +17,8 @@
 #include "utils/on_scope_exit.hpp"
 
 namespace {
-static void ReturnFunctionArgument(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
-                                   struct mgp_memory *memory) {
+void ReturnFunctionArgument(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
+                            struct mgp_memory *memory) {
   mgp_value *value{nullptr};
   auto err_code = mgp_list_at(args, 0, &value);
   if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
@@ -33,8 +33,8 @@ static void ReturnFunctionArgument(struct mgp_list *args, mgp_func_context *ctx,
   }
 }
 
-static void ReturnOptionalArgument(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
-                                   struct mgp_memory *memory) {
+void ReturnOptionalArgument(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
+                            struct mgp_memory *memory) {
   mgp_value *value{nullptr};
   auto err_code = mgp_list_at(args, 0, &value);
   if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
@@ -69,8 +69,7 @@ double GetElementFromArg(struct mgp_list *args, int index) {
   return result;
 }
 
-static void AddTwoNumbers(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
-                          struct mgp_memory *memory) {
+void AddTwoNumbers(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result, struct mgp_memory *memory) {
   double first = 0;
   double second = 0;
   try {
@@ -92,8 +91,7 @@ static void AddTwoNumbers(struct mgp_list *args, mgp_func_context *ctx, mgp_func
   }
 }
 
-static void ReturnNull(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
-                       struct mgp_memory *memory) {
+void ReturnNull(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result, struct mgp_memory *memory) {
   mgp_value *value{nullptr};
   static_cast<void>(mgp_value_make_null(memory, &value));
   memgraph::utils::OnScopeExit delete_null([&value] { mgp_value_destroy(value); });

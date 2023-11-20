@@ -329,14 +329,14 @@ Value::~Value() {
 
 std::ostream &operator<<(std::ostream &os, const Vertex &vertex) {
   os << "(";
-  if (vertex.labels.size() > 0) {
+  if (!vertex.labels.empty()) {
     os << ":";
   }
   utils::PrintIterable(os, vertex.labels, ":", [&](auto &stream, auto label) { stream << label; });
-  if (vertex.labels.size() > 0 && vertex.properties.size() > 0) {
+  if (!vertex.labels.empty() && !vertex.properties.empty()) {
     os << " ";
   }
-  if (vertex.properties.size() > 0) {
+  if (!vertex.properties.empty()) {
     os << "{";
     utils::PrintIterable(os, vertex.properties, ", ",
                          [&](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
@@ -350,7 +350,7 @@ std::ostream &operator<<(std::ostream &os, const Vertex &vertex) {
 
 std::ostream &operator<<(std::ostream &os, const Edge &edge) {
   os << "[" << edge.type;
-  if (edge.properties.size() > 0) {
+  if (!edge.properties.empty()) {
     os << " {";
     utils::PrintIterable(os, edge.properties, ", ",
                          [&](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
@@ -361,7 +361,7 @@ std::ostream &operator<<(std::ostream &os, const Edge &edge) {
 
 std::ostream &operator<<(std::ostream &os, const UnboundedEdge &edge) {
   os << "[" << edge.type;
-  if (edge.properties.size() > 0) {
+  if (!edge.properties.empty()) {
     os << " {";
     utils::PrintIterable(os, edge.properties, ", ",
                          [&](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });

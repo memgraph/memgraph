@@ -21,12 +21,10 @@
 #include <string>
 #include <string_view>
 #include <thread>
-#include <unordered_map>
-#include <vector>
-
-#include <functional>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "_mgp.hpp"
 #include "mg_exceptions.hpp"
@@ -235,14 +233,14 @@ class Graph {
   GraphRelationships Relationships() const;
 
   /// @brief Returns the graph node with the given ID.
-  Node GetNodeById(const Id node_id) const;
+  Node GetNodeById(Id node_id) const;
 
   /// @brief Returns whether the graph contains a node with the given ID.
-  bool ContainsNode(const Id node_id) const;
+  bool ContainsNode(Id node_id) const;
   /// @brief Returns whether the graph contains the given node.
   bool ContainsNode(const Node &node) const;
   /// @brief Returns whether the graph contains a relationship with the given ID.
-  bool ContainsRelationship(const Id relationship_id) const;
+  bool ContainsRelationship(Id relationship_id) const;
   /// @brief Returns whether the graph contains the given relationship.
   bool ContainsRelationship(const Relationship &relationship) const;
 
@@ -255,7 +253,7 @@ class Graph {
   /// @brief Deletes a node and all its incident edges from the graph.
   void DetachDeleteNode(const Node &node);
   /// @brief Creates a relationship of type `type` between nodes `from` and `to` and adds it to the graph.
-  Relationship CreateRelationship(const Node &from, const Node &to, const std::string_view type);
+  Relationship CreateRelationship(const Node &from, const Node &to, std::string_view type);
   /// @brief Changes a relationship from node.
   void SetFrom(Relationship &relationship, const Node &new_from);
   /// @brief Changes a relationship to node.
@@ -504,7 +502,7 @@ class List {
   explicit List(std::vector<Value> &&values);
 
   /// @brief Creates a List from the given initializer_list.
-  explicit List(const std::initializer_list<Value> list);
+  explicit List(std::initializer_list<Value> list);
 
   List(const List &other) noexcept;
   List(List &&other) noexcept;
@@ -610,7 +608,7 @@ class Map {
   explicit Map(std::map<std::string_view, Value> &&items);
 
   /// @brief Creates a Map from the given initializer_list (map items correspond to initializer list pairs).
-  Map(const std::initializer_list<std::pair<std::string_view, Value>> items);
+  Map(std::initializer_list<std::pair<std::string_view, Value>> items);
 
   Map(const Map &other) noexcept;
   Map(Map &&other) noexcept;
@@ -763,10 +761,10 @@ class Node {
   Relationships OutRelationships() const;
 
   /// @brief Adds a label to the node.
-  void AddLabel(const std::string_view label);
+  void AddLabel(std::string_view label);
 
   /// @brief Removes a label from the node.
-  void RemoveLabel(const std::string_view label);
+  void RemoveLabel(std::string_view label);
 
   bool operator<(const Node &other) const;
 
@@ -1192,13 +1190,13 @@ class Value {
   explicit Value();
 
   // Primitive type constructors:
-  explicit Value(const bool value);
-  explicit Value(const int64_t value);
-  explicit Value(const double value);
+  explicit Value(bool value);
+  explicit Value(int64_t value);
+  explicit Value(double value);
 
   // String constructors:
   explicit Value(const char *value);
-  explicit Value(const std::string_view value);
+  explicit Value(std::string_view value);
   // Container constructors:
 
   /// @brief Constructs a List value from the copy of the given `list`.
@@ -1425,7 +1423,7 @@ class RecordFactory {
 
   const Record NewRecord() const;
 
-  void SetErrorMessage(const std::string_view error_msg) const;
+  void SetErrorMessage(std::string_view error_msg) const;
 
   void SetErrorMessage(const char *error_msg) const;
 
@@ -1467,7 +1465,7 @@ class Result {
   /// @brief Sets a @ref Duration value to be returned.
   inline void SetValue(const Duration &duration);
 
-  void SetErrorMessage(const std::string_view error_msg) const;
+  void SetErrorMessage(std::string_view error_msg) const;
 
   void SetErrorMessage(const char *error_msg) const;
 
@@ -1609,7 +1607,7 @@ inline uint64_t Fnv(const std::string_view s) {
 template <typename TIterable, typename TElement, typename THash = std::hash<TElement>>
 struct FnvCollection {
   size_t operator()(const TIterable &iterable) const {
-    uint64_t hash = 14695981039346656037u;
+    uint64_t hash = 14695981039346656037U;
     THash element_hash;
     for (const TElement &element : iterable) {
       hash *= fnv_prime;
@@ -1619,7 +1617,7 @@ struct FnvCollection {
   }
 
  private:
-  static const uint64_t fnv_prime = 1099511628211u;
+  static const uint64_t fnv_prime = 1099511628211U;
 };
 
 /**
@@ -1680,8 +1678,8 @@ inline bool MapsEqual(mgp_map *map1, mgp_map *map2) {
   if (mgp::map_size(map1) != mgp::map_size(map2)) {
     return false;
   }
-  auto items_it = mgp::MemHandlerCallback(map_iter_items, map1);
-  for (auto item = mgp::map_items_iterator_get(items_it); item; item = mgp::map_items_iterator_next(items_it)) {
+  auto *items_it = mgp::MemHandlerCallback(map_iter_items, map1);
+  for (auto *item = mgp::map_items_iterator_get(items_it); item; item = mgp::map_items_iterator_next(items_it)) {
     if (mgp::map_item_key(item) == mgp::map_item_key(item)) {
       return false;
     }
@@ -1945,7 +1943,7 @@ inline int64_t Graph::Size() const {
 }
 
 inline GraphNodes Graph::Nodes() const {
-  auto nodes_it = mgp::MemHandlerCallback(graph_iter_vertices, graph_);
+  auto *nodes_it = mgp::MemHandlerCallback(graph_iter_vertices, graph_);
   if (nodes_it == nullptr) {
     throw mg_exception::NotEnoughMemoryException();
   }
@@ -1955,7 +1953,7 @@ inline GraphNodes Graph::Nodes() const {
 inline GraphRelationships Graph::Relationships() const { return GraphRelationships(graph_); }
 
 inline Node Graph::GetNodeById(const Id node_id) const {
-  auto mgp_node = mgp::MemHandlerCallback(graph_get_vertex_by_id, graph_, mgp_vertex_id{.as_int = node_id.AsInt()});
+  auto *mgp_node = mgp::MemHandlerCallback(graph_get_vertex_by_id, graph_, mgp_vertex_id{.as_int = node_id.AsInt()});
   if (mgp_node == nullptr) {
     mgp::vertex_destroy(mgp_node);
     throw NotFoundException("Node with ID " + std::to_string(node_id.AsUint()) + " not found!");
@@ -1966,7 +1964,7 @@ inline Node Graph::GetNodeById(const Id node_id) const {
 }
 
 inline bool Graph::ContainsNode(const Id node_id) const {
-  auto mgp_node = mgp::MemHandlerCallback(graph_get_vertex_by_id, graph_, mgp_vertex_id{.as_int = node_id.AsInt()});
+  auto *mgp_node = mgp::MemHandlerCallback(graph_get_vertex_by_id, graph_, mgp_vertex_id{.as_int = node_id.AsInt()});
   if (mgp_node == nullptr) {
     return false;
   }

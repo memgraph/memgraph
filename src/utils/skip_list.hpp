@@ -1280,7 +1280,6 @@ class SkipList final : detail::SkipListNode_base {
     }
   }
 
- private:
   TNode *head_{nullptr};
   // gc_ also stores the only copy of `MemoryResource *`, to save space.
   mutable SkipListGc<TObj> gc_;

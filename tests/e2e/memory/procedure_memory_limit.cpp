@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
     auto result_rows = client->FetchAll();
     if (result_rows) {
       auto row = *result_rows->begin();
-      error = row[0].ValueBool() == false;
+      error = not row[0].ValueBool();
     }
 
   } catch (const std::exception &e) {

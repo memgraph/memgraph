@@ -21,11 +21,11 @@
 namespace {
 
 using mgp_int = decltype(mgp::Value().ValueInt());
-static mgp_int num_ints{0};
-static mgp_int returned_ints{0};
+mgp_int num_ints{0};
+mgp_int returned_ints{0};
 
-static mgp_int num_strings{0};
-static int returned_strings{0};
+mgp_int num_strings{0};
+int returned_strings{0};
 
 const char *kReturnOutput = "output";
 

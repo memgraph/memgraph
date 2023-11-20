@@ -62,7 +62,7 @@ namespace std {
 template <>
 struct hash<memgraph::query::Symbol> {
   size_t operator()(const memgraph::query::Symbol &symbol) const {
-    size_t prime = 265443599u;
+    size_t prime = 265443599U;
     size_t hash = std::hash<int>{}(symbol.position());
     hash ^= prime * std::hash<std::string>{}(symbol.name());
     hash ^= prime * std::hash<int>{}(static_cast<int>(symbol.type()));

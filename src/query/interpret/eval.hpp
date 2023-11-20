@@ -821,7 +821,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(Coalesce &coalesce) override {
     auto &exprs = coalesce.expressions_;
 
-    if (exprs.size() == 0) {
+    if (exprs.empty()) {
       throw QueryRuntimeException("'coalesce' requires at least one argument.");
     }
 
@@ -892,7 +892,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto &element_symbol = symbol_table_->at(*extract.identifier_);
     TypedValue::TVector result(ctx_->memory);
     result.reserve(list.size());
-    for (auto &element : list) {
+    for (const auto &element : list) {
       if (element.IsNull()) {
         result.emplace_back();
       } else {

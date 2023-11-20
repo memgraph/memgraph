@@ -62,7 +62,7 @@ class Scheduler {
         auto now = std::chrono::system_clock::now();
         start_time += pause;
         if (start_time > now) {
-          condition_variable_.wait_until(lk, start_time, [&] { return is_working_.load() == false; });
+          condition_variable_.wait_until(lk, start_time, [&] { return !is_working_.load(); });
         } else {
           start_time = now;
         }

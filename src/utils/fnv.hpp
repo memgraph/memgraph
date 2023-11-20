@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,7 +47,7 @@ inline uint64_t Fnv(const std::string_view s) {
 template <typename TIterable, typename TElement, typename THash = std::hash<TElement>>
 struct FnvCollection {
   size_t operator()(const TIterable &iterable) const {
-    uint64_t hash = 14695981039346656037u;
+    uint64_t hash = 14695981039346656037U;
     THash element_hash;
     for (const TElement &element : iterable) {
       hash *= fnv_prime;
@@ -57,7 +57,7 @@ struct FnvCollection {
   }
 
  private:
-  static const uint64_t fnv_prime = 1099511628211u;
+  static const uint64_t fnv_prime = 1099511628211U;
 };
 
 /**

@@ -102,7 +102,7 @@ bool FileRetainer::LockerEntry::RemovePath(const std::filesystem::path &path) {
 bool FileRetainer::LockerEntry::LocksFile(const std::filesystem::path &path) const {
   MG_ASSERT(path.is_absolute(), "Absolute path needed to check if the file is locked.");
 
-  if (files_.count(path)) {
+  if (files_.contains(path)) {
     return true;
   }
 

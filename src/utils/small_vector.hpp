@@ -71,7 +71,6 @@ class SmallVectorBase {
  protected:
   void *begin_x_, *end_x_, *capacity_x_;
 
- protected:
   SmallVectorBase(void *first_el, size_t size)
       : begin_x_(first_el), end_x_(first_el), capacity_x_((char *)first_el + size) {}
 

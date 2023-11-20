@@ -89,11 +89,11 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   try {
     mgp::MemoryDispatcherGuard mdg{memory};
 
-    AddProcedure(Alloc_256_MiB, std::string("alloc_256_mib").c_str(), mgp::ProcedureType::Read, {},
-                 {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
+    AddProcedure(Alloc_256_MiB, std::string("alloc_256_mib"), mgp::ProcedureType::Read, {},
+                 {mgp::Return(std::string("allocated"), mgp::Type::Bool)}, module, memory);
 
-    AddProcedure(Alloc_32_MiB, std::string("alloc_32_mib").c_str(), mgp::ProcedureType::Read, {},
-                 {mgp::Return(std::string("allocated").c_str(), mgp::Type::Bool)}, module, memory);
+    AddProcedure(Alloc_32_MiB, std::string("alloc_32_mib"), mgp::ProcedureType::Read, {},
+                 {mgp::Return(std::string("allocated"), mgp::Type::Bool)}, module, memory);
 
   } catch (const std::exception &e) {
     return 1;
