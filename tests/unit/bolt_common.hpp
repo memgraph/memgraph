@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -88,8 +88,8 @@ class TestBuffer {
  */
 void PrintOutput(std::vector<uint8_t> &output) {
   fprintf(stderr, "output: ");
-  for (size_t i = 0; i < output.size(); ++i) {
-    fprintf(stderr, "%02X ", output[i]);
+  for (uint8_t val : output) {
+    fprintf(stderr, "%02X ", val);
   }
   fprintf(stderr, "\n");
 }

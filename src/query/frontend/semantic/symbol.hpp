@@ -15,9 +15,7 @@
 
 #include "utils/typeinfo.hpp"
 
-namespace memgraph {
-
-namespace query {
+namespace memgraph::query {
 
 class Symbol {
  public:
@@ -57,8 +55,8 @@ class Symbol {
   int64_t token_position_{-1};
 };
 
-}  // namespace query
-}  // namespace memgraph
+}  // namespace memgraph::query
+
 namespace std {
 
 template <>

@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,8 +40,9 @@ inline void RunConcurrentTest(std::function<void(std::atomic<bool> *, Stats *)> 
   std::unique_ptr<Stats[]> stats(new Stats[FLAGS_num_threads]);
 
   std::vector<std::thread> threads;
+  threads.reserve(FLAGS_num_threads);
   for (int i = 0; i < FLAGS_num_threads; ++i) {
-    threads.push_back(std::thread(test_func, &run, &stats.get()[i]));
+    threads.emplace_back(test_func, &run, &stats.get()[i]);
   }
 
   std::this_thread::sleep_for(std::chrono::seconds(FLAGS_duration));
@@ -72,8 +73,8 @@ inline void RunConcurrentTest(std::function<void(std::atomic<bool> *, Stats *)> 
 
   std::cout << std::endl;
   uint64_t tot = 0, tops = 0;
-  for (int i = 0; i < 4; ++i) {
-    tot += agg[i];
+  for (uint64_t val : agg) {
+    tot += val;
   }
   for (int i = 0; i < FLAGS_num_threads; ++i) {
     tops += stats.get()[i].total;

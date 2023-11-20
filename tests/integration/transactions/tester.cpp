@@ -31,12 +31,12 @@ using namespace memgraph::communication::bolt;
 
 class BoltClient : public ::testing::Test {
  protected:
-  virtual void SetUp() {
+  void SetUp() override {
     client_.Connect(endpoint_, FLAGS_username, FLAGS_password);
     Execute("CREATE DATABASE db1");
   }
 
-  virtual void TearDown() {}
+  void TearDown() override {}
 
   bool Execute(const std::string &query, const std::string &message = "") {
     try {

@@ -245,7 +245,7 @@ void ExecuteTimeDependentWorkload(
   std::chrono::time_point<std::chrono::steady_clock> workload_start;
   std::chrono::duration<double> time_limit = std::chrono::seconds(FLAGS_time_dependent_execution);
   for (int worker = 0; worker < FLAGS_num_workers; ++worker) {
-    threads.push_back(std::thread([&, worker]() {
+    threads.emplace_back([&, worker]() {
       memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
       memgraph::communication::ClientContext context(FLAGS_use_ssl);
       memgraph::communication::bolt::Client client(context);
@@ -283,7 +283,7 @@ void ExecuteTimeDependentWorkload(
         duration = worker_timer.Elapsed().count();
       }
       client.Close();
-    }));
+    });
   }
 
   // Synchronize workers and collect runtime.
@@ -350,7 +350,7 @@ void ExecuteWorkload(
   std::atomic<uint64_t> ready(0);
   std::atomic<uint64_t> position(0);
   for (int worker = 0; worker < FLAGS_num_workers; ++worker) {
-    threads.push_back(std::thread([&, worker]() {
+    threads.emplace_back([&, worker]() {
       memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
       memgraph::communication::ClientContext context(FLAGS_use_ssl);
       memgraph::communication::bolt::Client client(context);
@@ -378,7 +378,7 @@ void ExecuteWorkload(
       }
       duration = worker_timer.Elapsed().count();
       client.Close();
-    }));
+    });
   }
 
   // Synchronize workers and collect runtime.

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,8 +38,9 @@ TEST(Antlr, Sigsegv) {
 
   std::atomic<bool> run{false};
 
+  threads.reserve(N);
   for (int i = 0; i < N; ++i) {
-    threads.push_back(std::thread([&run]() {
+    threads.emplace_back([&run]() {
       while (!run)
         ;
       while (run) {
@@ -93,7 +94,7 @@ TEST(Antlr, Sigsegv) {
             "336})");
         parser.tree();
       }
-    }));
+    });
   }
 
   run = true;

@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
   std::vector<std::thread> threads;
   memgraph::utils::Timer timer;
   for (int i = 0; i < FLAGS_worker_count; ++i) {
-    threads.push_back(std::thread([]() {
+    threads.emplace_back([]() {
       auto client = make_client();
       std::mt19937 generator{std::random_device{}()};
       std::uniform_int_distribution<uint64_t> distribution{std::numeric_limits<uint64_t>::min(),
@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
           LOG_FATAL("One of the parser stress test queries failed.");
         }
       }
-    }));
+    });
   }
 
   std::ranges::for_each(threads, [](auto &t) { t.join(); });

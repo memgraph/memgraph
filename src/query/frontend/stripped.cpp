@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -255,7 +255,7 @@ std::string GetFirstUtf8Symbol(const char *_s) {
   // According to
   // https://stackoverflow.com/questions/16260033/reinterpret-cast-between-char-and-stduint8-t-safe
   // this checks if casting from const char * to uint8_t is undefined behaviour.
-  static_assert(std::is_same<std::uint8_t, unsigned char>::value,
+  static_assert(std::is_same_v<std::uint8_t, unsigned char>,
                 "This library requires std::uint8_t to be implemented as "
                 "unsigned char.");
   const uint8_t *s = reinterpret_cast<const uint8_t *>(_s);
@@ -286,7 +286,7 @@ std::string GetFirstUtf8Symbol(const char *_s) {
 
 // Return codepoint of first utf8 symbol and its encoded length.
 std::pair<int, int> GetFirstUtf8SymbolCodepoint(const char *_s) {
-  static_assert(std::is_same<std::uint8_t, unsigned char>::value,
+  static_assert(std::is_same_v<std::uint8_t, unsigned char>,
                 "This library requires std::uint8_t to be implemented as "
                 "unsigned char.");
   const uint8_t *s = reinterpret_cast<const uint8_t *>(_s);

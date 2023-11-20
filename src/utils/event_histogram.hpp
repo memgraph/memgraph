@@ -104,7 +104,7 @@ class Histogram {
     percentile_yield.reserve(percentiles_.size());
 
     for (const auto percentile : percentiles_) {
-      percentile_yield.emplace_back(std::make_pair(percentile, Percentile(percentile)));
+      percentile_yield.emplace_back(percentile, Percentile(percentile));
     }
 
     return percentile_yield;

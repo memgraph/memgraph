@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@ bool SignalIgnore(const Signal signal) {
   action.sa_handler = SIG_IGN;
   sigemptyset(&action.sa_mask);
   action.sa_flags = 0;
-  if (sigaction(signal_number, &action, NULL) == -1) return false;
+  if (sigaction(signal_number, &action, nullptr) == -1) return false;
   return true;
 }
 
@@ -44,7 +44,7 @@ bool SignalHandler::RegisterHandler(Signal signal, std::function<void()> func, s
   action.sa_handler = SignalHandler::Handle;
   action.sa_mask = signal_mask;
   action.sa_flags = SA_RESTART;
-  if (sigaction(signal_number, &action, NULL) == -1) return false;
+  if (sigaction(signal_number, &action, nullptr) == -1) return false;
   return true;
 }
 

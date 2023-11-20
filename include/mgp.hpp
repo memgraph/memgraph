@@ -1646,8 +1646,8 @@ template <typename TDest, typename TSrc>
 TDest MemcpyCast(TSrc src) {
   TDest dest;
   static_assert(sizeof(dest) == sizeof(src), "MemcpyCast expects source and destination to be of the same size");
-  static_assert(std::is_arithmetic<TSrc>::value, "MemcpyCast expects source to be an arithmetic type");
-  static_assert(std::is_arithmetic<TDest>::value, "MemcpyCast expects destination to be an arithmetic type");
+  static_assert(std::is_arithmetic_v<TSrc>, "MemcpyCast expects source to be an arithmetic type");
+  static_assert(std::is_arithmetic_v<TDest>, "MemcpyCast expects destination to be an arithmetic type");
   std::memcpy(&dest, &src, sizeof(src));
   return dest;
 }

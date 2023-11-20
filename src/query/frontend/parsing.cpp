@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@ namespace memgraph::query::frontend {
 int64_t ParseIntegerLiteral(const std::string &s) {
   try {
     // Not really correct since long long can have a bigger range than int64_t.
-    return static_cast<int64_t>(std::stoll(s, 0, 0));
+    return static_cast<int64_t>(std::stoll(s, nullptr, 0));
   } catch (const std::out_of_range &) {
     throw SemanticException("Integer literal exceeds 64 bits.");
   }
@@ -41,7 +41,7 @@ std::string ParseStringLiteral(const std::string &s) {
       ++j;
     }
     if (j - i == kLongUnicodeLength + 1) {
-      char32_t t = stoi(s.substr(i + 1, kLongUnicodeLength), 0, 16);
+      char32_t t = stoi(s.substr(i + 1, kLongUnicodeLength), nullptr, 16);
       i += kLongUnicodeLength;
       std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
       return converter.to_bytes(t);
@@ -57,7 +57,7 @@ std::string ParseStringLiteral(const std::string &s) {
       ++j;
     }
     if (j - i >= kShortUnicodeLength + 1) {
-      char16_t t = stoi(s.substr(i + 1, kShortUnicodeLength), 0, 16);
+      char16_t t = stoi(s.substr(i + 1, kShortUnicodeLength), nullptr, 16);
       if (t >= 0xD800 && t <= 0xDBFF) {
         // t is high surrogate pair. Expect one more utf16 codepoint.
         j = i + kShortUnicodeLength + 1;
@@ -76,7 +76,7 @@ std::string ParseStringLiteral(const std::string &s) {
         if (k != j + kShortUnicodeLength) {
           throw SemanticException("Invalid UTF codepoint.");
         }
-        char16_t surrogates[3] = {t, static_cast<char16_t>(stoi(s.substr(j, kShortUnicodeLength), 0, 16)), 0};
+        char16_t surrogates[3] = {t, static_cast<char16_t>(stoi(s.substr(j, kShortUnicodeLength), nullptr, 16)), 0};
         i += kShortUnicodeLength + 2 + kShortUnicodeLength;
         std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
         return converter.to_bytes(surrogates);

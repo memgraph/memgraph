@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -64,10 +64,10 @@ std::vector<BinaryData> BufferToBinaryData(const uint8_t *data, size_t size, std
   std::vector<BinaryData> ret;
   ret.reserve(sizes.size());
   size_t pos = 0;
-  for (size_t i = 0; i < sizes.size(); ++i) {
-    EXPECT_GE(size, pos + sizes[i]);
-    ret.push_back({data + pos, sizes[i]});
-    pos += sizes[i];
+  for (size_t i : sizes) {
+    EXPECT_GE(size, pos + i);
+    ret.emplace_back(data + pos, i);
+    pos += i;
   }
   return ret;
 }

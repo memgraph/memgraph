@@ -273,7 +273,7 @@ inline void Load(std::unique_ptr<T> *obj, Reader *reader) {
   // Prevent any loading which may potentially break class hierarchies.
   // Unfortunately, C++14 doesn't have (or I'm not aware of it) a trait for
   // checking whether some type has any derived or base classes.
-  static_assert(!std::is_polymorphic<T>::value,
+  static_assert(!std::is_polymorphic_v<T>,
                 "Only non polymorphic types can be loaded generically from a "
                 "pointer. Pass a custom load function as the 3rd argument.");
   bool exists = false;
@@ -379,7 +379,7 @@ inline void Load(std::shared_ptr<T> *obj, Reader *reader, std::vector<std::share
   // Prevent any loading which may potentially break class hierarchies.
   // Unfortunately, C++14 doesn't have (or I'm not aware of it) a trait for
   // checking whether some type has any derived or base classes.
-  static_assert(!std::is_polymorphic<T>::value,
+  static_assert(!std::is_polymorphic_v<T>,
                 "Only non polymorphic types can be loaded generically from a "
                 "pointer. Pass a custom load function as the 4th argument.");
   bool exists = false;

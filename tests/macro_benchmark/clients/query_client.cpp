@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -63,8 +63,9 @@ void ExecuteQueries(const std::vector<std::string> &queries, std::ostream &ostre
 
   memgraph::utils::Timer timer;
 
+  threads.reserve(FLAGS_num_workers);
   for (int i = 0; i < FLAGS_num_workers; ++i) {
-    threads.push_back(std::thread([&]() {
+    threads.emplace_back([&]() {
       Endpoint endpoint(FLAGS_address, FLAGS_port);
       ClientContext context(FLAGS_use_ssl);
       Client client(context);
@@ -88,7 +89,7 @@ void ExecuteQueries(const std::vector<std::string> &queries, std::ostream &ostre
         }
       }
       client.Close();
-    }));
+    });
   }
 
   for (int i = 0; i < FLAGS_num_workers; ++i) {

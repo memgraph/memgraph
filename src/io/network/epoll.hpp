@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -75,7 +75,7 @@ class Epoll {
    * @param fd file descriptor to delete from epoll
    */
   void Delete(int fd) {
-    int status = epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, NULL);
+    int status = epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
     // epoll_ctl can return an error on our logical error or on irrecoverable
     // error. There is a third possibility that some system limit is reached. In
     // that case we could return an erorr and close connection. Chances of

@@ -431,7 +431,7 @@ int main(int argc, char **argv) {
   // workers
   std::vector<std::thread> threads;
   for (int i = 0; i < FLAGS_worker_count; ++i) {
-    threads.push_back(std::thread([&, i]() { sessions[i].Run(); }));
+    threads.emplace_back([&, i]() { sessions[i].Run(); });
   }
 
   for (int i = 0; i < FLAGS_worker_count; ++i) {

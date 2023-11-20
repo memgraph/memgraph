@@ -126,9 +126,9 @@ int main(int argc, char **argv) {
 
     client_context.emplace(FLAGS_benchmark_use_ssl);
 
-    for (int i = 0; i < kThreadsNum; ++i) {
-      clients[i].emplace(endpoint, &client_context.value());
-      clients[i]->Call<Echo>("init");
+    for (auto &client : clients) {
+      client.emplace(endpoint, &client_context.value());
+      client->Call<Echo>("init");
     }
 
     // The client pool connects to the server only when there are no leftover
@@ -138,11 +138,11 @@ int main(int argc, char **argv) {
     // pool connect to the server `kThreadsNum` times.
     client_pool.emplace(endpoint, &client_context.value());
     std::thread threads[kThreadsNum];
-    for (int i = 0; i < kThreadsNum; ++i) {
-      threads[i] = std::thread([] { client_pool->Call<Echo>(std::string(10000, 'a')); });
+    for (auto &thread : threads) {
+      thread = std::thread([] { client_pool->Call<Echo>(std::string(10000, 'a')); });
     }
-    for (int i = 0; i < kThreadsNum; ++i) {
-      threads[i].join();
+    for (auto &thread : threads) {
+      thread.join();
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
