@@ -5,14 +5,14 @@ on:
     inputs:
       toolchain_version:
         type: choice
-        description: "Toolchain version the builder will use. Default is v4"
+        description: "Toolchain version for the builder"
         options:
           - v4
           - v5
       target_os:
         type: choice
-        description: "Target OS for the builder. Default is Debian 11"
-        default: 'ubuntu-22_04'
+        description: "Target OS for the builder"
+        default: 'debian-11'
         options:
           - all
           - all-amd64
@@ -30,6 +30,7 @@ on:
           - ubuntu-22_04-arm
       force_release:
         type: boolean
+        description: "Overwrite existing image on dockerhub"
         required: false
         default: false
 
