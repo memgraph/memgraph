@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,10 +25,10 @@ TEST(RWLock, MultipleReaders) {
   std::vector<std::thread> threads;
   memgraph::utils::Timer timer;
   for (int i = 0; i < 3; ++i) {
-    threads.push_back(std::thread([&rwlock] {
+    threads.emplace_back([&rwlock] {
       std::shared_lock<memgraph::utils::RWLock> lock(rwlock);
       std::this_thread::sleep_for(100ms);
-    }));
+    });
   }
 
   for (int i = 0; i < 3; ++i) {
@@ -45,10 +45,10 @@ TEST(RWLock, SingleWriter) {
   std::vector<std::thread> threads;
   memgraph::utils::Timer timer;
   for (int i = 0; i < 3; ++i) {
-    threads.push_back(std::thread([&rwlock] {
+    threads.emplace_back([&rwlock] {
       std::unique_lock<memgraph::utils::RWLock> lock(rwlock);
       std::this_thread::sleep_for(100ms);
-    }));
+    });
   }
 
   for (int i = 0; i < 3; ++i) {

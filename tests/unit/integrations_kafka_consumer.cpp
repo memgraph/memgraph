@@ -132,7 +132,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   info.batch_interval = kBatchInterval;
   auto expected_messages_received = true;
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
-    received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
+    received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
@@ -227,7 +227,7 @@ TEST_F(ConsumerTest, BatchSize) {
   static constexpr std::string_view kMessage = "BatchSizeTestMessage";
   auto expected_messages_received = true;
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
-    received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
+    received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }

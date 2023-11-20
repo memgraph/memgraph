@@ -1758,7 +1758,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       if (found_it != total_cost_.end() && (found_it->second.IsNull() || (found_it->second <= next_weight).ValueBool()))
         return;
 
-      pq_.push({next_weight, depth + 1, vertex, edge});
+      pq_.emplace(next_weight, depth + 1, vertex, edge);
     };
 
     // Populates the priority queue structure with expansions
@@ -1810,7 +1810,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         total_cost_.clear();
         yielded_vertices_.clear();
 
-        pq_.push({TypedValue(), 0, vertex, std::nullopt});
+        pq_.emplace(TypedValue(), 0, vertex, std::nullopt);
         // We are adding the starting vertex to the set of yielded vertices
         // because we don't want to yield paths that end with the starting
         // vertex.
@@ -2023,7 +2023,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       }
 
       DirectedEdge directed_edge = {edge, direction, next_weight};
-      pq_.push({next_weight, depth + 1, next_vertex, directed_edge});
+      pq_.emplace(next_weight, depth + 1, next_vertex, directed_edge);
     };
 
     // Populates the priority queue structure with expansions

@@ -27,7 +27,7 @@
 template <typename StorageType>
 struct CppApiTestFixture : public ::testing::Test {
  protected:
-  virtual void SetUp() override { mgp::mrd.Register(&memory); }
+  void SetUp() override { mgp::mrd.Register(&memory); }
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -164,7 +164,7 @@ TYPED_TEST(CppApiTestFixture, TestList) {
 
   // Use move assignment
   std::vector<mgp::List> vector_x;
-  vector_x.push_back(mgp::List());
+  vector_x.emplace_back();
 
   // Use Value copy constructor
   auto value_x = mgp::Value(list_1);
@@ -204,7 +204,7 @@ TYPED_TEST(CppApiTestFixture, TestMap) {
 
   // Use move assignment
   std::vector<mgp::Map> vector_x;
-  vector_x.push_back(mgp::Map());
+  vector_x.emplace_back();
 
   // Use Value copy constructor
   auto value_x = mgp::Value(map_1);
@@ -340,7 +340,7 @@ TYPED_TEST(CppApiTestFixture, TestPath) {
 
   // Use move assignment
   std::vector<mgp::Path> vector_x;
-  vector_x.push_back(mgp::Path(node_0));
+  vector_x.emplace_back(node_0);
 
   // Use Value copy constructor
   auto value_x = mgp::Value(path);
@@ -370,7 +370,7 @@ TYPED_TEST(CppApiTestFixture, TestDate) {
 
   // Use move assignment
   std::vector<mgp::Date> vector_x;
-  vector_x.push_back(mgp::Date("2022-04-09"));
+  vector_x.emplace_back("2022-04-09");
 
   // Use Value copy constructor
   auto value_x = mgp::Value(date_1);
@@ -398,7 +398,7 @@ TYPED_TEST(CppApiTestFixture, TestLocalTime) {
 
   // Use move assignment
   std::vector<mgp::LocalTime> vector_x;
-  vector_x.push_back(mgp::LocalTime("09:15:00"));
+  vector_x.emplace_back("09:15:00");
 
   // Use Value copy constructor
   auto value_x = mgp::Value(lt_1);
@@ -431,7 +431,7 @@ TYPED_TEST(CppApiTestFixture, TestLocalDateTime) {
 
   // Use move assignment
   std::vector<mgp::LocalDateTime> vector_x;
-  vector_x.push_back(mgp::LocalDateTime("2021-10-05T14:15:00"));
+  vector_x.emplace_back("2021-10-05T14:15:00");
 
   // Use Value copy constructor
   auto value_x = mgp::Value(ldt_1);
@@ -453,7 +453,7 @@ TYPED_TEST(CppApiTestFixture, TestDuration) {
 
   // Use move assignment
   std::vector<mgp::Duration> vector_x;
-  vector_x.push_back(mgp::Duration("PT2M2.33S"));
+  vector_x.emplace_back("PT2M2.33S");
 
   // Use Value copy constructor
   auto value_x = mgp::Value(duration_1);

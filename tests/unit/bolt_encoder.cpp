@@ -87,9 +87,9 @@ struct BoltEncoder : ::testing::Test {
 TEST_F(BoltEncoder, NullAndBool) {
   output.clear();
   std::vector<Value> vals;
-  vals.push_back(Value());
-  vals.push_back(Value(true));
-  vals.push_back(Value(false));
+  vals.emplace_back();
+  vals.emplace_back(true);
+  vals.emplace_back(false);
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, 3);
   CheckOutput(output, (const uint8_t *)"\xC0\xC3\xC2", 3);
@@ -99,7 +99,7 @@ TEST_F(BoltEncoder, Int) {
   int N = 28;
   output.clear();
   std::vector<Value> vals;
-  for (int i = 0; i < N; ++i) vals.push_back(Value(int_decoded[i]));
+  for (int i = 0; i < N; ++i) vals.emplace_back(int_decoded[i]);
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, N);
   for (int i = 0; i < N; ++i) CheckOutput(output, int_encoded[i], int_encoded_len[i], false);
@@ -110,7 +110,7 @@ TEST_F(BoltEncoder, Double) {
   int N = 4;
   output.clear();
   std::vector<Value> vals;
-  for (int i = 0; i < N; ++i) vals.push_back(Value(double_decoded[i]));
+  for (int i = 0; i < N; ++i) vals.emplace_back(double_decoded[i]);
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, N);
   for (int i = 0; i < N; ++i) CheckOutput(output, double_encoded[i], 9, false);
@@ -120,7 +120,7 @@ TEST_F(BoltEncoder, Double) {
 TEST_F(BoltEncoder, String) {
   output.clear();
   std::vector<Value> vals;
-  for (uint64_t i = 0; i < sizes_num; ++i) vals.push_back(Value(std::string((const char *)data, sizes[i])));
+  for (uint64_t i = 0; i < sizes_num; ++i) vals.emplace_back(std::string((const char *)data, sizes[i]));
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, vals.size());
   for (uint64_t i = 0; i < sizes_num; ++i) {
@@ -135,8 +135,8 @@ TEST_F(BoltEncoder, List) {
   std::vector<Value> vals;
   for (uint64_t i = 0; i < sizes_num; ++i) {
     std::vector<Value> val;
-    for (uint64_t j = 0; j < sizes[i]; ++j) val.push_back(Value(std::string((const char *)&data[j], 1)));
-    vals.push_back(Value(val));
+    for (uint64_t j = 0; j < sizes[i]; ++j) val.emplace_back(std::string((const char *)&data[j], 1));
+    vals.emplace_back(val);
   }
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, vals.size());
@@ -161,7 +161,7 @@ TEST_F(BoltEncoder, Map) {
       std::string tmp((char *)buff, 5);
       val.insert(std::make_pair(tmp, Value(tmp)));
     }
-    vals.push_back(Value(val));
+    vals.emplace_back(val);
   }
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, vals.size());
@@ -250,15 +250,15 @@ TEST_F(BoltEncoder, BoltV1ExampleMessages) {
 
   // record message
   std::vector<Value> rvals;
-  for (int i = 1; i < 4; ++i) rvals.push_back(Value(i));
+  for (int i = 1; i < 4; ++i) rvals.emplace_back(i);
   bolt_encoder.MessageRecord(rvals);
   CheckOutput(output, (const uint8_t *)"\xB1\x71\x93\x01\x02\x03", 6);
 
   // success message
   std::string sv1("name"), sv2("age"), sk("fields");
   std::vector<Value> svec;
-  svec.push_back(Value(sv1));
-  svec.push_back(Value(sv2));
+  svec.emplace_back(sv1);
+  svec.emplace_back(sv2);
   Value slist(svec);
   std::map<std::string, Value> svals;
   svals.insert(std::make_pair(sk, slist));

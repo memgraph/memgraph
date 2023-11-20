@@ -216,7 +216,7 @@ CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Ma
   std::vector<VaryMatchingStart> variants;
   variants.reserve(matchings.size());
   for (const auto &matching : matchings) {
-    variants.emplace_back(VaryMatchingStart(matching, symbol_table));
+    variants.emplace_back(matching, symbol_table);
   }
   return MakeCartesianProduct(std::move(variants));
 }

@@ -41,7 +41,7 @@ class AllTypesFixture : public testing::Test {
   memgraph::query::DbAccessor dba{storage_dba.get()};
 
   void SetUp() override {
-    values_.emplace_back(TypedValue());
+    values_.emplace_back();
     values_.emplace_back(true);
     values_.emplace_back(42);
     values_.emplace_back(3.14);

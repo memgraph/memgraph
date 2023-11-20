@@ -147,8 +147,8 @@ concept AccessorWithUpdateProperties = requires(T accessor,
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithUpdateProperties T>
-auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) ->
-    typename std::remove_reference<decltype(record->UpdateProperties(properties).GetValue())>::type {
+auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties)
+    -> std::remove_reference_t<decltype(record->UpdateProperties(properties).GetValue())> {
   try {
     auto maybe_values = record->UpdateProperties(properties);
     if (maybe_values.HasError()) {

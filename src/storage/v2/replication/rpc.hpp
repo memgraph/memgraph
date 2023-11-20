@@ -19,11 +19,7 @@
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 
-namespace memgraph {
-
-namespace storage {
-
-namespace replication {
+namespace memgraph::storage::replication {
 
 struct AppendDeltasReq {
   static const utils::TypeInfo kType;
@@ -209,9 +205,7 @@ struct TimestampRes {
 };
 
 using TimestampRpc = rpc::RequestResponse<TimestampReq, TimestampRes>;
-}  // namespace replication
-}  // namespace storage
-}  // namespace memgraph
+}  // namespace memgraph::storage::replication
 
 // SLK serialization declarations
 #include "slk/serialization.hpp"

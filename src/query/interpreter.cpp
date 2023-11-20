@@ -795,34 +795,33 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           std::vector<TypedValue> typed_replica;
           typed_replica.reserve(replica_nfields);
 
-          typed_replica.emplace_back(TypedValue(replica.name));
-          typed_replica.emplace_back(TypedValue(replica.socket_address));
+          typed_replica.emplace_back(replica.name);
+          typed_replica.emplace_back(replica.socket_address);
 
           switch (replica.sync_mode) {
             case ReplicationQuery::SyncMode::SYNC:
-              typed_replica.emplace_back(TypedValue("sync"));
+              typed_replica.emplace_back("sync");
               break;
             case ReplicationQuery::SyncMode::ASYNC:
-              typed_replica.emplace_back(TypedValue("async"));
+              typed_replica.emplace_back("async");
               break;
           }
 
-          typed_replica.emplace_back(TypedValue(static_cast<int64_t>(replica.current_timestamp_of_replica)));
-          typed_replica.emplace_back(
-              TypedValue(static_cast<int64_t>(replica.current_number_of_timestamp_behind_master)));
+          typed_replica.emplace_back(static_cast<int64_t>(replica.current_timestamp_of_replica));
+          typed_replica.emplace_back(static_cast<int64_t>(replica.current_number_of_timestamp_behind_master));
 
           switch (replica.state) {
             case ReplicationQuery::ReplicaState::READY:
-              typed_replica.emplace_back(TypedValue("ready"));
+              typed_replica.emplace_back("ready");
               break;
             case ReplicationQuery::ReplicaState::REPLICATING:
-              typed_replica.emplace_back(TypedValue("replicating"));
+              typed_replica.emplace_back("replicating");
               break;
             case ReplicationQuery::ReplicaState::RECOVERY:
-              typed_replica.emplace_back(TypedValue("recovery"));
+              typed_replica.emplace_back("recovery");
               break;
             case ReplicationQuery::ReplicaState::INVALID:
-              typed_replica.emplace_back(TypedValue("invalid"));
+              typed_replica.emplace_back("invalid");
               break;
           }
 
@@ -1960,11 +1959,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     result.reserve(kComputeStatisticsNumResults);
 
     result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first));
-    result.emplace_back(TypedValue());
+    result.emplace_back();
     result.emplace_back(static_cast<int64_t>(stat_entry.second.count));
-    result.emplace_back(TypedValue());
-    result.emplace_back(TypedValue());
-    result.emplace_back(TypedValue());
+    result.emplace_back();
+    result.emplace_back();
+    result.emplace_back();
     result.emplace_back(stat_entry.second.avg_degree);
     results.push_back(std::move(result));
   });
@@ -2881,7 +2880,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, con
           metadata_tv.emplace(md.first, TypedValue(md.second));
         }
       }
-      results.back().push_back(TypedValue(metadata_tv));
+      results.back().emplace_back(metadata_tv);
     }
   }
   return results;

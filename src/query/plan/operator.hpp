@@ -32,9 +32,7 @@
 #include "utils/synchronized.hpp"
 #include "utils/visitor.hpp"
 
-namespace memgraph {
-
-namespace query {
+namespace memgraph::query {
 
 struct ExecutionContext;
 class ExpressionEvaluator;
@@ -172,7 +170,7 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
   static const utils::TypeInfo kType;
   virtual const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
-  virtual ~LogicalOperator() = default;
+  ~LogicalOperator() override = default;
 
   /** Construct a @c Cursor which is used to run this operator.
    *
@@ -2631,5 +2629,4 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
 };
 
 }  // namespace plan
-}  // namespace query
-}  // namespace memgraph
+}  // namespace memgraph::query

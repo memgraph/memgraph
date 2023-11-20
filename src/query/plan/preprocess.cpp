@@ -637,7 +637,7 @@ static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, A
                          SymbolTable &symbol_table) {
   for (auto *clause : foreach.clauses_) {
     if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-      query_part.merge_matching.emplace_back(Matching{});
+      query_part.merge_matching.emplace_back();
       AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part.merge_matching.back());
     } else if (auto *nested = utils::Downcast<query::Foreach>(clause)) {
       ParseForeach(*nested, query_part, storage, symbol_table);
@@ -654,7 +654,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
   for (auto &clause : single_query->clauses_) {
     if (auto *match = utils::Downcast<Match>(clause)) {
       if (match->optional_) {
-        query_part->optional_matching.emplace_back(Matching{});
+        query_part->optional_matching.emplace_back();
         AddMatching(*match, symbol_table, storage, query_part->optional_matching.back());
       } else {
         DMG_ASSERT(query_part->optional_matching.empty(), "Match clause cannot follow optional match.");
@@ -663,7 +663,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
     } else {
       query_part->remaining_clauses.push_back(clause);
       if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-        query_part->merge_matching.emplace_back(Matching{});
+        query_part->merge_matching.emplace_back();
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
       } else if (auto *call_subquery = utils::Downcast<query::CallSubquery>(clause)) {
         query_part->subqueries.emplace_back(

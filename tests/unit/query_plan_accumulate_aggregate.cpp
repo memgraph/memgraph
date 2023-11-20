@@ -328,7 +328,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
                                                                            memgraph::storage::PropertyValue(2)});
   group_by_vals.emplace_back(std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(2),
                                                                            memgraph::storage::PropertyValue(1)});
-  group_by_vals.emplace_back(memgraph::storage::PropertyValue());
+  group_by_vals.emplace_back();
   // should NOT result in another group because 7.0 == 7
   group_by_vals.emplace_back(7.0);
   // should NOT result in another group
@@ -737,7 +737,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
                                                                            memgraph::storage::PropertyValue(2)});
   group_by_vals.emplace_back(std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(2),
                                                                            memgraph::storage::PropertyValue(1)});
-  group_by_vals.emplace_back(memgraph::storage::PropertyValue());
+  group_by_vals.emplace_back();
   // should NOT result in another group because 7.0 == 7
   group_by_vals.emplace_back(7.0);
   // should NOT result in another group

@@ -143,10 +143,10 @@ class ProfilingStatsToJsonHelper {
     obj->emplace("absolute_time", AbsoluteTime(cycles, total_cycles_, total_time_));
     obj->emplace("children", json::array());
 
-    for (size_t i = 0; i < cumulative_stats.children.size(); ++i) {
-      json child;
-      Output(cumulative_stats.children[i], &child);
-      obj->at("children").emplace_back(std::move(child));
+    for (const auto &child : cumulative_stats.children) {
+      json json_child;
+      Output(child, &json_child);
+      obj->at("children").emplace_back(std::move(json_child));
     }
   }
 
