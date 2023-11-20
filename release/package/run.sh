@@ -19,7 +19,10 @@ SUPPORTED_BUILD_TYPES=(
     Release
     RelWithDebInfo
 )
-
+SUPPORTED_ARCHITECTURES=(
+    amd64
+    arm64
+  )
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 TOOLCHAIN_VERSION="${TOOLCHAIN_VERSION:-toolchain-v4}"
 ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
@@ -34,10 +37,11 @@ print_help () {
     exit 1
 }
 print_help_build () {
-    echo "$0 build {toolchain_version} {os} [--publish]"
+    echo "$0 build {toolchain_version} {os} {architecture} [--publish]"
     echo ""
     echo "    Toolchain versions: ${SUPPORTED_TOOLCAHINS[*]}"
     echo "    OSs: ${SUPPORTED_OS[*]}"
+    echo "    Architectures: ${SUPPORTED_ARCHITECTURES[*]}"
     exit 1
 }
 
@@ -197,7 +201,7 @@ case "$1" in
 
     build)
       shift 1
-      if [[ "$#" -lt 2 || "$#" -gt 3 ]]; then
+      if [[ "$#" -lt 3 || "$#" -gt 4 ]]; then
           print_help
       fi
       # in the vX format, e.g. v5
@@ -205,15 +209,17 @@ case "$1" in
       # a name of the os folder, e.g. ubuntu-22.04-arm
       os="$2"
       cd "$SCRIPT_DIR/$os"
-      if [[ "$#" -eq 3 ]]; then
-        if [[ "$3" == "--publish" ]]; then
-          docker buildx build --file Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" --tag "memgraph/memgraph-builder:${toolchain_version}_$os" --push .
+      # architecture for which the image will be built, e.g. linux/arm64
+      architecture="$3"
+      if [[ "$#" -eq 4 ]]; then
+        if [[ "$4" == "--publish" ]]; then
+          docker buildx build --file Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" --platform "linux/$architecture" --tag "memgraph/memgraph-builder:${toolchain_version}_$os" --push .
         else
           print_help_build
           exit
         fi
       else
-          docker buildx build --file Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" --tag "memgraph/memgraph-builder:${toolchain_version}_$os" .
+          docker buildx build --file Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" --platform "linux/$architecture" --tag "memgraph/memgraph-builder:${toolchain_version}_$os" .
       fi
     ;;
 
