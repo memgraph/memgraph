@@ -211,8 +211,7 @@ case "$1" in
           -f Dockerfile \  
           --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" \
           -t "memgraph/memgraph-builder:${toolchain_version}_$os" \
-          --push \
-          .
+          --push .
         else
           print_help_build
           exit
@@ -221,8 +220,7 @@ case "$1" in
         docker build \
         -f Dockerfile \
         --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" \
-        -t "memgraph/memgraph-builder:${toolchain_version}_$os" \
-        .
+        -t "memgraph/memgraph-builder:${toolchain_version}_$os" .
       fi
     ;;
 
