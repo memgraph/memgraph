@@ -202,7 +202,7 @@ case "$1" in
     build)
       shift 1
       if [[ "$#" -lt 3 || "$#" -gt 4 ]]; then
-          print_help
+          print_help_build
       fi
       # in the vX format, e.g. v5
       toolchain_version="$1"
