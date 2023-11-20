@@ -207,20 +207,13 @@ case "$1" in
       cd "$SCRIPT_DIR/$os"
       if [[ "$#" -eq 3 ]]; then
         if [[ "$3" == "--publish" ]]; then
-          docker buildx build \
-          -f Dockerfile \  
-          --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" \
-          -t "memgraph/memgraph-builder:${toolchain_version}_$os" \
-          --push .
+          docker buildx build --file Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" --tag "memgraph/memgraph-builder:${toolchain_version}_$os" --push .
         else
           print_help_build
           exit
         fi
       else
-        docker buildx build \
-        -f Dockerfile \
-        --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" \
-        -t "memgraph/memgraph-builder:${toolchain_version}_$os" .
+          docker buildx build --file Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" --tag "memgraph/memgraph-builder:${toolchain_version}_$os" .
       fi
     ;;
 
