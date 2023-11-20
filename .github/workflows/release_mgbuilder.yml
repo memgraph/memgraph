@@ -29,6 +29,10 @@ on:
           - ubuntu-20_04
           - ubuntu-22_04
           - ubuntu-22_04-arm
+      force_release:
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   debian_11_build:
@@ -44,7 +48,16 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Check if specified image is already pushed
+        run: |
+          if [[ ${{ github.event.inputs.force_release }} = true ]]; then
+            EXISTS=1
+          else
+            EXISTS=$(docker manifest inspect memgraph/memgraph-builder:v4_debian-11 > /dev/null; echo $?)
+          fi
+          echo "EXISTS=$EXISTS" >> $GITHUB_ENV
       - name: "Build and publish image" 
+        if: env.EXISTS == 1
         run: |
           echo "Building and publishing memgraph/memgraph-builder:v4_debian-11"
           ./release/package/run.sh build v4 debian-11 --publish
@@ -64,7 +77,16 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Check if specified image is already pushed
+        run: |
+          if [[ ${{ github.event.inputs.force_release }} = true ]]; then
+            EXISTS=1
+          else
+            EXISTS=$(docker manifest inspect memgraph/memgraph-builder:v4_debian-11 > /dev/null; echo $?)
+          fi
+          echo "EXISTS=$EXISTS" >> $GITHUB_ENV
       - name: "Build and publish image" 
+        if: env.EXISTS == 1
         run: |
           echo "Building and publishing memgraph/memgraph-builder:v4_debian-11-arm"
           ./release/package/run.sh build v4 debian-11-arm --publish
@@ -83,7 +105,16 @@ jobs:
   #       with:
   #         username: ${{ secrets.DOCKERHUB_USERNAME }}
   #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # - name: Check if specified image is already pushed
+      #   run: |
+      #     if [[ ${{ github.event.inputs.force_release }} = true ]]; then
+      #       EXISTS=1
+      #     else
+      #       EXISTS=$(docker manifest inspect memgraph/memgraph-builder:v4_debian-11 > /dev/null; echo $?)
+      #     fi
+      #     echo "EXISTS=$EXISTS" >> $GITHUB_ENV
   #     - name: "Build and publish image" 
+        # if: env.EXISTS == 1
   #       run: |
   #         echo "Building and publishing memgraph/memgraph-builder:${{ github.event.inputs.toolchain_version }}_${{ github.event.inputs.target_os }}"
   #         ./release/package/run.sh build ${{ github.event.inputs.toolchain_version }} ${{ github.event.inputs.target_os }} --publish
@@ -104,7 +135,16 @@ jobs:
   #       with:
   #         username: ${{ secrets.DOCKERHUB_USERNAME }}
   #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # - name: Check if specified image is already pushed
+      #   run: |
+      #     if [[ ${{ github.event.inputs.force_release }} = true ]]; then
+      #       EXISTS=1
+      #     else
+      #       EXISTS=$(docker manifest inspect memgraph/memgraph-builder:v4_debian-11 > /dev/null; echo $?)
+      #     fi
+      #     echo "EXISTS=$EXISTS" >> $GITHUB_ENV
   #     - name: "Build and publish image" 
+        # if: env.EXISTS == 1
   #       run: |
   #         echo "Building and publishing memgraph/memgraph-builder:${{ github.event.inputs.toolchain_version }}_${{ github.event.inputs.target_os }}"
   #         ./release/package/run.sh build ${{ github.event.inputs.toolchain_version }} ${{ github.event.inputs.target_os }} --publish
@@ -126,7 +166,16 @@ jobs:
   #       with:
   #         username: ${{ secrets.DOCKERHUB_USERNAME }}
   #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # - name: Check if specified image is already pushed
+      #   run: |
+      #     if [[ ${{ github.event.inputs.force_release }} = true ]]; then
+      #       EXISTS=1
+      #     else
+      #       EXISTS=$(docker manifest inspect memgraph/memgraph-builder:v4_debian-11 > /dev/null; echo $?)
+      #     fi
+      #     echo "EXISTS=$EXISTS" >> $GITHUB_ENV
   #     - name: "Build and publish image" 
+        # if: env.EXISTS == 1
   #       run: |
   #         echo "Building and publishing memgraph/memgraph-builder:${{ github.event.inputs.toolchain_version }}_${{ matrix.target_os }}"
   #         ./release/package/run.sh build ${{ github.event.inputs.toolchain_version }} ${{ matrix.target_os }} --publish
@@ -151,7 +200,16 @@ jobs:
   #       with:
   #         username: ${{ secrets.DOCKERHUB_USERNAME }}
   #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # - name: Check if specified image is already pushed
+      #   run: |
+      #     if [[ ${{ github.event.inputs.force_release }} = true ]]; then
+      #       EXISTS=1
+      #     else
+      #       EXISTS=$(docker manifest inspect memgraph/memgraph-builder:v4_debian-11 > /dev/null; echo $?)
+      #     fi
+      #     echo "EXISTS=$EXISTS" >> $GITHUB_ENV
   #     - name: "Build and publish image" 
+        # if: env.EXISTS == 1
   #       run: |
   #         echo "Building and publishing memgraph/memgraph-builder:${{ github.event.inputs.toolchain_version }}_${{ matrix.target_os }}"
   #         ./release/package/run.sh build ${{ matrix.toolchain_version }} ${{ github.event.inputs.target_os }} --publish
