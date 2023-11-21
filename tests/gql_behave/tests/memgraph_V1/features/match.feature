@@ -751,3 +751,23 @@ Feature: Match
             MATCH path = (:Person {id: 1})-[* (e, n, p | type(relationships(p)[-1]) = 'Invalid')]->(:Person {id: 4}) RETURN path
             """
         Then the result should be empty
+
+    Scenario: Test DFS variable expand with filter by edge type1
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label1)-[* (e, n, p | NOT(type(e)='type1' AND type(last(relationships(p))) = 'type1'))]->(:label3) RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | <(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> |
+
+    Scenario: Test DFS variable expand with filter by edge type2
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label1)-[* (e, n, p | NOT(type(e)='type2' AND type(last(relationships(p))) = 'type2'))]->(:label3) RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |

@@ -1760,6 +1760,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
                     "Accumulated path must be path");
           Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
+          accumulated_path.Expand(edge);
           accumulated_path.Expand(vertex);
         }
         if (self_.filter_lambda_.accumulated_weight_symbol) {
@@ -1826,6 +1827,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           // Due to optional matching the existing node could be null.
           // Skip expansion for such nodes.
           if (node.IsNull()) continue;
+        }
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(vertex);
         }
         if (self_.upper_bound_) {
           upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
@@ -2022,6 +2026,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
                     "Accumulated path must be path");
           Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
+          accumulated_path.Expand(edge);
           accumulated_path.Expand(next_vertex);
         }
         if (self_.filter_lambda_.accumulated_weight_symbol) {
@@ -2239,6 +2244,10 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         next_edges_.clear();
         traversal_stack_.clear();
         total_cost_.clear();
+
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(*start_vertex);
+        }
 
         expand_from_vertex(*start_vertex, TypedValue(), 0);
         visited_cost_.emplace(*start_vertex, 0);

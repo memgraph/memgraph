@@ -155,3 +155,37 @@ Feature: Weighted Shortest Path
           MATCH (n {a:'0'})-[le *wShortest 10 (e, n | e.w ) w]->(m) RETURN m.a, size(le) as s, w
           """
       Then an error should be raised
+
+    Scenario: Test match wShortest with accumulated path filtered by order of ids
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})-[:type1 {id: 3}]->(:label4 {id: 4});
+          """
+      When executing query:
+          """
+          MATCH pth=(:label1)-[*WSHORTEST (r, n | r.id) total_weight (e,n,p | e.id > 0 and (nodes(p)[-1]).id > (nodes(p)[-2]).id)]->(:label4) RETURN pth, total_weight;
+          """
+      Then the result should be:
+          | pth                                                                                                               | total_weight   |
+          | <(:label1{id:1})-[:type1{id:1}]->(:label2{id:2})-[:type1{id:2}]->(:label3{id:3})-[:type1{id:3}]->(:label4{id:4})> | 6              |
+
+    Scenario: Test match wShortest with accumulated path filtered by edge type1
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH path=(:label1)-[*WSHORTEST (r, n | r.id) total_weight (e, n, p | NOT(type(e)='type1' AND type(last(relationships(p))) = 'type1'))]->(:label3) RETURN path, total_weight;
+          """
+      Then the result should be:
+          | path                                                     | total_weight   |
+          | <(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> | 10             |
+
+    Scenario: Test match wShortest with accumulated path filtered by edge type2
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH path=(:label1)-[*WSHORTEST (r, n | r.id) total_weight (e, n, p | NOT(type(e)='type2' AND type(last(relationships(p))) = 'type2'))]->(:label3) RETURN path, total_weight;
+          """
+      Then the result should be:
+          | path                                                                                        | total_weight   |
+          | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> | 3              |
