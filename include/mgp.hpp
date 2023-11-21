@@ -21,12 +21,10 @@
 #include <string>
 #include <string_view>
 #include <thread>
-#include <unordered_map>
-#include <vector>
-
-#include <functional>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "_mgp.hpp"
 #include "mg_exceptions.hpp"
@@ -1289,7 +1287,7 @@ class Value {
   std::string_view ValueString() const;
   std::string_view ValueString();
   /// @pre Value type needs to be Type::List.
-  const List ValueList() const;
+  List ValueList() const;
   List ValueList();
   /// @pre Value type needs to be Type::Map.
   const Map ValueMap() const;
@@ -3651,7 +3649,7 @@ inline std::string_view Value::ValueString() {
   return mgp::value_get_string(ptr_);
 }
 
-inline const List Value::ValueList() const {
+inline List Value::ValueList() const {
   if (Type() != Type::List) {
     throw ValueException("Type of value is wrong: expected List.");
   }
@@ -4279,9 +4277,77 @@ inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &param
 }
 }  // namespace detail
 
+inline bool CreateLabelIndex(mgp_graph *memgaph_graph, const std::string_view label) {
+  return create_label_index(memgaph_graph, label.data());
+}
+
+inline bool DropLabelIndex(mgp_graph *memgaph_graph, const std::string_view label) {
+  return drop_label_index(memgaph_graph, label.data());
+}
+
+inline List ListAllLabelIndices(mgp_graph *memgraph_graph) {
+  auto *label_indices = mgp::MemHandlerCallback(list_all_label_indices, memgraph_graph);
+  if (label_indices == nullptr) {
+    throw ValueException("Couldn't list all label indices");
+  }
+  return List(label_indices);
+}
+
+inline bool CreateLabelPropertyIndex(mgp_graph *memgaph_graph, const std::string_view label,
+                                     const std::string_view property) {
+  return create_label_property_index(memgaph_graph, label.data(), property.data());
+}
+
+inline bool DropLabelPropertyIndex(mgp_graph *memgaph_graph, const std::string_view label,
+                                   const std::string_view property) {
+  return drop_label_property_index(memgaph_graph, label.data(), property.data());
+}
+
+inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
+  auto *label_property_indices = mgp::MemHandlerCallback(list_all_label_property_indices, memgraph_graph);
+  if (label_property_indices == nullptr) {
+    throw ValueException("Couldn't list all label+property indices");
+  }
+  return List(label_property_indices);
+}
+
+inline bool CreateExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label,
+                                      const std::string_view property) {
+  return create_existence_constraint(memgraph_graph, label.data(), property.data());
+}
+
+inline bool DropExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label,
+                                    const std::string_view property) {
+  return drop_existence_constraint(memgraph_graph, label.data(), property.data());
+}
+
+inline List ListAllExistenceConstraints(mgp_graph *memgraph_graph) {
+  auto *existence_constraints = mgp::MemHandlerCallback(list_all_existence_constraints, memgraph_graph);
+  if (existence_constraints == nullptr) {
+    throw ValueException("Couldn't list all existence_constraints");
+  }
+  return List(existence_constraints);
+}
+
+inline bool CreateUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
+  return create_unique_constraint(memgraph_graph, label.data(), properties);
+}
+
+inline bool DropUniqueConstraint(mgp_graph *memgraph_graph, const std::string_view label, mgp_value *properties) {
+  return drop_unique_constraint(memgraph_graph, label.data(), properties);
+}
+
+inline List ListAllUniqueConstraints(mgp_graph *memgraph_graph) {
+  auto *unique_constraints = mgp::MemHandlerCallback(list_all_unique_constraints, memgraph_graph);
+  if (unique_constraints == nullptr) {
+    throw ValueException("Couldn't list all unique_constraints");
+  }
+  return List(unique_constraints);
+}
+
 void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
                   std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
-                  mgp_memory *memory) {
+                  mgp_memory * /*memory*/) {
   auto *proc = (proc_type == ProcedureType::Read) ? mgp::module_add_read_procedure(module, name.data(), callback)
                                                   : mgp::module_add_write_procedure(module, name.data(), callback);
   detail::AddParamsReturnsToProc(proc, parameters, returns);
@@ -4289,7 +4355,7 @@ void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType pro
 
 void AddBatchProcedure(mgp_proc_cb callback, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
                        std::string_view name, ProcedureType proc_type, std::vector<Parameter> parameters,
-                       std::vector<Return> returns, mgp_module *module, mgp_memory *memory) {
+                       std::vector<Return> returns, mgp_module *module, mgp_memory * /*memory*/) {
   auto *proc = (proc_type == ProcedureType::Read)
                    ? mgp::module_add_batch_read_procedure(module, name.data(), callback, initializer, cleanup)
                    : mgp::module_add_batch_write_procedure(module, name.data(), callback, initializer, cleanup);
