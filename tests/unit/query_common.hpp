@@ -189,7 +189,7 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name, EdgeAtom::Typ
   for (const auto &type : edge_types) {
     types.push_back(storage.GetEdgeTypeIx(type));
   }
-  auto r_val = storage.Create<EdgeAtom>(storage.Create<Identifier>(name), type, dir, types);
+  auto *r_val = storage.Create<EdgeAtom>(storage.Create<Identifier>(name), type, dir, types);
 
   r_val->filter_lambda_.inner_edge =
       flambda_inner_edge ? flambda_inner_edge : storage.Create<Identifier>(memgraph::utils::RandomString(20));
@@ -215,14 +215,14 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name, EdgeAtom::Typ
 /// Name is used to create the Identifier which is assigned to the node.
 auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::string> label = std::nullopt,
              const bool user_declared = true) {
-  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
+  auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
   if (label) node->labels_.emplace_back(storage.GetLabelIx(*label));
   return node;
 }
 
 /// Create a Pattern with given atoms.
 auto GetPattern(AstStorage &storage, std::vector<PatternAtom *> atoms) {
-  auto pattern = storage.Create<Pattern>();
+  auto *pattern = storage.Create<Pattern>();
   pattern->identifier_ = storage.Create<Identifier>(memgraph::utils::RandomString(20), false);
   pattern->atoms_.insert(pattern->atoms_.begin(), atoms.begin(), atoms.end());
   return pattern;
@@ -230,7 +230,7 @@ auto GetPattern(AstStorage &storage, std::vector<PatternAtom *> atoms) {
 
 /// Create a Pattern with given name and atoms.
 auto GetPattern(AstStorage &storage, const std::string &name, std::vector<PatternAtom *> atoms) {
-  auto pattern = storage.Create<Pattern>();
+  auto *pattern = storage.Create<Pattern>();
   pattern->identifier_ = storage.Create<Identifier>(name, true);
   pattern->atoms_.insert(pattern->atoms_.begin(), atoms.begin(), atoms.end());
   return pattern;
@@ -377,7 +377,7 @@ void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &na
 /// @sa GetWith
 template <class... T>
 auto GetReturn(AstStorage &storage, bool distinct, T... exprs) {
-  auto ret = storage.Create<Return>();
+  auto *ret = storage.Create<Return>();
   ret->body_.distinct = distinct;
   FillReturnBody(storage, ret->body_, exprs...);
   return ret;
@@ -390,7 +390,7 @@ auto GetReturn(AstStorage &storage, bool distinct, T... exprs) {
 /// @sa GetReturn
 template <class... T>
 auto GetWith(AstStorage &storage, bool distinct, T... exprs) {
-  auto with = storage.Create<With>();
+  auto *with = storage.Create<With>();
   with->body_.distinct = distinct;
   FillReturnBody(storage, with->body_, exprs...);
   return with;
@@ -407,7 +407,7 @@ auto GetUnwind(AstStorage &storage, Expression *expr, NamedExpression *as) {
 
 /// Create the delete clause with given named expressions.
 auto GetDelete(AstStorage &storage, std::vector<Expression *> exprs, bool detach = false) {
-  auto del = storage.Create<Delete>();
+  auto *del = storage.Create<Delete>();
   del->expressions_.insert(del->expressions_.begin(), exprs.begin(), exprs.end());
   del->detach_ = detach;
   return del;

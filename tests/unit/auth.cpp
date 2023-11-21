@@ -589,9 +589,9 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 }
 
 TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
-  auto any_label = "AnyString";
-  auto check_label = "Label";
-  auto asterisk = "*";
+  const auto *any_label = "AnyString";
+  const auto *check_label = "Label";
+  const auto *asterisk = "*";
 
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;

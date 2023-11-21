@@ -231,7 +231,7 @@ class DeltaGenerator final {
   }
 
   void AppendOperation(memgraph::storage::durability::StorageMetadataOperation operation, const std::string &label,
-                       const std::set<std::string> properties = {}, const std::string &stats = {}) {
+                       const std::set<std::string, std::less<>> properties = {}, const std::string &stats = {}) {
     auto label_id = memgraph::storage::LabelId::FromUint(mapper_.NameToId(label));
     std::set<memgraph::storage::PropertyId> property_ids;
     for (const auto &property : properties) {

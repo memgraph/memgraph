@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -151,7 +151,7 @@ TEST(String, RandomString) {
   EXPECT_EQ(RandomString(1).size(), 1);
   EXPECT_EQ(RandomString(42).size(), 42);
 
-  std::set<std::string> string_set;
+  std::set<std::string, std::less<>> string_set;
   for (int i = 0; i < 20; ++i) string_set.emplace(RandomString(256));
 
   EXPECT_EQ(string_set.size(), 20);

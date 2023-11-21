@@ -46,7 +46,7 @@ const char *kRemoveInternalLabelProperty = "MATCH (u) REMOVE u:__mg_vertex__, u.
 struct DatabaseState {
   struct Vertex {
     int64_t id;
-    std::set<std::string> labels;
+    std::set<std::string, std::less<>> labels;
     std::map<std::string, memgraph::storage::PropertyValue> props;
   };
 
@@ -67,7 +67,7 @@ struct DatabaseState {
 
   struct LabelPropertiesItem {
     std::string label;
-    std::set<std::string> properties;
+    std::set<std::string, std::less<>> properties;
   };
 
   std::set<Vertex> vertices;
@@ -139,7 +139,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   std::set<DatabaseState::Vertex> vertices;
   auto dba = db->Access();
   for (const auto &vertex : dba->Vertices(memgraph::storage::View::NEW)) {
-    std::set<std::string> labels;
+    std::set<std::string, std::less<>> labels;
     auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
     MG_ASSERT(maybe_labels.HasValue());
     for (const auto &label : *maybe_labels) {
@@ -198,7 +198,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
       existence_constraints.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
     }
     for (const auto &item : info.unique) {
-      std::set<std::string> properties;
+      std::set<std::string, std::less<>> properties;
       for (const auto &property : item.second) {
         properties.insert(dba->PropertyToName(property));
       }

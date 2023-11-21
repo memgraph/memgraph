@@ -301,8 +301,8 @@ class Databases final {
   bool Contains(const std::string &db) const;
 
   bool GetAllowAll() const { return allow_all_; }
-  const std::set<std::string> &GetGrants() const { return grants_dbs_; }
-  const std::set<std::string> &GetDenies() const { return denies_dbs_; }
+  const std::set<std::string, std::less<>> &GetGrants() const { return grants_dbs_; }
+  const std::set<std::string, std::less<>> &GetDenies() const { return denies_dbs_; }
   const std::string &GetDefault() const;
 
   nlohmann::json Serialize() const;
@@ -310,14 +310,14 @@ class Databases final {
   static Databases Deserialize(const nlohmann::json &data);
 
  private:
-  Databases(bool allow_all, std::set<std::string> grant, std::set<std::string> deny,
+  Databases(bool allow_all, std::set<std::string, std::less<>> grant, std::set<std::string, std::less<>> deny,
             const std::string &default_db = dbms::kDefaultDB)
       : grants_dbs_(grant), denies_dbs_(deny), allow_all_(allow_all), default_db_(default_db) {}
 
-  std::set<std::string> grants_dbs_;  //!< set of databases with granted access
-  std::set<std::string> denies_dbs_;  //!< set of databases with denied access
-  bool allow_all_;                    //!< flag to allow access to everything (denied overrides this)
-  std::string default_db_;            //!< user's default database
+  std::set<std::string, std::less<>> grants_dbs_;  //!< set of databases with granted access
+  std::set<std::string, std::less<>> denies_dbs_;  //!< set of databases with denied access
+  bool allow_all_;                                 //!< flag to allow access to everything (denied overrides this)
+  std::string default_db_;                         //!< user's default database
 };
 #endif
 

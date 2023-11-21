@@ -1131,7 +1131,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   static std::string SingleFilterName(const query::plan::FilterInfo &single_filter) {
     using Type = query::plan::FilterInfo::Type;
     if (single_filter.type == Type::Generic) {
-      std::set<std::string> symbol_names;
+      std::set<std::string, std::less<>> symbol_names;
       for (const auto &symbol : single_filter.used_symbols) {
         symbol_names.insert(symbol.name());
       }
@@ -1144,7 +1144,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
         LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
       }
       auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
-      std::set<std::string> label_names;
+      std::set<std::string, std::less<>> label_names;
       for (const auto &label : filter_expression->labels_) {
         label_names.insert(label.name);
       }
@@ -1167,7 +1167,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   }
 
   std::string ToString() const override {
-    std::set<std::string> filter_names;
+    std::set<std::string, std::less<>> filter_names;
     for (const auto &filter : all_filters_) {
       filter_names.insert(Filter::SingleFilterName(filter));
     }

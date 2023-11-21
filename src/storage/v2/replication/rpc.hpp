@@ -214,7 +214,6 @@ using TimestampRpc = rpc::RequestResponse<TimestampReq, TimestampRes>;
 }  // namespace memgraph
 
 // SLK serialization declarations
-#include "slk/serialization.hpp"
 namespace memgraph::slk {
 
 void Save(const memgraph::storage::replication::TimestampRes &self, memgraph::slk::Builder *builder);

@@ -287,7 +287,7 @@ class ExpectAggregate : public OpChecker<Aggregate> {
     auto aggr_it = aggregations_.begin();
     for (const auto &aggr_elem : op.aggregations_) {
       ASSERT_NE(aggr_it, aggregations_.end());
-      auto aggr = *aggr_it++;
+      auto *aggr = *aggr_it++;
       // TODO: Proper expression equality
       EXPECT_EQ(typeid(aggr_elem.value).hash_code(), typeid(aggr->expression1_).hash_code());
       EXPECT_EQ(typeid(aggr_elem.key).hash_code(), typeid(aggr->expression2_).hash_code());
@@ -526,7 +526,7 @@ class FakeDbAccessor {
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
-    for (auto &index : label_property_index_) {
+    for (const auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return std::get<2>(index);
       }
@@ -539,7 +539,7 @@ class FakeDbAccessor {
   }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
-    for (auto &index : label_property_index_) {
+    for (const auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return true;
       }
