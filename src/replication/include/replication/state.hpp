@@ -20,6 +20,7 @@
 #include "replication_server.hpp"
 #include "status.hpp"
 #include "utils/result.hpp"
+#include "utils/synchronized.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -44,7 +45,7 @@ struct RoleMainData {
   RoleMainData &operator=(RoleMainData &&) = default;
 
   ReplicationEpoch epoch_;
-  std::list<std::unique_ptr<ReplicationClient>> registered_replicas_{};
+  std::list<ReplicationClient> registered_replicas_{};
 };
 
 struct RoleReplicaData {

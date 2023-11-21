@@ -56,6 +56,7 @@ void ReplicationStorageClient::CheckReplicaState(Storage *storage) {
         "now hold unique data. Please resolve data conflicts and start the "
         "replication on a clean instance.",
         client_.name_, client_.name_, client_.name_);
+    // State not updated, hence in MAYBE_BEHIND state
     return;
   }
 

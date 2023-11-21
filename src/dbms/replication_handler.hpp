@@ -58,7 +58,6 @@ struct ReplicationHandler {
 
  private:
   DbmsHandler &dbms_handler_;
-  replication::ReplicationState &repl_state_;
 };
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage

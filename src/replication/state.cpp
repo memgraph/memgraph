@@ -141,7 +141,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                     return FetchReplicationError::PARSE_ERROR;
                   }
                   // Instance clients
-                  res.registered_replicas_.emplace_back(std::make_unique<ReplicationClient>(data.config));
+                  res.registered_replicas_.emplace_back(data.config);
                 } catch (...) {
                   return FetchReplicationError::PARSE_ERROR;
                 }
@@ -240,9 +240,7 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
   auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaError {
     // name check
     auto name_check = [&config](auto const &replicas) {
-      auto name_matches = [&name = config.name](std::unique_ptr<ReplicationClient> const &replica) {
-        return replica->name_ == name;
-      };
+      auto name_matches = [&name = config.name](auto const &replica) { return replica.name_ == name; };
       return std::any_of(replicas.begin(), replicas.end(), name_matches);
     };
     if (name_check(mainData.registered_replicas_)) {
@@ -251,8 +249,8 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
 
     // endpoint check
     auto endpoint_check = [&](auto const &replicas) {
-      auto endpoint_matches = [&config](std::unique_ptr<ReplicationClient> const &replica) {
-        const auto &ep = replica->rpc_client_.Endpoint();
+      auto endpoint_matches = [&config](auto const &replica) {
+        const auto &ep = replica.rpc_client_.Endpoint();
         return ep.address == config.ip_address && ep.port == config.port;
       };
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
@@ -267,7 +265,7 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
     }
 
     // set
-    client = mainData.registered_replicas_.emplace_back(std::make_unique<ReplicationClient>(config)).get();
+    client = &mainData.registered_replicas_.emplace_back(config);
     return RegisterReplicaError::SUCCESS;
   };
 

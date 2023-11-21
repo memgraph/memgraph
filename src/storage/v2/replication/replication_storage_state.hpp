@@ -12,11 +12,13 @@
 #pragma once
 
 #include <atomic>
+#include <utility>
 
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/result.hpp"
 
 /// REPLICATION ///
@@ -55,7 +57,18 @@ struct ReplicationStorageState {
 
   void Reset();
 
-  ReplicationStorageClient *GetClient(std::string_view replica_name);
+  template <typename F>
+  bool WithClient(std::string_view replica_name, F &&callback) {
+    return replication_clients_.WithLock([replica_name, cb = std::forward<F>(callback)](auto &clients) {
+      for (const auto &client : clients) {
+        if (client->Name() == replica_name) {
+          cb(client.get());
+          return true;
+        }
+      }
+      return false;
+    });
+  }
 
   // Questions:
   //    - storage durability <- databases/*name*/wal and snapshots (where this for epoch_id)

@@ -107,15 +107,4 @@ void ReplicationStorageState::AddEpochToHistoryForce(std::string prev_epoch) {
   history.emplace_back(std::move(prev_epoch), last_commit_timestamp_);
 }
 
-ReplicationStorageClient *ReplicationStorageState::GetClient(std::string_view replica_name) {
-  return replication_clients_.WithLock([replica_name](auto &clients) -> ReplicationStorageClient * {
-    for (const auto &client : clients) {
-      if (client->Name() == replica_name) {
-        return client.get();
-      }
-    }
-    return nullptr;
-  });
-}
-
 }  // namespace memgraph::storage

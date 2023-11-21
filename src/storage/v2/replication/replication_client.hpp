@@ -76,6 +76,7 @@ class ReplicaStream {
 template <typename F>
 concept InvocableWithStream = std::invocable<F, ReplicaStream &>;
 
+// TODO Rename to something without the word "client"
 class ReplicationStorageClient {
   friend class InMemoryCurrentWalHandler;
   friend class ReplicaStream;
@@ -91,9 +92,11 @@ class ReplicationStorageClient {
 
   ~ReplicationStorageClient() = default;
 
+  // TODO Remove the client related functions
   auto Mode() const -> memgraph::replication::ReplicationMode { return client_.mode_; }
   auto Name() const -> std::string const & { return client_.name_; }
   auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
+
   auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
   auto GetTimestampInfo(Storage const *storage) -> TimestampInfo;
 
@@ -136,6 +139,7 @@ class ReplicationStorageClient {
   void FrequentCheck(Storage *storage);
 
   ::memgraph::replication::ReplicationClient &client_;
+  // TODO Do not store the stream, make is a local variable
   std::optional<ReplicaStream>
       replica_stream_;  // Currently active stream (nullopt if not in use), note: a single stream per rpc client
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{

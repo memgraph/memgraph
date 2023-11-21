@@ -20,13 +20,13 @@ void StartReplicaClient(DbmsHandler &dbms_handler, replication::ReplicationClien
   client.StartFrequentCheck([&dbms_handler](std::string_view name) {
     // Working connection, check if any database has been left behind
     dbms_handler.ForEach([name](dbms::Database *db) {
-      auto *replica_client =
-          db->storage()->repl_storage_state_.GetClient(name);  // Specific database <-> replica client
-      if (replica_client == nullptr) return;  // Skip as this database does not replicate to this replica
-      if (replica_client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
-        // Database <-> replica might be behind, check and recover
-        replica_client->TryCheckReplicaStateAsync(db->storage());
-      }
+      // Specific database <-> replica client
+      db->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient *client) {
+        if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
+          // Database <-> replica might be behind, check and recover
+          client->TryCheckReplicaStateAsync(db->storage());
+        }
+      });
     });
   });
 }

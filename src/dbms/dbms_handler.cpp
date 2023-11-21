@@ -60,9 +60,9 @@ DbmsHandler::DbmsHandler(
     return true;
   };
   // Replication frequent check start
-  auto main = [this](const replication::RoleMainData &data) {
-    for (const auto &client : data.registered_replicas_) {
-      StartReplicaClient(*this, *client);
+  auto main = [this](replication::RoleMainData &data) {
+    for (auto &client : data.registered_replicas_) {
+      StartReplicaClient(*this, client);
     }
     return true;
   };

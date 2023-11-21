@@ -15,6 +15,8 @@
 #include <variant>
 #include <vector>
 
+namespace memgraph::storage {
+
 using RecoverySnapshot = std::filesystem::path;
 using RecoveryWals = std::vector<std::filesystem::path>;
 struct RecoveryCurrentWal {
@@ -22,3 +24,5 @@ struct RecoveryCurrentWal {
   uint64_t current_wal_seq_num;
 };
 using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
+
+}  // namespace memgraph::storage
