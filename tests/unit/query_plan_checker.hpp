@@ -12,6 +12,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <climits>
+#include <utility>
 
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -23,7 +24,7 @@ namespace memgraph::query::plan {
 
 class BaseOpChecker {
  public:
-  virtual ~BaseOpChecker() {}
+  virtual ~BaseOpChecker() = default;
 
   virtual void CheckOp(LogicalOperator &, const SymbolTable &) = 0;
 };
@@ -472,9 +473,9 @@ class ExpectIndexedJoin : public OpChecker<IndexedJoin> {
 
 class ExpectCallProcedure : public OpChecker<CallProcedure> {
  public:
-  ExpectCallProcedure(const std::string &name, const std::vector<memgraph::query::Expression *> &args,
+  ExpectCallProcedure(std::string name, const std::vector<memgraph::query::Expression *> &args,
                       const std::vector<std::string> &fields, const std::vector<Symbol> &result_syms)
-      : name_(name), args_(args), fields_(fields), result_syms_(result_syms) {}
+      : name_(std::move(name)), args_(args), fields_(fields), result_syms_(result_syms) {}
 
   void ExpectOp(CallProcedure &op, const SymbolTable &symbol_table) override {
     EXPECT_EQ(op.procedure_name_, name_);

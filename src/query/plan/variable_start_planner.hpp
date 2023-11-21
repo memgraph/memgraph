@@ -54,11 +54,11 @@ class CartesianProduct {
 
   class iterator {
    public:
-    typedef std::input_iterator_tag iterator_category;
-    typedef std::vector<TElement> value_type;
-    typedef long difference_type;
-    typedef const std::vector<TElement> &reference;
-    typedef const std::vector<TElement> *pointer;
+    using iterator_category = std::input_iterator_tag;
+    using value_type = std::vector<TElement>;
+    using difference_type = long;
+    using reference = const std::vector<TElement> &;
+    using pointer = const std::vector<TElement> *;
 
     explicit iterator(CartesianProduct *self, bool is_done) : self_(self), is_done_(is_done) {
       if (is_done || self->begin_ == self->end_) {
@@ -186,11 +186,11 @@ class VaryMatchingStart {
 
   class iterator {
    public:
-    typedef std::input_iterator_tag iterator_category;
-    typedef Matching value_type;
-    typedef long difference_type;
-    typedef const Matching &reference;
-    typedef const Matching *pointer;
+    using iterator_category = std::input_iterator_tag;
+    using value_type = Matching;
+    using difference_type = long;
+    using reference = const Matching &;
+    using pointer = const Matching *;
 
     iterator(VaryMatchingStart *, bool);
 
@@ -240,13 +240,13 @@ class VaryQueryPartMatching {
 
   class iterator {
    public:
-    typedef std::input_iterator_tag iterator_category;
-    typedef SingleQueryPart value_type;
-    typedef long difference_type;
-    typedef const SingleQueryPart &reference;
-    typedef const SingleQueryPart *pointer;
+    using iterator_category = std::input_iterator_tag;
+    using value_type = SingleQueryPart;
+    using difference_type = long;
+    using reference = const SingleQueryPart &;
+    using pointer = const SingleQueryPart *;
 
-    iterator(const SingleQueryPart &, VaryMatchingStart::iterator, VaryMatchingStart::iterator,
+    iterator(SingleQueryPart, VaryMatchingStart::iterator, VaryMatchingStart::iterator,
              CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator,
              CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator,
              CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator);
@@ -383,8 +383,8 @@ class VariableStartPlanner {
 
   /// @brief The result of plan generation is an iterable of roots to multiple
   /// generated operator trees.
-  using PlanResult = typename std::result_of<decltype (&VariableStartPlanner<TPlanningContext>::Plan)(
-      VariableStartPlanner<TPlanningContext>, QueryParts &)>::type;
+  using PlanResult = std::result_of_t<decltype (&VariableStartPlanner<TPlanningContext>::Plan)(
+      VariableStartPlanner<TPlanningContext>, QueryParts &)>;
 };
 
 }  // namespace memgraph::query::plan

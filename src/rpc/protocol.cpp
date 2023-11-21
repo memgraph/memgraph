@@ -11,6 +11,8 @@
 
 #include "rpc/protocol.hpp"
 
+#include <utility>
+
 #include "rpc/messages.hpp"
 #include "rpc/server.hpp"
 #include "rpc/version.hpp"
@@ -21,9 +23,9 @@
 
 namespace memgraph::rpc {
 
-Session::Session(Server *server, const io::network::Endpoint &endpoint, communication::InputStream *input_stream,
+Session::Session(Server *server, io::network::Endpoint endpoint, communication::InputStream *input_stream,
                  communication::OutputStream *output_stream)
-    : server_(server), endpoint_(endpoint), input_stream_(input_stream), output_stream_(output_stream) {}
+    : server_(server), endpoint_(std::move(endpoint)), input_stream_(input_stream), output_stream_(output_stream) {}
 
 void Session::Execute() {
   auto ret = slk::CheckStreamComplete(input_stream_->data(), input_stream_->size());

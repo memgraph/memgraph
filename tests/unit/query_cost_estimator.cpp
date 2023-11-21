@@ -49,7 +49,7 @@ class QueryCostEstimator : public ::testing::Test {
   Parameters parameters_;
   int symbol_count = 0;
 
-  void SetUp() {
+  void SetUp() override {
     {
       auto unique_acc = db->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());

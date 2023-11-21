@@ -32,7 +32,7 @@ DECLARE_string(password_encryption_algorithm);
 
 class AuthWithStorage : public ::testing::Test {
  protected:
-  virtual void SetUp() {
+  void SetUp() override {
     memgraph::utils::EnsureDir(test_folder_);
     FLAGS_auth_password_permit_null = true;
     FLAGS_auth_password_strength_regex = ".+";
@@ -40,7 +40,7 @@ class AuthWithStorage : public ::testing::Test {
     memgraph::license::global_license_checker.EnableTesting();
   }
 
-  virtual void TearDown() { fs::remove_all(test_folder_); }
+  void TearDown() override { fs::remove_all(test_folder_); }
 
   fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
 
@@ -58,7 +58,7 @@ TEST_F(AuthWithStorage, RemoveRole) {
   ASSERT_TRUE(auth.RemoveRole("admin"));
   class AuthWithStorage : public ::testing::Test {
    protected:
-    virtual void SetUp() {
+    void SetUp() override {
       memgraph::utils::EnsureDir(test_folder_);
       FLAGS_auth_password_permit_null = true;
       FLAGS_auth_password_strength_regex = ".+";
@@ -66,7 +66,7 @@ TEST_F(AuthWithStorage, RemoveRole) {
       memgraph::license::global_license_checker.EnableTesting();
     }
 
-    virtual void TearDown() { fs::remove_all(test_folder_); }
+    void TearDown() override { fs::remove_all(test_folder_); }
 
     fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
 
@@ -929,7 +929,7 @@ TEST(AuthWithoutStorage, Crypto) {
 
 class AuthWithVariousEncryptionAlgorithms : public ::testing::Test {
  protected:
-  virtual void SetUp() { FLAGS_password_encryption_algorithm = "bcrypt"; }
+  void SetUp() override { FLAGS_password_encryption_algorithm = "bcrypt"; }
 };
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordDefault) {
@@ -964,7 +964,7 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordEmptyEncryptionThrow) 
 
 class AuthWithStorageWithVariousEncryptionAlgorithms : public ::testing::Test {
  protected:
-  virtual void SetUp() {
+  void SetUp() override {
     memgraph::utils::EnsureDir(test_folder_);
     FLAGS_auth_password_permit_null = true;
     FLAGS_auth_password_strength_regex = ".+";
@@ -973,7 +973,7 @@ class AuthWithStorageWithVariousEncryptionAlgorithms : public ::testing::Test {
     memgraph::license::global_license_checker.EnableTesting();
   }
 
-  virtual void TearDown() { fs::remove_all(test_folder_); }
+  void TearDown() override { fs::remove_all(test_folder_); }
 
   fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
 

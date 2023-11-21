@@ -34,7 +34,7 @@ namespace mgp {
 
 class IndexException : public std::exception {
  public:
-  explicit IndexException(const std::string &message) : message_(message) {}
+  explicit IndexException(std::string message) : message_(std::move(message)) {}
   const char *what() const noexcept override { return message_.c_str(); }
 
  private:
@@ -43,7 +43,7 @@ class IndexException : public std::exception {
 
 class ValueException : public std::exception {
  public:
-  explicit ValueException(const std::string &message) : message_(message) {}
+  explicit ValueException(std::string message) : message_(std::move(message)) {}
   const char *what() const noexcept override { return message_.c_str(); }
 
  private:
@@ -52,7 +52,7 @@ class ValueException : public std::exception {
 
 class NotFoundException : public std::exception {
  public:
-  explicit NotFoundException(const std::string &message) : message_(message) {}
+  explicit NotFoundException(std::string message) : message_(std::move(message)) {}
   const char *what() const noexcept override { return message_.c_str(); }
 
  private:
@@ -61,7 +61,7 @@ class NotFoundException : public std::exception {
 
 class MustAbortException : public std::exception {
  public:
-  explicit MustAbortException(const std::string &message) : message_(message) {}
+  explicit MustAbortException(std::string message) : message_(std::move(message)) {}
   const char *what() const noexcept override { return message_.c_str(); }
 
  private:
@@ -1644,8 +1644,8 @@ template <typename TDest, typename TSrc>
 TDest MemcpyCast(TSrc src) {
   TDest dest;
   static_assert(sizeof(dest) == sizeof(src), "MemcpyCast expects source and destination to be of the same size");
-  static_assert(std::is_arithmetic<TSrc>::value, "MemcpyCast expects source to be an arithmetic type");
-  static_assert(std::is_arithmetic<TDest>::value, "MemcpyCast expects destination to be an arithmetic type");
+  static_assert(std::is_arithmetic_v<TSrc>, "MemcpyCast expects source to be an arithmetic type");
+  static_assert(std::is_arithmetic_v<TDest>, "MemcpyCast expects destination to be an arithmetic type");
   std::memcpy(&dest, &src, sizeof(src));
   return dest;
 }
@@ -4222,7 +4222,7 @@ inline Parameter::Parameter(std::string_view name, Type type, const char *defaul
     : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, Type type, Value default_value)
-    : name(name), type_(type), optional(true), default_value(default_value) {}
+    : name(name), type_(type), optional(true), default_value(std::move(default_value)) {}
 
 inline Parameter::Parameter(std::string_view name, std::pair<Type, Type> list_type)
     : name(name), type_(list_type.first), list_item_type_(list_type.second) {}
@@ -4232,7 +4232,7 @@ inline Parameter::Parameter(std::string_view name, std::pair<Type, Type> list_ty
       type_(list_type.first),
       list_item_type_(list_type.second),
       optional(true),
-      default_value(default_value) {}
+      default_value(std::move(default_value)) {}
 
 inline mgp_type *Parameter::GetMGPType() const {
   if (type_ == Type::List) {

@@ -124,7 +124,7 @@ ServerContext &ServerContext::operator=(ServerContext &&other) noexcept {
   return *this;
 }
 
-ServerContext::~ServerContext() {}
+ServerContext::~ServerContext() = default;
 
 SSL_CTX *ServerContext::context() {
   MG_ASSERT(ctx_);

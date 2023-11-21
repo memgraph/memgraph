@@ -16,6 +16,7 @@
 #include <iostream>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "query/exceptions.hpp"
@@ -32,7 +33,7 @@ namespace memgraph::query::frontend {
 
 using namespace lexer_constants;
 
-StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
+StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
   enum class Token {
     UNMATCHED,
     KEYWORD,  // Including true, false and null.
@@ -255,7 +256,7 @@ std::string GetFirstUtf8Symbol(const char *_s) {
   // According to
   // https://stackoverflow.com/questions/16260033/reinterpret-cast-between-char-and-stduint8-t-safe
   // this checks if casting from const char * to uint8_t is undefined behaviour.
-  static_assert(std::is_same<std::uint8_t, unsigned char>::value,
+  static_assert(std::is_same_v<std::uint8_t, unsigned char>,
                 "This library requires std::uint8_t to be implemented as "
                 "unsigned char.");
   const uint8_t *s = reinterpret_cast<const uint8_t *>(_s);
@@ -286,7 +287,7 @@ std::string GetFirstUtf8Symbol(const char *_s) {
 
 // Return codepoint of first utf8 symbol and its encoded length.
 std::pair<int, int> GetFirstUtf8SymbolCodepoint(const char *_s) {
-  static_assert(std::is_same<std::uint8_t, unsigned char>::value,
+  static_assert(std::is_same_v<std::uint8_t, unsigned char>,
                 "This library requires std::uint8_t to be implemented as "
                 "unsigned char.");
   const uint8_t *s = reinterpret_cast<const uint8_t *>(_s);

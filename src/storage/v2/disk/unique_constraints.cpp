@@ -344,7 +344,7 @@ void DiskUniqueConstraints::LoadUniqueConstraints(const std::vector<std::string>
     for (int i = 1; i < key_parts.size(); i++) {
       properties.insert(PropertyId::FromString(key_parts[i]));
     }
-    constraints_.emplace(std::make_pair(label, properties));
+    constraints_.emplace(label, properties);
   }
 }
 

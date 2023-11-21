@@ -14,6 +14,7 @@
 #include <unordered_map>
 
 #include <json/json.hpp>
+#include <utility>
 #include "dbms/constants.hpp"
 #include "utils/logging.hpp"
 
@@ -311,8 +312,11 @@ class Databases final {
 
  private:
   Databases(bool allow_all, std::set<std::string, std::less<>> grant, std::set<std::string, std::less<>> deny,
-            const std::string &default_db = dbms::kDefaultDB)
-      : grants_dbs_(grant), denies_dbs_(deny), allow_all_(allow_all), default_db_(default_db) {}
+            std::string default_db = dbms::kDefaultDB)
+      : grants_dbs_(std::move(grant)),
+        denies_dbs_(std::move(deny)),
+        allow_all_(allow_all),
+        default_db_(std::move(default_db)) {}
 
   std::set<std::string, std::less<>> grants_dbs_;  //!< set of databases with granted access
   std::set<std::string, std::less<>> denies_dbs_;  //!< set of databases with denied access
@@ -327,9 +331,9 @@ class User final {
   User();
 
   explicit User(const std::string &username);
-  User(const std::string &username, const std::string &password_hash, const Permissions &permissions);
+  User(const std::string &username, std::string password_hash, const Permissions &permissions);
 #ifdef MG_ENTERPRISE
-  User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
+  User(const std::string &username, std::string password_hash, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {});
 #endif
   User(const User &) = default;

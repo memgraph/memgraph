@@ -64,7 +64,7 @@ class InterpreterTest : public ::testing::Test {
   const std::string testSuiteCsv = "interpreter_csv";
   std::filesystem::path data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
 
-  InterpreterTest() {}
+  InterpreterTest() = default;
 
   memgraph::storage::Config config{
       [&]() {

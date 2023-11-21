@@ -378,7 +378,7 @@ void AssertWalDataEqual(const DeltaGenerator::DataT &data, const std::filesystem
 
 class WalFileTest : public ::testing::TestWithParam<bool> {
  public:
-  WalFileTest() {}
+  WalFileTest() = default;
 
   void SetUp() override { Clear(); }
 
@@ -710,7 +710,7 @@ TEST_P(WalFileTest, PartialData) {
 
 class StorageModeWalFileTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
  public:
-  StorageModeWalFileTest() {}
+  StorageModeWalFileTest() = default;
 
   void SetUp() override { Clear(); }
 

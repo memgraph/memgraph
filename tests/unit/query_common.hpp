@@ -46,9 +46,7 @@
 #include "storage/v2/id_types.hpp"
 #include "utils/string.hpp"
 
-namespace memgraph::query {
-
-namespace test_common {
+namespace memgraph::query::test_common {
 
 auto ToIntList(const TypedValue &t) {
   std::vector<int64_t> list;
@@ -495,9 +493,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   return storage.Create<query::Foreach>(named_expr, clauses);
 }
 
-}  // namespace test_common
-
-}  // namespace memgraph::query
+}  // namespace memgraph::query::test_common
 
 /// All the following macros implicitly pass `storage` variable to functions.
 /// You need to have `AstStorage storage;` somewhere in scope to use them.
