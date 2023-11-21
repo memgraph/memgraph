@@ -188,7 +188,7 @@ using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
 
 class ExpectFilter : public OpChecker<Filter> {
  public:
-  ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {})
+  explicit ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {})
       : pattern_filters_(pattern_filters) {}
 
   void ExpectOp(Filter &filter, const SymbolTable &symbol_table) override {
@@ -223,7 +223,7 @@ class ExpectForeach : public OpChecker<Foreach> {
 
 class ExpectApply : public OpChecker<Apply> {
  public:
-  ExpectApply(const std::list<BaseOpChecker *> &subquery) : subquery_(subquery) {}
+  explicit ExpectApply(const std::list<BaseOpChecker *> &subquery) : subquery_(subquery) {}
 
   void ExpectOp(Apply &apply, const SymbolTable &symbol_table) override {
     PlanChecker check_subquery(subquery_, symbol_table);

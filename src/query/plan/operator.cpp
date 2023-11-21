@@ -4538,7 +4538,7 @@ WITHOUT_SINGLE_INPUT(OutputTable);
 
 class OutputTableCursor : public Cursor {
  public:
-  OutputTableCursor(const OutputTable &self) : self_(self) {}
+  explicit OutputTableCursor(const OutputTable &self) : self_(self) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;

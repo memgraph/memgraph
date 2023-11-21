@@ -110,7 +110,7 @@ class SmallVectorTemplateCommon : public SmallVectorBase {
   // Space after 'first_el' is clobbered, do not add any instance vars after it.
 
  protected:
-  SmallVectorTemplateCommon(size_t size) : SmallVectorBase(&first_el_, size) {}
+  explicit SmallVectorTemplateCommon(size_t size) : SmallVectorBase(&first_el_, size) {}
 
   void GrowPod(size_t min_size_in_bytes, size_t t_size) {
     SmallVectorBase::GrowPod(&first_el_, min_size_in_bytes, t_size);
@@ -201,7 +201,7 @@ class SmallVectorTemplateCommon : public SmallVectorBase {
 template <typename T, bool TIsPodLike>
 class SmallVectorTemplateBase : public SmallVectorTemplateCommon<T> {
  protected:
-  SmallVectorTemplateBase(size_t size) : SmallVectorTemplateCommon<T>(size) {}
+  explicit SmallVectorTemplateBase(size_t size) : SmallVectorTemplateCommon<T>(size) {}
 
   static void DestroyRange(T *s, T *e) {
     while (s != e) {
@@ -277,7 +277,7 @@ void SmallVectorTemplateBase<T, TIsPodLike>::Grow(size_t min_size) {
 template <typename T>
 class SmallVectorTemplateBase<T, true> : public SmallVectorTemplateCommon<T> {
  protected:
-  SmallVectorTemplateBase(size_t size) : SmallVectorTemplateCommon<T>(size) {}
+  explicit SmallVectorTemplateBase(size_t size) : SmallVectorTemplateCommon<T>(size) {}
 
   // No need to do a destroy loop for POD's.
   static void DestroyRange(T *, T *) {}
@@ -861,7 +861,7 @@ class SmallVector : public SmallVectorImpl<T> {
     return *this;
   }
 
-  SmallVector(SmallVectorImpl<T> &&rhs) : SmallVectorImpl<T>(N) {
+  explicit SmallVector(SmallVectorImpl<T> &&rhs) : SmallVectorImpl<T>(N) {
     if (!rhs.empty()) SmallVectorImpl<T>::operator=(::std::move(rhs));
   }
 

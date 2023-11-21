@@ -26,7 +26,7 @@ class Stacktrace {
   class Line {
    public:
     // cppcheck-suppress noExplicitConstructor
-    Line(std::string original) : original(std::move(original)) {}
+    explicit Line(std::string original) : original(std::move(original)) {}
 
     Line(std::string original, std::string function, std::string location)
         : original(std::move(original)), function(std::move(function)), location(std::move(location)) {}
@@ -85,7 +85,7 @@ class Stacktrace {
     auto begin = line.find('(');
     auto end = line.find('+');
 
-    if (begin == std::string::npos || end == std::string::npos) return {original};
+    if (begin == std::string::npos || end == std::string::npos) return Line{original};
 
     line[end] = '\0';
 

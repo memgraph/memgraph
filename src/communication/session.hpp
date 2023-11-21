@@ -52,7 +52,7 @@ using InputStream = Buffer::ReadEnd;
  */
 class OutputStream final {
  public:
-  OutputStream(std::function<bool(const uint8_t *, size_t, bool)> write_function)
+  explicit OutputStream(std::function<bool(const uint8_t *, size_t, bool)> write_function)
       : write_function_(std::move(write_function)) {}
 
   OutputStream(const OutputStream &) = delete;

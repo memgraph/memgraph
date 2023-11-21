@@ -36,7 +36,7 @@ struct SumRes {
   static const memgraph::utils::TypeInfo kType;
 
   SumRes() = default;  // Needed for serialization.
-  SumRes(int sum) : sum(sum) {}
+  explicit SumRes(int sum) : sum(sum) {}
 
   static void Load(SumRes *obj, memgraph::slk::Reader *reader);
   static void Save(const SumRes &obj, memgraph::slk::Builder *builder);
@@ -60,7 +60,7 @@ struct EchoMessage {
   static const memgraph::utils::TypeInfo kType;
 
   EchoMessage() = default;  // Needed for serialization.
-  EchoMessage(std::string data) : data(std::move(data)) {}
+  explicit EchoMessage(std::string data) : data(std::move(data)) {}
 
   static void Load(EchoMessage *obj, memgraph::slk::Reader *reader);
   static void Save(const EchoMessage &obj, memgraph::slk::Builder *builder);

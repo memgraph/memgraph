@@ -49,7 +49,7 @@ class CartesianProduct {
   using TElement = typename decltype(begin_->begin())::value_type;
 
  public:
-  CartesianProduct(std::vector<TSet> sets)
+  explicit CartesianProduct(std::vector<TSet> sets)
       : original_sets_(std::move(sets)), begin_(original_sets_.begin()), end_(original_sets_.end()) {}
 
   class iterator {

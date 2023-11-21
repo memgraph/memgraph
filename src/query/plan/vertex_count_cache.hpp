@@ -27,7 +27,7 @@ namespace memgraph::query::plan {
 template <class TDbAccessor>
 class VertexCountCache {
  public:
-  VertexCountCache(TDbAccessor *db) : db_(db) {}
+  explicit VertexCountCache(TDbAccessor *db) : db_(db) {}
 
   auto NameToLabel(const std::string &name) { return db_->NameToLabel(name); }
   auto NameToProperty(const std::string &name) { return db_->NameToProperty(name); }
