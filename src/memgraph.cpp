@@ -69,10 +69,9 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
         auto results = interpreter.Prepare(line, {}, {});
         memgraph::query::DiscardValueResultStream stream;
         interpreter.Pull(&stream, {}, results.qid);
-      } catch (const memgraph::query::QueryRuntimeException &e) {
-        spdlog::error("Error while executing init file: {}. The rest of the queries will be run normally.", e.what());
+      } catch (const memgraph::query::UserAlreadyExistsException &e) {
+        spdlog::warn("{} The rest of the init-file will be run.", e.what());
       }
-
       if (audit_log) {
         audit_log->Record("", "", line, {}, memgraph::dbms::kDefaultDB);
       }
