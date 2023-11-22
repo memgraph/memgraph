@@ -1758,6 +1758,7 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   Aggregate() = default;
   Aggregate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Element> &aggregations,
             const std::vector<Expression *> &group_by, const std::vector<Symbol> &remember);
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;

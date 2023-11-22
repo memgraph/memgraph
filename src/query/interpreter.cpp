@@ -147,6 +147,8 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
 
 namespace memgraph::query {
 
+constexpr std::string_view kSchemaAssert = "SCHEMA.ASSERT";
+
 template <typename>
 constexpr auto kAlwaysFalse = false;
 
@@ -1535,7 +1537,6 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
       continue;
     }
     frame_change_collector->AddTrackingKey(*cached_id);
-    spdlog::trace("Tracking {} operator, by id: {}", InListOperator::kType.name, *cached_id);
   }
 }
 
@@ -3716,7 +3717,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       // TODO: ATM only a single database, will change when we have multiple database transactions
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
       bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr ||
-                    utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr;
+                    utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
+                    upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
     }
 

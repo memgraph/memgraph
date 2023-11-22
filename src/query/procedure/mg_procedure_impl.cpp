@@ -38,6 +38,7 @@
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
@@ -158,6 +159,7 @@ template <typename TFunc, typename... Args>
 [[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&...args) noexcept {
   static_assert(sizeof...(args) <= 1, "WrapExceptions should have only one or zero parameter!");
   try {
+    memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
     WrapExceptionsHelper(std::forward<TFunc>(func), std::forward<Args>(args)...);
   } catch (const DeletedObjectException &neoe) {
     spdlog::error("Deleted object error during mg API call: {}", neoe.what());
@@ -1544,6 +1546,7 @@ mgp_error mgp_duration_sub(mgp_duration *first, mgp_duration *second, mgp_memory
 
 mgp_error mgp_result_set_error_msg(mgp_result *res, const char *msg) {
   return WrapExceptions([=] {
+    memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker{};
     auto *memory = res->rows.get_allocator().GetMemoryResource();
     res->error_msg.emplace(msg, memory);
   });
@@ -2530,6 +2533,333 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
         return nullptr;
       },
       result);
+}
+
+mgp_error mgp_create_label_index(mgp_graph *graph, const char *label, int *result) {
+  return WrapExceptions(
+      [graph, label]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        const auto index_res =
+            std::visit(memgraph::utils::Overloaded{
+                           [label_id](memgraph::query::DbAccessor *impl) { return impl->CreateIndex(label_id); },
+                           [label_id](memgraph::query::SubgraphDbAccessor *impl) {
+                             return impl->GetAccessor()->CreateIndex(label_id);
+                           }},
+                       graph->impl);
+        return index_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error mgp_drop_label_index(mgp_graph *graph, const char *label, int *result) {
+  return WrapExceptions(
+      [graph, label]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        const auto index_res =
+            std::visit(memgraph::utils::Overloaded{
+                           [label_id](memgraph::query::DbAccessor *impl) { return impl->DropIndex(label_id); },
+                           [label_id](memgraph::query::SubgraphDbAccessor *impl) {
+                             return impl->GetAccessor()->DropIndex(label_id);
+                           }},
+                       graph->impl);
+        return index_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error mgp_list_all_label_indices(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
+  return WrapExceptions([graph, memory, result]() {
+    const auto index_res = std::visit(
+        memgraph::utils::Overloaded{
+            [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().label; },
+            [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->ListAllIndices().label; }},
+        graph->impl);
+    if (const auto err = mgp_list_make_empty(index_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Listing all label indices failed due to failure of creating list");
+    }
+    for (const auto &label : index_res) {
+      const auto label_id_str = std::visit([label](const auto *impl) { return impl->LabelToName(label); }, graph->impl);
+
+      mgp_value *label_value = nullptr;
+      if (const auto err_str = mgp_value_make_string(label_id_str.c_str(), memory, &label_value);
+          err_str != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all label indices failed due to failure of creating label value");
+      }
+      if (const auto err_list = mgp_list_append_extend(*result, label_value);
+          err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all label indices failed due to failure of appending label value");
+      }
+      mgp_value_destroy(label_value);
+    }
+  });
+}
+
+mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, const char *property, int *result) {
+  return WrapExceptions(
+      [graph, label, property]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        const auto property_id =
+            std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+        const auto index_res =
+            std::visit(memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                                     return impl->CreateIndex(label_id, property_id);
+                                                   },
+                                                   [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                                     return impl->GetAccessor()->CreateIndex(label_id, property_id);
+                                                   }},
+                       graph->impl);
+        return index_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, const char *property, int *result) {
+  return WrapExceptions(
+      [graph, label, property]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        const auto property_id =
+            std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+        const auto index_res =
+            std::visit(memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                                     return impl->DropIndex(label_id, property_id);
+                                                   },
+                                                   [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                                     return impl->GetAccessor()->DropIndex(label_id, property_id);
+                                                   }},
+                       graph->impl);
+        return index_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error create_and_append_label_property_to_mgp_list(mgp_graph *graph, mgp_memory *memory, mgp_list **result,
+                                                       const auto &label_property_pair) {
+  return WrapExceptions([graph, memory, result, &label_property_pair]() {
+    const auto label_id_str = std::visit(
+        [label_id = label_property_pair.first](const auto *impl) { return impl->LabelToName(label_id); }, graph->impl);
+    const auto property_id_str = std::visit(
+        [property_id = label_property_pair.second](const auto *impl) { return impl->PropertyToName(property_id); },
+        graph->impl);
+
+    // This is hack to avoid dealing with pairs
+    mgp_value *label_property = nullptr;
+    auto final_str = label_id_str + ":";
+    final_str += property_id_str;
+
+    if (const auto err_str = mgp_value_make_string(final_str.c_str(), memory, &label_property);
+        err_str != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Creating a list of label+property pairs failed due to failure of creating label+property value");
+    }
+    if (const auto err_list = mgp_list_append_extend(*result, label_property);
+        err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Creating a list of label-property pairs due to failure of appending label+property value");
+    }
+
+    mgp_value_destroy(label_property);
+  });
+}
+
+mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
+  return WrapExceptions([graph, memory, result]() {
+    const auto index_res =
+        std::visit(memgraph::utils::Overloaded{
+                       [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().label_property; },
+                       [](memgraph::query::SubgraphDbAccessor *impl) {
+                         return impl->GetAccessor()->ListAllIndices().label_property;
+                       }},
+                   graph->impl);
+
+    if (const auto err = mgp_list_make_empty(index_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Listing all label+property indices failed due to failure of creating list");
+    }
+
+    for (const auto &label_property_pair : index_res) {
+      if (const auto err = create_and_append_label_property_to_mgp_list(graph, memory, result, label_property_pair);
+          err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error(
+            "Listing all label+property indices failed due to failure of appending label+property value");
+      }
+    }
+  });
+}
+
+mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, const char *property, int *result) {
+  return WrapExceptions(
+      [graph, label, property]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        const auto property_id =
+            std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+        const auto exist_res = std::visit(
+            memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                          return impl->CreateExistenceConstraint(label_id, property_id);
+                                        },
+                                        [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                          return impl->GetAccessor()->CreateExistenceConstraint(label_id, property_id);
+                                        }},
+            graph->impl);
+        return exist_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, const char *property, int *result) {
+  return WrapExceptions(
+      [graph, label, property]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        const auto property_id =
+            std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+        const auto exist_res = std::visit(
+            memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                          return impl->DropExistenceConstraint(label_id, property_id);
+                                        },
+                                        [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                          return impl->GetAccessor()->DropExistenceConstraint(label_id, property_id);
+                                        }},
+            graph->impl);
+        return exist_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error mgp_list_all_existence_constraints(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
+  return WrapExceptions([graph, memory, result]() {
+    const auto constraint_res =
+        std::visit(memgraph::utils::Overloaded{
+                       [](memgraph::query::DbAccessor *impl) { return impl->ListAllConstraints().existence; },
+                       [](memgraph::query::SubgraphDbAccessor *impl) {
+                         return impl->GetAccessor()->ListAllConstraints().existence;
+                       }},
+                   graph->impl);
+
+    if (const auto err = mgp_list_make_empty(constraint_res.size(), memory, result);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Listing all existence constraints failed due to failure of creating a list");
+    }
+
+    for (const auto &label_property_pair : constraint_res) {
+      if (const auto err = create_and_append_label_property_to_mgp_list(graph, memory, result, label_property_pair);
+          err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error(
+            "Listing all existence constraints failed due to failure of appending label+property value");
+      }
+    }
+  });
+}
+
+mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_value *properties, int *result) {
+  return WrapExceptions(
+      [graph, label, properties]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        std::set<memgraph::storage::PropertyId> property_ids;
+        for (const auto &elem : properties->list_v->elems) {
+          property_ids.insert(std::visit(
+              [prop_str = elem.string_v](auto *impl) { return impl->NameToProperty(prop_str); }, graph->impl));
+        }
+
+        const auto unique_res = std::visit(
+            memgraph::utils::Overloaded{[label_id, property_ids](memgraph::query::DbAccessor *impl) {
+                                          return impl->CreateUniqueConstraint(label_id, property_ids);
+                                        },
+                                        [label_id, property_ids](memgraph::query::SubgraphDbAccessor *impl) {
+                                          return impl->GetAccessor()->CreateUniqueConstraint(label_id, property_ids);
+                                        }},
+            graph->impl);
+        return unique_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error mgp_drop_unique_constraint(mgp_graph *graph, const char *label, mgp_value *properties, int *result) {
+  return WrapExceptions(
+      [graph, label, properties]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        std::set<memgraph::storage::PropertyId> property_ids;
+        for (const auto &elem : properties->list_v->elems) {
+          property_ids.insert(std::visit(
+              [prop_str = elem.string_v](auto *impl) { return impl->NameToProperty(prop_str); }, graph->impl));
+        }
+
+        const auto unique_res = std::visit(
+            memgraph::utils::Overloaded{[label_id, property_ids](memgraph::query::DbAccessor *impl) {
+                                          return impl->DropUniqueConstraint(label_id, property_ids);
+                                        },
+                                        [label_id, property_ids](memgraph::query::SubgraphDbAccessor *impl) {
+                                          return impl->GetAccessor()->DropUniqueConstraint(label_id, property_ids);
+                                        }},
+            graph->impl);
+        return unique_res == memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS ? 1 : 0;
+      },
+      result);
+}
+
+mgp_error mgp_list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
+  return WrapExceptions([graph, memory, result]() {
+    const auto constraints_res = std::visit(
+        memgraph::utils::Overloaded{
+            [](memgraph::query::DbAccessor *impl) { return impl->ListAllConstraints().unique; },
+            [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->ListAllConstraints().unique; }},
+        graph->impl);
+
+    if (const auto err = mgp_list_make_empty(constraints_res.size(), memory, result);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Listing all unique constraints failed due to failure of creating a list");
+    }
+
+    for (const auto &label_properties_pair : constraints_res) {
+      const std::string label_id_str =
+          std::visit([label_id = label_properties_pair.first](const auto *impl) { return impl->LabelToName(label_id); },
+                     graph->impl);
+      const std::vector<std::string> properties_str = std::visit(
+          [property_ids = label_properties_pair.second](const auto *impl) {
+            std::vector<std::string> property_ids_str;
+            property_ids_str.reserve(property_ids.size());
+            std::transform(property_ids.begin(), property_ids.end(), std::back_inserter(property_ids_str),
+                           [impl](const auto &property_id) { return impl->PropertyToName(property_id); });
+            return property_ids_str;
+          },
+          graph->impl);
+
+      mgp_list *label_properties_mgp_list = nullptr;
+      if (const auto properties_mgp_list_err =
+              mgp_list_make_empty(properties_str.size() + 1, memory, &label_properties_mgp_list);
+          properties_mgp_list_err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all unique constraints failed due to failure of creating an inner list");
+      }
+
+      mgp_value *mgp_value_label = nullptr;
+      if (const auto err_label = mgp_value_make_string(label_id_str.c_str(), memory, &mgp_value_label);
+          err_label != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all unique constraints failed due to failure of creating a label value");
+      }
+      if (const auto err_label_into_list = mgp_list_append_extend(label_properties_mgp_list, mgp_value_label);
+          err_label_into_list != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all unique constraints failed due to failure of appending a label value");
+      }
+
+      mgp_value_destroy(mgp_value_label);
+
+      for (const std::string &property_str : properties_str) {
+        mgp_value *property_mgp_value = nullptr;
+        if (const auto err_str = mgp_value_make_string(property_str.c_str(), memory, &property_mgp_value);
+            err_str != mgp_error::MGP_ERROR_NO_ERROR) {
+          throw std::logic_error("Listing all unique constraints failed due to failure of creating a property value");
+        }
+        if (const auto err_list = mgp_list_append_extend(label_properties_mgp_list, property_mgp_value);
+            err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+          throw std::logic_error("Listing all unique constraints failed due to failure of appending a property value");
+        }
+        mgp_value_destroy(property_mgp_value);
+      }
+      mgp_value value(label_properties_mgp_list, label_properties_mgp_list->GetMemoryResource());
+
+      if (const auto err_list = mgp_list_append_extend(*result, &value); err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all unique constraints failed due to failure of creating label+property value");
+      }
+      mgp_value_destroy(&value);
+    }
+  });
 }
 
 mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {

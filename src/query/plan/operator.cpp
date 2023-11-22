@@ -57,6 +57,7 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/deque.hpp"
@@ -3463,7 +3464,7 @@ class AggregateCursor : public Cursor {
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!pulled_all_input_) {
-      ProcessAll(&frame, &context);
+      if (!ProcessAll(&frame, &context) && !self_.group_by_.empty()) return false;
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 
@@ -3487,7 +3488,6 @@ class AggregateCursor : public Cursor {
         return true;
       }
     }
-
     if (aggregation_it_ == aggregation_.end()) return false;
 
     // place aggregation values on the frame
@@ -3567,12 +3567,16 @@ class AggregateCursor : public Cursor {
    * cache cardinality depends on number of
    * aggregation results, and not on the number of inputs.
    */
-  void ProcessAll(Frame *frame, ExecutionContext *context) {
+  bool ProcessAll(Frame *frame, ExecutionContext *context) {
     ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
                                   storage::View::NEW);
+
+    bool pulled = false;
     while (input_cursor_->Pull(*frame, *context)) {
       ProcessOne(*frame, &evaluator);
+      pulled = true;
     }
+    if (!pulled) return false;
 
     // post processing
     for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
@@ -3606,6 +3610,7 @@ class AggregateCursor : public Cursor {
           break;
       }
     }
+    return true;
   }
 
   /**
@@ -4849,6 +4854,7 @@ class CallProcedureCursor : public Cursor {
       result_signature_size_ = result_->signature->size();
       result_->signature = nullptr;
       if (result_->error_msg) {
+        memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_->error_msg);
       }
       result_row_it_ = result_->rows.begin();
@@ -5404,7 +5410,7 @@ class HashJoinCursor : public Cursor {
         // Check if the join value from the pulled frame is shared with any left frames
         ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                       storage::View::OLD);
-        auto right_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
+        auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
         if (hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
           right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
@@ -5452,7 +5458,7 @@ class HashJoinCursor : public Cursor {
     while (left_op_cursor_->Pull(frame, context)) {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
-      auto left_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
+      auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
       if (left_value.type() != TypedValue::Type::Null) {
         hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
       }
