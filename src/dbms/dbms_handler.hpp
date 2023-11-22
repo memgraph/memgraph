@@ -106,7 +106,7 @@ class DbmsHandler {
    */
   DbmsHandler(storage::Config config,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-              bool recovery_on_startup, bool delete_on_drop);
+              bool recovery_on_startup, bool delete_on_drop);  // TODO If more arguments are added use a config strut
 #else
   /**
    * @brief Initialize the handler. A single database is supported in community edition.

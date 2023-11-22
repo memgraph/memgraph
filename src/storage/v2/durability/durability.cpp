@@ -107,9 +107,9 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 
   std::vector<WalDurabilityInfo> wal_files;
   std::error_code error_code;
-  // There could be multiple "current" WAL files, the tah just means that the previous session didn't finalize.
-  // We cannot skip based on name, will be able to skip based on invalid data or sequence number, so the actual current
-  // wal will be skipped
+  // There could be multiple "current" WAL files, the "_current" tag just means that the previous session didn't
+  // finalize. We cannot skip based on name, will be able to skip based on invalid data or sequence number, so the
+  // actual current wal will be skipped
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!item.is_regular_file()) continue;
     try {
