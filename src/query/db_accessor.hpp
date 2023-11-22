@@ -694,6 +694,8 @@ class SubgraphDbAccessor final {
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view);
 
   Graph *getGraph();
+
+  DbAccessor *GetAccessor();
 };
 
 }  // namespace memgraph::query

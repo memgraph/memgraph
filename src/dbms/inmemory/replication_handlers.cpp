@@ -220,7 +220,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
     storage::durability::RecoverIndicesAndConstraints(recovered_snapshot.indices_constraints, &storage->indices_,
-                                                      &storage->constraints_, &storage->vertices_);
+                                                      &storage->constraints_, &storage->vertices_,
+                                                      storage->name_id_mapper_.get());
   } catch (const storage::durability::RecoveryFailure &e) {
     LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
   }

@@ -2,6 +2,8 @@ add_subdirectory(procedures)
 
 find_package(gflags REQUIRED)
 
+# Global memory limit
+
 add_executable(memgraph__e2e__memory__control memory_control.cpp)
 target_link_libraries(memgraph__e2e__memory__control gflags mgclient mg-utils mg-io Threads::Threads)
 
@@ -20,6 +22,12 @@ target_link_libraries(memgraph__e2e__memory__limit_accumulation gflags mgclient 
 add_executable(memgraph__e2e__memory__limit_edge_create memory_limit_edge_create.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_edge_create gflags mgclient mg-utils mg-io)
 
+add_executable(memgraph__e2e__memory_limit_global_multi_thread_proc_create memory_limit_global_multi_thread_proc_create.cpp)
+target_link_libraries(memgraph__e2e__memory_limit_global_multi_thread_proc_create gflags mgclient mg-utils mg-io)
+
+add_executable(memgraph__e2e__memory_limit_global_thread_alloc_proc memory_limit_global_thread_alloc_proc.cpp)
+target_link_libraries(memgraph__e2e__memory_limit_global_thread_alloc_proc gflags mgclient mg-utils mg-io)
+
 # Query memory limit tests
 
 add_executable(memgraph__e2e__memory__limit_query_alloc_proc_multi_thread query_memory_limit_proc_multi_thread.cpp)
@@ -33,7 +41,6 @@ target_link_libraries(memgraph__e2e__memory__limit_query_alloc_proc gflags mgcli
 
 add_executable(memgraph__e2e__memory__limit_query_alloc_create_multi_thread query_memory_limit_multi_thread.cpp)
 target_link_libraries(memgraph__e2e__memory__limit_query_alloc_create_multi_thread gflags mgclient mg-utils mg-io Threads::Threads)
-
 
 # Procedure memory limit tests
 

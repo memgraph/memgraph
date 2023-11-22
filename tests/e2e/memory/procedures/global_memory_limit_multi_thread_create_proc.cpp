@@ -25,61 +25,54 @@
 #include "mgp.hpp"
 #include "utils/on_scope_exit.hpp"
 
-enum mgp_error Alloc(void *ptr) {
-  const size_t mb_size_268 = 1 << 28;
-
-  return mgp_global_alloc(mb_size_268, (void **)(&ptr));
-}
-
 // change communication between threads with feature and promise
-std::atomic<int> num_allocations{0};
-std::vector<void *> ptrs_;
+std::atomic<int> created_vertices{0};
+constexpr int num_vertices_per_thread{100'000};
+constexpr int num_threads{2};
 
-void AllocFunc(mgp_graph *graph) {
+void CallCreate(mgp_graph *graph, mgp_memory *memory) {
   [[maybe_unused]] const enum mgp_error tracking_error = mgp_track_current_thread_allocations(graph);
-  void *ptr = nullptr;
-
-  ptrs_.emplace_back(ptr);
-  try {
-    enum mgp_error alloc_err { mgp_error::MGP_ERROR_NO_ERROR };
-    alloc_err = Alloc(ptr);
-    if (alloc_err != mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
-      num_allocations.fetch_add(1, std::memory_order_relaxed);
+  for (int i = 0; i < num_vertices_per_thread; i++) {
+    struct mgp_vertex *vertex{nullptr};
+    auto enum_error = mgp_graph_create_vertex(graph, memory, &vertex);
+    if (enum_error != mgp_error::MGP_ERROR_NO_ERROR) {
+      break;
     }
-    if (alloc_err != mgp_error::MGP_ERROR_NO_ERROR) {
-      assert(false);
-    }
-  } catch (const std::exception &e) {
-    assert(false);
+    created_vertices.fetch_add(1, std::memory_order_acq_rel);
   }
-
   [[maybe_unused]] const enum mgp_error untracking_error = mgp_untrack_current_thread_allocations(graph);
 }
 
-void DualThread(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+void AllocFunc(mgp_graph *graph, mgp_memory *memory) {
+  try {
+    CallCreate(graph, memory);
+  } catch (const std::exception &e) {
+    return;
+  }
+}
+
+void MultiCreate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
-  num_allocations.store(0, std::memory_order_relaxed);
   try {
     std::vector<std::thread> threads;
 
     for (int i = 0; i < 2; i++) {
-      threads.emplace_back(AllocFunc, memgraph_graph);
+      threads.emplace_back(AllocFunc, memgraph_graph, memory);
     }
 
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < num_threads; i++) {
       threads[i].join();
     }
-    for (void *ptr : ptrs_) {
-      if (ptr != nullptr) {
-        mgp_global_free(ptr);
-      }
+    if (created_vertices.load(std::memory_order_acquire) != num_vertices_per_thread * num_threads) {
+      record_factory.SetErrorMessage("Unable to allocate");
+      return;
     }
 
     auto new_record = record_factory.NewRecord();
-
-    new_record.Insert("allocated_all", num_allocations.load(std::memory_order_relaxed) == 2);
+    new_record.Insert("allocated_all",
+                      created_vertices.load(std::memory_order_acquire) == num_vertices_per_thread * num_threads);
   } catch (std::exception &e) {
     record_factory.SetErrorMessage(e.what());
   }
@@ -87,9 +80,9 @@ void DualThread(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, m
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::memory = memory;
+    mgp::MemoryDispatcherGuard guard{memory};
 
-    AddProcedure(DualThread, std::string("dual_thread").c_str(), mgp::ProcedureType::Read, {},
+    AddProcedure(MultiCreate, std::string("multi_create").c_str(), mgp::ProcedureType::Write, {},
                  {mgp::Return(std::string("allocated_all").c_str(), mgp::Type::Bool)}, module, memory);
 
   } catch (const std::exception &e) {
