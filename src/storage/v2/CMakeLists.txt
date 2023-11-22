@@ -23,6 +23,7 @@ add_library(mg-storage-v2 STATIC
         all_vertices_iterable.cpp
         vertices_iterable.cpp
         inmemory/storage.cpp
+        inmemory/edge_type_index.cpp
         inmemory/label_index.cpp
         inmemory/label_property_index.cpp
         inmemory/unique_constraints.cpp

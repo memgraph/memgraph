@@ -14,6 +14,7 @@
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 
 /// REPLICATION ///

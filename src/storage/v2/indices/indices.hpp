@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -49,6 +50,7 @@ struct Indices {
 
   std::unique_ptr<LabelIndex> label_index_;
   std::unique_ptr<LabelPropertyIndex> label_property_index_;
+  std::unique_ptr<EdgeTypeIndex> edge_type_index_;
 };
 
 }  // namespace memgraph::storage
