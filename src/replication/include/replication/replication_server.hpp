@@ -23,7 +23,7 @@ struct FrequentHeartbeatReq {
 
   static void Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
-  FrequentHeartbeatReq() {}
+  FrequentHeartbeatReq() = default;
 };
 
 struct FrequentHeartbeatRes {
@@ -32,7 +32,7 @@ struct FrequentHeartbeatRes {
 
   static void Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
-  FrequentHeartbeatRes() {}
+  FrequentHeartbeatRes() = default;
   explicit FrequentHeartbeatRes(bool success) : success(success) {}
 
   bool success;

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include <iostream>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "query/exceptions.hpp"
@@ -32,7 +33,7 @@ namespace memgraph::query::frontend {
 
 using namespace lexer_constants;
 
-StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
+StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
   enum class Token {
     UNMATCHED,
     KEYWORD,  // Including true, false and null.
@@ -255,29 +256,29 @@ std::string GetFirstUtf8Symbol(const char *_s) {
   // According to
   // https://stackoverflow.com/questions/16260033/reinterpret-cast-between-char-and-stduint8-t-safe
   // this checks if casting from const char * to uint8_t is undefined behaviour.
-  static_assert(std::is_same<std::uint8_t, unsigned char>::value,
+  static_assert(std::is_same_v<std::uint8_t, unsigned char>,
                 "This library requires std::uint8_t to be implemented as "
                 "unsigned char.");
   const uint8_t *s = reinterpret_cast<const uint8_t *>(_s);
   if ((*s >> 7) == 0x00) return std::string(_s, _s + 1);
   if ((*s >> 5) == 0x06) {
-    auto *s1 = s + 1;
+    const auto *s1 = s + 1;
     if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character.");
     return std::string(_s, _s + 2);
   }
   if ((*s >> 4) == 0x0e) {
-    auto *s1 = s + 1;
+    const auto *s1 = s + 1;
     if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character.");
-    auto *s2 = s + 2;
+    const auto *s2 = s + 2;
     if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character.");
     return std::string(_s, _s + 3);
   }
   if ((*s >> 3) == 0x1e) {
-    auto *s1 = s + 1;
+    const auto *s1 = s + 1;
     if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character.");
-    auto *s2 = s + 2;
+    const auto *s2 = s + 2;
     if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character.");
-    auto *s3 = s + 3;
+    const auto *s3 = s + 3;
     if ((*s3 >> 6) != 0x02) throw LexingException("Invalid character.");
     return std::string(_s, _s + 4);
   }
@@ -286,29 +287,29 @@ std::string GetFirstUtf8Symbol(const char *_s) {
 
 // Return codepoint of first utf8 symbol and its encoded length.
 std::pair<int, int> GetFirstUtf8SymbolCodepoint(const char *_s) {
-  static_assert(std::is_same<std::uint8_t, unsigned char>::value,
+  static_assert(std::is_same_v<std::uint8_t, unsigned char>,
                 "This library requires std::uint8_t to be implemented as "
                 "unsigned char.");
   const uint8_t *s = reinterpret_cast<const uint8_t *>(_s);
   if ((*s >> 7) == 0x00) return {*s & 0x7f, 1};
   if ((*s >> 5) == 0x06) {
-    auto *s1 = s + 1;
+    const auto *s1 = s + 1;
     if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character.");
     return {((*s & 0x1f) << 6) | (*s1 & 0x3f), 2};
   }
   if ((*s >> 4) == 0x0e) {
-    auto *s1 = s + 1;
+    const auto *s1 = s + 1;
     if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character.");
-    auto *s2 = s + 2;
+    const auto *s2 = s + 2;
     if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character.");
     return {((*s & 0x0f) << 12) | ((*s1 & 0x3f) << 6) | (*s2 & 0x3f), 3};
   }
   if ((*s >> 3) == 0x1e) {
-    auto *s1 = s + 1;
+    const auto *s1 = s + 1;
     if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character.");
-    auto *s2 = s + 2;
+    const auto *s2 = s + 2;
     if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character.");
-    auto *s3 = s + 3;
+    const auto *s3 = s + 3;
     if ((*s3 >> 6) != 0x02) throw LexingException("Invalid character.");
     return {((*s & 0x07) << 18) | ((*s1 & 0x3f) << 12) | ((*s2 & 0x3f) << 6) | (*s3 & 0x3f), 4};
   }
@@ -336,7 +337,7 @@ int StrippedQuery::MatchSpecial(int start) const { return kSpecialTokens.Match(o
 int StrippedQuery::MatchString(int start) const {
   if (original_[start] != '"' && original_[start] != '\'') return 0;
   char start_char = original_[start];
-  for (auto *p = original_.data() + start + 1; *p; ++p) {
+  for (const auto *p = original_.data() + start + 1; *p; ++p) {
     if (*p == start_char) return p - (original_.data() + start) + 1;
     if (*p == '\\') {
       ++p;
@@ -346,7 +347,7 @@ int StrippedQuery::MatchString(int start) const {
         continue;
       } else if (*p == 'U' || *p == 'u') {
         int cnt = 0;
-        auto *r = p + 1;
+        const auto *r = p + 1;
         while (isxdigit(*r) && cnt < 8) {
           ++cnt;
           ++r;
