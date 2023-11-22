@@ -370,8 +370,9 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
   constexpr bool kSharedAccess = false;
 
   std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
-  auto get_transaction = [storage, &commit_timestamp_and_accessor](uint64_t commit_timestamp,
-                                                                   bool unique = kSharedAccess) {
+  auto const get_transaction = [storage, &commit_timestamp_and_accessor](
+                                   uint64_t commit_timestamp,
+                                   bool unique = kSharedAccess) -> storage::InMemoryStorage::ReplicationAccessor * {
     if (!commit_timestamp_and_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
       if (unique) {
@@ -480,15 +481,11 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         if (!from_vertex) throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
         auto to_vertex = transaction->FindVertex(delta.edge_create_delete.to_vertex, View::NEW);
         if (!to_vertex) throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
-        auto edges = from_vertex->OutEdges(View::NEW, {transaction->NameToEdgeType(delta.edge_create_delete.edge_type)},
-                                           &*to_vertex);
-        if (edges.HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
-        if (edges->edges.size() != 1)
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
-        auto &edge = (*edges).edges[0];
-        auto ret = transaction->DeleteEdge(&edge);
-        if (ret.HasError())
+        auto edgeType = transaction->NameToEdgeType(delta.edge_create_delete.edge_type);
+        auto edge =
+            transaction->FindEdge(delta.edge_create_delete.gid, View::NEW, edgeType, &*from_vertex, &*to_vertex);
+        if (!edge) throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+        if (auto ret = transaction->DeleteEdge(&*edge); ret.HasError())
           throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
         break;
       }

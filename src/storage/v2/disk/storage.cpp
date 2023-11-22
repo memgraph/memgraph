@@ -949,6 +949,20 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
 
+std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid gid, View view, EdgeTypeId edge_type,
+                                                                VertexAccessor *from_vertex,
+                                                                VertexAccessor *to_vertex) {
+  auto res = from_vertex->OutEdges(view, {edge_type}, to_vertex);
+  if (res.HasError()) return std::nullopt;  // TODO: use a Result type
+
+  auto const it = std::ranges::find_if(
+      res->edges, [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; });
+
+  if (it == res->edges.end()) return std::nullopt;  // TODO: use a Result type
+
+  return EdgeAccessor(it->edge_, edge_type, from_vertex->vertex_, to_vertex->vertex_, storage_, &transaction_, false);
+}
+
 Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetFrom(EdgeAccessor * /*edge*/, VertexAccessor * /*new_from*/) {
   MG_ASSERT(false, "EdgeSetFrom is currently only implemented for InMemory storage");
   return Error::NONEXISTENT_OBJECT;

@@ -315,6 +315,24 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
 
+std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, const View view, EdgeTypeId edge_type,
+                                                                        VertexAccessor *from_vertex,
+                                                                        VertexAccessor *to_vertex) {
+  auto res = from_vertex->OutEdges(view, {edge_type}, to_vertex);
+  if (res.HasError()) return std::nullopt;  // TODO: use a Result type
+
+  auto const it = std::invoke([this, gid, &res]() {
+    auto const byGid = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.gid == gid; };
+    auto const byEdgePtr = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; };
+    if (config_.properties_on_edges) return std::ranges::find_if(res->edges, byEdgePtr);
+    return std::ranges::find_if(res->edges, byGid);
+  });
+
+  if (it == res->edges.end()) return std::nullopt;  // TODO: use a Result type
+
+  return EdgeAccessor(it->edge_, edge_type, from_vertex->vertex_, to_vertex->vertex_, storage_, &transaction_, false);
+}
+
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAccessor *from, VertexAccessor *to,
                                                                      EdgeTypeId edge_type, storage::Gid gid) {
   MG_ASSERT(from->transaction_ == to->transaction_,
