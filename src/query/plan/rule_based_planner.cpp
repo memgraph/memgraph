@@ -17,6 +17,7 @@
 #include <stack>
 #include <unordered_set>
 
+#include "query/plan/preprocess.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -516,14 +517,27 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, cons
 
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
   Expression *filter_expr = nullptr;
+  std::vector<FilterInfo> and_joinable_filters{};
   for (auto filters_it = filters.begin(); filters_it != filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
-      filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, filters_it->expression);
+      auto it = and_joinable_filters.begin();
+      for (; it != and_joinable_filters.end(); it++) {
+        if (it->type == FilterInfo::Type::Pattern) {
+          break;
+        }
+      }
+      and_joinable_filters.insert(it, *filters_it);
+      // filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, filters_it->expression);
       filters_it = filters.erase(filters_it);
     } else {
       filters_it++;
     }
   }
+
+  for (auto &filter : and_joinable_filters) {
+    filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, filter.expression);
+  }
+
   return filter_expr;
 }
 

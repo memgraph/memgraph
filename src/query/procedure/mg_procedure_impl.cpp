@@ -313,6 +313,8 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       return MGP_VALUE_TYPE_LOCAL_DATE_TIME;
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
+    case memgraph::query::TypedValue::Type::Function:
+      throw std::logic_error{"mgp_value for TypedValue::Type::Function doesn't exist."};
     case memgraph::query::TypedValue::Type::Graph:
       throw std::logic_error{"mgp_value for TypedValue::Type::Graph doesn't exist."};
   }
@@ -3345,7 +3347,8 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
     case TypedValue::Type::Graph:
-      LOG_FATAL("value must not be a graph element");
+    case TypedValue::Type::Function:
+      LOG_FATAL("value must not be a graph|function element");
   }
 }
 

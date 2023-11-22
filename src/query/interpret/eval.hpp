@@ -903,7 +903,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(std::move(result), ctx_->memory);
   }
 
-  TypedValue Visit(Exists &exists) override { return TypedValue{frame_->at(symbol_table_->at(exists)), ctx_->memory}; }
+  TypedValue Visit(Exists &exists) override {
+    if (frame_->at(symbol_table_->at(exists)).IsFunction()) [[likely]] {
+      TypedValue result{ctx_->memory};
+      frame_->at(symbol_table_->at(exists)).ValueFunction()(&result);
+      return result;
+    }
+    return TypedValue{frame_->at(symbol_table_->at(exists)), ctx_->memory};
+  }
 
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);
