@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -105,12 +105,12 @@ class SmallVectorTemplateCommon : public SmallVectorBase {
   // don't want it to be automatically run, so we need to represent the space as
   // something else.  Use an array of char of sufficient alignment.
   ////////////typedef utils::AlignedCharArrayUnion<T> U;
-  typedef typename std::aligned_union<1, T>::type U;
+  using U = typename std::aligned_union<1, T>::type;
   U first_el_;
   // Space after 'first_el' is clobbered, do not add any instance vars after it.
 
  protected:
-  SmallVectorTemplateCommon(size_t size) : SmallVectorBase(&first_el_, size) {}
+  explicit SmallVectorTemplateCommon(size_t size) : SmallVectorBase(&first_el_, size) {}
 
   void GrowPod(size_t min_size_in_bytes, size_t t_size) {
     SmallVectorBase::GrowPod(&first_el_, min_size_in_bytes, t_size);
@@ -126,19 +126,19 @@ class SmallVectorTemplateCommon : public SmallVectorBase {
   void SetEnd(T *P) { this->end_x_ = P; }
 
  public:
-  typedef size_t size_type;
-  typedef ptrdiff_t difference_type;
-  typedef T value_type;
-  typedef T *iterator;
-  typedef const T *const_iterator;
+  using size_type = size_t;
+  using difference_type = ptrdiff_t;
+  using value_type = T;
+  using iterator = T *;
+  using const_iterator = const T *;
 
-  typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
-  typedef std::reverse_iterator<iterator> reverse_iterator;
+  using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+  using reverse_iterator = std::reverse_iterator<iterator>;
 
-  typedef T &reference;
-  typedef const T &const_reference;
-  typedef T *pointer;
-  typedef const T *const_pointer;
+  using reference = T &;
+  using const_reference = const T &;
+  using pointer = T *;
+  using const_pointer = const T *;
 
   // forward iterator creation methods.
   inline iterator begin() { return (iterator)this->begin_x_; }
@@ -201,7 +201,7 @@ class SmallVectorTemplateCommon : public SmallVectorBase {
 template <typename T, bool TIsPodLike>
 class SmallVectorTemplateBase : public SmallVectorTemplateCommon<T> {
  protected:
-  SmallVectorTemplateBase(size_t size) : SmallVectorTemplateCommon<T>(size) {}
+  explicit SmallVectorTemplateBase(size_t size) : SmallVectorTemplateCommon<T>(size) {}
 
   static void DestroyRange(T *s, T *e) {
     while (s != e) {
@@ -277,7 +277,7 @@ void SmallVectorTemplateBase<T, TIsPodLike>::Grow(size_t min_size) {
 template <typename T>
 class SmallVectorTemplateBase<T, true> : public SmallVectorTemplateCommon<T> {
  protected:
-  SmallVectorTemplateBase(size_t size) : SmallVectorTemplateCommon<T>(size) {}
+  explicit SmallVectorTemplateBase(size_t size) : SmallVectorTemplateCommon<T>(size) {}
 
   // No need to do a destroy loop for POD's.
   static void DestroyRange(T *, T *) {}
@@ -331,14 +331,14 @@ inline constexpr bool is_pod = std::is_standard_layout_v<T> &&std::is_trivial_v<
 /// reduce code duplication based on the SmallVector 'n' template parameter.
 template <typename T>
 class SmallVectorImpl : public SmallVectorTemplateBase<T, is_pod<T>> {
-  typedef SmallVectorTemplateBase<T, is_pod<T>> SuperClass;
+  using SuperClass = SmallVectorTemplateBase<T, is_pod<T>>;
 
   SmallVectorImpl(const SmallVectorImpl &) = delete;
 
  public:
-  typedef typename SuperClass::iterator iterator;
-  typedef typename SuperClass::const_iterator const_iterator;
-  typedef typename SuperClass::size_type size_type;
+  using iterator = typename SuperClass::iterator;
+  using const_iterator = typename SuperClass::const_iterator;
+  using size_type = typename SuperClass::size_type;
 
  protected:
   // Default ctor - Initialize to empty.
@@ -861,7 +861,7 @@ class SmallVector : public SmallVectorImpl<T> {
     return *this;
   }
 
-  SmallVector(SmallVectorImpl<T> &&rhs) : SmallVectorImpl<T>(N) {
+  explicit SmallVector(SmallVectorImpl<T> &&rhs) : SmallVectorImpl<T>(N) {
     if (!rhs.empty()) SmallVectorImpl<T>::operator=(::std::move(rhs));
   }
 

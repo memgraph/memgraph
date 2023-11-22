@@ -93,7 +93,7 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
       return State::Close;
     }
 
-    if (summary.count("has_more") && summary.at("has_more").ValueBool()) {
+    if (summary.contains("has_more") && summary.at("has_more").ValueBool()) {
       return State::Result;
     }
 
@@ -148,13 +148,13 @@ State HandlePullDiscardV4(TSession &session, const State state, const Marker mar
     spdlog::trace("Couldn't read extra field!");
   }
   const auto &extra_map = extra.ValueMap();
-  if (extra_map.count("n")) {
+  if (extra_map.contains("n")) {
     if (const auto n_value = extra_map.at("n").ValueInt(); n_value != kPullAll) {
       n = n_value;
     }
   }
 
-  if (extra_map.count("qid")) {
+  if (extra_map.contains("qid")) {
     if (const auto qid_value = extra_map.at("qid").ValueInt(); qid_value != kPullLast) {
       qid = qid_value;
     }

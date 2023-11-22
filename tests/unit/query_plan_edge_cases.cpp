@@ -43,7 +43,7 @@ class QueryExecution : public testing::Test {
   std::optional<memgraph::replication::ReplicationState> repl_state;
   std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
 
-  void SetUp() {
+  void SetUp() override {
     auto config = [&]() {
       memgraph::storage::Config config{};
       config.durability.storage_directory = data_directory;
@@ -70,7 +70,7 @@ class QueryExecution : public testing::Test {
     interpreter_.emplace(&*interpreter_context_, *db_acc_);
   }
 
-  void TearDown() {
+  void TearDown() override {
     interpreter_ = std::nullopt;
     interpreter_context_ = std::nullopt;
     db_acc_.reset();

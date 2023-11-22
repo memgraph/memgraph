@@ -90,7 +90,7 @@ class ReplicationClient {
   auto GetStorageId() const -> std::string;
 
   void Start();
-  void StartTransactionReplication(const uint64_t current_wal_seq_num);
+  void StartTransactionReplication(uint64_t current_wal_seq_num);
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
   // we want to send part of transaction and to avoid adding some GC logic this

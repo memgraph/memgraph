@@ -128,7 +128,7 @@ KVStore::iterator::iterator(const KVStore *kvstore, const std::string &prefix, b
 
 KVStore::iterator::iterator(KVStore::iterator &&other) { pimpl_ = std::move(other.pimpl_); }
 
-KVStore::iterator::~iterator() {}
+KVStore::iterator::~iterator() = default;
 
 KVStore::iterator &KVStore::iterator::operator=(KVStore::iterator &&other) {
   pimpl_ = std::move(other.pimpl_);
