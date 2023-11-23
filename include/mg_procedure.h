@@ -876,6 +876,65 @@ enum mgp_error mgp_edge_iter_properties(struct mgp_edge *e, struct mgp_memory *m
 enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex_id id, struct mgp_memory *memory,
                                           struct mgp_vertex **result);
 
+/// Creates label index for given label.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if label index already exists, result will be 0, otherwise 1.
+enum mgp_error mgp_create_label_index(struct mgp_graph *graph, const char *label, int *result);
+
+/// Drop label index.
+enum mgp_error mgp_drop_label_index(struct mgp_graph *graph, const char *label, int *result);
+
+/// List all label indices.
+enum mgp_error mgp_list_all_label_indices(struct mgp_graph *graph, struct mgp_memory *memory, struct mgp_list **result);
+
+/// Creates label-property index for given label and propery.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if label property index already exists, result will be 0, otherwise 1.
+enum mgp_error mgp_create_label_property_index(struct mgp_graph *graph, const char *label, const char *property,
+                                               int *result);
+
+/// Drops label-property index for given label and propery.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if dropping label property index failed, result will be 0, otherwise 1.
+enum mgp_error mgp_drop_label_property_index(struct mgp_graph *graph, const char *label, const char *property,
+                                             int *result);
+
+/// List all label+property indices.
+enum mgp_error mgp_list_all_label_property_indices(struct mgp_graph *graph, struct mgp_memory *memory,
+                                                   struct mgp_list **result);
+
+/// Creates existence constraint for given label and property.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if creating existence constraint failed, result will be 0, otherwise 1.
+enum mgp_error mgp_create_existence_constraint(struct mgp_graph *graph, const char *label, const char *property,
+                                               int *result);
+
+/// Drops existence constraint for given label and property.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if dropping existence constraint failed, result will be 0, otherwise 1.
+enum mgp_error mgp_drop_existence_constraint(struct mgp_graph *graph, const char *label, const char *property,
+                                             int *result);
+
+/// List all existence constraints.
+enum mgp_error mgp_list_all_existence_constraints(struct mgp_graph *graph, struct mgp_memory *memory,
+                                                  struct mgp_list **result);
+
+/// Creates unique constraint for given label and properties.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if creating unique constraint failed, result will be 0, otherwise 1.
+enum mgp_error mgp_create_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
+                                            int *result);
+
+/// Drops unique constraint for given label and properties.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if dropping unique constraint failed, result will be 0, otherwise 1.
+enum mgp_error mgp_drop_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
+                                          int *result);
+
+/// List all unique constraints
+enum mgp_error mgp_list_all_unique_constraints(struct mgp_graph *graph, struct mgp_memory *memory,
+                                               struct mgp_list **result);
+
 /// Result is non-zero if the graph can be modified.
 /// If a graph is immutable, then vertices cannot be created or deleted, and all of the returned vertices will be
 /// immutable also. The same applies for edges.

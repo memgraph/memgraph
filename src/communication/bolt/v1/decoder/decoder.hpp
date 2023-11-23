@@ -401,11 +401,11 @@ class Decoder {
     }
     auto &labels = dv.ValueList();
     vertex.labels.reserve(labels.size());
-    for (size_t i = 0; i < labels.size(); ++i) {
-      if (labels[i].type() != Value::Type::String) {
+    for (auto &label : labels) {
+      if (label.type() != Value::Type::String) {
         return false;
       }
-      vertex.labels.emplace_back(std::move(labels[i].ValueString()));
+      vertex.labels.emplace_back(std::move(label.ValueString()));
     }
 
     // read properties

@@ -38,7 +38,7 @@ class Handler {
    * @brief Empty Handler constructor.
    *
    */
-  Handler() {}
+  Handler() = default;
 
   /**
    * @brief Generate a new context and corresponding configuration.

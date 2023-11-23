@@ -140,7 +140,7 @@ class Storage {
 
     Accessor(Accessor &&other) noexcept;
 
-    virtual ~Accessor() {}
+    virtual ~Accessor() = default;
 
     virtual VertexAccessor CreateVertex() = 0;
 
