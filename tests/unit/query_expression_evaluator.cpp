@@ -13,6 +13,7 @@
 #include <cmath>
 #include <iterator>
 #include <memory>
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
@@ -83,6 +84,14 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     return id;
   }
 
+  Exists *CreateExistsWithValue(std::string name, TypedValue &&value) {
+    auto id = storage.template Create<Exists>();
+    auto symbol = symbol_table.CreateSymbol(name, true);
+    id->MapTo(symbol);
+    frame[symbol] = std::move(value);
+    return id;
+  }
+
   template <class TExpression>
   auto Eval(TExpression *expr) {
     ctx.properties = NamesToProperties(storage.properties_, &dba);
@@ -146,6 +155,33 @@ TYPED_TEST(ExpressionEvaluatorTest, AndOperatorShortCircuit) {
     // sides and return `false` without checking for type of the first
     // expression.
     EXPECT_THROW(this->Eval(op), QueryRuntimeException);
+  }
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, AndExistsOperatorShortCircuit) {
+  {
+    std::function<void(TypedValue *)> my_func = [](TypedValue * /*return_value*/) {
+      throw QueryRuntimeException("This should not be evaluated");
+    };
+    TypedValue func_should_not_evaluate{std::move(my_func)};
+
+    auto *op = this->storage.template Create<AndOperator>(
+        this->storage.template Create<PrimitiveLiteral>(false),
+        this->CreateExistsWithValue("anon1", std::move(func_should_not_evaluate)));
+    auto value = this->Eval(op);
+    EXPECT_EQ(value.ValueBool(), false);
+  }
+  {
+    std::function<void(TypedValue *)> my_func = [memory = this->ctx.memory](TypedValue *return_value) {
+      *return_value = TypedValue(false, memory);
+    };
+    TypedValue should_evaluate{std::move(my_func)};
+
+    auto *op =
+        this->storage.template Create<AndOperator>(this->storage.template Create<PrimitiveLiteral>(true),
+                                                   this->CreateExistsWithValue("anon1", std::move(should_evaluate)));
+    auto value = this->Eval(op);
+    EXPECT_EQ(value.ValueBool(), false);
   }
 }
 

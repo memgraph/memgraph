@@ -2474,40 +2474,6 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   return false;
 }
 
-// bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
-//   OOMExceptionEnabler oom_exception;
-//   SCOPED_PROFILE_OP_BY_REF(self_);
-
-//   // Newly set values don't affect filtering of old
-//   // nodes and edges.
-//   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-//                                 storage::View::OLD, context.frame_change_collector);
-
-//   while (input_cursor_->Pull(frame, context)) {
-//     auto has_pattern_filter_cursors = !pattern_filter_cursors_.empty();
-
-//     if(!has_pattern_filter_cursors){
-//       if (EvaluateFilter(evaluator, self_.expression_)) return true;
-//       continue;
-//     }
-//     // check if we can short circuit result pattern filter evaluation
-//     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
-//       if(auto *pattern_filter = utils::Downcast<EvaluatePatternFilter>(pattern_filter_cursor.get())){
-//         pattern_filter->SetNullOnFrame(frame, context);
-//       }
-//     }
-//     auto result = EvaluateFilterWithNull(sc_evaluator, self_.expression_);
-//     if (!result.IsNull() && result.ValueBool() == false) continue;
-
-//     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
-//         pattern_filter_cursor->Pull(frame, context);
-//     }
-
-//     if (EvaluateFilter(evaluator, self_.expression_)) return true;
-//   }
-//   return false;
-// }
-
 void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }

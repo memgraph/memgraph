@@ -580,7 +580,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         new (&duration_v) utils::Duration(other.duration_v);
         return *this;
       case Type::Function:
-        LOG_FATAL("Unsupported TypedValue::Type");
+        LOG_FATAL("Unsupported TypedValue::Type copy assignment operator");
     }
     LOG_FATAL("Unsupported TypedValue::Type");
   }

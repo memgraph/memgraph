@@ -455,7 +455,7 @@ class TypedValue {
   TypedValue &operator=(const utils::LocalTime &);
   TypedValue &operator=(const utils::LocalDateTime &);
   TypedValue &operator=(const utils::Duration &);
-  TypedValue &operator=(const std::function<void(TypedValue *)> &) = delete;
+  TypedValue &operator=(const std::function<void(TypedValue *)> &);
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
   TypedValue &operator=(const TypedValue &other);
