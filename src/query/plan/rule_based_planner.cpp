@@ -520,7 +520,7 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
   std::vector<FilterInfo> and_joinable_filters{};
   for (auto filters_it = filters.begin(); filters_it != filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
-      and_joinable_filters.emplace_back(filters_it);
+      and_joinable_filters.emplace_back(*filters_it);
       filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, filters_it->expression);
       filters_it = filters.erase(filters_it);
     } else {
