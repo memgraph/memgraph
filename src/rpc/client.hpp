@@ -14,6 +14,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <utility>
 
 #include "communication/client.hpp"
 #include "io/network/endpoint.hpp"
@@ -41,16 +42,25 @@ class Client {
 
     StreamHandler(Client *self, std::unique_lock<std::mutex> &&guard,
                   std::function<typename TRequestResponse::Response(slk::Reader *)> res_load)
-        : self_(self),
-          guard_(std::move(guard)),
-          req_builder_([self](const uint8_t *data, size_t size, bool have_more) {
-            if (!self->client_->Write(data, size, have_more)) throw GenericRpcFailedException();
-          }),
-          res_load_(res_load) {}
+        : self_(self), guard_(std::move(guard)), req_builder_(GenBuilderCallback(self, this)), res_load_(res_load) {}
 
    public:
-    StreamHandler(StreamHandler &&) noexcept = default;
-    StreamHandler &operator=(StreamHandler &&) noexcept = default;
+    StreamHandler(StreamHandler &&other) noexcept
+        : self_{std::exchange(other.self_, nullptr)},
+          defunct_{std::exchange(other.defunct_, true)},
+          guard_{std::move(other.guard_)},
+          req_builder_{std::move(other.req_builder_), GenBuilderCallback(self_, this)},
+          res_load_{std::move(other.res_load_)} {}
+    StreamHandler &operator=(StreamHandler &&other) noexcept {
+      if (&other != this) {
+        self_ = std::exchange(other.self_, nullptr);
+        defunct_ = std::exchange(other.defunct_, true);
+        guard_ = std::move(other.guard_);
+        req_builder_ = slk::Builder(std::move(other.req_builder_, GenBuilderCallback(self_, this)));
+        res_load_ = std::move(other.res_load_);
+      }
+      return *this;
+    }
 
     StreamHandler(const StreamHandler &) = delete;
     StreamHandler &operator=(const StreamHandler &) = delete;
@@ -70,10 +80,18 @@ class Client {
       while (true) {
         auto ret = slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
         if (ret.status == slk::StreamStatus::INVALID) {
+          // Logically invalid state, connection is still up, defunct stream and release
+          defunct_ = true;
+          guard_.unlock();
           throw GenericRpcFailedException();
-        } else if (ret.status == slk::StreamStatus::PARTIAL) {
+        }
+        if (ret.status == slk::StreamStatus::PARTIAL) {
           if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
                                     /* exactly_len = */ false)) {
+            // Failed connection, abort and let somebody retry in the future
+            defunct_ = true;
+            self_->Abort();
+            guard_.unlock();
             throw GenericRpcFailedException();
           }
         } else {
@@ -103,7 +121,9 @@ class Client {
       // Check the response ID.
       if (res_id != res_type.id && res_id != utils::TypeId::UNKNOWN) {
         spdlog::error("Message response was of unexpected type");
-        self_->client_ = std::nullopt;
+        // Logically invalid state, connection is still up, defunct stream and release
+        defunct_ = true;
+        guard_.unlock();
         throw GenericRpcFailedException();
       }
 
@@ -112,8 +132,23 @@ class Client {
       return res_load_(&res_reader);
     }
 
+    bool IsDefunct() const { return defunct_; }
+
    private:
+    static auto GenBuilderCallback(Client *client, StreamHandler *self) {
+      return [client, self](const uint8_t *data, size_t size, bool have_more) {
+        if (self->defunct_) throw GenericRpcFailedException();
+        if (!client->client_->Write(data, size, have_more)) {
+          self->defunct_ = true;
+          client->Abort();
+          self->guard_.unlock();
+          throw GenericRpcFailedException();
+        }
+      };
+    }
+
     Client *self_;
+    bool defunct_ = false;
     std::unique_lock<std::mutex> guard_;
     slk::Builder req_builder_;
     std::function<typename TRequestResponse::Response(slk::Reader *)> res_load_;
@@ -179,7 +214,7 @@ class Client {
     TRequestResponse::Request::Save(request, handler.GetBuilder());
 
     // Return the handler to the user.
-    return std::move(handler);
+    return handler;
   }
 
   /// Call a previously defined and registered RPC call. This function can

@@ -371,34 +371,17 @@ int main(int argc, char **argv) {
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   auth_glue(&auth_, auth_handler, auth_checker);
 
-  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(db_config));
-
-  memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
+  memgraph::dbms::DbmsHandler dbms_handler(db_config
 #ifdef MG_ENTERPRISE
                                            ,
                                            &auth_, FLAGS_data_recovery_on_startup, FLAGS_storage_delete_on_drop
 #endif
   );
   auto db_acc = dbms_handler.Get();
-  memgraph::query::InterpreterContext interpreter_context_(interp_config, &dbms_handler, &repl_state,
-                                                           auth_handler.get(), auth_checker.get());
-  MG_ASSERT(db_acc, "Failed to access the main database");
 
-  // TODO: Move it somewhere better
-  // Startup replication state (if recovered at startup)
-  MG_ASSERT(std::visit(memgraph::utils::Overloaded{[](memgraph::replication::RoleMainData const &) { return true; },
-                                                   [&](memgraph::replication::RoleReplicaData const &data) {
-                                                     // Register handlers
-                                                     memgraph::dbms::InMemoryReplicationHandlers::Register(
-                                                         &dbms_handler, *data.server);
-                                                     if (!data.server->Start()) {
-                                                       spdlog::error("Unable to start the replication server.");
-                                                       return false;
-                                                     }
-                                                     return true;
-                                                   }},
-                       repl_state.ReplicationData()),
-            "Replica recovery failure!");
+  memgraph::query::InterpreterContext interpreter_context_(
+      interp_config, &dbms_handler, &dbms_handler.ReplicationState(), auth_handler.get(), auth_checker.get());
+  MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
                                                                   FLAGS_data_directory);

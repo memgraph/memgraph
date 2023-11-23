@@ -11,19 +11,22 @@
 
 #pragma once
 
-#include <atomic>
-#include <cstdint>
-#include <variant>
-#include <vector>
-
 #include "kvstore/kvstore.hpp"
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
 #include "replication/mode.hpp"
+#include "replication/replication_client.hpp"
 #include "replication/role.hpp"
 #include "replication_server.hpp"
 #include "status.hpp"
 #include "utils/result.hpp"
+#include "utils/synchronized.hpp"
+
+#include <atomic>
+#include <cstdint>
+#include <list>
+#include <variant>
+#include <vector>
 
 namespace memgraph::replication {
 
@@ -32,8 +35,17 @@ enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
 struct RoleMainData {
+  RoleMainData() = default;
+  explicit RoleMainData(ReplicationEpoch e) : epoch_(std::move(e)) {}
+  ~RoleMainData() = default;
+
+  RoleMainData(RoleMainData const &) = delete;
+  RoleMainData &operator=(RoleMainData const &) = delete;
+  RoleMainData(RoleMainData &&) = default;
+  RoleMainData &operator=(RoleMainData &&) = default;
+
   ReplicationEpoch epoch_;
-  std::vector<ReplicationClientConfig> registered_replicas_;
+  std::list<ReplicationClient> registered_replicas_{};
 };
 
 struct RoleReplicaData {
@@ -41,8 +53,10 @@ struct RoleReplicaData {
   std::unique_ptr<ReplicationServer> server;
 };
 
+// Global (instance) level object
 struct ReplicationState {
   explicit ReplicationState(std::optional<std::filesystem::path> durability_dir);
+  ~ReplicationState() = default;
 
   ReplicationState(ReplicationState const &) = delete;
   ReplicationState(ReplicationState &&) = delete;
@@ -74,7 +88,7 @@ struct ReplicationState {
   // TODO: locked access
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
-  auto RegisterReplica(const ReplicationClientConfig &config) -> RegisterReplicaError;
+  utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain();
 
