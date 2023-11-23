@@ -1,4 +1,4 @@
-name: Package Specific
+name: Package memgraph
 
 # TODO(gitbuda): Cleanup docker container if GHA job was canceled.
 
@@ -10,16 +10,17 @@ on:
         required: false
       build_type:
         type: choice
-        description: "Memgraph Build type. Default value is Release."
+        description: "Memgraph Build type. Default value is Release"
         default: 'Release'
         options:
           - Release
           - RelWithDebInfo
       target_os:
         type: choice
-        description: "Target OS for which memgraph will be packaged. Default is Ubuntu 22.04"
+        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. Default is Ubuntu 22.04"
         default: 'ubuntu-22_04'
         options:
+          - all
           - amzn-2
           - centos-7
           - centos-9
@@ -36,7 +37,7 @@ on:
 
 jobs:
   amzn-2:
-    if: ${{ github.event.inputs.target_os == 'amzn-2' }}
+    if: ${{ github.event.inputs.target_os == 'amzn-2' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -54,7 +55,7 @@ jobs:
           path: build/output/amzn-2/memgraph*.rpm
 
   centos-7:
-    if: ${{ github.event.inputs.target_os == 'centos-7' }}
+    if: ${{ github.event.inputs.target_os == 'centos-7' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -72,7 +73,7 @@ jobs:
           path: build/output/centos-7/memgraph*.rpm
 
   centos-9:
-    if: ${{ github.event.inputs.target_os == 'centos-9' }}
+    if: ${{ github.event.inputs.target_os == 'centos-9' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -90,7 +91,7 @@ jobs:
           path: build/output/centos-9/memgraph*.rpm
 
   debian-10:
-    if: ${{ github.event.inputs.target_os == 'debian-10' }}
+    if: ${{ github.event.inputs.target_os == 'debian-10' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -108,7 +109,7 @@ jobs:
           path: build/output/debian-10/memgraph*.deb
 
   debian-11:
-    if: ${{ github.event.inputs.target_os == 'debian-11' }}
+    if: ${{ github.event.inputs.target_os == 'debian-11' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -126,7 +127,7 @@ jobs:
           path: build/output/debian-11/memgraph*.deb
 
   debian-11-arm:
-    if: ${{ github.event.inputs.target_os == 'debian-11-arm' }}
+    if: ${{ github.event.inputs.target_os == 'debian-11-arm' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
     timeout-minutes: 120
     steps:
@@ -144,7 +145,7 @@ jobs:
           path: build/output/debian-11-arm/memgraph*.deb
 
   debian-11-platform:
-    if: ${{ github.event.inputs.target_os == 'debian-11-platform' }}
+    if: ${{ github.event.inputs.target_os == 'debian-11-platform' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -162,7 +163,7 @@ jobs:
           path: build/output/debian-11/memgraph*.deb
 
   docker:
-    if: ${{ github.event.inputs.target_os == 'docker' }}
+    if: ${{ github.event.inputs.target_os == 'docker' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -182,7 +183,7 @@ jobs:
           path: build/output/docker/memgraph*.tar.gz
 
   fedora-36:
-    if: ${{ github.event.inputs.target_os == 'fedora-36' }}
+    if: ${{ github.event.inputs.target_os == 'fedora-36' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -200,7 +201,7 @@ jobs:
           path: build/output/fedora-36/memgraph*.rpm
 
   ubuntu-18_04:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-18_04' }}
+    if: ${{ github.event.inputs.target_os == 'ubuntu-18_04' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -218,7 +219,7 @@ jobs:
           path: build/output/ubuntu-18.04/memgraph*.deb
 
   ubuntu-20_04:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-20_04' }}
+    if: ${{ github.event.inputs.target_os == 'ubuntu-20_04' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -236,7 +237,7 @@ jobs:
           path: build/output/ubuntu-20.04/memgraph*.deb
 
   ubuntu-22_04:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-22_04' }}
+    if: ${{ github.event.inputs.target_os == 'ubuntu-22_04' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -254,7 +255,7 @@ jobs:
           path: build/output/ubuntu-22.04/memgraph*.deb
 
   ubuntu-22_04-arm:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-22_04-arm' }}
+    if: ${{ github.event.inputs.target_os == 'ubuntu-22_04-arm' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
     timeout-minutes: 120
     steps:
