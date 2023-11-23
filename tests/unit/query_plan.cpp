@@ -854,7 +854,7 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
 }
 
 TYPED_TEST(TestPlanner, MatchFilterWhere) {
-  // Test MATCH (n)-[r]-(m) WHERE exists((n)-[]-()) and n!=m and 7!=8 RETURN n
+  // Test MATCH (n)-[r]-(m) WHERE exists((n)-[]-()) and n!=n and 7!=8 RETURN n
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
       WHERE(AND(EXISTS(PATTERN(NODE("n"), EDGE("edge2", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
