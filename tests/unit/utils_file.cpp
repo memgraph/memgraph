@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -132,7 +132,7 @@ class UtilsFileTest : public ::testing::Test {
  private:
   void Clear() {
     if (fs::exists(storage)) {
-      for (auto &file : fs::recursive_directory_iterator(storage)) {
+      for (const auto &file : fs::recursive_directory_iterator(storage)) {
         std::error_code error_code;  // For exception suppression.
         fs::permissions(file.path(), fs::perms::owner_all, fs::perm_options::add, error_code);
       }

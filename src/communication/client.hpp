@@ -132,7 +132,7 @@ class Client final {
  */
 class ClientInputStream final {
  public:
-  ClientInputStream(Client &client);
+  explicit ClientInputStream(Client &client);
 
   ClientInputStream(const ClientInputStream &) = delete;
   ClientInputStream(ClientInputStream &&) = delete;
@@ -156,7 +156,7 @@ class ClientInputStream final {
  */
 class ClientOutputStream final {
  public:
-  ClientOutputStream(Client &client);
+  explicit ClientOutputStream(Client &client);
 
   ClientOutputStream(const ClientOutputStream &) = delete;
   ClientOutputStream(ClientOutputStream &&) = delete;

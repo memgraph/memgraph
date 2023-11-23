@@ -171,10 +171,10 @@ class Consumer final : public RdKafka::EventCb {
 
   class ConsumerRebalanceCb : public RdKafka::RebalanceCb {
    public:
-    ConsumerRebalanceCb(std::string consumer_name);
+    explicit ConsumerRebalanceCb(std::string consumer_name);
 
     void rebalance_cb(RdKafka::KafkaConsumer *consumer, RdKafka::ErrorCode err,
-                      std::vector<RdKafka::TopicPartition *> &partitions) override final;
+                      std::vector<RdKafka::TopicPartition *> &partitions) final;
 
     void set_offset(int64_t offset);
 

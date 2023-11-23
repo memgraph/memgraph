@@ -64,7 +64,7 @@ class InterpreterTest : public ::testing::Test {
   const std::string testSuiteCsv = "interpreter_csv";
   std::filesystem::path data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
 
-  InterpreterTest() {}
+  InterpreterTest() = default;
 
   memgraph::storage::Config config{
       [&]() {
@@ -334,7 +334,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
   auto kNumUnreachableNodes = 1000;
   auto kNumUnreachableEdges = 100000;
   auto kResCoeff = 5;
-  const auto kReachable = "reachable";
+  const auto *const kReachable = "reachable";
   const auto kId = "id";
 
   if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
