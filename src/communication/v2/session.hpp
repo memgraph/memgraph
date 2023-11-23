@@ -76,7 +76,7 @@ using tcp = boost::asio::ip::tcp;
 class OutputStream final {
  public:
   explicit OutputStream(std::function<bool(const uint8_t *, size_t, bool)> write_function)
-      : write_function_(write_function) {}
+      : write_function_(std::move(write_function)) {}
 
   OutputStream(const OutputStream &) = delete;
   OutputStream(OutputStream &&) = delete;

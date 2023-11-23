@@ -127,7 +127,7 @@ class VertexAccessor final {
   bool for_deleted_{false};
 };
 
-static_assert(std::is_trivially_copyable<memgraph::storage::VertexAccessor>::value,
+static_assert(std::is_trivially_copyable_v<memgraph::storage::VertexAccessor>,
               "storage::VertexAccessor must be trivially copyable!");
 
 struct EdgesVertexAccessorResult {

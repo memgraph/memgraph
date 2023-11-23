@@ -55,7 +55,7 @@ class Client {
     StreamHandler(const StreamHandler &) = delete;
     StreamHandler &operator=(const StreamHandler &) = delete;
 
-    ~StreamHandler() {}
+    ~StreamHandler() = default;
 
     slk::Builder *GetBuilder() { return &req_builder_; }
 
