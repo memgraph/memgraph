@@ -15,4 +15,10 @@ namespace memgraph::dbms {
 
 constexpr static const char *kDefaultDB = "memgraph";  //!< Name of the default database
 
+#ifdef MG_EXPERIMENTAL_REPLICATION_MULTITENANCY
+constexpr bool allow_mt_repl = true;
+#else
+constexpr bool allow_mt_repl = false;
+#endif
+
 }  // namespace memgraph::dbms
