@@ -6,18 +6,18 @@ on:
   workflow_dispatch:
     inputs:
       memgraph_version:
-        description: "Memgraph version to upload as. Leave this field empty if you don't want to upload binaries to S3. Format: 'X.Y.Z'."
+        description: "Memgraph version to upload as. Leave this field empty if you don't want to upload binaries to S3. Format: 'X.Y.Z'"
         required: false
       build_type:
         type: choice
-        description: "Memgraph Build type. Default value is Release."
+        description: "Memgraph Build type. Default value is Release"
         default: 'Release'
         options:
           - Release
           - RelWithDebInfo
       target_os:
         type: choice
-        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. Default is Ubuntu 22.04."
+        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. Default is Ubuntu 22.04"
         default: 'ubuntu-22_04'
         options:
           - all
