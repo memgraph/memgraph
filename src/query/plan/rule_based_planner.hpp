@@ -80,7 +80,7 @@ namespace impl {
 // Iterates over `Filters` joining them in one expression via
 // `AndOperator` if symbols they use are bound.. All the joined filters are
 // removed from `Filters`.
-Expression *ExtractFilters(const std::unordered_set<Symbol> &, Filters &, AstStorage &);
+Expression *ExtractFilters(const std::unordered_set<Symbol> &, Filters &, AstStorage &, Filters &);
 
 /// Checks if the filters has all the bound symbols to be included in the current part of the query
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter);
@@ -725,8 +725,9 @@ class RuleBasedPlanner {
       // Join regular filters with lambda filter expression, so that they
       // are done inline together. Semantic analysis should guarantee that
       // lambda filtering uses bound symbols.
+      Filters all_filters;
       filter_lambda.expression = impl::BoolJoin<AndOperator>(
-          storage, impl::ExtractFilters(bound_symbols, filters, storage), edge->filter_lambda_.expression);
+          storage, impl::ExtractFilters(bound_symbols, filters, storage, all_filters), edge->filter_lambda_.expression);
       // At this point it's possible we have leftover filters for inline
       // filtering (they use the inner symbols. If they were not collected,
       // we have to remove them manually because no other filter-extraction
@@ -862,9 +863,9 @@ class RuleBasedPlanner {
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
                                               const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table) {
-    auto all_filters = filters;
+    Filters all_filters{};
     auto pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, bound_symbols);
-    auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
+    auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage, all_filters);
 
     if (filter_expr) {
       last_op =

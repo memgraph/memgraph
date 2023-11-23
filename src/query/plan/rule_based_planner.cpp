@@ -514,16 +514,20 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, cons
       [&bound_symbols](const auto &symbol) { return bound_symbols.find(symbol) != bound_symbols.end(); });
 }
 
-Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
+Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage,
+                           Filters &all_filters) {
   Expression *filter_expr = nullptr;
+  std::vector<FilterInfo> and_joinable_filters{};
   for (auto filters_it = filters.begin(); filters_it != filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
+      and_joinable_filters.emplace_back(filters_it);
       filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, filters_it->expression);
       filters_it = filters.erase(filters_it);
     } else {
       filters_it++;
     }
   }
+  all_filters.SetFilters(std::move(and_joinable_filters));
   return filter_expr;
 }
 
