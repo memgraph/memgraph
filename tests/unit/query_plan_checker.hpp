@@ -12,6 +12,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <climits>
+#include <utility>
 
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -23,7 +24,7 @@ namespace memgraph::query::plan {
 
 class BaseOpChecker {
  public:
-  virtual ~BaseOpChecker() {}
+  virtual ~BaseOpChecker() = default;
 
   virtual void CheckOp(LogicalOperator &, const SymbolTable &) = 0;
 };
@@ -187,7 +188,7 @@ using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
 
 class ExpectFilter : public OpChecker<Filter> {
  public:
-  ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {})
+  explicit ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {})
       : pattern_filters_(pattern_filters) {}
 
   void ExpectOp(Filter &filter, const SymbolTable &symbol_table) override {
@@ -222,7 +223,7 @@ class ExpectForeach : public OpChecker<Foreach> {
 
 class ExpectApply : public OpChecker<Apply> {
  public:
-  ExpectApply(const std::list<BaseOpChecker *> &subquery) : subquery_(subquery) {}
+  explicit ExpectApply(const std::list<BaseOpChecker *> &subquery) : subquery_(subquery) {}
 
   void ExpectOp(Apply &apply, const SymbolTable &symbol_table) override {
     PlanChecker check_subquery(subquery_, symbol_table);
@@ -287,7 +288,7 @@ class ExpectAggregate : public OpChecker<Aggregate> {
     auto aggr_it = aggregations_.begin();
     for (const auto &aggr_elem : op.aggregations_) {
       ASSERT_NE(aggr_it, aggregations_.end());
-      auto aggr = *aggr_it++;
+      auto *aggr = *aggr_it++;
       // TODO: Proper expression equality
       EXPECT_EQ(typeid(aggr_elem.value).hash_code(), typeid(aggr->expression1_).hash_code());
       EXPECT_EQ(typeid(aggr_elem.key).hash_code(), typeid(aggr->expression2_).hash_code());
@@ -472,9 +473,9 @@ class ExpectIndexedJoin : public OpChecker<IndexedJoin> {
 
 class ExpectCallProcedure : public OpChecker<CallProcedure> {
  public:
-  ExpectCallProcedure(const std::string &name, const std::vector<memgraph::query::Expression *> &args,
+  ExpectCallProcedure(std::string name, const std::vector<memgraph::query::Expression *> &args,
                       const std::vector<std::string> &fields, const std::vector<Symbol> &result_syms)
-      : name_(name), args_(args), fields_(fields), result_syms_(result_syms) {}
+      : name_(std::move(name)), args_(args), fields_(fields), result_syms_(result_syms) {}
 
   void ExpectOp(CallProcedure &op, const SymbolTable &symbol_table) override {
     EXPECT_EQ(op.procedure_name_, name_);
@@ -526,7 +527,7 @@ class FakeDbAccessor {
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
-    for (auto &index : label_property_index_) {
+    for (const auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return std::get<2>(index);
       }
@@ -539,7 +540,7 @@ class FakeDbAccessor {
   }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
-    for (auto &index : label_property_index_) {
+    for (const auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return true;
       }

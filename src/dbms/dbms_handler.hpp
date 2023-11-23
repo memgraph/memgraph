@@ -542,7 +542,7 @@ class DbmsHandler {
   DatabaseHandler db_handler_;                       //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
   bool delete_on_drop_;                              //!< Flag defining if dropping storage also deletes its directory
-  std::set<std::string> defunct_dbs_;                //!< Databases that are in an unknown state due to various failures
+  std::set<std::string, std::less<>> defunct_dbs_;   //!< Databases that are in an unknown state due to various failures
 #else
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
 #endif

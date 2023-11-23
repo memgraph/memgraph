@@ -42,11 +42,11 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
   std::string username;
   std::string password;
   if (data["scheme"].ValueString() == "basic") {
-    if (!data.count("principal")) {  // Special case principal = ""
+    if (!data.contains("principal")) {  // Special case principal = ""
       spdlog::warn("The client didn't supply the principal field! Trying with \"\"...");
       data["principal"] = "";
     }
-    if (!data.count("credentials")) {  // Special case credentials = ""
+    if (!data.contains("credentials")) {  // Special case credentials = ""
       spdlog::warn("The client didn't supply the credentials field! Trying with \"\"...");
       data["credentials"] = "";
     }
@@ -118,7 +118,7 @@ std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
   }
 
   auto &data = metadata.ValueMap();
-  if (!data.count("user_agent")) {
+  if (!data.contains("user_agent")) {
     spdlog::warn("The client didn't supply the user agent!");
     return std::nullopt;
   }
@@ -142,7 +142,7 @@ std::optional<Value> GetInitDataV5(TSession &session, const Marker marker) {
   }
 
   const auto &data = metadata.ValueMap();
-  if (!data.count("user_agent")) {
+  if (!data.contains("user_agent")) {
     spdlog::warn("The client didn't supply the user agent!");
     return std::nullopt;
   }

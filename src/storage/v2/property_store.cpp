@@ -179,7 +179,7 @@ class Writer {
  public:
   class MetadataHandle {
    public:
-    MetadataHandle() {}
+    MetadataHandle() = default;
 
     explicit MetadataHandle(uint8_t *value) : value_(value) {}
 
@@ -195,7 +195,7 @@ class Writer {
     uint8_t *value_{nullptr};
   };
 
-  Writer() {}
+  Writer() = default;
 
   Writer(uint8_t *data, uint64_t size) : data_(data), size_(size) {}
 
@@ -1311,7 +1311,7 @@ std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore:
   id_old_new_change.reserve(properties.size() + old_properties.size());
   for (const auto &[prop_id, new_value] : properties) {
     if (!old_properties.contains(prop_id)) {
-      id_old_new_change.emplace_back(std::make_tuple(prop_id, PropertyValue(), new_value));
+      id_old_new_change.emplace_back(prop_id, PropertyValue(), new_value);
     }
   }
 
@@ -1319,7 +1319,7 @@ std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore:
     auto [it, inserted] = properties.emplace(old_key, old_value);
     if (!inserted) {
       auto &new_value = it->second;
-      id_old_new_change.emplace_back(std::make_tuple(it->first, old_value, new_value));
+      id_old_new_change.emplace_back(it->first, old_value, new_value);
     }
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@ namespace memgraph::storage::durability {
 /// (e.g. file and network).
 class BaseEncoder {
  protected:
-  ~BaseEncoder() {}
+  ~BaseEncoder() = default;
 
  public:
   virtual void WriteMarker(Marker marker) = 0;
@@ -84,7 +84,7 @@ class Encoder final : public BaseEncoder {
 /// (e.g. file and network).
 class BaseDecoder {
  protected:
-  ~BaseDecoder() {}
+  ~BaseDecoder() = default;
 
  public:
   virtual std::optional<Marker> ReadMarker() = 0;

@@ -111,7 +111,6 @@ void Schema::ProcessPropertiesRel(mgp::Record &record, const std::string_view &t
 void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result,
                                 mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
-  ;
   const auto record_factory = mgp::RecordFactory(result);
   try {
     const mgp::Graph graph = mgp::Graph(memgraph_graph);
@@ -570,7 +569,6 @@ void Schema::Assert(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard{memory};
-    ;
 
     AddProcedure(Schema::NodeTypeProperties, Schema::kProcedureNodeType, mgp::ProcedureType::Read, {},
                  {mgp::Return(Schema::kReturnNodeType, mgp::Type::String),

@@ -288,7 +288,7 @@ class Database {
   virtual std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>>
   BuildGraph(memgraph::query::DbAccessor *dba, const std::vector<int> &vertex_locations,
              const std::vector<std::tuple<int, int, std::string>> &edges) = 0;
-  virtual ~Database() {}
+  virtual ~Database() = default;
 
   void BfsTest(Database *db, int lower_bound, int upper_bound, memgraph::query::EdgeAtom::Direction direction,
                std::vector<std::string> edge_types, bool known_sink, FilterLambdaType filter_lambda_type) {

@@ -32,7 +32,7 @@ class Encoder : private BaseEncoder<Buffer> {
   using BaseEncoder<Buffer>::buffer_;
 
  public:
-  Encoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {}
+  explicit Encoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {}
 
   using BaseEncoder<Buffer>::UpdateVersion;
 

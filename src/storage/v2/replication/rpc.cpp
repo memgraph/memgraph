@@ -14,9 +14,7 @@
 
 namespace memgraph {
 
-namespace storage {
-
-namespace replication {
+namespace storage::replication {
 
 void AppendDeltasReq::Save(const AppendDeltasReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -59,8 +57,7 @@ void TimestampRes::Save(const TimestampRes &self, memgraph::slk::Builder *builde
 }
 void TimestampRes::Load(TimestampRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 
-}  // namespace replication
-}  // namespace storage
+}  // namespace storage::replication
 
 constexpr utils::TypeInfo storage::replication::AppendDeltasReq::kType{utils::TypeId::REP_APPEND_DELTAS_REQ,
                                                                        "AppendDeltasReq", nullptr};
