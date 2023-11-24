@@ -39,6 +39,8 @@ class EdgeTypeIndex {
 
   virtual std::vector<EdgeTypeId> ListIndices() const { return std::vector<EdgeTypeId>{}; }
 
+  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const { return 0; }
+
   virtual uint64_t ApproximateVertexCount(EdgeTypeId label) const { return 0; }
 };
 

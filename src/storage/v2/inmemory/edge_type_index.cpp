@@ -15,51 +15,37 @@
 
 namespace memgraph::storage {
 
-// void InMemoryEdgeTypeIndex::UpdateOnAddLabel(EdgeTypeId added_label, Edge *vertex_after_update, const Transaction
-// &tx) {
-//   auto it = index_.find(added_label);
-//   if (it == index_.end()) return;
-//   auto acc = it->second.access();
-//   acc.insert(Entry{vertex_after_update, tx.start_timestamp});
-// }
+bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices) {
+  auto [it, emplaced] = index_.try_emplace(edge_type);
+  if (!emplaced) {
+    return false;
+  }
+  // TODO make this more readable.
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  try {
+    auto edge_acc = it->second.access();
+    for (auto &from_vertex : vertices) {
+      if (from_vertex.deleted) {
+        continue;
+      }
+      // Verify if it is enough to loop over only the outgoing edges.
+      for (const auto &edge : from_vertex.out_edges) {
+        const auto type = std::get<0>(edge);
+        if (type == edge_type) {
+          auto *to_vertex = std::get<1>(edge);
+          if (to_vertex->deleted) {
+            continue;
+          }
+          edge_acc.insert({&from_vertex, to_vertex, 0});
+        }
+      }
+    }
+  } catch (const utils::OutOfMemoryException &) {
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+    index_.erase(it);
+    throw;
+  }
 
-// TODO(gvolfing) - make this work
-bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId label, utils::SkipList<Edge>::Accessor vertices) {
-  //   const auto create_index_seq = [this](EdgeTypeId label, utils::SkipList<Vertex>::Accessor &vertices,
-  //                                        std::map<EdgeTypeId, utils::SkipList<Entry>>::iterator it) {
-  //     using IndexAccessor = decltype(it->second.access());
-
-  //     CreateIndexOnSingleThread(vertices, it, index_, label,
-  //                               [](Vertex &vertex, EdgeTypeId label, IndexAccessor &index_accessor) {
-  //                                 TryInsertLabelIndex(vertex, label, index_accessor);
-  //                               });
-
-  //     return true;
-  //   };
-
-  //   const auto create_index_par = [this](EdgeTypeId label, utils::SkipList<Vertex>::Accessor &vertices,
-  //                                        std::map<EdgeTypeId, utils::SkipList<Entry>>::iterator label_it,
-  //                                        const ParallelizedIndexCreationInfo &parallel_exec_info) {
-  //     using IndexAccessor = decltype(label_it->second.access());
-
-  //     CreateIndexOnMultipleThreads(vertices, label_it, index_, label, parallel_exec_info,
-  //                                  [](Vertex &vertex, EdgeTypeId label, IndexAccessor &index_accessor) {
-  //                                    TryInsertLabelIndex(vertex, label, index_accessor);
-  //                                  });
-
-  //     return true;
-  //   };
-
-  //   auto [it, emplaced] = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label),
-  //   std::forward_as_tuple()); if (!emplaced) {
-  //     // Index already exists.
-  //     return false;
-  //   }
-
-  //   if (parallel_exec_info) {
-  //     return create_index_par(label, vertices, it, *parallel_exec_info);
-  //   }
-  //   return create_index_seq(label, vertices, it);
   return true;
 }
 
@@ -100,6 +86,13 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
   }
 }
 
+uint64_t InMemoryEdgeTypeIndex::ApproximateEdgeCount(EdgeTypeId edge_type) const {
+  if (auto it = index_.find(edge_type); it != index_.end()) {
+    return it->second.size();
+  }
+  return 0;
+}
+
 InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId label, View view,
                                           Storage *storage, Transaction *transaction)
     : index_accessor_(std::move(index_accessor)),
@@ -107,19 +100,6 @@ InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index
       view_(view),
       storage_(storage),
       transaction_(transaction) {}
-
-// EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
-//              Transaction *transaction, bool for_deleted = false)
-
-//   struct EdgeRef {
-//   explicit EdgeRef(Gid gid) : gid(gid) {}
-//   explicit EdgeRef(Edge *ptr) : ptr(ptr) {}
-
-//   union {
-//     Gid gid;
-//     Edge *ptr;
-//   };
-// };
 
 InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
@@ -137,19 +117,6 @@ InMemoryEdgeTypeIndex::Iterable::Iterator &InMemoryEdgeTypeIndex::Iterable::Iter
 
 void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
   for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    // if (index_iterator_->edge == current_edge_) {
-    //   continue;
-    // }
-    // gvolfing - we need this part because of the view!
-    // Do we?
-    // auto accessor = EdgeAccessor{index_iterator_->edge, self_->storage_, self_->transaction_};
-    // auto res = accessor.HasLabel(self_->label_, self_->view_);
-    // if (!res.HasError() and res.GetValue()) {
-    //   current_edge_ = accessor.vertex_;
-    //   current_edge_accessor_ = accessor;
-    //   break;
-    // }
-
     auto *from_vertex = index_iterator_->from_vertex;
     auto *to_vertex = index_iterator_->to_vertex;
 
@@ -173,7 +140,7 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
       MG_ASSERT(false, "gvolfing was lazy and it crashed your instance.");
     }
 
-    // is this correct logic?
+    // verify if this is the correct logic
     if (edge_ref == current_edge_) {
       continue;
     }
@@ -186,6 +153,7 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
 }
 
 void InMemoryEdgeTypeIndex::RunGC() {
+  // Enable this once we get to the GC.
   //   for (auto &index_entry : index_) {
   //     index_entry.second.run_gc();
   //   }
@@ -198,6 +166,7 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId label, V
   return {it->second.access(), label, view, storage, transaction};
 }
 
+// TODO Implement indexstat metadata handling functions.
 // void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
 //   auto locked_stats = stats_.Lock();
 //   locked_stats->insert_or_assign(label, stats);

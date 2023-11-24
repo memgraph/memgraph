@@ -612,6 +612,10 @@ class DbAccessor final {
     return accessor_->CreateIndex(label, property);
   }
 
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::EdgeTypeId edge_type) {
+    return accessor_->CreateIndex(edge_type);
+  }
+
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label) {
     return accessor_->DropIndex(label);
   }
@@ -619,6 +623,10 @@ class DbAccessor final {
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label,
                                                                            storage::PropertyId property) {
     return accessor_->DropIndex(label, property);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type) {
+    return accessor_->DropIndex(edge_type);
   }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(

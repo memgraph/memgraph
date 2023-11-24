@@ -12,6 +12,7 @@
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
+#include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 
@@ -43,6 +44,8 @@ Indices::Indices(const Config &config, StorageMode storage_mode) {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>();
       label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>();
+      // TODO stub for disk storage.
+      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>();
     } else {
       label_index_ = std::make_unique<DiskLabelIndex>(config);
       label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(config);

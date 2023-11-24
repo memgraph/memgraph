@@ -127,6 +127,7 @@ symbolicName : UnescapedSymbolicName
 
 query : cypherQuery
       | indexQuery
+      | edgeIndexQuery
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -490,3 +491,9 @@ dropDatabase : DROP DATABASE databaseName ;
 showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
+
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ;
+
+dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ;
+
+edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;

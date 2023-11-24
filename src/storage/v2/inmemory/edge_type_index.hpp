@@ -37,9 +37,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Vertex *from_vertex;
     Vertex *to_vertex;
 
-    // EdgeTypeId edge_type_id;
-    // Edge *edge;
-
     uint64_t timestamp;
 
     bool operator<(const Entry &rhs) {
@@ -47,8 +44,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
              std::make_tuple(rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
     }
     bool operator==(const Entry &rhs) const {
-      return std::make_tuple(from_vertex, to_vertex, timestamp) ==
-             std::make_tuple(rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
+      return from_vertex == rhs.from_vertex && to_vertex == rhs.to_vertex && timestamp == rhs.timestamp;
     }
   };
 
@@ -62,7 +58,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   // void UpdateOnRemoveLabel(EdgeTypeId removed_label, const Transaction &tx) override {}
 
   /// @throw std::bad_alloc
-  bool CreateIndex(EdgeTypeId label, utils::SkipList<Edge>::Accessor vertices);
+  bool CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices);
 
   /// Returns false if there was no index to drop
   bool DropIndex(EdgeTypeId label) override;
@@ -72,6 +68,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   std::vector<EdgeTypeId> ListIndices() const override;
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
+
+  uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override;
 
   class Iterable {
    public:
@@ -121,6 +119,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   // bool DeleteIndexStats(const storage::LabelId &label);
 
  private:
+  // std::map<LabelId, utils::SkipList<Entry>> index_;
   std::map<EdgeTypeId, utils::SkipList<Entry>> index_;
   // utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };
