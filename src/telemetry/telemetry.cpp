@@ -12,6 +12,7 @@
 #include "telemetry/telemetry.hpp"
 
 #include <filesystem>
+#include <utility>
 
 #include <fmt/format.h>
 
@@ -36,8 +37,8 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
                      bool ssl, std::filesystem::path root_directory, std::chrono::duration<int64_t> refresh_interval,
                      const uint64_t send_every_n)
     : url_(std::move(url)),
-      uuid_(uuid),
-      machine_id_(machine_id),
+      uuid_(std::move(uuid)),
+      machine_id_(std::move(machine_id)),
       ssl_(ssl),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {

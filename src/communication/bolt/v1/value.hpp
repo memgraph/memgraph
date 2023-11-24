@@ -91,7 +91,7 @@ struct UnboundedEdge {
  * The decoder writes data into this structure.
  */
 struct Path {
-  Path() {}
+  Path() = default;
 
   Path(const std::vector<Vertex> &vertices, const std::vector<Edge> &edges) {
     // Helper function. Looks for the given element in the collection. If found,

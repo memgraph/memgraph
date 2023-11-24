@@ -18,10 +18,13 @@
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/replication/recovery.hpp"
+#include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
 #include "replication/config.hpp"
+#include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/rpc.hpp"
@@ -44,7 +47,10 @@ namespace memgraph::storage {
 
 class InMemoryStorage final : public Storage {
   friend class memgraph::dbms::InMemoryReplicationHandlers;
-  friend class InMemoryReplicationClient;
+  friend class ReplicationStorageClient;
+  friend std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit,
+                                                    utils::FileRetainer::FileLocker *file_locker,
+                                                    const InMemoryStorage *storage);
 
  public:
   enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };
@@ -332,10 +338,6 @@ class InMemoryStorage final : public Storage {
   using Storage::CreateTransaction;
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) override;
 
-  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
-                               const memgraph::replication::ReplicationEpoch *current_epoch)
-      -> std::unique_ptr<ReplicationClient> override;
-
   void SetStorageMode(StorageMode storage_mode);
 
  private:
@@ -418,6 +420,7 @@ class InMemoryStorage final : public Storage {
   std::optional<CommitLog> commit_log_;
 
   utils::Scheduler gc_runner_;
+  utils::Scheduler gc_jemalloc_runner_;
   std::mutex gc_lock_;
 
   using BondPmrLd = Bond<utils::pmr::list<Delta>>;

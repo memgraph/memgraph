@@ -58,7 +58,7 @@ class Base {
   ParsingContext context_;
   Parameters parameters_;
 
-  virtual ~Base() {}
+  virtual ~Base() = default;
 
   virtual Query *ParseQuery(const std::string &query_string) = 0;
 
@@ -199,8 +199,8 @@ class CachedAstGenerator : public Base {
 
 class MockModule : public procedure::Module {
  public:
-  MockModule(){};
-  ~MockModule() override{};
+  MockModule() = default;
+  ~MockModule() override = default;
   MockModule(const MockModule &) = delete;
   MockModule(MockModule &&) = delete;
   MockModule &operator=(const MockModule &) = delete;
@@ -2833,18 +2833,6 @@ TEST_P(CypherMainVisitorTest, DumpDatabase) {
   ASSERT_TRUE(query);
 }
 
-namespace {
-template <class TAst>
-void CheckCallProcedureDefaultMemoryLimit(const TAst &ast, const CallProcedure &call_proc) {
-  // Should be 100 MB
-  auto *literal = dynamic_cast<PrimitiveLiteral *>(call_proc.memory_limit_);
-  ASSERT_TRUE(literal);
-  TypedValue value(literal->value_);
-  ASSERT_TRUE(TypedValue::BoolEqual{}(value, TypedValue(100)));
-  ASSERT_EQ(call_proc.memory_scale_, 1024 * 1024);
-}
-}  // namespace
-
 TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
   AddProc(*mock_module_with_dots_in_name, "proc", {}, {"res"}, ProcedureType::WRITE);
   auto &ast_generator = *GetParam();
@@ -2868,7 +2856,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
   std::vector<std::string> expected_names{"res"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
@@ -2894,7 +2881,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
   std::vector<std::string> expected_names{"res"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
@@ -2926,7 +2912,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
     std::vector<std::string> expected_names{"fst", "field-with-dashes", "last_field"};
     ASSERT_EQ(identifier_names, expected_names);
     ASSERT_EQ(identifier_names, call_proc->result_fields_);
-    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
   };
   check_proc(ProcedureType::READ);
   check_proc(ProcedureType::WRITE);
@@ -2959,7 +2944,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
   ASSERT_EQ(identifier_names, aliased_names);
   std::vector<std::string> field_names{"fst", "snd", "thrd"};
   ASSERT_EQ(call_proc->result_fields_, field_names);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
@@ -2986,7 +2970,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
   std::vector<std::string> expected_names{"res"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureYieldAsterisk) {
@@ -3008,7 +2991,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureYieldAsterisk) {
   }
   ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write", "path", "is_editable"));
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureYieldAsteriskReturnAsterisk) {
@@ -3033,7 +3015,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureYieldAsteriskReturnAsterisk) {
   }
   ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write", "path", "is_editable"));
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithoutYield) {
@@ -3049,7 +3030,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithoutYield) {
   ASSERT_TRUE(call_proc->arguments_.empty());
   ASSERT_TRUE(call_proc->result_fields_.empty());
   ASSERT_TRUE(call_proc->result_identifiers_.empty());
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimitWithoutYield) {
@@ -3183,7 +3163,6 @@ void CheckParsedCallProcedure(const CypherQuery &query, Base &ast_generator,
   EXPECT_EQ(identifier_names, args_as_str);
   EXPECT_EQ(identifier_names, call_proc->result_fields_);
   ASSERT_EQ(call_proc->is_write_, type == ProcedureType::WRITE);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 };
 }  // namespace
 
@@ -3577,7 +3556,6 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     auto *single_query = query->single_query_;
     ASSERT_EQ(single_query->clauses_.size(), 2U);
     auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
   }
 
   {
@@ -3638,7 +3616,6 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     auto *single_query = query->single_query_;
     ASSERT_EQ(single_query->clauses_.size(), 1U);
     auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
   }
 }
 

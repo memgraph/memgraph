@@ -22,14 +22,8 @@
 
 namespace memgraph::dbms {
 
-#ifdef MG_EXPERIMENTAL_REPLICATION_MULTITENANCY
-constexpr bool allow_mt_repl = true;
-#else
-constexpr bool allow_mt_repl = false;
-#endif
-
-inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
-    storage::Config config, const ::memgraph::replication::ReplicationState &repl_state) {
+inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(storage::Config config,
+                                                               ::memgraph::replication::ReplicationState &repl_state) {
   const auto wal_mode = config.durability.snapshot_wal_mode;
   const auto name = config.name;
   auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config));

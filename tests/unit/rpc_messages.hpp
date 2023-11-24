@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 #include "utils/typeinfo.hpp"
@@ -18,7 +20,7 @@
 struct SumReq {
   static const memgraph::utils::TypeInfo kType;
 
-  SumReq() {}  // Needed for serialization.
+  SumReq() = default;  // Needed for serialization.
   SumReq(int x, int y) : x(x), y(y) {}
 
   static void Load(SumReq *obj, memgraph::slk::Reader *reader);
@@ -33,8 +35,8 @@ const memgraph::utils::TypeInfo SumReq::kType{memgraph::utils::TypeId::UNKNOWN, 
 struct SumRes {
   static const memgraph::utils::TypeInfo kType;
 
-  SumRes() {}  // Needed for serialization.
-  SumRes(int sum) : sum(sum) {}
+  SumRes() = default;  // Needed for serialization.
+  explicit SumRes(int sum) : sum(sum) {}
 
   static void Load(SumRes *obj, memgraph::slk::Reader *reader);
   static void Save(const SumRes &obj, memgraph::slk::Builder *builder);
@@ -57,8 +59,8 @@ using Sum = memgraph::rpc::RequestResponse<SumReq, SumRes>;
 struct EchoMessage {
   static const memgraph::utils::TypeInfo kType;
 
-  EchoMessage() {}  // Needed for serialization.
-  EchoMessage(const std::string &data) : data(data) {}
+  EchoMessage() = default;  // Needed for serialization.
+  explicit EchoMessage(std::string data) : data(std::move(data)) {}
 
   static void Load(EchoMessage *obj, memgraph::slk::Reader *reader);
   static void Save(const EchoMessage &obj, memgraph::slk::Builder *builder);
