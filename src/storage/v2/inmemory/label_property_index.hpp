@@ -81,8 +81,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
-             const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::Accessor vertices_accessor,
+             LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
              Transaction *transaction);
 
@@ -110,6 +110,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Iterator end();
 
    private:
+    utils::SkipList<Vertex>::Accessor pin_accessor_;
     utils::SkipList<Entry>::Accessor index_accessor_;
     LabelId label_;
     PropertyId property_;

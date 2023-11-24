@@ -51,6 +51,8 @@ class InMemoryStorage final : public Storage {
   friend std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit,
                                                     utils::FileRetainer::FileLocker *file_locker,
                                                     const InMemoryStorage *storage);
+  friend class InMemoryLabelIndex;
+  friend class InMemoryLabelPropertyIndex;
 
  public:
   enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };

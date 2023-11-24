@@ -13,6 +13,7 @@
 #include <span>
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 namespace memgraph::storage {
 
@@ -109,9 +110,11 @@ void InMemoryLabelIndex::AbortEntries(LabelId labelId, std::span<Vertex *const> 
   }
 }
 
-InMemoryLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
+InMemoryLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
+                                       utils::SkipList<Vertex>::Accessor vertices_accessor, LabelId label, View view,
                                        Storage *storage, Transaction *transaction)
-    : index_accessor_(std::move(index_accessor)),
+    : pin_accessor_(std::move(vertices_accessor)),
+      index_accessor_(std::move(index_accessor)),
       label_(label),
       view_(view),
       storage_(storage),
@@ -160,9 +163,10 @@ void InMemoryLabelIndex::RunGC() {
 
 InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(LabelId label, View view, Storage *storage,
                                                           Transaction *transaction) {
+  auto vertices_acc = static_cast<InMemoryStorage *>(storage)->vertices_.access();
   const auto it = index_.find(label);
   MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-  return {it->second.access(), label, view, storage, transaction};
+  return {it->second.access(), std::move(vertices_acc), label, view, storage, transaction};
 }
 
 void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
@@ -200,4 +204,12 @@ bool InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
   return false;
 }
 
+std::vector<LabelId> InMemoryLabelIndex::Analysis() {
+  std::vector<LabelId> res;
+  res.reserve(index_.size());
+  for (const auto &[label, _] : index_) {
+    res.emplace_back(label);
+  }
+  return res;
+}
 }  // namespace memgraph::storage

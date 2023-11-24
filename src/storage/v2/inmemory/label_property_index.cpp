@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 namespace memgraph::storage {
 
@@ -221,12 +222,14 @@ const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyV
 const PropertyValue kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 
-InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label,
+InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
+                                               utils::SkipList<Vertex>::Accessor vertices_accessor, LabelId label,
                                                PropertyId property,
                                                const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                                Storage *storage, Transaction *transaction)
-    : index_accessor_(std::move(index_accessor)),
+    : pin_accessor_(std::move(vertices_accessor)),
+      index_accessor_(std::move(index_accessor)),
       label_(label),
       property_(property),
       lower_bound_(lower_bound),
@@ -429,9 +432,11 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
+  auto vertices_acc = static_cast<InMemoryStorage *>(storage)->vertices_.access();
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  return {it->second.access(), label, property, lower_bound, upper_bound, view, storage, transaction};
+  return {it->second.access(), std::move(vertices_acc), label, property, lower_bound, upper_bound, view, storage,
+          transaction};
 }
 
 void InMemoryLabelPropertyIndex::AbortEntries(PropertyId property,

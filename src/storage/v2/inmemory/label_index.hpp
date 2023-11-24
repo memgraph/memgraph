@@ -61,19 +61,12 @@ class InMemoryLabelIndex : public storage::LabelIndex {
   /// Surgical removal of entries that was inserted this transaction
   void AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp);
 
-  std::vector<LabelId> Analysis() {
-    std::vector<LabelId> res;
-    res.reserve(index_.size());
-    for (const auto &[label, _] : index_) {
-      res.emplace_back(label);
-    }
-    return res;
-  }
+  std::vector<LabelId> Analysis();
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Storage *storage,
-             Transaction *transaction);
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::Accessor vertices_accessor,
+             LabelId label, View view, Storage *storage, Transaction *transaction);
 
     class Iterator {
      public:
@@ -99,7 +92,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
-    // utils::SkipList<Vertex *>::Accessor pin_accessor_; TODO
+    utils::SkipList<Vertex>::Accessor pin_accessor_;
     utils::SkipList<Entry>::Accessor index_accessor_;
     LabelId label_;
     View view_;
