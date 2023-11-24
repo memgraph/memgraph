@@ -1733,7 +1733,10 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::View::OLD);
+                                  storage::View::OLD, nullptr /* frame_change_collector */,
+                                  true /* treat_null_as_zero */);
+    auto *memory = evaluator.GetMemoryResource();
+
     auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
     };
@@ -1741,10 +1744,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_pair = [this, &evaluator, &frame, &create_state, &context](
+    auto expand_pair = [this, &evaluator, &frame, &create_state, &context, &memory](
                            const EdgeAccessor &edge, const VertexAccessor &vertex, const TypedValue &total_weight,
                            int64_t depth) {
-      auto *memory = evaluator.GetMemoryResource();
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(vertex, storage::View::OLD,
@@ -1753,6 +1755,22 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         return;
       }
 #endif
+
+      frame[self_.weight_lambda_->inner_edge_symbol] = edge;
+      frame[self_.weight_lambda_->inner_node_symbol] = vertex;
+      TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
+      CheckWeightType(current_weight, memory);
+
+      TypedValue next_weight = std::invoke([&] {
+        if (total_weight.IsNull()) {
+          return current_weight;
+        }
+
+        ValidateWeightTypes(current_weight, total_weight);
+
+        return TypedValue(current_weight, memory) + total_weight;
+      });
+
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
         frame[self_.filter_lambda_.inner_node_symbol] = vertex;
@@ -1764,30 +1782,13 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           accumulated_path.Expand(vertex);
         }
         if (self_.filter_lambda_.accumulated_weight_symbol) {
-          frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = total_weight;
+          frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = next_weight;
         }
 
         if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
       }
 
-      frame[self_.weight_lambda_->inner_edge_symbol] = edge;
-      frame[self_.weight_lambda_->inner_node_symbol] = vertex;
-
-      TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
-
-      CheckWeightType(current_weight, memory);
-
       auto next_state = create_state(vertex, depth);
-
-      TypedValue next_weight = std::invoke([&] {
-        if (total_weight.IsNull()) {
-          return current_weight;
-        }
-
-        ValidateWeightTypes(current_weight, total_weight);
-
-        return TypedValue(current_weight, memory) + total_weight;
-      });
 
       auto found_it = total_cost_.find(next_state);
       if (found_it != total_cost_.end() && (found_it->second.IsNull() || (found_it->second <= next_weight).ValueBool()))
@@ -1843,12 +1844,19 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
               "Maximum depth in weighted shortest path expansion must be at "
               "least 1.");
 
+        frame[self_.weight_lambda_->inner_edge_symbol] = TypedValue();
+        frame[self_.weight_lambda_->inner_node_symbol] = vertex;
+        TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
+        if (!current_weight.IsNull()) {
+          CheckWeightType(current_weight, memory);
+        }
+
         // Clear existing data structures.
         previous_.clear();
         total_cost_.clear();
         yielded_vertices_.clear();
 
-        pq_.emplace(TypedValue(), 0, vertex, std::nullopt);
+        pq_.emplace(current_weight, 0, vertex, std::nullopt);
         // We are adding the starting vertex to the set of yielded vertices
         // because we don't want to yield paths that end with the starting
         // vertex.
@@ -1948,13 +1956,36 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   // Keeps track of vertices for which we yielded a path already.
   utils::pmr::unordered_set<VertexAccessor> yielded_vertices_;
 
+  TypedValue CalculateNextWeight(Frame &frame, EdgeAccessor edge, VertexAccessor vertex, TypedValue total_weight,
+                                 ExpressionEvaluator evaluator) {
+    auto *memory = evaluator.GetMemoryResource();
+    frame[self_.weight_lambda_->inner_edge_symbol] = edge;
+    frame[self_.weight_lambda_->inner_node_symbol] = vertex;
+    TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
+    CheckWeightType(current_weight, memory);
+
+    return std::invoke([&] {
+      if (total_weight.IsNull()) {
+        return current_weight;
+      }
+
+      ValidateWeightTypes(current_weight, total_weight);
+
+      return TypedValue(current_weight, memory) + total_weight;
+    });
+  }
+
   static void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
-    if (!((lhs.IsNumeric() && lhs.IsNumeric()) || (rhs.IsDuration() && rhs.IsDuration()))) {
-      throw QueryRuntimeException(utils::MessageWithLink(
-          "All weights should be of the same type, either numeric or a Duration. Please update the weight "
-          "expression or the filter expression.",
-          "https://memgr.ph/wsp"));
+    if ((lhs.IsNumeric() && rhs.IsNumeric()) || (lhs.IsDuration() && rhs.IsDuration()) ||
+        // We make implicit conversion of 0 as int to Duration to work correctly in weight lambda at the path begin.
+        (lhs.IsInt() && lhs.ValueInt() == 0 && rhs.IsDuration()) ||
+        (lhs.IsDuration() && rhs.IsInt() && rhs.ValueInt() == 0)) {
+      return;
     }
+    throw QueryRuntimeException(utils::MessageWithLink(
+        "All weights should be of the same type, either numeric or a Duration. Please update the weight "
+        "expression or the filter expression.",
+        "https://memgr.ph/wsp"));
   }
 
   // Priority queue comparator. Keep lowest weight on top of the queue.

@@ -176,13 +176,15 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
-                      storage::View view, FrameChangeCollector *frame_change_collector = nullptr)
+                      storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
+                      bool treat_null_as_zero = false)
       : frame_(frame),
         symbol_table_(&symbol_table),
         ctx_(&ctx),
         dba_(dba),
         view_(view),
-        frame_change_collector_(frame_change_collector) {}
+        frame_change_collector_(frame_change_collector),
+        treat_null_as_zero_(treat_null_as_zero) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -541,6 +543,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     };
     switch (expression_result_ptr->type()) {
       case TypedValue::Type::Null:
+        if (treat_null_as_zero_) {
+          return TypedValue(0, ctx_->memory);
+        }
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex:
         if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
@@ -1176,6 +1181,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   FrameChangeCollector *frame_change_collector_;
   /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
   mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
+  bool treat_null_as_zero_;
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.

@@ -937,6 +937,13 @@ std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const
   if (a.IsDuration() && b.IsDuration()) {
     return TypedValue(a.ValueDuration() + b.ValueDuration());
   }
+  // We support implicit cast of 0 to Duration for accumulator variables in expansions.
+  if (a.IsInt() && a.ValueInt() == 0 && b.IsDuration()) {
+    return TypedValue(b.ValueDuration());
+  }
+  if (a.IsDuration() && b.IsInt() && b.ValueInt() == 0) {
+    return TypedValue(a.ValueDuration());
+  }
   // Date
   if (a.IsDate() && b.IsDuration()) {
     return TypedValue(a.ValueDate() + b.ValueDuration());
