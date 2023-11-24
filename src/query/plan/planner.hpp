@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
@@ -42,11 +44,11 @@ class PostProcessor final {
 
   using ProcessedPlan = std::unique_ptr<LogicalOperator>;
 
-  explicit PostProcessor(const Parameters &parameters) : parameters_(parameters) {}
+  explicit PostProcessor(Parameters parameters) : parameters_(std::move(parameters)) {}
 
   template <class TDbAccessor>
-  PostProcessor(const Parameters &parameters, std::vector<IndexHint> index_hints, TDbAccessor *db)
-      : parameters_(parameters), index_hints_(IndexHints(index_hints, db)) {}
+  PostProcessor(Parameters parameters, std::vector<IndexHint> index_hints, TDbAccessor *db)
+      : parameters_(std::move(parameters)), index_hints_(IndexHints(index_hints, db)) {}
 
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {

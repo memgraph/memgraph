@@ -14,6 +14,7 @@
 #include <functional>
 #include <iostream>
 #include <optional>
+#include <utility>
 
 #include "io/network/endpoint.hpp"
 
@@ -201,7 +202,7 @@ class Socket {
   bool WaitForReadyWrite();
 
  private:
-  Socket(int fd, const Endpoint &endpoint) : socket_(fd), endpoint_(endpoint) {}
+  Socket(int fd, Endpoint endpoint) : socket_(fd), endpoint_(std::move(endpoint)) {}
 
   int socket_ = -1;
   Endpoint endpoint_;

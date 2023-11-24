@@ -17,6 +17,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <utility>
 
 #include <gflags/gflags.h>
 
@@ -51,13 +52,13 @@ class Listener final {
   using SessionHandler = Session<TSession, TSessionContext>;
 
  public:
-  Listener(TSessionContext *data, ServerContext *context, int inactivity_timeout_sec, const std::string &service_name,
+  Listener(TSessionContext *data, ServerContext *context, int inactivity_timeout_sec, std::string service_name,
            size_t workers_count)
       : data_(data),
         alive_(false),
         context_(context),
         inactivity_timeout_sec_(inactivity_timeout_sec),
-        service_name_(service_name),
+        service_name_(std::move(service_name)),
         workers_count_(workers_count) {}
 
   ~Listener() {
