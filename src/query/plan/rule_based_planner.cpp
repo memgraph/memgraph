@@ -520,25 +520,25 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
   std::vector<FilterInfo> and_joinable_filters{};
   for (auto filters_it = filters.begin(); filters_it != filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
-      // Idea here is to join filters in a way
-      // that pattern filter ( exists() ) is at the end
-      // so if any of the AND filters before
-      // evaluate to false we don't need to
-      // evaluate pattern ( exists() ) filter
-      auto it = and_joinable_filters.begin();
-      for (; it != and_joinable_filters.end(); it++) {
-        if (it->type == FilterInfo::Type::Pattern) {
-          break;
-        }
-      }
-      and_joinable_filters.insert(it, *filters_it);
+      and_joinable_filters.emplace_back(*filters_it);
       filters_it = filters.erase(filters_it);
     } else {
       filters_it++;
     }
   }
-  for (auto &filter : and_joinable_filters) {
-    filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, filter.expression);
+  // Idea here is to join filters in a way
+  // that pattern filter ( exists() ) is at the end
+  // so if any of the AND filters before
+  // evaluate to false we don't need to
+  // evaluate pattern ( exists() ) filter
+  auto split =
+      std::partition(and_joinable_filters.begin(), and_joinable_filters.end(),
+                     [](const FilterInfo &filter_info) { return filter_info.type != FilterInfo::Type::Pattern; });
+  for (auto it = and_joinable_filters.begin(); it != split; ++it) {
+    filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, it->expression);
+  }
+  for (; split != and_joinable_filters.end(); ++split) {
+    filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, split->expression);
   }
 
   return filter_expr;

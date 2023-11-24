@@ -217,7 +217,7 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       new (&duration_v) utils::Duration(other.duration_v);
       return;
     case Type::Function:
-      LOG_FATAL("Unsupported TypedValue::Function copy ctor");
+      new (&function_v) std::function<void(TypedValue *)>(other.function_v);
       return;
     case Type::Graph:
       auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
@@ -580,7 +580,8 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         new (&duration_v) utils::Duration(other.duration_v);
         return *this;
       case Type::Function:
-        LOG_FATAL("Unsupported TypedValue::Type copy assignment operator");
+        new (&function_v) std::function<void(TypedValue *)>(other.function_v);
+        return *this;
     }
     LOG_FATAL("Unsupported TypedValue::Type");
   }

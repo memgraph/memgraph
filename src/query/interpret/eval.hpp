@@ -904,12 +904,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Exists &exists) override {
-    if (frame_->at(symbol_table_->at(exists)).IsFunction()) [[likely]] {
+    TypedValue &frame_exists_value = frame_->at(symbol_table_->at(exists));
+    if (frame_exists_value.IsFunction()) [[likely]] {
       TypedValue result{ctx_->memory};
-      frame_->at(symbol_table_->at(exists)).ValueFunction()(&result);
+      frame_exists_value.ValueFunction()(&result);
       return result;
     }
-    return TypedValue{frame_->at(symbol_table_->at(exists)), ctx_->memory};
+    return TypedValue{frame_exists_value, ctx_->memory};
   }
 
   TypedValue Visit(All &all) override {

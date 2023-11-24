@@ -15,7 +15,6 @@
 #include <string>
 #include <vector>
 
-#include "query/typed_value.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -129,7 +128,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     case query::TypedValue::Type::Duration:
       return Value(value.ValueDuration());
     case query::TypedValue::Type::Function:
-      throw communication::bolt::ValueException("Unsupported conversion from TypedValue to Value");
+      throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");
     case query::TypedValue::Type::Graph:
       auto maybe_graph = ToBoltGraph(value.ValueGraph(), db, view);
       if (maybe_graph.HasError()) return maybe_graph.GetError();
