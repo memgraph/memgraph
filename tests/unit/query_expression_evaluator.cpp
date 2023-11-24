@@ -69,7 +69,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
         storage_dba(db->Access()),
         dba(storage_dba.get()) {}
 
-  ~ExpressionEvaluatorTest() {
+  ~ExpressionEvaluatorTest() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
@@ -580,7 +580,7 @@ TYPED_TEST(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 TYPED_TEST(ExpressionEvaluatorTest, TypedValueListIndexing) {
   auto list_vector = memgraph::utils::pmr::vector<TypedValue>(this->ctx.memory);
   list_vector.emplace_back("string1");
-  list_vector.emplace_back(TypedValue("string2"));
+  list_vector.emplace_back("string2");
 
   auto *identifier = this->storage.template Create<Identifier>("n");
   auto node_symbol = this->symbol_table.CreateSymbol("n", true);
@@ -1196,7 +1196,7 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest<Storage
   Identifier *identifier = this->storage.template Create<Identifier>("element");
   Symbol symbol = this->symbol_table.CreateSymbol("element", true);
 
-  void SetUp() { identifier->MapTo(symbol); }
+  void SetUp() override { identifier->MapTo(symbol); }
 
   auto Value(std::pair<std::string, memgraph::storage::PropertyId> property) {
     auto *op = this->storage.template Create<PropertyLookup>(identifier, this->storage.GetPropertyIx(property.first));
@@ -1388,7 +1388,7 @@ class ExpressionEvaluatorAllPropertiesLookup : public ExpressionEvaluatorTest<St
   Identifier *identifier = this->storage.template Create<Identifier>("element");
   Symbol symbol = this->symbol_table.CreateSymbol("element", true);
 
-  void SetUp() { identifier->MapTo(symbol); }
+  void SetUp() override { identifier->MapTo(symbol); }
 
   auto Value() {
     auto *op = this->storage.template Create<AllPropertiesLookup>(identifier);

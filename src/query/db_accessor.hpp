@@ -40,7 +40,6 @@ class EdgeAccessor final {
  public:
   storage::EdgeAccessor impl_;
 
- public:
   explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(std::move(impl)) {}
 
   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
@@ -108,7 +107,6 @@ class VertexAccessor final {
 
   static EdgeAccessor MakeEdgeAccessor(const storage::EdgeAccessor impl) { return EdgeAccessor(impl); }
 
- public:
   explicit VertexAccessor(storage::VertexAccessor impl) : impl_(impl) {}
 
   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
@@ -701,6 +699,8 @@ class SubgraphDbAccessor final {
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view);
 
   Graph *getGraph();
+
+  DbAccessor *GetAccessor();
 };
 
 }  // namespace memgraph::query

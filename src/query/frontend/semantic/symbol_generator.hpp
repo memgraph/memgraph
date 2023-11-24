@@ -183,7 +183,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 /// If property lookup for one symbol is visited more times, it is better to fetch all properties
 class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
  public:
-  explicit PropertyLookupEvaluationModeVisitor() {}
+  explicit PropertyLookupEvaluationModeVisitor() = default;
 
   using ExpressionVisitor<void>::Visit;
 

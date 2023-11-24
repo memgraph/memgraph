@@ -27,7 +27,7 @@
 template <typename StorageType>
 struct CppApiTestFixture : public ::testing::Test {
  protected:
-  virtual void SetUp() override { mgp::mrd.Register(&memory); }
+  void SetUp() override { mgp::mrd.Register(&memory); }
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
