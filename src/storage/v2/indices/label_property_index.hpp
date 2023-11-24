@@ -19,6 +19,11 @@ namespace memgraph::storage {
 
 class LabelPropertyIndex {
  public:
+  struct Something {
+    std::map<LabelId, std::vector<PropertyId>> l2p;
+    std::map<PropertyId, std::vector<LabelId>> p2l;
+  };
+
   LabelPropertyIndex() = default;
   LabelPropertyIndex(const LabelPropertyIndex &) = delete;
   LabelPropertyIndex(LabelPropertyIndex &&) = delete;

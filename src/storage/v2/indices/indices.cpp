@@ -17,6 +17,21 @@
 
 namespace memgraph::storage {
 
+void Indices::AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp) {
+  static_cast<InMemoryLabelIndex *>(label_index_.get())->AbortEntries(labelId, vertices, exact_start_timestamp);
+}
+
+void Indices::AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                           uint64_t exact_start_timestamp) {
+  static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
+      ->AbortEntries(property, vertices, exact_start_timestamp);
+}
+void Indices::AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                           uint64_t exact_start_timestamp) {
+  static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
+      ->AbortEntries(label, vertices, exact_start_timestamp);
+}
+
 void Indices::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) const {
   static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
@@ -50,4 +65,8 @@ Indices::Indices(const Config &config, StorageMode storage_mode) {
   });
 }
 
+Indices::Something Indices::Analysis() {
+  return {static_cast<InMemoryLabelIndex *>(label_index_.get())->Analysis(),
+          static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->Analysis()};
+}
 }  // namespace memgraph::storage

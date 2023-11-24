@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <span>
+
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
@@ -56,6 +58,18 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
 
+  /// Surgical removal of entries that was inserted this transaction
+  void AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp);
+
+  std::vector<LabelId> Analysis() {
+    std::vector<LabelId> res;
+    res.reserve(index_.size());
+    for (const auto &[label, _] : index_) {
+      res.emplace_back(label);
+    }
+    return res;
+  }
+
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Storage *storage,
@@ -85,6 +99,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
+    // utils::SkipList<Vertex *>::Accessor pin_accessor_; TODO
     utils::SkipList<Entry>::Accessor index_accessor_;
     LabelId label_;
     View view_;

@@ -1226,6 +1226,7 @@ class SkipList final : detail::SkipListNode_base {
             !candidate->marked.load(std::memory_order_acquire));
   }
 
+  /// WHAT happens to prevent READ of just unlinked entries
   template <typename TKey>
   bool remove(const TKey &key) {
     TNode *node_to_delete = nullptr;

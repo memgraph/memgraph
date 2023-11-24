@@ -11,9 +11,12 @@
 
 #pragma once
 
+#include <span>
 #include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -60,6 +63,21 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
+
+  void AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                    uint64_t exact_start_timestamp);
+  void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                    uint64_t exact_start_timestamp);
+
+  Something Analysis() {
+    Something res{};
+    for (const auto &[lp, _] : index_) {
+      const auto &[label, property] = lp;
+      res.l2p[label].emplace_back(property);
+      res.p2l[property].emplace_back(label);
+    }
+    return res;
+  }
 
   class Iterable {
    public:

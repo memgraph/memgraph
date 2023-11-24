@@ -23,6 +23,10 @@ add_subdirectory(flags)
 add_subdirectory(distributed)
 add_subdirectory(replication)
 
+
+add_executable(wat wat.cpp)
+target_link_libraries(wat PRIVATE mg-utils)
+
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 # Generate a version.hpp file

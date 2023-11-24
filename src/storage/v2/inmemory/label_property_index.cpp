@@ -101,11 +101,12 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
     return;
   }
 
-  if (!indices_by_property_.contains(property)) {
+  auto index = indices_by_property_.find(property);
+  if (index == indices_by_property_.end()) {
     return;
   }
 
-  for (const auto &[_, storage] : indices_by_property_.at(property)) {
+  for (const auto &[_, storage] : index->second) {
     auto acc = storage->access();
     acc.insert(Entry{value, vertex, tx.start_timestamp});
   }
@@ -433,4 +434,35 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
   return {it->second.access(), label, property, lower_bound, upper_bound, view, storage, transaction};
 }
 
+void InMemoryLabelPropertyIndex::AbortEntries(PropertyId property,
+                                              std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                                              uint64_t exact_start_timestamp) {
+  auto const it = indices_by_property_.find(property);
+  if (it == indices_by_property_.end()) return;
+
+  auto &indices = it->second;
+  for (auto &[_, index] : indices) {
+    auto index_acc = index->access();
+    for (auto const &[value, vertex] : vertices) {
+      index_acc.remove(Entry{value, vertex, exact_start_timestamp});
+    }
+  }
+}
+
+void InMemoryLabelPropertyIndex::AbortEntries(LabelId label,
+                                              std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                                              uint64_t exact_start_timestamp) {
+  for (auto &[label_prop, storage] : index_) {
+    if (label_prop.first != label) {
+      continue;
+    }
+
+    auto index_acc = storage.access();
+    for (auto &[property, vertex] : vertices) {
+      if (!property.IsNull()) {
+        index_acc.remove(Entry{property, vertex, exact_start_timestamp});
+      }
+    }
+  }
+}
 }  // namespace memgraph::storage

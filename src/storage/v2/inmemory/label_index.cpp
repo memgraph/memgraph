@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/label_index.hpp"
+#include <span>
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 
@@ -93,6 +94,18 @@ void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
 
       it = next_it;
     }
+  }
+}
+
+void InMemoryLabelIndex::AbortEntries(LabelId labelId, std::span<Vertex *const> vertices,
+                                      uint64_t exact_start_timestamp) {
+  auto const it = index_.find(labelId);
+  if (it == index_.end()) return;
+
+  auto &label_storage = it->second;
+  auto vertices_acc = label_storage.access();
+  for (auto *vertex : vertices) {
+    vertices_acc.remove(Entry{vertex, exact_start_timestamp});
   }
 }
 
