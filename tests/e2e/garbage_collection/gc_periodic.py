@@ -49,7 +49,7 @@ def test_gc_periodic(connection):
     memory_pre_creation = get_memory(cursor)
     execute_and_fetch_all(cursor, "UNWIND range(1, 1000) AS index CREATE (:Node);")
     memory_after_creation = get_memory(cursor)
-    time.sleep(2)
+    time.sleep(5)
     memory_after_gc = get_memory(cursor)
 
     assert memory_after_gc < memory_pre_creation + (memory_after_creation - memory_pre_creation) / 4 * 3

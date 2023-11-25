@@ -142,6 +142,8 @@ query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
 
 storage::StorageMode SubgraphDbAccessor::GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }
 
+DbAccessor *SubgraphDbAccessor::GetAccessor() { return &db_accessor_; }
+
 VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_; }
 
 storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {

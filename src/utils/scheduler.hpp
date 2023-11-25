@@ -28,7 +28,7 @@ namespace memgraph::utils {
  */
 class Scheduler {
  public:
-  Scheduler() {}
+  Scheduler() = default;
   /**
    * @param pause - Duration between two function executions. If function is
    * still running when it should be ran again, it will run right after it
