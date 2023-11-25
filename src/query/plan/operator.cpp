@@ -57,6 +57,7 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/deque.hpp"
@@ -4866,6 +4867,7 @@ class CallProcedureCursor : public Cursor {
       result_signature_size_ = result_->signature->size();
       result_->signature = nullptr;
       if (result_->error_msg) {
+        memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_->error_msg);
       }
       result_row_it_ = result_->rows.begin();
