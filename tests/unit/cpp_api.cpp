@@ -37,8 +37,9 @@ struct CppApiTestFixture : public ::testing::Test {
   }
 
   mgp_graph CreateGraph(const memgraph::storage::View view = memgraph::storage::View::NEW) {
+    auto dba = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
     // the execution context can be null as it shouldn't be used in these tests
-    return mgp_graph{&CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION), view, ctx_.get()};
+    return mgp_graph{&dba, view, ctx_.get(), dba.GetStorageMode()};
   }
 
   memgraph::query::DbAccessor &CreateDbAccessor(const memgraph::storage::IsolationLevel isolationLevel) {

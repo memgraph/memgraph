@@ -119,8 +119,9 @@ template <typename StorageType>
 class MgpGraphTest : public ::testing::Test {
  public:
   mgp_graph CreateGraph(const memgraph::storage::View view = memgraph::storage::View::NEW) {
+    auto dba = CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
     // the execution context can be null as it shouldn't be used in these tests
-    return mgp_graph{&CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION), view, ctx_.get()};
+    return mgp_graph{&dba, view, ctx_.get(), dba.GetStorageMode()};
   }
 
   std::array<memgraph::storage::Gid, 2> CreateEdge() {
