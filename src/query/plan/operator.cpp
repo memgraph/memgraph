@@ -2035,7 +2035,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::View::OLD);
+                                  storage::View::OLD, nullptr /* frame_change_collector */,
+                                  true /* treat_null_as_zero */);
     auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
     };
@@ -2048,24 +2049,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       auto *memory = evaluator.GetMemoryResource();
 
       auto const &next_vertex = direction == EdgeAtom::Direction::IN ? edge.From() : edge.To();
-
-      // If filter expression exists, evaluate filter
-      if (self_.filter_lambda_.expression) {
-        frame[self_.filter_lambda_.inner_edge_symbol] = edge;
-        frame[self_.filter_lambda_.inner_node_symbol] = next_vertex;
-        if (self_.filter_lambda_.accumulated_path_symbol) {
-          MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
-                    "Accumulated path must be path");
-          Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
-          accumulated_path.Expand(edge);
-          accumulated_path.Expand(next_vertex);
-        }
-        if (self_.filter_lambda_.accumulated_weight_symbol) {
-          frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = total_weight;
-        }
-
-        if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
-      }
 
       // Evaluate current weight
       frame[self_.weight_lambda_->inner_edge_symbol] = edge;
@@ -2084,6 +2067,24 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         return TypedValue(current_weight, memory) + total_weight;
       });
+
+      // If filter expression exists, evaluate filter
+      if (self_.filter_lambda_.expression) {
+        frame[self_.filter_lambda_.inner_edge_symbol] = edge;
+        frame[self_.filter_lambda_.inner_node_symbol] = next_vertex;
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
+                    "Accumulated path must be path");
+          Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
+          accumulated_path.Expand(edge);
+          accumulated_path.Expand(next_vertex);
+        }
+        if (self_.filter_lambda_.accumulated_weight_symbol) {
+          frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = next_weight;
+        }
+
+        if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
+      }
 
       auto found_it = visited_cost_.find(next_vertex);
       // Check if the vertex has already been processed.
@@ -2280,7 +2281,13 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(*start_vertex);
         }
 
-        expand_from_vertex(*start_vertex, TypedValue(), 0);
+        frame[self_.weight_lambda_->inner_edge_symbol] = TypedValue();
+        frame[self_.weight_lambda_->inner_node_symbol] = *start_vertex;
+
+        TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
+        CheckWeightType(current_weight, memory);
+
+        expand_from_vertex(*start_vertex, current_weight, 0);
         visited_cost_.emplace(*start_vertex, 0);
         frame[self_.common_.edge_symbol] = TypedValue::TVector(memory);
       }
@@ -2333,12 +2340,16 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   utils::pmr::list<utils::pmr::list<DirectedEdge>> traversal_stack_;
 
   static void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
-    if (!((lhs.IsNumeric() && lhs.IsNumeric()) || (rhs.IsDuration() && rhs.IsDuration()))) {
-      throw QueryRuntimeException(utils::MessageWithLink(
-          "All weights should be of the same type, either numeric or a Duration. Please update the weight "
-          "expression or the filter expression.",
-          "https://memgr.ph/wsp"));
+    if ((lhs.IsNumeric() && rhs.IsNumeric()) || (lhs.IsDuration() && rhs.IsDuration()) ||
+        // We make implicit conversion of 0 as int to Duration to work correctly in weight lambda at the path begin.
+        (lhs.IsInt() && lhs.ValueInt() == 0 && rhs.IsDuration()) ||
+        (lhs.IsDuration() && rhs.IsInt() && rhs.ValueInt() == 0)) {
+      return;
     }
+    throw QueryRuntimeException(utils::MessageWithLink(
+        "All weights should be of the same type, either numeric or a Duration. Please update the weight "
+        "expression or the filter expression.",
+        "https://memgr.ph/wsp"));
   }
 
   // Priority queue comparator. Keep lowest weight on top of the queue.
