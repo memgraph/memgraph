@@ -50,11 +50,9 @@ void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
-    if (!node.IsDeleted()) {
-      auto record = record_factory.NewRecord();
-      record.Insert(kPassNodeWithIdFieldNode.data(), node);
-      record.Insert(kPassNodeWithIdFieldId.data(), node_id);
-    }
+    auto record = record_factory.NewRecord();
+    record.Insert(kPassNodeWithIdFieldNode.data(), node);
+    record.Insert(kPassNodeWithIdFieldId.data(), node_id);
   } catch (const std::exception &e) {
     mgp::result_set_error_msg(result, e.what());
     return;

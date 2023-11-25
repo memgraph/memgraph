@@ -4782,6 +4782,12 @@ class CallProcedureCursor : public Cursor {
 
     AbortCheck(context);
 
+    auto skip_rows_with_deleted_values = [this]() {
+      while (result_row_it_ != result_->rows.end() && result_row_it_->has_deleted_values) {
+        ++result_row_it_;
+      }
+    };
+
     // We need to fetch new procedure results after pulling from input.
     // TODO: Look into openCypher's distinction between procedures returning an
     // empty result set vs procedures which return `void`. We currently don't
@@ -4839,6 +4845,7 @@ class CallProcedureCursor : public Cursor {
                                     graph_view);
 
       result_->signature = &proc->results;
+      result_->is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
 
       // Use special memory as invoking procedure is complex
       // TODO: This will probably need to be changed when we add support for
@@ -4862,6 +4869,9 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_->error_msg);
       }
       result_row_it_ = result_->rows.begin();
+      if (!result_->is_transactional) {
+        skip_rows_with_deleted_values();
+      }
 
       stream_exhausted = result_row_it_ == result_->rows.end();
     }
@@ -4891,6 +4901,9 @@ class CallProcedureCursor : public Cursor {
       }
     }
     ++result_row_it_;
+    if (!result_->is_transactional) {
+      skip_rows_with_deleted_values();
+    }
 
     return true;
   }

@@ -364,27 +364,32 @@ bool TypedValue::IsGraph() const { return type_ == Type::Graph; }
 
 bool TypedValue::ContainsDeleted() const {
   switch (type_) {
+    // Value types
+    case Type::Null:
+    case Type::Bool:
+    case Type::Int:
+    case Type::Double:
+    case Type::String:
+    case Type::Date:
+    case Type::LocalTime:
+    case Type::LocalDateTime:
+    case Type::Duration:
+      return false;
+    // Reference types
     case Type::List:
-      for (const auto &elem : list_v) {
-        if (elem.ContainsDeleted()) return true;
-      }
-      return false;
+      return std::ranges::any_of(list_v, [](const auto &elem) { return elem.ContainsDeleted(); });
     case Type::Map:
-      for (const auto &[_, map_value] : map_v) {
-        if (map_value.ContainsDeleted()) return true;
-      }
-      return false;
+      return std::ranges::any_of(map_v, [](const auto &item) { return item.second.ContainsDeleted(); });
     case Type::Vertex:
       return vertex_v.impl_.vertex_->deleted;
     case Type::Edge:
       return edge_v.impl_.edge_.ptr->deleted;
     case Type::Path:
-      for (const auto &vertex_acc : path_v.vertices()) {
-        if (vertex_acc.impl_.vertex_->deleted) return true;
-      }
-      std::ranges::any_of(path_v.edges(), [](auto &edge_acc) { return edge_acc.impl_.edge_.ptr->deleted; });
+      return std::ranges::any_of(path_v.vertices(),
+                                 [](auto &vertex_acc) { return vertex_acc.impl_.vertex_->deleted; }) ||
+             std::ranges::any_of(path_v.edges(), [](auto &edge_acc) { return edge_acc.impl_.edge_.ptr->deleted; });
     default:
-      break;
+      throw TypedValueException("Value of unknown type");
   }
   return false;
 }

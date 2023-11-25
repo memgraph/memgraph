@@ -31,6 +31,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
@@ -838,7 +839,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(Function &function) override {
     FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_};
-    bool is_transactional = MgpGraphIsTransactional(mgp_graph::NonWritableGraph(*dba_, view_));
+    bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       TypedValue arguments[8] = {TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
@@ -849,7 +850,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       auto res = function.function_(arguments, function.arguments_.size(), function_ctx);
       MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
-      if (!is_transactional && res.ContainsDeleted()) {
+      if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
         return TypedValue(ctx_->memory);
       }
       return res;
@@ -861,7 +862,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       auto res = function.function_(arguments.data(), arguments.size(), function_ctx);
       MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
-      if (!is_transactional && res.ContainsDeleted()) {
+      if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
         return TypedValue(ctx_->memory);
       }
       return res;

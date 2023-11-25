@@ -318,60 +318,50 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
 }
 }  // namespace
 
-bool MgpGraphIsTransactional(const mgp_graph &graph) noexcept {
-  auto storageMode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
-  std::visit(memgraph::utils::Overloaded{
-                 [&storageMode](memgraph::query::DbAccessor *dbAcc) { storageMode = dbAcc->GetStorageMode(); },
-                 [&storageMode](memgraph::query::SubgraphDbAccessor *dbAcc) { storageMode = dbAcc->GetStorageMode(); }},
-             graph.impl);
-  return storageMode != memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL;
+bool IsDeleted(const mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex_->deleted; }
+
+bool IsDeleted(const mgp_edge *edge) { return edge->impl.impl_.edge_.ptr->deleted; }
+
+bool ContainsDeleted(const mgp_path *path) {
+  return std::ranges::any_of(path->vertices, [](const auto &vertex) { return IsDeleted(&vertex); }) ||
+         std::ranges::any_of(path->edges, [](const auto &edge) { return IsDeleted(&edge); });
 }
 
-bool IsDeleted(mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex_->deleted; }
-
-bool IsDeleted(mgp_edge *edge) { return edge->impl.impl_.edge_.ptr->deleted; }
-
-bool ContainsDeleted(mgp_path *path) {
-  for (auto &vertex : path->vertices) {
-    if (IsDeleted(&vertex)) return true;
-  }
-  for (auto &edge : path->edges) {
-    if (IsDeleted(&edge)) return true;
-  }
-  return false;
+bool ContainsDeleted(const mgp_list *list) {
+  return std::ranges::any_of(list->elems, [](const auto &elem) { return ContainsDeleted(&elem); });
 }
 
-bool ContainsDeleted(mgp_list *list) {
-  for (auto &elem : list->elems) {
-    if (ContainsDeleted(&elem)) return true;
-  }
-  return false;
+bool ContainsDeleted(const mgp_map *map) {
+  return std::ranges::any_of(map->items, [](const auto &item) { return ContainsDeleted(&item.second); });
 }
 
-bool ContainsDeleted(mgp_map *map) {
-  for (auto &[_, map_value] : map->items) {
-    if (ContainsDeleted(&map_value)) return true;
-  }
-  return false;
-}
-
-bool ContainsDeleted(mgp_value *val) {
+bool ContainsDeleted(const mgp_value *val) {
   switch (val->type) {
+    // Value types
+    case MGP_VALUE_TYPE_NULL:
+    case MGP_VALUE_TYPE_BOOL:
+    case MGP_VALUE_TYPE_INT:
+    case MGP_VALUE_TYPE_DOUBLE:
+    case MGP_VALUE_TYPE_STRING:
+    case MGP_VALUE_TYPE_DATE:
+    case MGP_VALUE_TYPE_LOCAL_TIME:
+    case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
+    case MGP_VALUE_TYPE_DURATION:
+      return false;
+    // Reference types
+    case MGP_VALUE_TYPE_LIST:
+      return ContainsDeleted(val->list_v);
+    case MGP_VALUE_TYPE_MAP:
+      return ContainsDeleted(val->map_v);
     case MGP_VALUE_TYPE_VERTEX:
       return IsDeleted(val->vertex_v);
     case MGP_VALUE_TYPE_EDGE:
       return IsDeleted(val->edge_v);
     case MGP_VALUE_TYPE_PATH:
       return ContainsDeleted(val->path_v);
-    case MGP_VALUE_TYPE_LIST:
-      return ContainsDeleted(val->list_v);
-    case MGP_VALUE_TYPE_MAP:
-      return ContainsDeleted(val->map_v);
-    // other types are primitives
     default:
-      break;
+      throw memgraph::query::QueryRuntimeException("Value of unknown type");
   }
-
   return false;
 }
 
@@ -1058,8 +1048,7 @@ mgp_error mgp_list_copy(mgp_list *list, mgp_memory *memory, mgp_list **result) {
 void mgp_list_destroy(mgp_list *list) { DeleteRawMgpObject(list); }
 
 mgp_error mgp_list_contains_deleted(mgp_list *list, int *result) {
-  *result = ContainsDeleted(list);
-  return mgp_error::MGP_ERROR_NO_ERROR;
+  return WrapExceptions([list, result] { *result = ContainsDeleted(list); });
 }
 
 namespace {
@@ -1114,8 +1103,7 @@ mgp_error mgp_map_copy(mgp_map *map, mgp_memory *memory, mgp_map **result) {
 void mgp_map_destroy(mgp_map *map) { DeleteRawMgpObject(map); }
 
 mgp_error mgp_map_contains_deleted(mgp_map *map, int *result) {
-  *result = ContainsDeleted(map);
-  return mgp_error::MGP_ERROR_NO_ERROR;
+  return WrapExceptions([map, result] { *result = ContainsDeleted(map); });
 }
 
 mgp_error mgp_map_insert(mgp_map *map, const char *key, mgp_value *value) {
@@ -1242,8 +1230,7 @@ mgp_error mgp_path_copy(mgp_path *path, mgp_memory *memory, mgp_path **result) {
 void mgp_path_destroy(mgp_path *path) { DeleteRawMgpObject(path); }
 
 mgp_error mgp_path_contains_deleted(mgp_path *path, int *result) {
-  *result = ContainsDeleted(path);
-  return mgp_error::MGP_ERROR_NO_ERROR;
+  return WrapExceptions([path, result] { *result = ContainsDeleted(path); });
 }
 
 mgp_error mgp_path_expand(mgp_path *path, mgp_edge *edge) {
@@ -1629,7 +1616,8 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
         MG_ASSERT(res->signature, "Expected to have a valid signature");
         res->rows.push_back(mgp_result_record{
             res->signature,
-            memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory)});
+            memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory),
+            !res->is_transactional});
         return &res->rows.back();
       },
       result);
@@ -1644,9 +1632,11 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
     if (find_it == record->signature->end()) {
       throw std::out_of_range{fmt::format("The result doesn't have any field named '{}'.", field_name)};
     }
-
+    // TODO ante: dodati mgp_graph i provjeru storage modea
+    if (record->ignore_deleted_values && ContainsDeleted(val)) [[unlikely]] {
+      record->has_deleted_values = true;
+    }
     const auto *type = find_it->second.first;
-
     if (!type->SatisfiesType(*val)) {
       throw std::logic_error{
           fmt::format("The type of value doesn't satisfy the type '{}'!", type->GetPresentableName())};
@@ -1816,7 +1806,7 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
       return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{memgraph::storage::TemporalType::Duration,
                                                                               value.duration_v->duration.microseconds}};
     case MGP_VALUE_TYPE_VERTEX:
-      throw ValueConversionException{"A vertex is not a valid property value! "};
+      throw ValueConversionException{"A vertex is not a valid property value!"};
     case MGP_VALUE_TYPE_EDGE:
       throw ValueConversionException{"An edge is not a valid property value!"};
     case MGP_VALUE_TYPE_PATH:
@@ -2618,7 +2608,7 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
 }
 
 mgp_error mgp_graph_is_transactional(mgp_graph *graph, int *result) {
-  *result = MgpGraphIsTransactional(*graph) ? 1 : 0;
+  *result = IsTransactional(graph->storage_mode) ? 1 : 0;
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
 

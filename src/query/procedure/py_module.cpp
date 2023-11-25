@@ -25,6 +25,7 @@
 #include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/vector.hpp"
@@ -874,6 +875,21 @@ struct RecordFieldCache {
   mgp_value *field_val;
 };
 
+std::optional<py::ExceptionInfo> InsertField(PyObject *key, PyObject *val, mgp_result_record *record,
+                                             const char *field_name, mgp_value *field_val) {
+  if (mgp_result_record_insert(record, field_name, field_val) != mgp_error::MGP_ERROR_NO_ERROR) {
+    std::stringstream ss;
+    ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '" << py::Object::FromBorrow(val)
+       << "'; did you set the correct field type?";
+    const auto &msg = ss.str();
+    PyErr_SetString(PyExc_ValueError, msg.c_str());
+    mgp_value_destroy(field_val);
+    return py::FetchError();
+  }
+  mgp_value_destroy(field_val);
+  return std::nullopt;
+}
+
 std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Object py_record, mgp_graph *graph,
                                                      mgp_memory *memory) {
   py::Object py_mgp(PyImport_ImportModule("mgp"));
@@ -896,7 +912,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
   py::Object items(PyDict_Items(fields.Ptr()));
   if (!items) return py::FetchError();
   mgp_result_record *record{nullptr};
-  auto is_transactional = MgpGraphIsTransactional(*graph);
+  auto is_transactional = storage::IsTransactional(graph->storage_mode);
   if (is_transactional) {
     // IN_MEMORY_ANALYTICAL doesn’t add a new record before verifying that it contains no deleted values
     if (RaiseExceptionFromErrorCode(mgp_result_new_record(result, &record))) {
@@ -929,6 +945,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     }
 
     if (!is_transactional) {
+      // If a deleted value is being inserted into a record, skip the whole record
       if (ContainsDeleted(field_val)) {
         mgp_value_destroy(field_val);
         for (auto &cache_entry : current_record_cache) {
@@ -940,16 +957,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
       current_record_cache.emplace_back(
           RecordFieldCache{.key = key, .val = val, .field_name = field_name, .field_val = field_val});
     } else {
-      if (mgp_result_record_insert(record, field_name, field_val) != mgp_error::MGP_ERROR_NO_ERROR) {
-        std::stringstream ss;
-        ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '"
-           << py::Object::FromBorrow(val) << "'; did you set the correct field type?";
-        const auto &msg = ss.str();
-        PyErr_SetString(PyExc_ValueError, msg.c_str());
-        mgp_value_destroy(field_val);
-        return py::FetchError();
-      }
-      mgp_value_destroy(field_val);
+      InsertField(key, val, record, field_name, field_val);
     }
   }
 
@@ -961,17 +969,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     return py::FetchError();
   }
   for (auto &cache_entry : current_record_cache) {
-    if (mgp_result_record_insert(record, cache_entry.field_name, cache_entry.field_val) !=
-        mgp_error::MGP_ERROR_NO_ERROR) {
-      std::stringstream ss;
-      ss << "Unable to insert field '" << py::Object::FromBorrow(cache_entry.key) << "' with value: '"
-         << py::Object::FromBorrow(cache_entry.val) << "'; did you set the correct field type?";
-      const auto &msg = ss.str();
-      PyErr_SetString(PyExc_ValueError, msg.c_str());
-      mgp_value_destroy(cache_entry.field_val);
-      return py::FetchError();
-    }
-    mgp_value_destroy(cache_entry.field_val);
+    InsertField(cache_entry.key, cache_entry.val, record, cache_entry.field_name, cache_entry.field_val);
   }
 
   return std::nullopt;
@@ -1213,11 +1211,12 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
   auto call = [&](py::Object py_graph) -> utils::BasicResult<std::optional<py::ExceptionInfo>, mgp_value *> {
     py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
     if (!py_args) return {py::FetchError()};
-    auto is_transactional = MgpGraphIsTransactional(*graph);
+    auto is_transactional = storage::IsTransactional(graph->storage_mode);
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return {py::FetchError()};
     mgp_value *ret_val = PyObjectToMgpValueWithPythonExceptions(py_res.Ptr(), memory);
     if (!is_transactional && ContainsDeleted(ret_val)) {
+      mgp_value_destroy(ret_val);
       mgp_value *null_val{nullptr};
       mgp_error last_error{mgp_error::MGP_ERROR_NO_ERROR};
 
