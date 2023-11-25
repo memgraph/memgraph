@@ -43,12 +43,12 @@ void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
   mgp::result_record_insert(result_record, kPassNodeWithIdFieldId.data(), mgp::value_make_int(node_id, memory));
 }
 
-extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
+extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memory *memory) {
   try {
-    auto *func = mgp::module_add_function(module, kFunctionPassRelationship.data(), PassRelationship);
+    auto *func = mgp::module_add_function(query_module, kFunctionPassRelationship.data(), PassRelationship);
     mgp::func_add_arg(func, kPassRelationshipArg.data(), mgp::type_relationship());
 
-    auto *proc = mgp::module_add_read_procedure(module, kProcedurePassNodeWithId.data(), PassNodeWithId);
+    auto *proc = mgp::module_add_read_procedure(query_module, kProcedurePassNodeWithId.data(), PassNodeWithId);
     mgp::proc_add_arg(proc, kPassNodeWithIdArg.data(), mgp::type_node());
     mgp::proc_add_result(proc, kPassNodeWithIdFieldNode.data(), mgp::type_node());
     mgp::proc_add_result(proc, kPassNodeWithIdFieldId.data(), mgp::type_int());

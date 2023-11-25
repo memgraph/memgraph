@@ -59,18 +59,18 @@ void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
   }
 }
 
-extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
+extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard(memory);
 
     mgp::AddFunction(PassRelationship, kFunctionPassRelationship,
-                     {mgp::Parameter(kPassRelationshipArg, mgp::Type::Relationship)}, module, memory);
+                     {mgp::Parameter(kPassRelationshipArg, mgp::Type::Relationship)}, query_module, memory);
 
     mgp::AddProcedure(
         PassNodeWithId, kProcedurePassNodeWithId, mgp::ProcedureType::Read,
         {mgp::Parameter(kPassNodeWithIdArg, mgp::Type::Node)},
         {mgp::Return(kPassNodeWithIdFieldNode, mgp::Type::Node), mgp::Return(kPassNodeWithIdFieldId, mgp::Type::Int)},
-        module, memory);
+        query_module, memory);
   } catch (const std::exception &e) {
     return 1;
   }

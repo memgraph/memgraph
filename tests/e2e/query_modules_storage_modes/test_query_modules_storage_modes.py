@@ -18,6 +18,8 @@ from common import cursor, connect
 
 import time
 
+SWITCH_TO_ANALYTICAL = "STORAGE MODE IN_MEMORY_ANALYTICAL;"
+
 
 def modify_graph(query):
     subprocess_cursor = connect()
@@ -29,7 +31,7 @@ def modify_graph(query):
 
 @pytest.mark.parametrize("api", ["c", "cpp", "python"])
 def test_function_delete_result(cursor, api):
-    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+    cursor.execute(SWITCH_TO_ANALYTICAL)
 
     deleter = Process(
         target=modify_graph,
@@ -48,7 +50,7 @@ def test_function_delete_result(cursor, api):
 
 @pytest.mark.parametrize("api", ["c", "cpp", "python"])
 def test_function_delete_only_result(cursor, api):
-    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+    cursor.execute(SWITCH_TO_ANALYTICAL)
 
     cursor.execute("MATCH (m:Component {id: '7X8X0'})-[e:DEPENDS_ON]->(n:Component {id: 'A7422'}) DELETE e;")
 
@@ -69,7 +71,7 @@ def test_function_delete_only_result(cursor, api):
 
 @pytest.mark.parametrize("api", ["c", "cpp", "python"])
 def test_procedure_delete_result(cursor, api):
-    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+    cursor.execute(SWITCH_TO_ANALYTICAL)
 
     deleter = Process(
         target=modify_graph,
@@ -93,7 +95,7 @@ def test_procedure_delete_result(cursor, api):
 
 @pytest.mark.parametrize("api", ["c", "cpp", "python"])
 def test_procedure_delete_only_result(cursor, api):
-    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+    cursor.execute(SWITCH_TO_ANALYTICAL)
 
     cursor.execute("MATCH (n {id: '7X8X0'}) DETACH DELETE n;")
 
@@ -118,7 +120,7 @@ def test_procedure_delete_only_result(cursor, api):
 
 
 def test_deleted_node(cursor):
-    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+    cursor.execute(SWITCH_TO_ANALYTICAL)
 
     deleter = Process(target=modify_graph, args=("MATCH (n:Component {id: 'A7422'}) DETACH DELETE n;",))
     deleter.start()
@@ -136,7 +138,7 @@ def test_deleted_node(cursor):
 
 
 def test_deleted_relationship(cursor):
-    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+    cursor.execute(SWITCH_TO_ANALYTICAL)
 
     deleter = Process(
         target=modify_graph,
@@ -157,7 +159,7 @@ def test_deleted_relationship(cursor):
 
 
 def test_deleted_node_in_path(cursor):
-    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+    cursor.execute(SWITCH_TO_ANALYTICAL)
 
     deleter = Process(target=modify_graph, args=("MATCH (n:Component {id: 'A7422'}) DETACH DELETE n;",))
     deleter.start()
@@ -175,7 +177,7 @@ def test_deleted_node_in_path(cursor):
 
 
 def test_deleted_relationship_in_path(cursor):
-    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+    cursor.execute(SWITCH_TO_ANALYTICAL)
 
     deleter = Process(
         target=modify_graph,
@@ -196,7 +198,7 @@ def test_deleted_relationship_in_path(cursor):
 
 
 def test_deleted_value_in_list(cursor):
-    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+    cursor.execute(SWITCH_TO_ANALYTICAL)
 
     deleter = Process(
         target=modify_graph,
@@ -218,7 +220,7 @@ def test_deleted_value_in_list(cursor):
 
 
 def test_deleted_value_in_map(cursor):
-    cursor.execute("STORAGE MODE IN_MEMORY_ANALYTICAL;")
+    cursor.execute(SWITCH_TO_ANALYTICAL)
 
     deleter = Process(
         target=modify_graph,

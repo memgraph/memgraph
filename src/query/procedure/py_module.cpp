@@ -890,6 +890,13 @@ std::optional<py::ExceptionInfo> InsertField(PyObject *key, PyObject *val, mgp_r
   return std::nullopt;
 }
 
+void SkipRecord(mgp_value *field_val, std::vector<RecordFieldCache> &current_record_cache) {
+  mgp_value_destroy(field_val);
+  for (auto &cache_entry : current_record_cache) {
+    mgp_value_destroy(cache_entry.field_val);
+  }
+}
+
 std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Object py_record, mgp_graph *graph,
                                                      mgp_memory *memory) {
   py::Object py_mgp(PyImport_ImportModule("mgp"));
@@ -914,7 +921,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
   mgp_result_record *record{nullptr};
   auto is_transactional = storage::IsTransactional(graph->storage_mode);
   if (is_transactional) {
-    // IN_MEMORY_ANALYTICAL doesn’t add a new record before verifying that it contains no deleted values
+    // IN_MEMORY_ANALYTICAL must first verify that the record contains no deleted values
     if (RaiseExceptionFromErrorCode(mgp_result_new_record(result, &record))) {
       return py::FetchError();
     }
@@ -947,17 +954,14 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     if (!is_transactional) {
       // If a deleted value is being inserted into a record, skip the whole record
       if (ContainsDeleted(field_val)) {
-        mgp_value_destroy(field_val);
-        for (auto &cache_entry : current_record_cache) {
-          mgp_value_destroy(cache_entry.field_val);
-        }
-
+        SkipRecord(field_val, current_record_cache);
         return std::nullopt;
       }
       current_record_cache.emplace_back(
           RecordFieldCache{.key = key, .val = val, .field_name = field_name, .field_val = field_val});
     } else {
-      InsertField(key, val, record, field_name, field_val);
+      auto maybe_exc = InsertField(key, val, record, field_name, field_val);
+      if (maybe_exc) return maybe_exc;
     }
   }
 
@@ -965,11 +969,14 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     return std::nullopt;
   }
 
+  // IN_MEMORY_ANALYTICAL only adds a new record after verifying that it contains no deleted values
   if (RaiseExceptionFromErrorCode(mgp_result_new_record(result, &record))) {
     return py::FetchError();
   }
   for (auto &cache_entry : current_record_cache) {
-    InsertField(cache_entry.key, cache_entry.val, record, cache_entry.field_name, cache_entry.field_val);
+    auto maybe_exc =
+        InsertField(cache_entry.key, cache_entry.val, record, cache_entry.field_name, cache_entry.field_val);
+    if (maybe_exc) return maybe_exc;
   }
 
   return std::nullopt;
