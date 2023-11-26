@@ -383,6 +383,9 @@ bool TypedValue::ContainsDeleted() const {
     case Type::Vertex:
       return vertex_v.impl_.vertex_->deleted;
     case Type::Edge:
+      if (!edge_v.impl_.edge_.ptr) {
+        return edge_v.impl_.edge_.deleted;
+      }
       return edge_v.impl_.edge_.ptr->deleted;
     case Type::Path:
       return std::ranges::any_of(path_v.vertices(),

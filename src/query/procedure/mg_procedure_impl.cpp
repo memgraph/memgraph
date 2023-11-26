@@ -322,7 +322,12 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
 
 bool IsDeleted(const mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex_->deleted; }
 
-bool IsDeleted(const mgp_edge *edge) { return edge->impl.impl_.edge_.ptr->deleted; }
+bool IsDeleted(const mgp_edge *edge) {
+  if (!edge->impl.impl_.edge_.ptr) {
+    return false;
+  }
+  return edge->impl.impl_.edge_.ptr->deleted;
+}
 
 bool ContainsDeleted(const mgp_path *path) {
   return std::ranges::any_of(path->vertices, [](const auto &vertex) { return IsDeleted(&vertex); }) ||
@@ -1635,9 +1640,10 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
     if (find_it == record->signature->end()) {
       throw std::out_of_range{fmt::format("The result doesn't have any field named '{}'.", field_name)};
     }
-    // TODO ante: dodati mgp_graph i provjeru storage modea
     if (record->ignore_deleted_values && ContainsDeleted(val)) [[unlikely]] {
+      record->values.emplace(field_name, ToTypedValue(*NewRawMgpObject<mgp_value>(memory), memory));
       record->has_deleted_values = true;
+      return;
     }
     const auto *type = find_it->second.first;
     if (!type->SatisfiesType(*val)) {
