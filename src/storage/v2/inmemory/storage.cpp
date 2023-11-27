@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+#include <optional>
 #include "dbms/constants.hpp"
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -1094,7 +1095,7 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
-  auto ret = mem_unique_constraints->CreateConstraint(label, properties, in_memory->vertices_.access());
+  auto ret = mem_unique_constraints->CreateConstraint(label, properties, in_memory->vertices_.access(), std::nullopt);
   if (ret.HasError()) {
     return StorageUniqueConstraintDefinitionError{ret.GetError()};
   }

@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/id_types.hpp"
+#include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
 
@@ -275,7 +277,8 @@ void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const T
 
 utils::BasicResult<ConstraintViolation, InMemoryUniqueConstraints::CreationStatus>
 InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                            utils::SkipList<Vertex>::Accessor vertices) {
+                                            utils::SkipList<Vertex>::Accessor vertex_accessor,
+                                            const std::optional<ParallelizedConstraintCreationInfo> &par_exec_info) {
   if (properties.empty()) {
     return CreationStatus::EMPTY_PROPERTIES;
   }
@@ -291,31 +294,38 @@ InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<Proper
     return CreationStatus::ALREADY_EXISTS;
   }
 
-  bool violation_found = false;
+  auto constraint_accessor = constraint->second.access();
 
-  {
-    auto acc = constraint->second.access();
-
-    for (const Vertex &vertex : vertices) {
-      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
-        continue;
-      }
-      auto values = vertex.properties.ExtractPropertyValues(properties);
-      if (!values) {
-        continue;
-      }
-
-      // Check whether there already is a vertex with the same values for the
-      // given label and property.
-      auto it = acc.find_equal_or_greater(*values);
-      if (it != acc.end() && it->values == *values) {
-        violation_found = true;
-        break;
-      }
-
-      acc.insert(Entry{std::move(*values), &vertex, 0});
+  auto is_vertex_constraint_violated = [&constraint_accessor, &label, &properties](const Vertex &vertex) {
+    if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+      return false;
     }
-  }
+    auto values = vertex.properties.ExtractPropertyValues(properties);
+    if (!values) {
+      return false;
+    }
+
+    // Check whether there already is a vertex with the same values for the
+    // given label and property.
+    auto it = constraint_accessor.find_equal_or_greater(*values);
+    if (it != constraint_accessor.end() && it->values == *values) {
+      return true;
+    }
+
+    constraint_accessor.insert(Entry{std::move(*values), &vertex, 0});
+    return false;
+  };
+
+  auto is_constraint_valid_single_thread = [&vertex_accessor, &is_vertex_constraint_violated]() -> bool {
+    return ValidateConstraintSingleThread(vertex_accessor, is_vertex_constraint_violated);
+  };
+
+  auto is_constraint_valid_multi_thread = [&vertex_accessor, &is_vertex_constraint_violated, &par_exec_info]() -> bool {
+    return ValidateConstraintMultipleThreads(vertex_accessor, is_vertex_constraint_violated, *par_exec_info);
+  };
+
+  bool violation_found =
+      !par_exec_info ? std::invoke(is_constraint_valid_single_thread) : std::invoke(is_constraint_valid_multi_thread);
 
   if (violation_found) {
     // In the case of the violation, storage for the current constraint has to

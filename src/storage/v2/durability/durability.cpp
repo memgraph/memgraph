@@ -213,7 +213,8 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   spdlog::info("Recreating {} unique constraints from metadata.", indices_constraints.constraints.unique.size());
   for (const auto &item : indices_constraints.constraints.unique) {
     auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
-    auto ret = mem_unique_constraints->CreateConstraint(item.first, item.second, vertices->access());
+    auto ret =
+        mem_unique_constraints->CreateConstraint(item.first, item.second, vertices->access(), parallel_exec_info);
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
 
