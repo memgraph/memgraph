@@ -383,7 +383,7 @@ bool TypedValue::ContainsDeleted() const {
     case Type::Vertex:
       return vertex_v.impl_.vertex_->deleted;
     case Type::Edge:
-      if (!edge_v.impl_.edge_.ptr) {
+      if (!edge_v.impl_.storage_->config_.items.properties_on_edges) {
         return false;
       }
       return edge_v.impl_.edge_.ptr->deleted;

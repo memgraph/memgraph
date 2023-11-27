@@ -323,7 +323,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
 bool IsDeleted(const mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex_->deleted; }
 
 bool IsDeleted(const mgp_edge *edge) {
-  if (!edge->impl.impl_.edge_.ptr) {
+  if (!edge->impl.impl_.storage_->config_.items.properties_on_edges) {
     return false;
   }
   return edge->impl.impl_.edge_.ptr->deleted;
