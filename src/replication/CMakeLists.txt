@@ -6,8 +6,10 @@ target_sources(mg-replication
         include/replication/epoch.hpp
         include/replication/config.hpp
         include/replication/mode.hpp
+        include/replication/messages.hpp
         include/replication/role.hpp
         include/replication/status.hpp
+        include/replication/replication_client.hpp
         include/replication/replication_server.hpp
 
         PRIVATE
@@ -15,6 +17,8 @@ target_sources(mg-replication
         epoch.cpp
         config.cpp
         status.cpp
+        messages.cpp
+        replication_client.cpp
         replication_server.cpp
 )
 target_include_directories(mg-replication PUBLIC include)

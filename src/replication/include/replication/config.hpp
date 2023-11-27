@@ -34,8 +34,8 @@ struct ReplicationClientConfig {
   std::chrono::seconds replica_check_frequency{1};
 
   struct SSL {
-    std::string key_file = "";
-    std::string cert_file = "";
+    std::string key_file;
+    std::string cert_file;
 
     friend bool operator==(const SSL &, const SSL &) = default;
   };

@@ -826,8 +826,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       throw QueryRuntimeException("'coalesce' requires at least one argument.");
     }
 
-    for (int64_t i = 0; i < exprs.size(); ++i) {
-      TypedValue val(exprs[i]->Accept(*this), ctx_->memory);
+    for (auto &expr : exprs) {
+      TypedValue val(expr->Accept(*this), ctx_->memory);
       if (!val.IsNull()) {
         return val;
       }

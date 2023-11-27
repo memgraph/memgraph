@@ -47,9 +47,9 @@ struct CachedValue {
     if (!maybe_list.IsList()) {
       return false;
     }
-    auto &list = maybe_list.ValueList();
+    const auto &list = maybe_list.ValueList();
     TypedValue::Hash hash{};
-    for (auto &element : list) {
+    for (const auto &element : list) {
       const auto key = hash(element);
       auto &vector_values = cache_[key];
       if (!IsValueInVec(vector_values, element)) {

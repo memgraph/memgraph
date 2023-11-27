@@ -13,6 +13,7 @@
 
 #include <limits>
 #include <queue>
+#include <utility>
 
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
@@ -216,7 +217,7 @@ CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Ma
   std::vector<VaryMatchingStart> variants;
   variants.reserve(matchings.size());
   for (const auto &matching : matchings) {
-    variants.emplace_back(VaryMatchingStart(matching, symbol_table));
+    variants.emplace_back(matching, symbol_table);
   }
   return MakeCartesianProduct(std::move(variants));
 }
@@ -247,8 +248,7 @@ VaryQueryPartMatching::VaryQueryPartMatching(SingleQueryPart query_part, const S
       merge_matchings_(VaryMultiMatchingStarts(query_part_.merge_matching, symbol_table)),
       filter_matchings_(VaryFilterMatchingStarts(query_part_.matching, symbol_table)) {}
 
-VaryQueryPartMatching::iterator::iterator(const SingleQueryPart &query_part,
-                                          VaryMatchingStart::iterator matchings_begin,
+VaryQueryPartMatching::iterator::iterator(SingleQueryPart query_part, VaryMatchingStart::iterator matchings_begin,
                                           VaryMatchingStart::iterator matchings_end,
                                           CartesianProduct<VaryMatchingStart>::iterator optional_begin,
                                           CartesianProduct<VaryMatchingStart>::iterator optional_end,
@@ -256,18 +256,18 @@ VaryQueryPartMatching::iterator::iterator(const SingleQueryPart &query_part,
                                           CartesianProduct<VaryMatchingStart>::iterator merge_end,
                                           CartesianProduct<VaryMatchingStart>::iterator filter_begin,
                                           CartesianProduct<VaryMatchingStart>::iterator filter_end)
-    : current_query_part_(query_part),
-      matchings_it_(matchings_begin),
-      matchings_end_(matchings_end),
+    : current_query_part_(std::move(query_part)),
+      matchings_it_(std::move(matchings_begin)),
+      matchings_end_(std::move(matchings_end)),
       optional_it_(optional_begin),
       optional_begin_(optional_begin),
-      optional_end_(optional_end),
+      optional_end_(std::move(optional_end)),
       merge_it_(merge_begin),
       merge_begin_(merge_begin),
-      merge_end_(merge_end),
+      merge_end_(std::move(merge_end)),
       filter_it_(filter_begin),
       filter_begin_(filter_begin),
-      filter_end_(filter_end) {
+      filter_end_(std::move(filter_end)) {
   if (matchings_it_ != matchings_end_) {
     // Fill the query part with the first variation of matchings
     SetCurrentQueryPart();

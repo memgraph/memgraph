@@ -57,6 +57,6 @@ int main(int argc, char **argv) {
 
   MG_ASSERT(client->Execute("CALL libglobal_memory_limit_proc.success() YIELD *"));
   auto result2 = client->FetchAll();
-  MG_ASSERT(result2 != std::nullopt && result2->size() > 0);
+  MG_ASSERT(result2 != std::nullopt && !result2->empty());
   return 0;
 }

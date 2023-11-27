@@ -49,7 +49,7 @@ class QueryCostEstimator : public ::testing::Test {
   Parameters parameters_;
   int symbol_count = 0;
 
-  void SetUp() {
+  void SetUp() override {
     {
       auto unique_acc = db->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
@@ -131,7 +131,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelCardinality) {
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
   AddVertices(100, 30, 20);
-  for (auto const_val : {Literal(12), Parameter(12)}) {
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
     MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property, "property", const_val);
     EXPECT_COST(1 * CostParam::MakeScanAllByLabelPropertyValue);
   }
@@ -139,7 +139,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstExpr) {
   AddVertices(100, 30, 20);
-  for (auto const_val : {Literal(12), Parameter(12)}) {
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
     MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property, "property",
                                         // once we make expression const-folding this test case will fail
                                         storage_.Create<UnaryPlusOperator>(const_val));
@@ -149,7 +149,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstExpr) {
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeUpperConstant) {
   AddVertices(100, 30, 20);
-  for (auto const_val : {Literal(12), Parameter(12)}) {
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", nullopt,
                                         InclusiveBound(const_val));
     // cardinality estimation is exact for very small indexes
@@ -159,7 +159,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeUpperConstant) {
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeLowerConstant) {
   AddVertices(100, 30, 20);
-  for (auto const_val : {Literal(17), Parameter(17)}) {
+  for (auto *const_val : {Literal(17), Parameter(17)}) {
     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", InclusiveBound(const_val),
                                         nullopt);
     // cardinality estimation is exact for very small indexes
@@ -169,7 +169,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeLowerConstant) {
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
   AddVertices(100, 30, 20);
-  for (auto const_val : {Literal(12), Parameter(12)}) {
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
     auto bound = std::make_optional(
         memgraph::utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", bound, nullopt);

@@ -58,7 +58,7 @@ class Base {
   ParsingContext context_;
   Parameters parameters_;
 
-  virtual ~Base() {}
+  virtual ~Base() = default;
 
   virtual Query *ParseQuery(const std::string &query_string) = 0;
 
@@ -199,8 +199,8 @@ class CachedAstGenerator : public Base {
 
 class MockModule : public procedure::Module {
  public:
-  MockModule(){};
-  ~MockModule() override{};
+  MockModule() = default;
+  ~MockModule() override = default;
   MockModule(const MockModule &) = delete;
   MockModule(MockModule &&) = delete;
   MockModule &operator=(const MockModule &) = delete;
