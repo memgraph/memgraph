@@ -107,7 +107,6 @@ class ExistenceConstraints {
                                                            constraint_violation_check);
     }
     return ValidateVerticesOnConstraintOnSingleThread(vertices, label, property, constraint_violation_check);
-    return std::nullopt;
   }
 
   bool ConstraintExists(LabelId label, PropertyId property) const;
