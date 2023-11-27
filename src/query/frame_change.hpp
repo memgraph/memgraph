@@ -28,7 +28,7 @@ struct CachedValue {
 
   explicit CachedValue(utils::MemoryResource *mem) : cache_{mem} {};
   CachedValue(const CachedValue &other, utils::MemoryResource *mem) : cache_(other.cache_, mem) {}
-  CachedValue(CachedValue &&other, utils::MemoryResource *mem) : cache_(other.cache_, mem){};
+  CachedValue(CachedValue &&other, utils::MemoryResource *mem) : cache_(std::move(other.cache_), mem){};
 
   CachedValue(CachedValue &&other) noexcept : CachedValue(std::move(other), other.GetMemoryResource()) {}
 
