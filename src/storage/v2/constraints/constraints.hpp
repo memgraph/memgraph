@@ -29,7 +29,7 @@ struct Constraints {
   Constraints &operator=(Constraints &&) = delete;
   ~Constraints() = default;
 
-  void AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp);
+  void AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp) const;
 
   std::unique_ptr<ExistenceConstraints> existence_constraints_;
   std::unique_ptr<UniqueConstraints> unique_constraints_;

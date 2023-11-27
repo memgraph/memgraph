@@ -462,7 +462,7 @@ void InMemoryLabelPropertyIndex::AbortEntries(PropertyId property,
   if (it == indices_by_property_.end()) return;
 
   auto &indices = it->second;
-  for (auto &[_, index] : indices) {
+  for (const auto &[_, index] : indices) {
     auto index_acc = index->access();
     for (auto const &[value, vertex] : vertices) {
       index_acc.remove(Entry{value, vertex, exact_start_timestamp});
@@ -479,7 +479,7 @@ void InMemoryLabelPropertyIndex::AbortEntries(LabelId label,
     }
 
     auto index_acc = storage.access();
-    for (auto &[property, vertex] : vertices) {
+    for (const auto &[property, vertex] : vertices) {
       if (!property.IsNull()) {
         index_acc.remove(Entry{property, vertex, exact_start_timestamp});
       }

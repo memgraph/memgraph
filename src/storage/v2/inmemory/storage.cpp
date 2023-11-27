@@ -887,7 +887,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     storage_->constraints_.AbortEntries(vertices_to_check_v, transaction_.start_timestamp);
   }
 
-  auto index_stats = storage_->indices_.Analysis();
+  const auto index_stats = storage_->indices_.Analysis();
 
   for (const auto &delta : transaction_.deltas.use()) {
     auto prev = delta.prev.Get();

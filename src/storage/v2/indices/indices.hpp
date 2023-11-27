@@ -37,17 +37,17 @@ struct Indices {
 
   /// Surgical removal of entries that was inserted this transaction
   /// TODO: unused in disk indices
-  void AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp);
+  void AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp) const;
   void AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                    uint64_t exact_start_timestamp);
+                    uint64_t exact_start_timestamp) const;
   void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                    uint64_t exact_start_timestamp);
+                    uint64_t exact_start_timestamp) const;
 
-  struct Something {
+  struct IndexStats {
     std::vector<LabelId> label;
-    LabelPropertyIndex::Something property_label;
+    LabelPropertyIndex::IndexStats property_label;
   };
-  Something Analysis();
+  IndexStats Analysis() const;
 
   // Indices are updated whenever an update occurs, instead of only on commit or
   // advance command. This is necessary because we want indices to support `NEW`

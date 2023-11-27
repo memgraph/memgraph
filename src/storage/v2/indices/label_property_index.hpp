@@ -19,7 +19,7 @@ namespace memgraph::storage {
 
 class LabelPropertyIndex {
  public:
-  struct Something {
+  struct IndexStats {
     std::map<LabelId, std::vector<PropertyId>> l2p;
     std::map<PropertyId, std::vector<LabelId>> p2l;
   };

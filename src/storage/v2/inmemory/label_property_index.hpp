@@ -70,8 +70,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                     uint64_t exact_start_timestamp);
 
-  Something Analysis() {
-    Something res{};
+  IndexStats Analysis() const {
+    IndexStats res{};
     for (const auto &[lp, _] : index_) {
       const auto &[label, property] = lp;
       res.l2p[label].emplace_back(property);

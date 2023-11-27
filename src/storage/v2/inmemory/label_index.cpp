@@ -217,7 +217,7 @@ bool InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
   return false;
 }
 
-std::vector<LabelId> InMemoryLabelIndex::Analysis() {
+std::vector<LabelId> InMemoryLabelIndex::Analysis() const {
   std::vector<LabelId> res;
   res.reserve(index_.size());
   for (const auto &[label, _] : index_) {

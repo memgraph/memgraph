@@ -17,17 +17,17 @@
 
 namespace memgraph::storage {
 
-void Indices::AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp) {
+void Indices::AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp) const {
   static_cast<InMemoryLabelIndex *>(label_index_.get())->AbortEntries(labelId, vertices, exact_start_timestamp);
 }
 
 void Indices::AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                           uint64_t exact_start_timestamp) {
+                           uint64_t exact_start_timestamp) const {
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->AbortEntries(property, vertices, exact_start_timestamp);
 }
 void Indices::AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                           uint64_t exact_start_timestamp) {
+                           uint64_t exact_start_timestamp) const {
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->AbortEntries(label, vertices, exact_start_timestamp);
 }
@@ -65,7 +65,7 @@ Indices::Indices(const Config &config, StorageMode storage_mode) {
   });
 }
 
-Indices::Something Indices::Analysis() {
+Indices::IndexStats Indices::Analysis() const {
   return {static_cast<InMemoryLabelIndex *>(label_index_.get())->Analysis(),
           static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->Analysis()};
 }

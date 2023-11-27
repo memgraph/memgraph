@@ -30,7 +30,7 @@ Constraints::Constraints(const Config &config, StorageMode storage_mode) {
   });
 }
 
-void Constraints::AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp) {
+void Constraints::AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp) const {
   static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->AbortEntries(vertices, exact_start_timestamp);
 }
 }  // namespace memgraph::storage

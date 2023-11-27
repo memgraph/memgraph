@@ -61,7 +61,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
   /// Surgical removal of entries that was inserted this transaction
   void AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp);
 
-  std::vector<LabelId> Analysis();
+  std::vector<LabelId> Analysis() const;
 
   class Iterable {
    public:
