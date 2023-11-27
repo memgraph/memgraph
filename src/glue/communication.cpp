@@ -127,6 +127,8 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       return Value(value.ValueLocalDateTime());
     case query::TypedValue::Type::Duration:
       return Value(value.ValueDuration());
+    case query::TypedValue::Type::Function:
+      throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");
     case query::TypedValue::Type::Graph:
       auto maybe_graph = ToBoltGraph(value.ValueGraph(), db, view);
       if (maybe_graph.HasError()) return maybe_graph.GetError();
