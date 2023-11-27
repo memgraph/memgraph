@@ -401,4 +401,28 @@ Feature: Aggregations
             MATCH p=()-[:Z]->() WITH project(p) as graph WITH graph.edges as edges UNWIND edges as e RETURN e.prop as y ORDER BY y DESC
             """
         Then the result should be:
-            | y |
+          | y |
+
+    Scenario: Empty collect aggregation:
+      Given an empty graph
+      And having executed
+          """
+          CREATE (s:Subnet {ip: "192.168.0.1"})
+          """
+      When executing query:
+      """
+      MATCH (subnet:Subnet) WHERE FALSE WITH subnet, collect(subnet.ip) as ips RETURN id(subnet) as id
+      """
+      Then the result should be empty
+
+    Scenario: Empty count aggregation:
+      Given an empty graph
+      And having executed
+          """
+          CREATE (s:Subnet {ip: "192.168.0.1"})
+          """
+      When executing query:
+      """
+      MATCH (subnet:Subnet) WHERE FALSE WITH subnet, count(subnet.ip) as ips RETURN id(subnet) as id
+      """
+      Then the result should be empty

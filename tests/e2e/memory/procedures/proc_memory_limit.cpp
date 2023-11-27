@@ -75,6 +75,9 @@ void Alloc_32_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
     }};
 
     const enum mgp_error alloc_err = Alloc_32(memory, ptr);
+    if (alloc_err != mgp_error::MGP_ERROR_NO_ERROR) {
+      record_factory.SetErrorMessage("Unable to allocate");
+    }
     auto new_record = record_factory.NewRecord();
     new_record.Insert("allocated", alloc_err != mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE);
   } catch (std::exception &e) {

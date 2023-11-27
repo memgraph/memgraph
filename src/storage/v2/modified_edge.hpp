@@ -34,8 +34,7 @@ struct ModifiedEdgeInfo {
   EdgeRef edge_ref;
 };
 
-static_assert(std::is_trivially_copyable<ModifiedEdgeInfo>::value,
-              "storage::ModifiedEdgeInfo must be trivially copyable!");
+static_assert(std::is_trivially_copyable_v<ModifiedEdgeInfo>, "storage::ModifiedEdgeInfo must be trivially copyable!");
 
 using ModifiedEdgesMap = std::unordered_map<Gid, ModifiedEdgeInfo>;
 

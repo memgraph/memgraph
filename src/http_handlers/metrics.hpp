@@ -23,7 +23,6 @@
 #include <utils/event_counter.hpp>
 #include <utils/event_gauge.hpp>
 #include "storage/v2/storage.hpp"
-#include "utils/event_gauge.hpp"
 #include "utils/event_histogram.hpp"
 
 namespace memgraph::http {
