@@ -65,7 +65,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::Accessor vertices_accessor,
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
              LabelId label, View view, Storage *storage, Transaction *transaction);
 
     class Iterator {
@@ -92,7 +92,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
-    utils::SkipList<Vertex>::Accessor pin_accessor_;
+    utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
     utils::SkipList<Entry>::Accessor index_accessor_;
     LabelId label_;
     View view_;
@@ -105,6 +105,9 @@ class InMemoryLabelIndex : public storage::LabelIndex {
   void RunGC();
 
   Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction);
+
+  Iterable Vertices(LabelId label, memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
+                    View view, Storage *storage, Transaction *transaction);
 
   void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats);
 

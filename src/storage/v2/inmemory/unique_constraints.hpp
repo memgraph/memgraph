@@ -12,6 +12,7 @@
 #pragma once
 
 #include <span>
+
 #include "storage/v2/constraints/unique_constraints.hpp"
 
 namespace memgraph::storage {

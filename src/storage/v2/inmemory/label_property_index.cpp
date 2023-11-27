@@ -13,6 +13,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::storage {
 
@@ -223,7 +224,7 @@ const PropertyValue kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 
 InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                               utils::SkipList<Vertex>::Accessor vertices_accessor, LabelId label,
+                                               utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
                                                PropertyId property,
                                                const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
@@ -432,7 +433,22 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
-  auto vertices_acc = static_cast<InMemoryStorage *>(storage)->vertices_.access();
+  DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
+                 storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
+             "PropertyLabel index trying to access InMemory vertices from OnDisk!");
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
+  auto it = index_.find({label, property});
+  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+  return {it->second.access(), std::move(vertices_acc), label, property, lower_bound, upper_bound, view, storage,
+          transaction};
+}
+
+InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
+    LabelId label, PropertyId property,
+    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    Transaction *transaction) {
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
   return {it->second.access(), std::move(vertices_acc), label, property, lower_bound, upper_bound, view, storage,

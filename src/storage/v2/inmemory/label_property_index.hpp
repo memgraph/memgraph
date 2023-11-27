@@ -12,6 +12,7 @@
 #pragma once
 
 #include <span>
+
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
@@ -81,7 +82,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::Accessor vertices_accessor,
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
              LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
              Transaction *transaction);
@@ -110,7 +111,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Iterator end();
 
    private:
-    utils::SkipList<Vertex>::Accessor pin_accessor_;
+    utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
     utils::SkipList<Entry>::Accessor index_accessor_;
     LabelId label_;
     PropertyId property_;
@@ -147,6 +148,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void RunGC();
 
   Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+                    Transaction *transaction);
+
+  Iterable Vertices(LabelId label, PropertyId property,
+                    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
+                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                     Transaction *transaction);
 

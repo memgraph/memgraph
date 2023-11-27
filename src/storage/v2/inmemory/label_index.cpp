@@ -10,7 +10,9 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/label_index.hpp"
+
 #include <span>
+
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -111,8 +113,8 @@ void InMemoryLabelIndex::AbortEntries(LabelId labelId, std::span<Vertex *const> 
 }
 
 InMemoryLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                       utils::SkipList<Vertex>::Accessor vertices_accessor, LabelId label, View view,
-                                       Storage *storage, Transaction *transaction)
+                                       utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
+                                       View view, Storage *storage, Transaction *transaction)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -163,7 +165,18 @@ void InMemoryLabelIndex::RunGC() {
 
 InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(LabelId label, View view, Storage *storage,
                                                           Transaction *transaction) {
-  auto vertices_acc = static_cast<InMemoryStorage *>(storage)->vertices_.access();
+  DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
+                 storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
+             "LabelIndex trying to access InMemory vertices from OnDisk!");
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
+  const auto it = index_.find(label);
+  MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
+  return {it->second.access(), std::move(vertices_acc), label, view, storage, transaction};
+}
+
+InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(
+    LabelId label, memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
+    Storage *storage, Transaction *transaction) {
   const auto it = index_.find(label);
   MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
   return {it->second.access(), std::move(vertices_acc), label, view, storage, transaction};
