@@ -16,6 +16,7 @@
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/metadata_delta.hpp"
 
@@ -26,6 +27,31 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
+
+namespace {
+
+memgraph::storage::EdgeDirection ApproximateSmallerDegree(memgraph::storage::Vertex *from_vertex,
+                                                          memgraph::storage::Vertex *to_vertex) {
+  // Obtain the locks by `gid` order to avoid lock cycles.
+  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
+  if (from_vertex->gid < to_vertex->gid) {
+    guard_from.lock();
+    guard_to.lock();
+  } else if (from_vertex->gid > to_vertex->gid) {
+    guard_to.lock();
+    guard_from.lock();
+  } else {
+    // The vertices are the same vertex, only lock one.
+    guard_from.lock();
+  }
+
+  const auto out_n = from_vertex->out_edges.size();
+  const auto in_n = to_vertex->in_edges.size();
+  return (out_n <= in_n) ? memgraph::storage::EdgeDirection::OUT : memgraph::storage::EdgeDirection::IN;
+}
+
+};  // namespace
 
 namespace memgraph::storage {
 
@@ -322,7 +348,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, const View view, EdgeTypeId edge_type,
                                                                         VertexAccessor *from_vertex,
                                                                         VertexAccessor *to_vertex) {
-  auto res = from_vertex->OutEdges(view, {edge_type}, to_vertex);
+  const auto cheaper_direction = ApproximateSmallerDegree(from_vertex->vertex_, to_vertex->vertex_);
+  const auto res = (cheaper_direction == EdgeDirection::OUT) ? from_vertex->OutEdges(view, {edge_type}, to_vertex)
+                                                             : to_vertex->InEdges(view, {edge_type}, from_vertex);
   if (res.HasError()) return std::nullopt;  // TODO: use a Result type
 
   auto const it = std::invoke([this, gid, &res]() {
@@ -719,7 +747,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       could_replicate_all_sync_replicas =
           mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);  // protected by engine_guard
       // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
-      transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);  // protected by engine_guard
+      transaction_.commit_timestamp->store(*commit_timestamp_,
+                                           std::memory_order_release);  // protected by engine_guard
       // Replica can only update the last commit timestamp with
       // the commits received from main.
       if (is_main || desired_commit_timestamp.has_value()) {
@@ -851,7 +880,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
   // CONSTRAINTS
   if (transaction_.constraint_verification_info.NeedsUniqueConstraintVerification()) {
-    // Need to remove elements from constraints before handling of the deltas, so the elements match the correct values
+    // Need to remove elements from constraints before handling of the deltas, so the elements match the correct
+    // values
     auto vertices_to_check = transaction_.constraint_verification_info.GetVerticesForUniqueConstraintChecking();
     auto vertices_to_check_v = std::vector<Vertex const *>{vertices_to_check.begin(), vertices_to_check.end()};
     storage_->constraints_.AbortEntries(vertices_to_check_v, transaction_.start_timestamp);
@@ -878,8 +908,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               // For label index
               //  check if there is a label index for the label and add entry if so
               // For property label index
-              //  check if we care about the label; this will return all the propertyIds we care about and then get the
-              //  current property value
+              //  check if we care about the label; this will return all the propertyIds we care about and then get
+              //  the current property value
               if (std::binary_search(index_stats.label.begin(), index_stats.label.end(), current->label)) {
                 label_cleanup[current->label].emplace_back(vertex);
               }
