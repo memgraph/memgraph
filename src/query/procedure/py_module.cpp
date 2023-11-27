@@ -927,6 +927,13 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     }
   }
   std::vector<RecordFieldCache> current_record_cache{};
+
+  utils::OnScopeExit clear_record_cache{[&current_record_cache] {
+    for (auto &record : current_record_cache) {
+      mgp_value_destroy(record.field_val);
+    }
+  }};
+
   Py_ssize_t len = PyList_GET_SIZE(items.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
     auto *item = PyList_GET_ITEM(items.Ptr(), i);

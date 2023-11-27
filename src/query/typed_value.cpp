@@ -384,7 +384,7 @@ bool TypedValue::ContainsDeleted() const {
       return vertex_v.impl_.vertex_->deleted;
     case Type::Edge:
       if (!edge_v.impl_.edge_.ptr) {
-        return edge_v.impl_.edge_.deleted;
+        return false;
       }
       return edge_v.impl_.edge_.ptr->deleted;
     case Type::Path:
