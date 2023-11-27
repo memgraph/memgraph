@@ -849,6 +849,14 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   std::map<LabelId, std::vector<std::pair<PropertyValue, Vertex *>>> label_property_cleanup;
   std::map<PropertyId, std::vector<std::pair<PropertyValue, Vertex *>>> property_cleanup;
 
+  // CONSTRAINTS
+  if (transaction_.constraint_verification_info.NeedsUniqueConstraintVerification()) {
+    // Need to remove elements from constraints before handling of the deltas, so the elements match the correct values
+    auto vertices_to_check = transaction_.constraint_verification_info.GetVerticesForUniqueConstraintChecking();
+    auto vertices_to_check_v = std::vector<Vertex const *>{vertices_to_check.begin(), vertices_to_check.end()};
+    storage_->constraints_.AbortEntries(vertices_to_check_v, transaction_.start_timestamp);
+  }
+
   auto index_stats = storage_->indices_.Analysis();
 
   for (const auto &delta : transaction_.deltas.use()) {
@@ -1039,35 +1047,33 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     /// this is because they point into vertices skip_list
     /// hence we need to grab access to vertices now to prevent deletion during any
     /// iteration of the index/constraints
-    auto vertices_acc = mem_storage->vertices_.access();  // TODO Is this true? IMPORTANT: read above comment
 
-    // TODO: constraints??
-
-    for (auto const &[labelId, vertices] : label_cleanup) {
-      storage_->indices_.AbortEntries(labelId, vertices, transaction_.start_timestamp);
-    }
-    for (auto const &[label, vertices] : label_property_cleanup) {
+    // INDICES
+    for (auto const &[label, vertices] : label_cleanup) {
       storage_->indices_.AbortEntries(label, vertices, transaction_.start_timestamp);
     }
-    for (auto const &[property, vertices] : property_cleanup) {
-      storage_->indices_.AbortEntries(property, vertices, transaction_.start_timestamp);
+    for (auto const &[label, prop_vertices] : label_property_cleanup) {
+      storage_->indices_.AbortEntries(label, prop_vertices, transaction_.start_timestamp);
+    }
+    for (auto const &[property, prop_vertices] : property_cleanup) {
+      storage_->indices_.AbortEntries(property, prop_vertices, transaction_.start_timestamp);
     }
 
-    for (auto gid : my_deleted_vertices) {
-      vertices_acc.remove(gid);
+    // VERTICES
+    {
+      auto vertices_acc = mem_storage->vertices_.access();
+      for (auto gid : my_deleted_vertices) {
+        vertices_acc.remove(gid);
+      }
     }
 
+    // EDGES
     {
       auto edges_acc = mem_storage->edges_.access();
       for (auto gid : my_deleted_edges) {
         edges_acc.remove(gid);
       }
     }
-
-    // mem_storage->deleted_vertices_.WithLock(
-    // [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
-    // mem_storage->deleted_edges_.WithLock(
-    // [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.begin(), my_deleted_edges); });
   }
 
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
