@@ -188,6 +188,8 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   spdlog::info("Indices are recreated.");
 
   spdlog::info("Recreating constraints from metadata.");
+
+  // TODO: Parallelize - pretty easy seems to do
   // Recover existence constraints.
   spdlog::info("Recreating {} existence constraints from metadata.", indices_constraints.constraints.existence.size());
   for (const auto &[label, property] : indices_constraints.constraints.existence) {
@@ -195,7 +197,8 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
       throw RecoveryFailure("The existence constraint already exists!");
     }
 
-    if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property);
+    if (auto violation =
+            ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property, parallel_exec_info);
         violation.has_value()) {
       throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
     }
