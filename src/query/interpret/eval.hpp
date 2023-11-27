@@ -18,6 +18,7 @@
 #include <map>
 #include <optional>
 #include <regex>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -905,12 +906,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(Exists &exists) override {
     TypedValue &frame_exists_value = frame_->at(symbol_table_->at(exists));
-    if (frame_exists_value.IsFunction()) [[likely]] {
-      TypedValue result{ctx_->memory};
-      frame_exists_value.ValueFunction()(&result);
-      return result;
+    if (!frame_exists_value.IsFunction()) [[unlikely]] {
+      throw QueryRuntimeException("Exists expected a function, got {}", frame_exists_value.type());
     }
-    return TypedValue{frame_exists_value, ctx_->memory};
+    TypedValue result{ctx_->memory};
+    frame_exists_value.ValueFunction()(&result);
+    return result;
   }
 
   TypedValue Visit(All &all) override {

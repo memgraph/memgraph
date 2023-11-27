@@ -531,16 +531,11 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
   // so if any of the AND filters before
   // evaluate to false we don't need to
   // evaluate pattern ( exists() ) filter
-  auto split =
-      std::partition(and_joinable_filters.begin(), and_joinable_filters.end(),
-                     [](const FilterInfo &filter_info) { return filter_info.type != FilterInfo::Type::Pattern; });
-  for (auto it = and_joinable_filters.begin(); it != split; ++it) {
-    filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, it->expression);
+  std::partition(and_joinable_filters.begin(), and_joinable_filters.end(),
+                 [](const FilterInfo &filter_info) { return filter_info.type != FilterInfo::Type::Pattern; });
+  for (auto &and_joinable_filter : and_joinable_filters) {
+    filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, and_joinable_filter.expression);
   }
-  for (; split != and_joinable_filters.end(); ++split) {
-    filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, split->expression);
-  }
-
   return filter_expr;
 }
 
