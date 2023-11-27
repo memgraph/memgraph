@@ -14,11 +14,13 @@
 #include <climits>
 #include <utility>
 
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/preprocess.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
 
@@ -196,6 +198,29 @@ class ExpectFilter : public OpChecker<Filter> {
       PlanChecker check_updates(pattern_filters_[i], symbol_table);
 
       filter.pattern_filters_[i]->Accept(check_updates);
+    }
+    // ordering in AND Operator must be ..., exists, exists, exists.
+    auto *expr = filter.expression_;
+    std::vector<Expression *> filter_expressions;
+    while (auto *and_operator = utils::Downcast<AndOperator>(expr)) {
+      auto *expr1 = and_operator->expression1_;
+      auto *expr2 = and_operator->expression2_;
+      filter_expressions.emplace_back(expr1);
+      expr = expr2;
+    }
+    if (expr) filter_expressions.emplace_back(expr);
+
+    auto it = filter_expressions.begin();
+    for (; it != filter_expressions.end(); it++) {
+      if ((*it)->GetTypeInfo().name == query::Exists::kType.name) {
+        break;
+      }
+    }
+    while (it != filter_expressions.end()) {
+      ASSERT_TRUE((*it)->GetTypeInfo().name == query::Exists::kType.name)
+          << "Filter expression is '" << (*it)->GetTypeInfo().name << "' expected '" << query::Exists::kType.name
+          << "'!";
+      it++;
     }
   }
 
