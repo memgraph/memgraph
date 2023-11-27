@@ -908,7 +908,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     TypedValue &frame_exists_value = frame_->at(symbol_table_->at(exists));
     if (!frame_exists_value.IsFunction()) [[unlikely]] {
       throw QueryRuntimeException(
-          "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issue",
+          "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
           frame_exists_value.type());
     }
     TypedValue result{ctx_->memory};
