@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "query/config.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
@@ -98,8 +100,8 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:
   SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root, double cost, AstStorage storage,
-                        const SymbolTable &symbol_table)
-      : root_(std::move(root)), cost_(cost), storage_(std::move(storage)), symbol_table_(symbol_table) {}
+                        SymbolTable symbol_table)
+      : root_(std::move(root)), cost_(cost), storage_(std::move(storage)), symbol_table_(std::move(symbol_table)) {}
 
   const plan::LogicalOperator &GetRoot() const override { return *root_; }
   double GetCost() const override { return cost_; }

@@ -126,6 +126,12 @@ class InfoInMulticommandTxException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(InfoInMulticommandTxException)
 };
 
+class UserAlreadyExistsException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  SPECIALIZE_GET_EXCEPTION_NAME(UserAlreadyExistsException)
+};
+
 /**
  * An exception for an illegal operation that can not be detected
  * before the query starts executing over data.

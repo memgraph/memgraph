@@ -174,7 +174,7 @@ struct CurrentDB {
 
 class Interpreter final {
  public:
-  Interpreter(InterpreterContext *interpreter_context);
+  explicit Interpreter(InterpreterContext *interpreter_context);
   Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db);
   Interpreter(const Interpreter &) = delete;
   Interpreter &operator=(const Interpreter &) = delete;
