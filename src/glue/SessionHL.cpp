@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <optional>
+#include <utility>
 #include "gflags/gflags.h"
 
 #include "audit/log.hpp"
@@ -272,7 +273,7 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
 #endif
 }
 SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
-                     const memgraph::communication::v2::ServerEndpoint &endpoint,
+                     memgraph::communication::v2::ServerEndpoint endpoint,
                      memgraph::communication::v2::InputStream *input_stream,
                      memgraph::communication::v2::OutputStream *output_stream,
                      memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
@@ -289,7 +290,7 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
       audit_log_(audit_log),
 #endif
       auth_(auth),
-      endpoint_(endpoint),
+      endpoint_(std::move(endpoint)),
       implicit_db_(dbms::kDefaultDB) {
   // Metrics update
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);

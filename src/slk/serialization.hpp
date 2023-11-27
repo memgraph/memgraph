@@ -60,10 +60,10 @@ void Save(const std::vector<T> &obj, Builder *builder);
 template <typename T>
 void Load(std::vector<T> *obj, Reader *reader);
 
-template <typename T>
-void Save(const std::set<T> &obj, Builder *builder);
-template <typename T>
-void Load(std::set<T> *obj, Reader *reader);
+template <typename T, typename Cmp>
+void Save(const std::set<T, Cmp> &obj, Builder *builder);
+template <typename T, typename Cmp>
+void Load(std::set<T, Cmp> *obj, Reader *reader);
 
 template <typename K, typename V>
 void Save(const std::map<K, V> &obj, Builder *builder);
@@ -201,8 +201,8 @@ inline void Load(std::vector<T> *obj, Reader *reader) {
   }
 }
 
-template <typename T>
-inline void Save(const std::set<T> &obj, Builder *builder) {
+template <typename T, typename Cmp>
+inline void Save(const std::set<T, Cmp> &obj, Builder *builder) {
   uint64_t size = obj.size();
   Save(size, builder);
   for (const auto &item : obj) {
@@ -210,8 +210,8 @@ inline void Save(const std::set<T> &obj, Builder *builder) {
   }
 }
 
-template <typename T>
-inline void Load(std::set<T> *obj, Reader *reader) {
+template <typename T, typename Cmp>
+inline void Load(std::set<T, Cmp> *obj, Reader *reader) {
   uint64_t size = 0;
   Load(&size, reader);
   for (uint64_t i = 0; i < size; ++i) {
@@ -273,7 +273,7 @@ inline void Load(std::unique_ptr<T> *obj, Reader *reader) {
   // Prevent any loading which may potentially break class hierarchies.
   // Unfortunately, C++14 doesn't have (or I'm not aware of it) a trait for
   // checking whether some type has any derived or base classes.
-  static_assert(!std::is_polymorphic<T>::value,
+  static_assert(!std::is_polymorphic_v<T>,
                 "Only non polymorphic types can be loaded generically from a "
                 "pointer. Pass a custom load function as the 3rd argument.");
   bool exists = false;
@@ -379,7 +379,7 @@ inline void Load(std::shared_ptr<T> *obj, Reader *reader, std::vector<std::share
   // Prevent any loading which may potentially break class hierarchies.
   // Unfortunately, C++14 doesn't have (or I'm not aware of it) a trait for
   // checking whether some type has any derived or base classes.
-  static_assert(!std::is_polymorphic<T>::value,
+  static_assert(!std::is_polymorphic_v<T>,
                 "Only non polymorphic types can be loaded generically from a "
                 "pointer. Pass a custom load function as the 4th argument.");
   bool exists = false;

@@ -110,7 +110,7 @@ class EdgeAccessor final {
 
 }  // namespace memgraph::storage
 
-static_assert(std::is_trivially_copyable<memgraph::storage::EdgeAccessor>::value,
+static_assert(std::is_trivially_copyable_v<memgraph::storage::EdgeAccessor>,
               "storage::EdgeAccessor must be trivially copyable!");
 
 namespace std {

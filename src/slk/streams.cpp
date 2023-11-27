@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,12 +12,13 @@
 #include "slk/streams.hpp"
 
 #include <cstring>
+#include <utility>
 
 #include "utils/logging.hpp"
 
 namespace memgraph::slk {
 
-Builder::Builder(std::function<void(const uint8_t *, size_t, bool)> write_func) : write_func_(write_func) {}
+Builder::Builder(std::function<void(const uint8_t *, size_t, bool)> write_func) : write_func_(std::move(write_func)) {}
 
 void Builder::Save(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
@@ -29,7 +30,7 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
       to_write = kSegmentMaxDataSize - pos_;
     }
 
-    memcpy(segment_ + sizeof(SegmentSize) + pos_, data + offset, to_write);
+    memcpy(segment_.data() + sizeof(SegmentSize) + pos_, data + offset, to_write);
 
     size -= to_write;
     pos_ += to_write;
@@ -47,15 +48,15 @@ void Builder::FlushSegment(bool final_segment) {
   size_t total_size = sizeof(SegmentSize) + pos_;
 
   SegmentSize size = pos_;
-  memcpy(segment_, &size, sizeof(SegmentSize));
+  memcpy(segment_.data(), &size, sizeof(SegmentSize));
 
   if (final_segment) {
     SegmentSize footer = 0;
-    memcpy(segment_ + total_size, &footer, sizeof(SegmentSize));
+    memcpy(segment_.data() + total_size, &footer, sizeof(SegmentSize));
     total_size += sizeof(SegmentSize);
   }
 
-  write_func_(segment_, total_size, !final_segment);
+  write_func_(segment_.data(), total_size, !final_segment);
 
   pos_ = 0;
 }

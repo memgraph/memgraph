@@ -153,7 +153,7 @@ TEST_F(TestPrivilegeExtractor, DumpDatabase) {
 }
 
 TEST_F(TestPrivilegeExtractor, ReadFile) {
-  auto load_csv = storage.Create<LoadCsv>();
+  auto *load_csv = storage.Create<LoadCsv>();
   load_csv->row_var_ = IDENT("row");
   auto *query = QUERY(SINGLE_QUERY(load_csv));
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::READ_FILE));

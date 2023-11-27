@@ -21,7 +21,7 @@ namespace memgraph::rpc {
 /// This exception always requires explicit handling.
 class RpcFailedException : public utils::BasicException {
  public:
-  RpcFailedException(std::string_view msg) : utils::BasicException(msg) {}
+  explicit RpcFailedException(std::string_view msg) : utils::BasicException(msg) {}
   SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException);
 };
 
