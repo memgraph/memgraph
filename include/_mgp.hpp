@@ -236,6 +236,54 @@ inline mgp_type *type_nullable(mgp_type *type) { return MgInvoke<mgp_type *>(mgp
 
 // mgp_graph
 
+inline bool create_label_index(mgp_graph *graph, const char *label) {
+  return MgInvoke<int>(mgp_create_label_index, graph, label);
+}
+
+inline bool drop_label_index(mgp_graph *graph, const char *label) {
+  return MgInvoke<int>(mgp_drop_label_index, graph, label);
+}
+
+inline mgp_list *list_all_label_indices(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_label_indices, graph, memory);
+}
+
+inline bool create_label_property_index(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_create_label_property_index, graph, label, property);
+}
+
+inline bool drop_label_property_index(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_drop_label_property_index, graph, label, property);
+}
+
+inline mgp_list *list_all_label_property_indices(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_label_property_indices, graph, memory);
+}
+
+inline bool create_existence_constraint(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_create_existence_constraint, graph, label, property);
+}
+
+inline bool drop_existence_constraint(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_drop_existence_constraint, graph, label, property);
+}
+
+inline mgp_list *list_all_existence_constraints(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_existence_constraints, graph, memory);
+}
+
+inline bool create_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_value *properties) {
+  return MgInvoke<int>(mgp_create_unique_constraint, memgraph_graph, label, properties);
+}
+
+inline bool drop_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_value *properties) {
+  return MgInvoke<int>(mgp_drop_unique_constraint, memgraph_graph, label, properties);
+}
+
+inline mgp_list *list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_unique_constraints, graph, memory);
+}
+
 inline bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }
 
 inline mgp_vertex *graph_create_vertex(mgp_graph *graph, mgp_memory *memory) {

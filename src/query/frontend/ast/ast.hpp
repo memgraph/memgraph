@@ -23,9 +23,7 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/typeinfo.hpp"
 
-namespace memgraph {
-
-namespace query {
+namespace memgraph::query {
 
 struct LabelIx {
   static const utils::TypeInfo kType;
@@ -62,8 +60,8 @@ inline bool operator!=(const PropertyIx &a, const PropertyIx &b) { return !(a ==
 inline bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix == b.ix && a.name == b.name; }
 
 inline bool operator!=(const EdgeTypeIx &a, const EdgeTypeIx &b) { return !(a == b); }
-}  // namespace query
-}  // namespace memgraph
+}  // namespace memgraph::query
+
 namespace std {
 
 template <>
@@ -83,9 +81,7 @@ struct hash<memgraph::query::EdgeTypeIx> {
 
 }  // namespace std
 
-namespace memgraph {
-
-namespace query {
+namespace memgraph::query {
 
 class Tree;
 
@@ -3057,7 +3053,7 @@ class ReplicationQuery : public memgraph::query::Query {
 
   enum class SyncMode { SYNC, ASYNC };
 
-  enum class ReplicaState { READY, REPLICATING, RECOVERY, INVALID };
+  enum class ReplicaState { READY, REPLICATING, RECOVERY, MAYBE_BEHIND };
 
   ReplicationQuery() = default;
 
@@ -3605,5 +3601,4 @@ class ShowDatabasesQuery : public memgraph::query::Query {
   }
 };
 
-}  // namespace query
-}  // namespace memgraph
+}  // namespace memgraph::query

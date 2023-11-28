@@ -23,7 +23,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
                                                                       memgraph::communication::v2::OutputStream> {
  public:
   SessionHL(memgraph::query::InterpreterContext *interpreter_context,
-            const memgraph::communication::v2::ServerEndpoint &endpoint,
+            memgraph::communication::v2::ServerEndpoint endpoint,
             memgraph::communication::v2::InputStream *input_stream,
             memgraph::communication::v2::OutputStream *output_stream,
             memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
