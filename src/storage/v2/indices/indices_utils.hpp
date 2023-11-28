@@ -11,6 +11,7 @@
 
 #include <thread>
 #include "storage/v2/delta.hpp"
+#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
@@ -19,9 +20,6 @@
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
-
-using ParallelizedIndexCreationInfo =
-    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 /// Traverses deltas visible from transaction with start timestamp greater than
 /// the provided timestamp, and calls the provided callback function for each
@@ -259,7 +257,8 @@ inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertice
 template <typename TIndex, typename TIndexKey, typename TSKiplistIter, typename TFunc>
 inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, TSKiplistIter skiplist_iter,
                                          TIndex &index, TIndexKey key,
-                                         const ParallelizedIndexCreationInfo &parallel_exec_info, const TFunc &func) {
+                                         const durability::ParallelizedSchemaCreationInfo &parallel_exec_info,
+                                         const TFunc &func) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.first;

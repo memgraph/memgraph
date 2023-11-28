@@ -340,6 +340,8 @@ class InMemoryStorage final : public Storage {
 
   void SetStorageMode(StorageMode storage_mode);
 
+  const durability::Recovery &GetRecovery() const noexcept { return recovery_; }
+
  private:
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
@@ -392,10 +394,10 @@ class InMemoryStorage final : public Storage {
   utils::SkipList<storage::Edge> edges_;
 
   // Durability
-  std::filesystem::path snapshot_directory_;
+  durability::Recovery recovery_;
+
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
-  std::filesystem::path wal_directory_;
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;

@@ -33,6 +33,9 @@
 
 namespace memgraph::storage::durability {
 
+using ParallelizedSchemaCreationInfo =
+    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
+
 /// Verifies that the owner of the storage directory is the same user that
 /// started the current process. If the verification fails, the process is
 /// killed (`CHECK` failure).
@@ -94,27 +97,28 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
                                                           std::string_view uuid = "",
                                                           std::optional<size_t> current_seq_num = {});
 
-using ParallelizedIndexCreationInfo =
-    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
+struct Recovery {
+  // Helper function used to recover all discovered indices and constraints. The
+  // indices and constraints must be recovered after the data recovery is done
+  // to ensure that the indices and constraints are consistent at the end of the
+  // recovery process.
+  /// @throw RecoveryFailure
+  static void RecoverIndicesAndConstraints(
+      const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices, Constraints *constraints,
+      utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+      const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
 
-// Helper function used to recover all discovered indices and constraints. The
-// indices and constraints must be recovered after the data recovery is done
-// to ensure that the indices and constraints are consistent at the end of the
-// recovery process.
-/// @throw RecoveryFailure
-void RecoverIndicesAndConstraints(
-    const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices, Constraints *constraints,
-    utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-    const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info = std::nullopt);
+  /// Recovers data either from a snapshot and/or WAL files.
+  /// @throw RecoveryFailure
+  /// @throw std::bad_alloc
+  std::optional<RecoveryInfo> RecoverData(std::string *uuid, ReplicationStorageState &repl_storage_state,
+                                          utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                          std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
+                                          Indices *indices, Constraints *constraints, const Config &config,
+                                          uint64_t *wal_seq_num);
 
-/// Recovers data either from a snapshot and/or WAL files.
-/// @throw RecoveryFailure
-/// @throw std::bad_alloc
-std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
-                                        const std::filesystem::path &wal_directory, std::string *uuid,
-                                        ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, std::atomic<uint64_t> *edge_count,
-                                        NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints,
-                                        const Config &config, uint64_t *wal_seq_num);
+  const std::filesystem::path snapshot_directory_;
+  const std::filesystem::path wal_directory_;
+};
 
 }  // namespace memgraph::storage::durability

@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <gmock/gmock-generated-matchers.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
@@ -2695,6 +2696,50 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
 
   // Try to use the storage.
+  {
+    auto acc = db.storage()->Access();
+    auto vertex = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(edge.HasValue());
+    ASSERT_FALSE(acc->Commit().HasError());
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
+  // Create snapshot.
+  {
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true, .items_per_batch = 13}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
+    CreateExtendedDataset(db.storage());
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Recover snapshot.
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory,
+                                                  .recover_on_startup = true,
+                                                  .snapshot_on_exit = false,
+                                                  .items_per_batch = 13,
+                                                  .allow_parallel_index_creation = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+  const auto *in_memory_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+  const auto &recovery = in_memory_storage->GetRecovery();
+  // EXPECT_CALL(db, memgraph::dbms::Database(::testing::_,::testing::_));
+  // EXPECT_CALL(recovery, RecoverIndicesAndConstraints(::testing::_,::testing::_,::testing::_,::testing::_,
+  // ::testing::_, ::testing::_)); Try to use the storage.
   {
     auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();

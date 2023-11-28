@@ -12,16 +12,13 @@
 #pragma once
 
 #include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
-
-/// TODO: andi. Too many copies, extract at one place
-using ParallelizedIndexCreationInfo =
-    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
@@ -42,7 +39,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info);
+                   const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info);
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
