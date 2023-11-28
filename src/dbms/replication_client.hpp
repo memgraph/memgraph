@@ -10,10 +10,12 @@
 // licenses/APL.txt.
 
 #pragma once
-#include <cstdint>
 
-namespace memgraph::storage::replication {
+#include "dbms/dbms_handler.hpp"
+#include "replication/replication_client.hpp"
 
-enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, MAYBE_BEHIND };
+namespace memgraph::dbms {
 
-}  // namespace memgraph::storage::replication
+void StartReplicaClient(DbmsHandler &dbms_handler, replication::ReplicationClient &client);
+
+}  // namespace memgraph::dbms

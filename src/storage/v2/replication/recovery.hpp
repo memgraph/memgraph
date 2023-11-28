@@ -10,10 +10,19 @@
 // licenses/APL.txt.
 
 #pragma once
-#include <cstdint>
 
-namespace memgraph::storage::replication {
+#include <filesystem>
+#include <variant>
+#include <vector>
 
-enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, MAYBE_BEHIND };
+namespace memgraph::storage {
 
-}  // namespace memgraph::storage::replication
+using RecoverySnapshot = std::filesystem::path;
+using RecoveryWals = std::vector<std::filesystem::path>;
+struct RecoveryCurrentWal {
+  explicit RecoveryCurrentWal(const uint64_t current_wal_seq_num) : current_wal_seq_num(current_wal_seq_num) {}
+  uint64_t current_wal_seq_num;
+};
+using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
+
+}  // namespace memgraph::storage
