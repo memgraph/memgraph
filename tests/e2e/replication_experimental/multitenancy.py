@@ -116,5 +116,28 @@ def test_manual_databases_create_multitenacy_replication(connection):
     assert actual_data[0][0] == 1  # one relationship
 
 
+def test_automatic_databases_create_multitenacy_replication(connection):
+    # Goal: to show that replication can be established against REPLICA where a new databases
+    # needs replicating over
+    # 0/ Setup replication
+    # 0/ MAIN CREATE DATABASE A
+    # 1/ Validate database A on REPLICA
+    # 2/ Write to MAIN A
+    # 3/ Validate replication of changes to A have arrived at REPLICA
+
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    cursor = connection(7687, "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(cursor, "CREATE DATABASE A;")  # TODO we need to add this capability
+
+    # 2/
+    cursor_replica = connection(7688, "replica_1").cursor()
+    result = set(execute_and_fetch_all(cursor_replica, "SHOW DATABASES"))
+
+    # TODO: finish test
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

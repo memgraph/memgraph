@@ -3760,10 +3760,15 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       SetupDatabaseTransaction(could_commit, unique);
     }
 
-    // TODO: none database transaction (assuming mutually exclusive from DB transactions)
-    // if (!requires_db_transaction) {
-    //   /* something */
-    // }
+    // TODO: extend to other system write queries
+    bool requires_system_modification_transaction = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
+    auto system_unique = std::unique_lock{interpreter_context_->system_lock, std::defer_lock};
+    auto system_shared = std::shared_lock{interpreter_context_->system_lock, std::defer_lock};
+    if (!in_explicit_transaction_ && requires_system_modification_transaction) {
+      system_unique.lock();
+    } else {
+      system_shared.lock();
+    }
 
     utils::Timer planning_timer;
     PreparedQuery prepared_query;
@@ -3871,7 +3876,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     UpdateTypeCount(rw_type);
 
-    if (interpreter_context_->repl_state->IsReplica() && IsQueryWrite(rw_type)) {
+    if (interpreter_context_->dbms_handler->ReplicationState().IsReplica() && IsQueryWrite(rw_type)) {
       query_execution = nullptr;
       throw QueryException("Write query forbidden on the replica!");
     }
@@ -4100,8 +4105,8 @@ void Interpreter::Commit() {
 
   auto commit_confirmed_by_all_sync_repplicas = true;
 
-  auto maybe_commit_error =
-      current_db_.db_transactional_accessor_->Commit(std::nullopt, interpreter_context_->repl_state->IsMain());
+  auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit(
+      std::nullopt, interpreter_context_->dbms_handler->ReplicationState().IsMain());
   if (maybe_commit_error.HasError()) {
     const auto &error = maybe_commit_error.GetError();
 

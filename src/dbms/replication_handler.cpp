@@ -224,8 +224,15 @@ void RestoreReplication(replication::ReplicationState &repl_state, storage::Stor
     for (auto &instance_client : mainData.registered_replicas_) {
       spdlog::info("Replica {} restoration started for {}.", instance_client.name_, storage.id());
 
+      // Phase 1: ensure DB exists
+      storage.repl_storage_state_.replication_clients_.WithLock([&](auto &storage_clients) {
+        //
+      });
+
+      // Phase 2: ensure storage is in sync
       const auto &ret = storage.repl_storage_state_.replication_clients_.WithLock(
           [&](auto &storage_clients) -> utils::BasicResult<RegisterReplicaError> {
+            // ONLY VALID if storage.id() exists on REPLICA
             auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client);
             client->Start(&storage);
             // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
