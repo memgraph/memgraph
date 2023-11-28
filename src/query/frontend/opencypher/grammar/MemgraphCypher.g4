@@ -480,6 +480,7 @@ transactionId : literal ;
 multiDatabaseQuery : createDatabase
                    | useDatabase
                    | dropDatabase
+                   | showDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
@@ -487,6 +488,8 @@ createDatabase : CREATE DATABASE databaseName ;
 useDatabase : USE DATABASE databaseName ;
 
 dropDatabase : DROP DATABASE databaseName ;
+
+showDatabase : SHOW DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 
