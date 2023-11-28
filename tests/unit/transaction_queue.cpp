@@ -59,7 +59,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
-  memgraph::query::InterpreterContext interpreter_context{{}, nullptr, &repl_state};
+  memgraph::query::InterpreterContext interpreter_context{{}, nullptr};
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
 
   void TearDown() override {

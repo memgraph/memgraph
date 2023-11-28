@@ -315,7 +315,7 @@ class DumpTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr, &repl_state};
+  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr};
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -720,7 +720,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
       << "Wrong storage mode!";
 
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state);
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
 
   {
     ResultStreamFaker stream(this->db->storage());
@@ -838,7 +838,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
       << "Wrong storage mode!";
 
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state);
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
   {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
