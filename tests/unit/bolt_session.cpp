@@ -177,6 +177,8 @@ inline constexpr uint8_t pullall_req[] = {0xb1, 0x3f, 0xa0};
 inline constexpr uint8_t pull_one_req[] = {0xb1, 0x3f, 0xa1, 0x81, 0x6e, 0x01};
 inline constexpr uint8_t reset_req[] = {0xb0, 0x0f};
 inline constexpr uint8_t goodbye[] = {0xb0, 0x02};
+inline constexpr uint8_t begin[] = {0xb1, 0x11, 0xa0};
+inline constexpr uint8_t commit[] = {0xb0, 0x12};
 inline constexpr uint8_t rollback[] = {0xb0, 0x13};
 }  // namespace v4
 
@@ -208,7 +210,6 @@ constexpr std::string_view extra_w_127ms_timeout =
     "\x8a\x74\x78\x5F\x74\x69\x6D\x65\x6F\x75\x74"  // String size 10 "tx_timeout"
     "\x7f";                                         // Integer 127 (representing 127ms)
 
-inline constexpr uint8_t commit[] = {0xb0, 0x12};
 }  // namespace v4_3
 
 // Write bolt chunk header (length)
@@ -278,6 +279,21 @@ void ExecuteInit(TestInputStream &input_stream, TestSession &session, std::vecto
   PrintOutput(output);
   const auto *response = is_v4 ? v4::init_resp : init_resp;
   CheckOutput(output, response, 28);
+}
+
+void ExecuteBeginTransaction(TestInputStream &input_stream, TestSession &session, std::vector<uint8_t> &output) {
+  const auto *request = v4::begin;
+  const auto request_size = sizeof(v4::begin);
+  ExecuteCommand(input_stream, session, request, request_size);
+}
+
+void ExecuteCommitTransaction(TestInputStream &input_stream, TestSession &session, std::vector<uint8_t> &output) {
+  const auto *request = v4::commit;
+  const auto request_size = sizeof(v4::commit);
+  ExecuteCommand(input_stream, session, request, request_size);
+  ASSERT_EQ(session.state_, State::Idle);
+  PrintOutput(output);
+  CheckSuccessMessage(output);
 }
 
 // Write bolt encoded run request
@@ -1226,5 +1242,116 @@ TEST(BoltSession, PartialStream) {
     auto const error_msg = std::u8string_view{u8"Transaction was asked to abort by another user."};
     auto const find_msg = std::search(cbegin(output), cend(output), cbegin(error_msg), cend(error_msg));
     EXPECT_NE(find_msg, cend(output));
+  }
+}
+
+TEST(BoltSession, ExplicitTxBeginAndCommit) {
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ExecuteBeginTransaction(input_stream, session, output);
+    ExecuteCommitTransaction(input_stream, session, output);
+  }
+}
+
+TEST(BoltSession, ExplicitTxBeginRunPullCommit) {
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ExecuteBeginTransaction(input_stream, session, output);
+    WriteRunRequest(input_stream, kQueryReturn42, true, v4_3::extra_w_metadata);
+    session.Execute();
+    ASSERT_EQ(session.state_, State::Result);
+    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
+    ASSERT_EQ(session.state_, State::Idle);
+    ExecuteCommitTransaction(input_stream, session, output);
+  }
+}
+
+TEST(BoltSession, ExplicitTxBeginMultipleOrderedRunPullCommit) {
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ExecuteBeginTransaction(input_stream, session, output);
+
+    WriteRunRequest(input_stream, kQueryReturn42, true, v4_3::extra_w_metadata);
+    session.Execute();
+    ASSERT_EQ(session.state_, State::Result);
+    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
+    ASSERT_EQ(session.state_, State::Idle);
+
+    WriteRunRequest(input_stream, kQueryReturnMultiple, true, v4_3::extra_w_metadata);
+    session.Execute();
+    ASSERT_EQ(session.state_, State::Result);
+    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
+    ASSERT_EQ(session.state_, State::Result);
+    constexpr std::array<uint8_t, 10> md_has_more_true{0x88, 0x68, 0x61, 0x73, 0x5F, 0x6D, 0x6F, 0x72, 0x65, 0xC3};
+    auto find_has_more = std::search(cbegin(output), cend(output), cbegin(md_has_more_true), cend(md_has_more_true));
+    EXPECT_NE(find_has_more, cend(output));
+    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
+    ASSERT_EQ(session.state_, State::Result);
+    find_has_more = std::search(cbegin(output), cend(output), cbegin(md_has_more_true), cend(md_has_more_true));
+    EXPECT_NE(find_has_more, cend(output));
+    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
+    ASSERT_EQ(session.state_, State::Idle);
+
+    ExecuteCommitTransaction(input_stream, session, output);
+  }
+}
+
+TEST(BoltSession, ExplicitTxBeginRunPullAllCommit) {
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ExecuteBeginTransaction(input_stream, session, output);
+
+    WriteRunRequest(input_stream, kQueryReturn42, true, v4_3::extra_w_metadata);
+    session.Execute();
+    ASSERT_EQ(session.state_, State::Result);
+    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
+    ASSERT_EQ(session.state_, State::Idle);
+
+    WriteRunRequest(input_stream, kQueryReturnMultiple, true, v4_3::extra_w_metadata);
+    session.Execute();
+    ASSERT_EQ(session.state_, State::Result);
+    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pullall_req));
+    ASSERT_EQ(session.state_, State::Idle);
+    constexpr std::array<uint8_t, 10> md_has_more_true{0x88, 0x68, 0x61, 0x73, 0x5F, 0x6D, 0x6F, 0x72, 0x65, 0xC3};
+    auto find_has_more = std::search(cbegin(output), cend(output), cbegin(md_has_more_true), cend(md_has_more_true));
+    EXPECT_EQ(find_has_more, cend(output));
+
+    ExecuteCommitTransaction(input_stream, session, output);
+  }
+}
+
+TEST(BoltSession, ExplicitTxBeginRunRunPullAllCommit) {
+  {
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ExecuteBeginTransaction(input_stream, session, output);
+
+    WriteRunRequest(input_stream, kQueryReturn42, true, v4_3::extra_w_metadata);
+    session.Execute();
+    ASSERT_EQ(session.state_, State::Result);
+    WriteRunRequest(input_stream, kQueryReturnMultiple, true, v4_3::extra_w_metadata);
+    session.Execute();
+    ASSERT_EQ(session.state_, State::Result);
+    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pullall_req));
+    ASSERT_EQ(session.state_, State::Idle);
+    constexpr std::array<uint8_t, 10> md_has_more_true{0x88, 0x68, 0x61, 0x73, 0x5F, 0x6D, 0x6F, 0x72, 0x65, 0xC3};
+    auto find_has_more = std::search(cbegin(output), cend(output), cbegin(md_has_more_true), cend(md_has_more_true));
+    EXPECT_EQ(find_has_more, cend(output));
+
+    ExecuteCommitTransaction(input_stream, session, output);
   }
 }

@@ -132,7 +132,7 @@ State HandlePullDiscardV4(TSession &session, const State state, const Marker mar
     return State::Close;
   }
 
-  if (state != State::Result) {
+  if (state != State::Result && state != State::Idle) {
     if constexpr (is_pull) {
       spdlog::trace("Unexpected PULL!");
     } else {
@@ -264,7 +264,7 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     return State::Close;
   }
 
-  if (state != State::Idle) {
+  if (state != State::Idle && state != State::Result) {
     // Client could potentially recover if we move to error state, but there is
     // no legitimate situation in which well working client would end up in this
     // situation.
