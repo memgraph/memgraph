@@ -286,16 +286,11 @@ InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<Proper
     return CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED;
   }
 
-  auto [constraint, emplaced] =
-      constraints_.emplace(std::piecewise_construct, std::forward_as_tuple(label, properties), std::forward_as_tuple());
-
-  if (!emplaced) {
-    // Constraint already exists.
+  if (constraints_.contains({label, properties})) {
     return CreationStatus::ALREADY_EXISTS;
   }
-
-  auto constraint_accessor = constraint->second.access();
-
+  memgraph::utils::SkipList<Entry> constraints_skip_list;
+  utils::SkipList<Entry>::Accessor constraint_accessor{constraints_skip_list.access()};
   auto is_vertex_constraint_violated = [&constraint_accessor, &label, &properties](const Vertex &vertex) {
     if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
       return false;
@@ -328,11 +323,10 @@ InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<Proper
       !par_exec_info ? std::invoke(is_constraint_valid_single_thread) : std::invoke(is_constraint_valid_multi_thread);
 
   if (violation_found) {
-    // In the case of the violation, storage for the current constraint has to
-    // be removed.
-    constraints_.erase(constraint);
     return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
   }
+
+  constraints_[{label, properties}] = std::move(constraints_skip_list);
 
   // Add the new constraint to the optimized structure only if there are no violations.
   constraints_by_label_[label].insert({properties, &constraints_.at({label, properties})});
