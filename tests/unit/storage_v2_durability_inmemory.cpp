@@ -2735,11 +2735,6 @@ TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
-  const auto *in_memory_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
-  const auto &recovery = in_memory_storage->GetRecovery();
-  // EXPECT_CALL(db, memgraph::dbms::Database(::testing::_,::testing::_));
-  // EXPECT_CALL(recovery, RecoverIndicesAndConstraints(::testing::_,::testing::_,::testing::_,::testing::_,
-  // ::testing::_, ::testing::_)); Try to use the storage.
   {
     auto acc = db.storage()->Access();
     auto vertex = acc->CreateVertex();
