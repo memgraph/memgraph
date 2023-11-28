@@ -3553,7 +3553,7 @@ class MultiDatabaseQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  enum class Action { CREATE, USE, DROP };
+  enum class Action { CREATE, USE, DROP, SHOW };
 
   memgraph::query::MultiDatabaseQuery::Action action_;
   std::string db_name_;

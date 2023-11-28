@@ -3522,48 +3522,54 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
           },
           RWType::W,
           query->db_name_};
-  }
+
+    case MultiDatabaseQuery::Action::SHOW:
+      return PreparedQuery{
+          {"Current"},
+          std::move(parsed_query.required_privileges),
+          [storage = current_db.db_acc_->get()->storage(), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+              AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+            if (!pull_plan) {
+              std::vector<std::vector<TypedValue>> results;
+              results.push_back({TypedValue(storage->id())});
+              pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+            }
+
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::NOTHING;
+            }
+            return std::nullopt;
+          },
+          RWType::NONE,
+          ""  // No target DB
+      };
+  };
 #else
   throw QueryException("Query not supported.");
 #endif
 }
 
-PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, CurrentDB &current_db,
-                                        InterpreterContext *interpreter_context,
+PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                         const std::optional<std::string> &username) {
 #ifdef MG_ENTERPRISE
-
-  // TODO: split query into two, Databases (no need for current_db), & Current database (uses current_db)
-  MG_ASSERT(current_db.db_acc_, "Show Database Level query expects a current DB");
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
-
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
 
-  // TODO pick directly from ic
   auto *db_handler = interpreter_context->dbms_handler;
   AuthQueryHandler *auth = interpreter_context->auth;
 
   Callback callback;
-  callback.header = {"Name", "Current"};
-  callback.fn = [auth, storage, db_handler, username]() mutable -> std::vector<std::vector<TypedValue>> {
+  callback.header = {"Name"};
+  callback.fn = [auth, db_handler, username]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
-    const auto &in_use = storage->id();
-    bool found_current = false;
-
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
       Sort(all);
       Sort(denied);
 
       status.reserve(all.size());
       for (const auto &name : all) {
-        TypedValue use("");
-        if (!found_current && Same(name, in_use)) {
-          use = TypedValue("*");
-          found_current = true;
-        }
-        status.push_back({TypedValue(name), std::move(use)});
+        status.push_back({TypedValue(name)});
       }
 
       // No denied databases (no need to filter them out)
@@ -3593,7 +3599,6 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, CurrentDB &cur
       }
     }
 
-    if (!found_current) throw QueryRuntimeException("Missing current database!");
     return status;
   };
 
@@ -3847,9 +3852,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query =
           PrepareMultiDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
-      /// SYSTEM PURE ("SHOW DATABASES")
-      /// INTERPRETER (TODO: "SHOW DATABASE")
-      prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), current_db_, interpreter_context_, username_);
+      prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, username_);
     } else if (utils::Downcast<EdgeImportModeQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw EdgeImportModeModificationInMulticommandTxException();

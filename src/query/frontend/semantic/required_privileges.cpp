@@ -106,6 +106,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
         AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
         break;
       case MultiDatabaseQuery::Action::USE:
+      case MultiDatabaseQuery::Action::SHOW:
         AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE);
         break;
     }
