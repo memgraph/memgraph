@@ -80,7 +80,7 @@ add_unit_test(cypher_main_visitor.cpp)
 target_link_libraries(${test_prefix}cypher_main_visitor mg-query)
 
 add_unit_test(interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}interpreter mg-communication mg-query mg-glue)
+target_link_libraries(${test_prefix}interpreter mg-communication mg-query mg-glue mg-dbms)
 
 add_unit_test(plan_pretty_print.cpp)
 target_link_libraries(${test_prefix}plan_pretty_print mg-query)

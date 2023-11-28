@@ -12,6 +12,8 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
+#include <optional>
 #include <semaphore>
 #include <span>
 #include <thread>
@@ -106,6 +108,17 @@ struct EdgeInfoForDeletion {
   std::unordered_set<Gid> partial_dest_edge_ids{};
   std::unordered_set<Vertex *> partial_src_vertices{};
   std::unordered_set<Vertex *> partial_dest_vertices{};
+};
+
+struct CommitReplArgs {
+  // REPLICA on recipt of Deltas will have a desired commit timestamp
+  std::optional<uint64_t> desired_commit_timestamp = std::nullopt;
+
+  // MAIN for ASYNC replication will need to wrap the aync task to ensure database
+  // isn't dropped while replicaition is happening
+  std::optional<std::function<std::function<void()>(void())>> gatekeeper_access_wrapper_function = std::nullopt;
+
+  bool IsMain() { return gatekeeper_access_wrapper_function.has_value(); }
 };
 
 class Storage {
@@ -216,8 +229,7 @@ class Storage {
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {}, bool is_main = true) = 0;
+    virtual utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {}) = 0;
 
     virtual void Abort() = 0;
 
