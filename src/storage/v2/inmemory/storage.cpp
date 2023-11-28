@@ -744,8 +744,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
-utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
-    const std::optional<uint64_t> desired_commit_timestamp, bool is_main) {
+utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(CommitReplArgs reparg) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -762,8 +761,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     uint64_t start_timestamp = transaction_.start_timestamp;
 
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-    commit_timestamp_.emplace(mem_storage->CommitTimestamp(desired_commit_timestamp));
+    commit_timestamp_.emplace(mem_storage->CommitTimestamp(reparg.desired_commit_timestamp));
 
+    bool is_main = reparg.IsMain();
     // Write transaction to WAL while holding the engine lock to make sure
     // that committed transactions are sorted by the commit timestamp in the
     // WAL files. We supply the new commit timestamp to the function so that
@@ -773,7 +773,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // modifications before they are written to disk.
     // Replica can log only the write transaction received from Main
     // so the Wal files are consistent
-    if (is_main || desired_commit_timestamp.has_value()) {
+    if (is_main || reparg.desired_commit_timestamp.has_value()) {
       could_replicate_all_sync_replicas =
           mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);  // protected by engine_guard
       // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
@@ -781,7 +781,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
                                            std::memory_order_release);  // protected by engine_guard
       // Replica can only update the last commit timestamp with
       // the commits received from main.
-      if (is_main || desired_commit_timestamp.has_value()) {
+      if (is_main || reparg.desired_commit_timestamp.has_value()) {
         // Update the last commit timestamp
         mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);  // protected by engine_guard
       }
@@ -822,7 +822,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
       auto *mem_unique_constraints =
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
-      commit_timestamp_.emplace(mem_storage->CommitTimestamp(desired_commit_timestamp));
+      commit_timestamp_.emplace(mem_storage->CommitTimestamp(reparg.desired_commit_timestamp));
 
       if (transaction_.constraint_verification_info.NeedsUniqueConstraintVerification()) {
         // Before committing and validating vertices against unique constraints,
@@ -846,6 +846,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       }
 
       if (!unique_constraint_violation) {
+        bool is_main = reparg.IsMain();
         // Write transaction to WAL while holding the engine lock to make sure
         // that committed transactions are sorted by the commit timestamp in the
         // WAL files. We supply the new commit timestamp to the function so that
@@ -855,7 +856,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (is_main || desired_commit_timestamp.has_value()) {
+        if (is_main || reparg.desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);  // protected by engine_guard
         }
@@ -866,7 +867,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
                                              std::memory_order_release);  // protected by engine_guard
         // Replica can only update the last commit timestamp with
         // the commits received from main.
-        if (is_main || desired_commit_timestamp.has_value()) {
+        if (is_main || reparg.desired_commit_timestamp.has_value()) {
           // Update the last commit timestamp
           mem_storage->repl_storage_state_.last_commit_timestamp_.store(
               *commit_timestamp_);  // protected by engine_guard

@@ -13,9 +13,11 @@
 #include <cstdlib>
 #include <filesystem>
 
+#include "auth/auth.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "csv/parsing.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
@@ -68,33 +70,25 @@ class InterpreterTest : public ::testing::Test {
 
   memgraph::storage::Config config{
       [&]() {
-        memgraph::storage::Config config{};
-        config.durability.storage_directory = data_directory;
-        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-          config.force_on_disk = true;
-        }
+        memgraph::storage::Config config{.force_on_disk = std::is_same_v<StorageType, memgraph::storage::DiskStorage>};
+        UpdatePaths(config, data_directory);
         return config;
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
-  memgraph::dbms::DatabaseAccess db{
-      [&]() {
-        auto db_acc_opt = db_gk.access();
-        MG_ASSERT(db_acc_opt, "Failed to access db");
-        auto &db_acc = *db_acc_opt;
-        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
-                  "Wrong storage mode!");
-        return db_acc;
-      }()  // iile
+#ifdef MG_ENTERPRISE
+  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory /
+                                                                                                     "auth"};
+#endif
+
+  memgraph::dbms::DbmsHandler dbms{config
+#ifdef MG_ENTERPRISE
+                                   ,
+                                   &auth_, false, false
+#endif
   };
 
-  memgraph::query::InterpreterContext interpreter_context{{}, kNoHandler};
+  memgraph::query::InterpreterContext interpreter_context{{}, &dbms};
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -105,7 +99,7 @@ class InterpreterTest : public ::testing::Test {
     std::filesystem::remove_all(data_directory);
   }
 
-  InterpreterFaker default_interpreter{&interpreter_context, db};
+  InterpreterFaker default_interpreter{&interpreter_context, dbms.Get()};
 
   auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
     return default_interpreter.Prepare(query, params);
@@ -353,7 +347,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
 
   // Set up.
   {
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->dbms.Get()->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
@@ -666,7 +660,7 @@ TYPED_TEST(InterpreterTest, UniqueConstraintTest) {
 }
 
 TYPED_TEST(InterpreterTest, ExplainQuery) {
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
   auto stream = this->Interpret("EXPLAIN MATCH (n) RETURN *;");
   ASSERT_EQ(stream.GetHeader().size(), 1U);
@@ -680,16 +674,16 @@ TYPED_TEST(InterpreterTest, ExplainQuery) {
     ++expected_it;
   }
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ExplainQueryMultiplePulls) {
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
   auto [stream, qid] = this->Prepare("EXPLAIN MATCH (n) RETURN *;");
   ASSERT_EQ(stream.GetHeader().size(), 1U);
@@ -713,16 +707,16 @@ TYPED_TEST(InterpreterTest, ExplainQueryMultiplePulls) {
   ASSERT_EQ(stream.GetResults()[2].size(), 1U);
   EXPECT_EQ(stream.GetResults()[2].front().ValueString(), *expected_it);
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ExplainQueryInMulticommandTransaction) {
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
   this->Interpret("BEGIN");
   auto stream = this->Interpret("EXPLAIN MATCH (n) RETURN *;");
@@ -738,16 +732,16 @@ TYPED_TEST(InterpreterTest, ExplainQueryInMulticommandTransaction) {
     ++expected_it;
   }
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ExplainQueryWithParams) {
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
   auto stream =
       this->Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue(42)}});
@@ -762,16 +756,16 @@ TYPED_TEST(InterpreterTest, ExplainQueryWithParams) {
     ++expected_it;
   }
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
   this->Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue("something else")}});
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ProfileQuery) {
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
   auto stream = this->Interpret("PROFILE MATCH (n) RETURN *;");
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
@@ -785,16 +779,16 @@ TYPED_TEST(InterpreterTest, ProfileQuery) {
     ++expected_it;
   }
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ProfileQueryMultiplePulls) {
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
   auto [stream, qid] = this->Prepare("PROFILE MATCH (n) RETURN *;");
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
@@ -821,11 +815,11 @@ TYPED_TEST(InterpreterTest, ProfileQueryMultiplePulls) {
   ASSERT_EQ(stream.GetResults()[2][0].ValueString(), *expected_it);
 
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
 }
 
@@ -836,7 +830,7 @@ TYPED_TEST(InterpreterTest, ProfileQueryInMulticommandTransaction) {
 }
 
 TYPED_TEST(InterpreterTest, ProfileQueryWithParams) {
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
   auto stream =
       this->Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue(42)}});
@@ -851,16 +845,16 @@ TYPED_TEST(InterpreterTest, ProfileQueryWithParams) {
     ++expected_it;
   }
   // We should have a plan cache for MATCH ...
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
   this->Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue("something else")}});
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ProfileQueryWithLiterals) {
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
   auto stream = this->Interpret("PROFILE UNWIND range(1, 1000) AS x CREATE (:Node {id: x});", {});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
@@ -874,11 +868,11 @@ TYPED_TEST(InterpreterTest, ProfileQueryWithLiterals) {
     ++expected_it;
   }
   // We should have a plan cache for UNWIND ...
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for PROFILE ... and for inner UNWIND ...
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
   this->Interpret("UNWIND range(42, 4242) AS x CREATE (:Node {id: x});", {});
-  EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+  EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
 }
 
@@ -1104,7 +1098,7 @@ TYPED_TEST(InterpreterTest, CacheableQueries) {
     SCOPED_TRACE("Cacheable query");
     this->Interpret("RETURN 1");
     EXPECT_EQ(this->interpreter_context.ast_cache.size(), 1U);
-    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+    EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   }
 
   {
@@ -1113,14 +1107,17 @@ TYPED_TEST(InterpreterTest, CacheableQueries) {
     // result signature could be changed
     this->Interpret("CALL mg.load_all()");
     EXPECT_EQ(this->interpreter_context.ast_cache.size(), 1U);
-    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+    EXPECT_EQ(this->dbms.Get()->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   }
 }
 
 TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
-  const auto check_load_csv_queries = [&](const bool allow_load_csv) {
-    TmpDirManager directory_manager{"allow_load_csv"};
-    const auto csv_path = directory_manager.Path() / "file.csv";
+  const auto check_load_csv_queries = [&, this](const bool allow_load_csv) {
+    auto db_acc = this->dbms.Get();
+    ASSERT_TRUE(db_acc) << "Failed to access default database";
+    const auto csv_path = db_acc->config().durability.storage_directory / "file.csv";
+    auto cleanup_csv_file = memgraph::utils::OnScopeExit{[&]() { std::filesystem::remove(csv_path); }};
+
     auto writer = FileWriter(csv_path);
     const std::vector<std::string> data{"A", "B", "C"};
     writer.WriteLine(CreateRow(data, ","));
@@ -1131,26 +1128,13 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
         "CREATE TRIGGER trigger ON CREATE BEFORE COMMIT EXECUTE LOAD CSV FROM 'file.csv' WITH HEADER AS row RETURN "
         "row"};
 
-    memgraph::storage::Config config2{};
-    config2.durability.storage_directory = directory_manager.Path();
-    config2.disk.main_storage_directory = config2.durability.storage_directory / "disk";
-    if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-      config2.disk = disk_test_utils::GenerateOnDiskConfig(this->testSuiteCsv).disk;
-      config2.force_on_disk = true;
-    }
-
-    memgraph::replication::ReplicationState repl_state2{memgraph::storage::ReplicationStateRootPath(config2)};
-    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2, repl_state2);
-    auto db_acc_opt = db_gk2.access();
-    ASSERT_TRUE(db_acc_opt) << "Failed to access db2";
-    auto &db_acc = *db_acc_opt;
     ASSERT_TRUE(db_acc->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
                                                  ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
                                                  : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
         << "Wrong storage mode!";
 
-    memgraph::replication::ReplicationState repl_state{std::nullopt};
-    memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}}, nullptr};
+    memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}},
+                                                                &this->dbms};
     InterpreterFaker interpreter_faker{&csv_interpreter_context, db_acc};
     for (const auto &query : queries) {
       if (allow_load_csv) {

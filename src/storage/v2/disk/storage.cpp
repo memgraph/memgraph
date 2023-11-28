@@ -1598,8 +1598,7 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
-utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Commit(
-    const std::optional<uint64_t> desired_commit_timestamp, bool /*is_main*/) {
+utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Commit(CommitReplArgs reparg) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -1610,7 +1609,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-    commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
+    commit_timestamp_.emplace(disk_storage->CommitTimestamp(reparg.desired_commit_timestamp));
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
     for (const auto &md_delta : transaction_.md_deltas) {
@@ -1686,7 +1685,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
               }))) {
   } else {
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-    commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
+    commit_timestamp_.emplace(disk_storage->CommitTimestamp(reparg.desired_commit_timestamp));
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
     if (edge_import_mode_active) {

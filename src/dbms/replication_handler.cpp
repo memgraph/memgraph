@@ -225,9 +225,7 @@ void RestoreReplication(replication::ReplicationState &repl_state, storage::Stor
       spdlog::info("Replica {} restoration started for {}.", instance_client.name_, storage.id());
 
       // Phase 1: ensure DB exists
-      storage.repl_storage_state_.replication_clients_.WithLock([&](auto &storage_clients) {
-        //
-      });
+      // auto s = instance_client.rpc_client_.Stream<memgraph::replication::????>();
 
       // Phase 2: ensure storage is in sync
       const auto &ret = storage.repl_storage_state_.replication_clients_.WithLock(

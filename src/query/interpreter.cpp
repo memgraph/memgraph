@@ -107,6 +107,14 @@
 #include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
 
+auto wrapper_factory(memgraph::dbms::DatabaseAccess const &db_acc) {
+  return [db_acc]<typename Func>(Func &&func) {
+    return [ local_copy = db_acc, func = std::forward<Func>(func) ]<typename... Args>(Args && ...args) {
+      return func(std::forward<Args>(args)...);
+    };
+  };
+}
+
 namespace memgraph::metrics {
 extern Event ReadQuery;
 extern Event WriteQuery;
@@ -3398,7 +3406,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
   auto *db_handler = interpreter_context->dbms_handler;
 
-  const bool is_replica = interpreter_context->repl_state->IsReplica();
+  const bool is_replica = interpreter_context->dbms_handler->ReplicationState().IsReplica();
 
   switch (query->action_) {
     case MultiDatabaseQuery::Action::CREATE:
@@ -3979,7 +3987,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       continue;
     }
 
-    auto maybe_commit_error = db_accessor.Commit();
+    auto maybe_commit_error = db_accessor.Commit({.gatekeeper_access_wrapper_function = wrapper_factory(db_acc)});
     if (maybe_commit_error.HasError()) {
       const auto &error = maybe_commit_error.GetError();
 
@@ -4105,8 +4113,10 @@ void Interpreter::Commit() {
 
   auto commit_confirmed_by_all_sync_repplicas = true;
 
+  bool is_main = interpreter_context_->dbms_handler->ReplicationState().IsMain();
   auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit(
-      std::nullopt, interpreter_context_->dbms_handler->ReplicationState().IsMain());
+      {.gatekeeper_access_wrapper_function =
+           is_main ? std::optional{wrapper_factory(*current_db_.db_acc_)} : std::nullopt});
   if (maybe_commit_error.HasError()) {
     const auto &error = maybe_commit_error.GetError();
 
