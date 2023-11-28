@@ -3082,8 +3082,6 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
       break;
     }
-
-      // NODE_LABELS
   }
 
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
