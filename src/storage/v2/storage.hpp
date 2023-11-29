@@ -114,11 +114,13 @@ struct CommitReplArgs {
   // REPLICA on recipt of Deltas will have a desired commit timestamp
   std::optional<uint64_t> desired_commit_timestamp = std::nullopt;
 
+  bool is_main = true;
+
   // MAIN for ASYNC replication will need to wrap the aync task to ensure database
   // isn't dropped while replicaition is happening
   std::optional<std::function<std::function<void()>(void())>> gatekeeper_access_wrapper_function = std::nullopt;
 
-  bool IsMain() { return gatekeeper_access_wrapper_function.has_value(); }
+  bool IsMain() { return is_main; }
 };
 
 class Storage {

@@ -573,7 +573,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         if (!commit_timestamp_and_accessor || commit_timestamp_and_accessor->first != timestamp)
           throw utils::BasicException("Invalid commit data!");
         auto ret = commit_timestamp_and_accessor->second.Commit(
-            {.desired_commit_timestamp = commit_timestamp_and_accessor->first});
+            {.desired_commit_timestamp = commit_timestamp_and_accessor->first, .is_main = false});
         if (ret.HasError())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         commit_timestamp_and_accessor = std::nullopt;

@@ -3987,7 +3987,11 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       continue;
     }
 
-    auto maybe_commit_error = db_accessor.Commit({.gatekeeper_access_wrapper_function = wrapper_factory(db_acc)});
+    bool is_main = interpreter_context->repl_state->IsMain();
+    auto maybe_commit_error = db_accessor.Commit(
+        {.is_main = is_main,
+         .gatekeeper_access_wrapper_function = is_main ? std::optional{wrapper_factory(db_acc)} : std::nullopt});
+
     if (maybe_commit_error.HasError()) {
       const auto &error = maybe_commit_error.GetError();
 
@@ -4115,7 +4119,8 @@ void Interpreter::Commit() {
 
   bool is_main = interpreter_context_->repl_state->IsMain();
   auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit(
-      {.gatekeeper_access_wrapper_function =
+      {.is_main = is_main,
+       .gatekeeper_access_wrapper_function =
            is_main ? std::optional{wrapper_factory(*current_db_.db_acc_)} : std::nullopt});
   if (maybe_commit_error.HasError()) {
     const auto &error = maybe_commit_error.GetError();
