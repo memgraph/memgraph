@@ -12,6 +12,7 @@
 #include <gtest/gtest-typed-test.h>
 #include <gtest/gtest.h>
 
+#include <dbms/dbms_handler.hpp>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -267,7 +268,7 @@ memgraph::storage::EdgeAccessor CreateEdge(memgraph::storage::Storage::Accessor 
 }
 
 template <class... TArgs>
-void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::Value>> &results, TArgs &&...args) {
+void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::Value>> &results, TArgs &&... args) {
   std::vector<std::string> expected{std::forward<TArgs>(args)...};
   std::vector<std::string> got;
   got.reserve(results.size());
@@ -282,31 +283,33 @@ void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::
 }
 
 template <typename StorageType>
-class DumpTest : public ::testing::Test {
- public:
-  const std::string testSuite = "query_dump";
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump_class"};
-
+struct mini_memgraph {
+  explicit mini_memgraph(std::filesystem::path data_directory) : data_directory_{std::move(data_directory)} {}
+  ~mini_memgraph() { std::filesystem::remove_all(data_directory_); }
+  std::filesystem::path data_directory_;
   memgraph::storage::Config config{
-      [&]() {
-        memgraph::storage::Config config{};
-        config.durability.storage_directory = data_directory;
-        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-          config.force_on_disk = true;
-        }
+      [&] {
+        memgraph::storage::Config config{.force_on_disk = std::is_same_v<StorageType, memgraph::storage::DiskStorage>};
+        UpdatePaths(config, data_directory_);
         return config;
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+#ifdef MG_ENTERPRISE
+  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory_ /
+                                                                                                     "auth"};
+#endif
+
+  memgraph::dbms::DbmsHandler dbms{config
+#ifdef MG_ENTERPRISE
+                                   ,
+                                   &auth_, false, false
+#endif
+  };
+
   memgraph::dbms::DatabaseAccess db{
       [&]() {
-        auto db_acc_opt = db_gk.access();
-        MG_ASSERT(db_acc_opt, "Failed to access db");
-        auto &db_acc = *db_acc_opt;
+        auto db_acc = dbms.Get();
         MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
                                                    ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
                                                    : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
@@ -315,14 +318,19 @@ class DumpTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr};
+  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, &dbms};
+};
 
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-    std::filesystem::remove_all(data_directory);
-  }
+template <typename StorageType>
+class DumpTest : public ::testing::Test {
+ public:
+  const std::string testSuite = "query_dump";
+  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump_class"};
+
+  std::optional<mini_memgraph<StorageType>> instance;
+
+  void SetUp() override { instance.emplace(data_directory); }
+  void TearDown() override { instance.reset(); }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
@@ -330,10 +338,10 @@ TYPED_TEST_CASE(DumpTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, EmptyGraph) {
-  ResultStreamFaker stream(this->db->storage());
+  ResultStreamFaker stream(this->instance->db->storage());
   memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
   {
-    auto acc = this->db->Access();
+    auto acc = this->instance->db->Access();
     memgraph::query::DbAccessor dba(acc.get());
     memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
   }
@@ -343,16 +351,16 @@ TYPED_TEST(DumpTest, EmptyGraph) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, SingleVertex) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -364,16 +372,16 @@ TYPED_TEST(DumpTest, SingleVertex) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, VertexWithSingleLabel) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     CreateVertex(dba.get(), {"Label1"}, {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -385,16 +393,16 @@ TYPED_TEST(DumpTest, VertexWithSingleLabel) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, VertexWithMultipleLabels) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -407,16 +415,16 @@ TYPED_TEST(DumpTest, VertexWithMultipleLabels) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, VertexWithSingleProperty) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     CreateVertex(dba.get(), {}, {{"prop", memgraph::storage::PropertyValue(42)}}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -428,7 +436,7 @@ TYPED_TEST(DumpTest, VertexWithSingleProperty) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, MultipleVertices) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
     CreateVertex(dba.get(), {}, {}, false);
     CreateVertex(dba.get(), {}, {}, false);
@@ -436,10 +444,10 @@ TYPED_TEST(DumpTest, MultipleVertices) {
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -451,7 +459,7 @@ TYPED_TEST(DumpTest, MultipleVertices) {
 
 TYPED_TEST(DumpTest, PropertyValue) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     auto null_value = memgraph::storage::PropertyValue();
     auto int_value = memgraph::storage::PropertyValue(13);
     auto bool_value = memgraph::storage::PropertyValue(true);
@@ -474,10 +482,10 @@ TYPED_TEST(DumpTest, PropertyValue) {
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -493,7 +501,7 @@ TYPED_TEST(DumpTest, PropertyValue) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, SingleEdge) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     CreateEdge(dba.get(), &u, &v, "EdgeType", {}, false);
@@ -501,10 +509,10 @@ TYPED_TEST(DumpTest, SingleEdge) {
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -519,7 +527,7 @@ TYPED_TEST(DumpTest, SingleEdge) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, MultipleEdges) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     auto w = CreateVertex(dba.get(), {}, {}, false);
@@ -530,10 +538,10 @@ TYPED_TEST(DumpTest, MultipleEdges) {
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -552,7 +560,7 @@ TYPED_TEST(DumpTest, MultipleEdges) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, EdgeWithProperties) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     CreateEdge(dba.get(), &u, &v, "EdgeType", {{"prop", memgraph::storage::PropertyValue(13)}}, false);
@@ -560,10 +568,10 @@ TYPED_TEST(DumpTest, EdgeWithProperties) {
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -578,32 +586,33 @@ TYPED_TEST(DumpTest, EdgeWithProperties) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, IndicesKeys) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {{"p", memgraph::storage::PropertyValue(1)}}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(
-        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
-            .HasError());
+    auto unique_acc = this->instance->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateIndex(this->instance->db->storage()->NameToLabel("Label1"),
+                                   this->instance->db->storage()->NameToProperty("prop"))
+                     .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(
-        unique_acc
-            ->CreateIndex(this->db->storage()->NameToLabel("Label 2"), this->db->storage()->NameToProperty("prop `"))
-            .HasError());
+    auto unique_acc = this->instance->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateIndex(this->instance->db->storage()->NameToLabel("Label 2"),
+                                   this->instance->db->storage()->NameToProperty("prop `"))
+                     .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -616,23 +625,23 @@ TYPED_TEST(DumpTest, IndicesKeys) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, ExistenceConstraints) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     CreateVertex(dba.get(), {"L`abel 1"}, {{"prop", memgraph::storage::PropertyValue(1)}}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("L`abel 1"),
-                                                     this->db->storage()->NameToProperty("prop"));
+    auto unique_acc = this->instance->db->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->instance->db->storage()->NameToLabel("L`abel 1"),
+                                                     this->instance->db->storage()->NameToProperty("prop"));
     ASSERT_FALSE(res.HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -644,7 +653,7 @@ TYPED_TEST(DumpTest, ExistenceConstraints) {
 
 TYPED_TEST(DumpTest, UniqueConstraints) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     CreateVertex(dba.get(), {"Label"},
                  {{"prop", memgraph::storage::PropertyValue(1)}, {"prop2", memgraph::storage::PropertyValue(2)}},
                  false);
@@ -654,20 +663,20 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto res = unique_acc->CreateUniqueConstraint(
-        this->db->storage()->NameToLabel("Label"),
-        {this->db->storage()->NameToProperty("prop"), this->db->storage()->NameToProperty("prop2")});
+    auto unique_acc = this->instance->db->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->instance->db->storage()->NameToLabel("Label"),
+                                                  {this->instance->db->storage()->NameToProperty("prop"),
+                                                   this->instance->db->storage()->NameToProperty("prop2")});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -686,7 +695,7 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     std::map<std::string, memgraph::storage::PropertyValue> prop1 = {
         {"nested1", memgraph::storage::PropertyValue(1337)}, {"nested2", memgraph::storage::PropertyValue(3.14)}};
 
@@ -697,45 +706,21 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
-  memgraph::storage::Config config{};
-  config.durability.storage_directory = this->data_directory / "s1";
-  config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s1").disk;
-    config.force_on_disk = true;
-  }
-  auto on_exit_s1 = memgraph::utils::OnScopeExit{[&]() {
-    if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-      disk_test_utils::RemoveRocksDbDirs("query-dump-s1");
-    }
-  }};
-  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(config));
-
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config, repl_state);
-  auto db_acc_opt = db_gk.access();
-  ASSERT_TRUE(db_acc_opt) << "Failed to access db";
-  auto &db_acc = *db_acc_opt;
-  ASSERT_TRUE(db_acc->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
-                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
-      << "Wrong storage mode!";
-
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
-
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     const auto &results = stream.GetResults();
     ASSERT_GE(results.size(), 1);
+    auto s1 = mini_memgraph<TypeParam>{this->data_directory / "s1"};
     for (const auto &item : results) {
       ASSERT_EQ(item.size(), 1);
       ASSERT_TRUE(item[0].IsString());
-      Execute(&interpreter_context, db_acc, item[0].ValueString());
+      Execute(&s1.context, s1.db, item[0].ValueString());
     }
   }
 }
@@ -743,7 +728,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     auto u = CreateVertex(dba.get(), {"Person"}, {{"name", memgraph::storage::PropertyValue("Ivan")}});
     auto v = CreateVertex(dba.get(), {"Person"}, {{"name", memgraph::storage::PropertyValue("Josko")}});
     auto w = CreateVertex(
@@ -784,66 +769,45 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto ret = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("Person"),
-                                                     this->db->storage()->NameToProperty("name"));
+    auto unique_acc = this->instance->db->UniqueAccess();
+    auto ret = unique_acc->CreateExistenceConstraint(this->instance->db->storage()->NameToLabel("Person"),
+                                                     this->instance->db->storage()->NameToProperty("name"));
     ASSERT_FALSE(ret.HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
-    auto ret = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("Person"),
-                                                  {this->db->storage()->NameToProperty("name")});
+    auto unique_acc = this->instance->db->UniqueAccess();
+    auto ret = unique_acc->CreateUniqueConstraint(this->instance->db->storage()->NameToLabel("Person"),
+                                                  {this->instance->db->storage()->NameToProperty("name")});
     ASSERT_TRUE(ret.HasValue());
     ASSERT_EQ(ret.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(
-        unique_acc->CreateIndex(this->db->storage()->NameToLabel("Person"), this->db->storage()->NameToProperty("id"))
-            .HasError());
+    auto unique_acc = this->instance->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateIndex(this->instance->db->storage()->NameToLabel("Person"),
+                                   this->instance->db->storage()->NameToProperty("id"))
+                     .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess();
+    auto unique_acc = this->instance->db->UniqueAccess();
     ASSERT_FALSE(unique_acc
-                     ->CreateIndex(this->db->storage()->NameToLabel("Person"),
-                                   this->db->storage()->NameToProperty("unexisting_property"))
+                     ->CreateIndex(this->instance->db->storage()->NameToLabel("Person"),
+                                   this->instance->db->storage()->NameToProperty("unexisting_property"))
                      .HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  const auto &db_initial_state = GetState(this->db->storage());
-  memgraph::storage::Config config{};
-  config.durability.storage_directory = this->data_directory / "s2";
-  config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s2").disk;
-    config.force_on_disk = true;
-  }
-  auto on_exit_s2 = memgraph::utils::OnScopeExit{[&]() {
-    if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-      disk_test_utils::RemoveRocksDbDirs("query-dump-s2");
-    }
-  }};
-  memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
-  auto db_acc_opt = db_gk.access();
-  ASSERT_TRUE(db_acc_opt) << "Failed to access db";
-  auto &db_acc = *db_acc_opt;
-  ASSERT_TRUE(db_acc->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
-                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
-      << "Wrong storage mode!";
+  const auto &db_initial_state = GetState(this->instance->db->storage());
 
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(this->instance->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = this->instance->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
       memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
@@ -852,27 +816,28 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     // query for the data.
     ASSERT_GE(results.size(), 5);
     int i = 0;
+    auto s2 = mini_memgraph<TypeParam>{this->data_directory / "s2"};
     for (const auto &item : results) {
       ASSERT_EQ(item.size(), 1);
       ASSERT_TRUE(item[0].IsString());
       spdlog::debug("Query: {}", item[0].ValueString());
-      Execute(&interpreter_context, db_acc, item[0].ValueString());
+      Execute(&s2.context, s2.db, item[0].ValueString());
       ++i;
     }
   }
-  ASSERT_EQ(GetState(this->db->storage()), db_initial_state);
+  ASSERT_EQ(GetState(this->instance->db->storage()), db_initial_state);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, ExecuteDumpDatabase) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
   {
-    auto stream = Execute(&this->context, this->db, "DUMP DATABASE");
+    auto stream = Execute(&this->instance->context, this->instance->db, "DUMP DATABASE");
     const auto &header = stream.GetHeader();
     const auto &results = stream.GetResults();
     ASSERT_EQ(header.size(), 1U);
@@ -912,7 +877,7 @@ class StatefulInterpreter {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
-  StatefulInterpreter interpreter(&this->context, this->db);
+  StatefulInterpreter interpreter(&this->instance->context, this->instance->db);
 
   // Begin the transaction before the vertex is created.
   interpreter.Execute("BEGIN");
@@ -929,7 +894,7 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
 
   // Create the vertex.
   {
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
@@ -977,57 +942,57 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
   {
     // Create indices
     {
-      auto unique_acc = this->db->UniqueAccess();
-      ASSERT_FALSE(
-          unique_acc
-              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("name"))
-              .HasError());
+      auto unique_acc = this->instance->db->UniqueAccess();
+      ASSERT_FALSE(unique_acc
+                       ->CreateIndex(this->instance->db->storage()->NameToLabel("PERSON"),
+                                     this->instance->db->storage()->NameToProperty("name"))
+                       .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto unique_acc = this->db->UniqueAccess();
-      ASSERT_FALSE(
-          unique_acc
-              ->CreateIndex(this->db->storage()->NameToLabel("PERSON"), this->db->storage()->NameToProperty("surname"))
-              .HasError());
+      auto unique_acc = this->instance->db->UniqueAccess();
+      ASSERT_FALSE(unique_acc
+                       ->CreateIndex(this->instance->db->storage()->NameToLabel("PERSON"),
+                                     this->instance->db->storage()->NameToProperty("surname"))
+                       .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     // Create existence constraints
     {
-      auto unique_acc = this->db->UniqueAccess();
-      auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                       this->db->storage()->NameToProperty("name"));
+      auto unique_acc = this->instance->db->UniqueAccess();
+      auto res = unique_acc->CreateExistenceConstraint(this->instance->db->storage()->NameToLabel("PERSON"),
+                                                       this->instance->db->storage()->NameToProperty("name"));
       ASSERT_FALSE(res.HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto unique_acc = this->db->UniqueAccess();
-      auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                       this->db->storage()->NameToProperty("surname"));
+      auto unique_acc = this->instance->db->UniqueAccess();
+      auto res = unique_acc->CreateExistenceConstraint(this->instance->db->storage()->NameToLabel("PERSON"),
+                                                       this->instance->db->storage()->NameToProperty("surname"));
       ASSERT_FALSE(res.HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     // Create unique constraints
     {
-      auto unique_acc = this->db->UniqueAccess();
-      auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                    {this->db->storage()->NameToProperty("name")});
+      auto unique_acc = this->instance->db->UniqueAccess();
+      auto res = unique_acc->CreateUniqueConstraint(this->instance->db->storage()->NameToLabel("PERSON"),
+                                                    {this->instance->db->storage()->NameToProperty("name")});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto unique_acc = this->db->UniqueAccess();
-      auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
-                                                    {this->db->storage()->NameToProperty("surname")});
+      auto unique_acc = this->instance->db->UniqueAccess();
+      auto res = unique_acc->CreateUniqueConstraint(this->instance->db->storage()->NameToLabel("PERSON"),
+                                                    {this->instance->db->storage()->NameToProperty("surname")});
       ASSERT_TRUE(res.HasValue());
       ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
-    auto dba = this->db->Access();
+    auto dba = this->instance->db->Access();
     auto p1 = CreateVertex(dba.get(), {"PERSON"},
                            {{"name", memgraph::storage::PropertyValue("Person1")},
                             {"surname", memgraph::storage::PropertyValue("Unique1")}},
@@ -1055,9 +1020,9 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
-  ResultStreamFaker stream(this->db->storage());
+  ResultStreamFaker stream(this->instance->db->storage());
   memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
-  auto acc = this->db->Access();
+  auto acc = this->instance->db->Access();
   memgraph::query::DbAccessor dba(acc.get());
 
   memgraph::query::PullPlanDump pullPlan{&dba, this->db};
