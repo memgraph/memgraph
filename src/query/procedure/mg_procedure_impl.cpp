@@ -1107,7 +1107,7 @@ mgp_error mgp_map_copy(mgp_map *map, mgp_memory *memory, mgp_map **result) {
 void mgp_map_destroy(mgp_map *map) { DeleteRawMgpObject(map); }
 
 mgp_error mgp_map_contains_deleted(mgp_map *map, int *result) {
-  return WrapExceptions([map, result] { *result = ContainsDeleted(map); });
+  return WrapExceptions([map, result] { return ContainsDeleted(map); });
 }
 
 mgp_error mgp_map_insert(mgp_map *map, const char *key, mgp_value *value) {
