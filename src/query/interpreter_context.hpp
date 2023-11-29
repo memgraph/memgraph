@@ -46,7 +46,7 @@ class Interpreter;
  */
 struct InterpreterContext {
   InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
-                     AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr);
+                     replication::ReplicationState *rs, AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr);
 
   memgraph::dbms::DbmsHandler *dbms_handler;
 
@@ -56,6 +56,7 @@ struct InterpreterContext {
   memgraph::utils::SkipList<QueryCacheEntry> ast_cache;
 
   // GLOBAL
+  memgraph::replication::ReplicationState *repl_state;
   utils::RWLock system_lock{utils::RWLock::Priority::WRITE};
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;

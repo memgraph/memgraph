@@ -66,7 +66,7 @@ class QueryExecution : public testing::Test {
               "Wrong storage mode!");
     db_acc_ = std::move(db_acc);
 
-    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr);
+    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value());
     interpreter_.emplace(&*interpreter_context_, *db_acc_);
   }
 

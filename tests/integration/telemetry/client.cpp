@@ -47,7 +47,8 @@ int main(int argc, char **argv) {
                                            &auth_, false, false
 #endif
   );
-  memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, &auth_handler, &auth_checker);
+  memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, &repl_state, &auth_handler,
+                                                           &auth_checker);
 
   memgraph::requests::Init();
   memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory, memgraph::utils::GenerateUUID(),
