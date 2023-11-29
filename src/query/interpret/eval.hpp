@@ -840,6 +840,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(Function &function) override {
     FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
+    TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       TypedValue arguments[8] = {TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
@@ -848,25 +849,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       for (size_t i = 0; i < function.arguments_.size(); ++i) {
         arguments[i] = function.arguments_[i]->Accept(*this);
       }
-      auto res = function.function_(arguments, function.arguments_.size(), function_ctx);
-      MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
-      if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
-        return TypedValue(ctx_->memory);
-      }
-      return res;
+      res = function.function_(arguments, function.arguments_.size(), function_ctx);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      auto res = function.function_(arguments.data(), arguments.size(), function_ctx);
-      MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
-      if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
-        return TypedValue(ctx_->memory);
-      }
-      return res;
+      res = function.function_(arguments.data(), arguments.size(), function_ctx);
     }
+    MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
+    if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
+      return TypedValue(ctx_->memory);
+    }
+    return res;
   }
 
   TypedValue Visit(Reduce &reduce) override {

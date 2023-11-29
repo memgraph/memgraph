@@ -1636,7 +1636,6 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
       throw std::out_of_range{fmt::format("The result doesn't have any field named '{}'.", field_name)};
     }
     if (record->ignore_deleted_values && ContainsDeleted(val)) [[unlikely]] {
-      record->values.emplace(field_name, ToTypedValue(*NewRawMgpObject<mgp_value>(memory), memory));
       record->has_deleted_values = true;
       return;
     }
