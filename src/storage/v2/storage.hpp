@@ -211,6 +211,8 @@ class Storage {
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
+    virtual bool CheckConstraintsOnPull() = 0;
+
     // NOLINTNEXTLINE(google-default-arguments)
     virtual utils::BasicResult<StorageManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}, bool is_main = true) = 0;

@@ -12,6 +12,7 @@
 #pragma once
 
 #include "kvstore/kvstore.hpp"
+#include "query/db_accessor.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/durable_metadata.hpp"
 #include "storage/v2/disk/edge_import_mode_cache.hpp"
@@ -141,6 +142,8 @@ class DiskStorage final : public Storage {
 
     ConstraintsInfo ListAllConstraints() const override;
 
+    bool CheckConstraintsOnPull() override;
+
     // NOLINTNEXTLINE(google-default-arguments)
     utils::BasicResult<StorageManipulationError, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {},
                                                               bool is_main = true) override;
@@ -185,6 +188,9 @@ class DiskStorage final : public Storage {
 
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushVertices(
       Transaction *transaction, const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage);
+
+  [[nodiscard]] utils::BasicResult<StorageManipulationError, void> CheckVertexConstraintsBeforePull(
+      memgraph::query::DbAccessor *db_acc) const;
 
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> CheckVertexConstraintsBeforeCommit(
       const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;

@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "dbms/constants.hpp"
 #include "memory/global_memory_control.hpp"
+#include "query/exceptions.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -661,6 +662,99 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
   transaction_.manyDeltasCache.Invalidate(to_vertex, new_edge_type, EdgeDirection::IN);
 
   return EdgeAccessor(edge_ref, new_edge_type, from_vertex, to_vertex, storage_, &transaction_);
+}
+
+bool InMemoryStorage::InMemoryAccessor::CheckConstraintsOnPull() {
+  MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
+  MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
+
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  {
+    if (transaction_.constraint_verification_info.NeedsExistenceConstraintVerification()) {
+      const auto vertices_to_update =
+          transaction_.constraint_verification_info.GetVerticesForExistenceConstraintChecking();
+      for (auto const *vertex : vertices_to_update) {
+        // No need to take any locks here because we modified this vertex and no
+        // one else can touch it until we commit.
+        auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
+        if (validation_result) {
+          Abort();
+          DMG_ASSERT(!commit_timestamp_.has_value());
+          return true;
+          // return StorageManipulationError{*validation_result};
+        }
+      }
+    }
+
+    // Result of validating the vertex against unqiue constraints. It has to be
+    // declared outside of the critical section scope because its value is
+    // tested for Abort call which has to be done out of the scope.
+    std::optional<ConstraintViolation> unique_constraint_violation;
+
+    // Save these so we can mark them used in the commit log.
+    uint64_t start_timestamp = transaction_.start_timestamp;
+
+    {
+      std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+      auto *mem_unique_constraints =
+          static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
+      commit_timestamp_.emplace(
+          mem_storage->CommitTimestamp(std::nullopt));  // TODO ante std::nullopt = desired_commit_timestamp
+
+      if (transaction_.constraint_verification_info.NeedsUniqueConstraintVerification()) {
+        // Before committing and validating vertices against unique constraints,
+        // we have to update unique constraints with the vertices that are going
+        // to be validated/committed.
+        const auto vertices_to_update =
+            transaction_.constraint_verification_info.GetVerticesForUniqueConstraintChecking();
+
+        for (auto const *vertex : vertices_to_update) {
+          mem_unique_constraints->UpdateBeforeCommit(vertex, transaction_);
+        }
+
+        for (auto const *vertex : vertices_to_update) {
+          // No need to take any locks here because we modified this vertex and no
+          // one else can touch it until we commit.
+          unique_constraint_violation = mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);
+          if (unique_constraint_violation) {
+            break;
+          }
+        }
+      }
+
+      if (!unique_constraint_violation) {
+        // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
+        MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+        transaction_.commit_timestamp->store(*commit_timestamp_,
+                                             std::memory_order_release);  // protected by engine_guard
+        // Replica can only update the last commit timestamp with
+        // the commits received from main.
+        // TODO ante true = is_main, false = desired_commit_timestamp.has_value()
+        if (true || false) {
+          // Update the last commit timestamp
+          mem_storage->repl_storage_state_.last_commit_timestamp_.store(
+              *commit_timestamp_);  // protected by engine_guard
+        }
+        // Release engine lock because we don't have to hold it anymore
+        engine_guard.unlock();
+
+        mem_storage->commit_log_->MarkFinished(start_timestamp);
+      }
+    }
+
+    if (unique_constraint_violation) {
+      // Abort();
+      DMG_ASSERT(commit_timestamp_.has_value());
+      commit_timestamp_.reset();  // We have aborted, hence we have not committed
+      // return StorageManipulationError{*unique_constraint_violation};
+      return true;
+    }
+  }
+
+  // is_transaction_active_ = false;
+
+  return {};
 }
 
 // NOLINTNEXTLINE(google-default-arguments)

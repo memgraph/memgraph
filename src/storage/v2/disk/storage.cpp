@@ -30,6 +30,7 @@
 #include <rocksdb/utilities/transaction_db.h>
 
 #include "kvstore/kvstore.hpp"
+#include "query/db_accessor.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/delta.hpp"
@@ -1109,6 +1110,29 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   return true;
 }
 
+[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::CheckVertexConstraintsBeforePull(
+    memgraph::query::DbAccessor *db_acc) const {
+  // const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
+
+  std::vector<std::vector<PropertyValue>> unique_storage;
+  for (const auto &vertex : db_acc->Vertices(storage::View::NEW)) {
+    // auto a = vertex.impl_.vertex_;
+    if (auto existence_constraint_validation_result =
+            constraints_.existence_constraints_->Validate(*vertex.impl_.vertex_);
+        existence_constraint_validation_result.has_value()) {
+      return StorageManipulationError{existence_constraint_validation_result.value()};
+    }
+
+    auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
+    if (auto unique_constraint_validation_result =
+            disk_unique_constraints->Validate(*vertex.impl_.vertex_, unique_storage);
+        unique_constraint_validation_result.has_value()) {
+      return StorageManipulationError{unique_constraint_validation_result.value()};
+    }
+  }
+  return {};
+}
+
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::CheckVertexConstraintsBeforeCommit(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
   if (auto existence_constraint_validation_result = constraints_.existence_constraints_->Validate(vertex);
@@ -1706,6 +1730,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
 
   return {};
 }
+
+bool DiskStorage::DiskAccessor::CheckConstraintsOnPull() { return false; }
 
 std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesForLabelIndex(LabelId label) {
   std::vector<std::pair<std::string, std::string>> vertices_to_be_indexed;

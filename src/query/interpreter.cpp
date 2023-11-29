@@ -1211,6 +1211,7 @@ struct TxTimeout {
 };
 
 struct PullPlan {
+  // storage::Storage::Accessor *transactional_dba
   explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::optional<std::string> username, std::atomic<TransactionStatus> *transaction_status,
@@ -1221,7 +1222,8 @@ struct PullPlan {
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
-                                                        std::map<std::string, TypedValue> *summary);
+                                                        std::map<std::string, TypedValue> *summary,
+                                                        Interpreter *interpreter = nullptr);
 
  private:
   std::shared_ptr<PlanWrapper> plan_ = nullptr;
@@ -1251,6 +1253,7 @@ struct PullPlan {
   bool use_monotonic_memory_;
 };
 
+// storage::Storage::Accessor *transactional_dba
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::optional<std::string> username, std::atomic<TransactionStatus> *transaction_status,
@@ -1263,6 +1266,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       memory_limit_(memory_limit),
       use_monotonic_memory_(use_monotonic_memory) {
   ctx_.db_accessor = dba;
+  // ctx_.transactional_db_accessor = transactional_dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
@@ -1292,7 +1296,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
-                                                                std::map<std::string, TypedValue> *summary) {
+                                                                std::map<std::string, TypedValue> *summary,
+                                                                Interpreter *interpreter) {
   std::optional<uint64_t> transaction_id = ctx_.db_accessor->GetTransactionId();
   MG_ASSERT(transaction_id.has_value());
 
@@ -1355,19 +1360,16 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   utils::Timer timer;
 
   int i = 0;
-  if (has_unsent_results_ && !output_symbols.empty()) {
-    // stream unsent results from previous pull
-    stream_values();
-    ++i;
-  }
 
   for (; !n || i < n; ++i) {
     if (!pull_result()) {
       break;
     }
+    auto a = interpreter->current_db_.db_transactional_accessor_->CheckConstraintsOnPull();
 
-    if (!output_symbols.empty()) {
-      stream_values();
+    std::cout << (a ? "ANTE | Constraint violation found" : "ANTE | Constraint violation not found") << std::endl;
+    if (a) {
+      throw memgraph::query::QueryException("Unable to commit due to unique constraint violation on :Xy(z)");
     }
   }
 
@@ -1485,6 +1487,10 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
       try {
         Commit();
       } catch (const utils::BasicException &) {
+        // TODO ante hvatanje QueryException
+        std::cout << "ANTE"
+                  << " | "
+                  << "catching QueryException" << std::endl;
         AbortCommand(nullptr);
         throw;
       }
@@ -1561,9 +1567,9 @@ bool IsCallBatchedProcedureQuery(const std::vector<memgraph::query::Clause *> &c
 }
 
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                 InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-                                 std::optional<std::string> const &username,
+                                 Interpreter *interpreter, InterpreterContext *interpreter_context,
+                                 CurrentDB &current_db, utils::MemoryResource *execution_memory,
+                                 std::vector<Notification> *notifications, std::optional<std::string> const &username,
                                  std::atomic<TransactionStatus> *transaction_status,
                                  std::shared_ptr<utils::AsyncTimer> tx_timer,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
@@ -1635,9 +1641,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       std::move(tx_timer), trigger_context_collector, memory_limit, use_monotonic_memory,
       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
-                       [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                         if (pull_plan->Pull(stream, n, output_symbols, summary)) {
+                       [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary,
+                        interpreter](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         if (pull_plan->Pull(stream, n, output_symbols, summary, interpreter)) {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -1703,8 +1709,9 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
-                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                  utils::MemoryResource *execution_memory, std::optional<std::string> const &username,
+                                  Interpreter *interpreter, InterpreterContext *interpreter_context,
+                                  CurrentDB &current_db, utils::MemoryResource *execution_memory,
+                                  std::optional<std::string> const &username,
                                   std::atomic<TransactionStatus> *transaction_status,
                                   std::shared_ptr<utils::AsyncTimer> tx_timer,
                                   FrameChangeCollector *frame_change_collector) {
@@ -1782,37 +1789,37 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
-  return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
-                       std::move(parsed_query.required_privileges),
-                       [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters),
-                        summary, dba, interpreter_context, execution_memory, memory_limit, username,
-                        // We want to execute the query we are profiling lazily, so we delay
-                        // the construction of the corresponding context.
-                        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
-                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, use_monotonic_memory,
-                        frame_change_collector, tx_timer = std::move(tx_timer)](
-                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         // No output symbols are given so that nothing is streamed.
-                         if (!stats_and_total_time) {
-                           stats_and_total_time =
-                               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, username,
-                                        transaction_status, std::move(tx_timer), nullptr, memory_limit,
-                                        use_monotonic_memory,
-                                        frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr)
-                                   .Pull(stream, {}, {}, summary);
-                           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
-                         }
+  return PreparedQuery{
+      {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
+      std::move(parsed_query.required_privileges),
+      [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters), summary, dba,
+       &current_db, interpreter, interpreter_context, execution_memory, memory_limit, username,
+       // We want to execute the query we are profiling lazily, so we delay
+       // the construction of the corresponding context.
+       stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
+       pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, use_monotonic_memory,
+       frame_change_collector, tx_timer = std::move(tx_timer)](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        // No output symbols are given so that nothing is streamed.
+        if (!stats_and_total_time) {
+          stats_and_total_time =
+              PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, username, transaction_status,
+                       std::move(tx_timer), nullptr, memory_limit, use_monotonic_memory,
+                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr)
+                  .Pull(stream, {}, {}, summary, interpreter);
+          pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
+        }
 
-                         MG_ASSERT(stats_and_total_time, "Failed to execute the query!");
+        MG_ASSERT(stats_and_total_time, "Failed to execute the query!");
 
-                         if (pull_plan->Pull(stream, n)) {
-                           summary->insert_or_assign("profile", ProfilingStatsToJson(*stats_and_total_time).dump());
-                           return QueryHandlerResult::ABORT;
-                         }
+        if (pull_plan->Pull(stream, n)) {
+          summary->insert_or_assign("profile", ProfilingStatsToJson(*stats_and_total_time).dump());
+          return QueryHandlerResult::ABORT;
+        }
 
-                         return std::nullopt;
-                       },
-                       rw_type_checker.type};
+        return std::nullopt;
+      },
+      rw_type_checker.type};
 }
 
 PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
@@ -2971,7 +2978,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   }
 
   MG_ASSERT(current_db.db_acc_, "Database info query expects a current DB");
-  MG_ASSERT(current_db.db_transactional_accessor_, "Database ifo query expects a current DB transaction");
+  MG_ASSERT(current_db.db_transactional_accessor_, "Database info query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
   auto *info_query = utils::Downcast<DatabaseInfoQuery>(parsed_query.query);
@@ -3731,15 +3738,16 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     frame_change_collector_.reset();
     frame_change_collector_.emplace();
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                          current_db_, memory_resource, &query_execution->notifications, username_,
-                                          &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
+      prepared_query =
+          PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, this, interpreter_context_,
+                             current_db_, memory_resource, &query_execution->notifications, username_,
+                             &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
                                            &query_execution->notifications, interpreter_context_, current_db_);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
       prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                           &query_execution->notifications, interpreter_context_, current_db_,
+                                           &query_execution->notifications, this, interpreter_context_, current_db_,
                                            &query_execution->execution_memory_with_exception, username_,
                                            &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
@@ -4079,6 +4087,9 @@ void Interpreter::Commit() {
               }
               case storage::ConstraintViolation::Type::UNIQUE: {
                 std::stringstream property_names_stream;
+                std::cout << "ANTE"
+                          << " | "
+                          << "throwing QueryException" << std::endl;
                 utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
                                      [&execution_db_accessor](auto &stream, const auto &prop) {
                                        stream << execution_db_accessor->PropertyToName(prop);

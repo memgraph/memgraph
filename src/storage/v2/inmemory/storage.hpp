@@ -203,6 +203,8 @@ class InMemoryStorage final : public Storage {
 
     ConstraintsInfo ListAllConstraints() const override;
 
+    bool CheckConstraintsOnPull() override;
+
     /// Returns void if the transaction has been committed.
     /// Returns `StorageDataManipulationError` if an error occures. Error can be:
     /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
