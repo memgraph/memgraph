@@ -478,7 +478,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         MG_ASSERT(password.IsString() || password.IsNull());
         if (!auth->CreateUser(username, password.IsString() ? std::make_optional(std::string(password.ValueString()))
                                                             : std::nullopt)) {
-          throw QueryRuntimeException("User '{}' already exists.", username);
+          throw UserAlreadyExistsException("User '{}' already exists.", username);
         }
 
         // If the license is not valid we create users with admin access
