@@ -11,7 +11,7 @@
 
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/constraints/constraints.hpp"
-#include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 
 namespace memgraph::storage {

@@ -55,4 +55,78 @@ void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::strin
   }
 }
 
+std::variant<ExistenceConstraints::MultipleThreadsConstraintValidation,
+             ExistenceConstraints::SingleThreadConstraintValidation>
+ExistenceConstraints::GetCreationFunction(
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
+  if (par_exec_info.has_value()) {
+    return ExistenceConstraints::MultipleThreadsConstraintValidation{par_exec_info.value()};
+  }
+  return ExistenceConstraints::SingleThreadConstraintValidation{};
+}
+
+[[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::ValidateVerticesOnConstraint(
+    utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+  auto calling_existence_validation_function = GetCreationFunction(parallel_exec_info);
+  return std::visit(
+      [&vertices, &label, &property](auto &calling_object) { return calling_object(vertices, label, property); },
+      calling_existence_validation_function);
+}
+
+std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstraintValidation::operator()(
+    utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
+  const auto &vertex_batches = parallel_exec_info.first;
+  const auto thread_count = std::min(parallel_exec_info.second, vertex_batches.size());
+
+  MG_ASSERT(!vertex_batches.empty(),
+            "The size of batches should always be greater than zero if you want to use the parallel version of index "
+            "creation!");
+
+  std::atomic<uint64_t> batch_counter = 0;
+  // using ReturnValue = std::optional<ConstraintViolation>;
+  memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::SpinLock> maybe_error{};
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(thread_count);
+
+    for (auto i{0U}; i < thread_count; ++i) {
+      threads.emplace_back([&label, &property, &vertex_batches, &maybe_error, &batch_counter, &vertices]() {
+        while (!maybe_error.Lock()->has_value()) {
+          const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
+          if (batch_index >= vertex_batches.size()) {
+            return;
+          }
+          const auto &[gid_start, batch_size] = vertex_batches[batch_index];
+
+          auto it = vertices.find(gid_start);
+
+          for (auto i{0U}; i < batch_size; ++i, ++it) {
+            if (const auto violation = ValidateVertexOnConstraint(*it, label, property); violation.has_value()) {
+              *maybe_error.Lock() = std::move(*violation);
+              break;
+            }
+          }
+        }
+      });
+    }
+  }
+  if (maybe_error.Lock()->has_value()) {
+    return maybe_error->value();
+  }
+  return std::nullopt;
+}
+
+std::optional<ConstraintViolation> ExistenceConstraints::SingleThreadConstraintValidation::operator()(
+    utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) {
+  for (Vertex &vertex : vertices) {
+    if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
+      return violation;
+    }
+  }
+  return std::nullopt;
+}
+
 }  // namespace memgraph::storage

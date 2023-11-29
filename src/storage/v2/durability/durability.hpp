@@ -23,6 +23,7 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/indices.hpp"
@@ -32,9 +33,6 @@
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage::durability {
-
-using ParallelizedSchemaCreationInfo =
-    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 /// Verifies that the owner of the storage directory is the same user that
 /// started the current process. If the verification fails, the process is

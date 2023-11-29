@@ -12,7 +12,7 @@
 #pragma once
 
 #include "storage/v2/constraints/constraints.hpp"
-#include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "utils/rw_lock.hpp"

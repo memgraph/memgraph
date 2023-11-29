@@ -11,7 +11,7 @@
 
 #include <thread>
 #include "storage/v2/delta.hpp"
-#include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
