@@ -369,11 +369,8 @@ class InMemoryStorage final : public Storage {
   using gka_wrapper_t = std::function<std::function<void()>(std::function<void()>)>;
 
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp,
-                                                 std::optional<gka_wrapper_t> gatekeeper_access_wrapper);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp,
-                                               std::optional<gka_wrapper_t> gatekeeper_access_wrapper);
+  [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
+                                 std::optional<gka_wrapper_t> gatekeeper_access_wrapper);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  uint64_t final_commit_timestamp);

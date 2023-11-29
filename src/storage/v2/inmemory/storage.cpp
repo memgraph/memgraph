@@ -753,44 +753,14 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // TODO: duplicated transaction finalisation in md_deltas and deltas processing cases
-  if (!transaction_.md_deltas.empty()) {
-    // This is usually done by the MVCC, but it does not handle the metadata deltas
-    transaction_.EnsureCommitTimestampExists();
-
-    // Save these so we can mark them used in the commit log.
-    uint64_t start_timestamp = transaction_.start_timestamp;
-
-    std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-    commit_timestamp_.emplace(mem_storage->CommitTimestamp(reparg.desired_commit_timestamp));
-
-    bool const is_main_or_replica_write = reparg.IsMain() || reparg.desired_commit_timestamp.has_value();
-    // Write transaction to WAL while holding the engine lock to make sure
-    // that committed transactions are sorted by the commit timestamp in the
-    // WAL files. We supply the new commit timestamp to the function so that
-    // it knows what will be the final commit timestamp. The WAL must be
-    // written before actually committing the transaction (before setting
-    // the commit timestamp) so that no other transaction can see the
-    // modifications before they are written to disk.
-    // Replica can log only the write transaction received from Main
-    // so the Wal files are consistent
-    if (is_main_or_replica_write) {
-      could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(
-          transaction_, *commit_timestamp_, std::move(reparg.gatekeeper_access_wrapper));  // protected by engine_guard
-      // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
-      transaction_.commit_timestamp->store(*commit_timestamp_,
-                                           std::memory_order_release);  // protected by engine_guard
-      // Update the last commit timestamp
-      mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);  // protected by engine_guard
-      // Release engine lock because we don't have to hold it anymore
-      engine_guard.unlock();
-
-      mem_storage->commit_log_->MarkFinished(start_timestamp);
-    }
-  } else if (transaction_.deltas.use().empty()) {
+  if (transaction_.deltas.use().empty() && transaction_.md_deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
+    // This is usually done by the MVCC, but it does not handle the metadata deltas
+    transaction_.EnsureCommitTimestampExists();
+
     if (transaction_.constraint_verification_info.NeedsExistenceConstraintVerification()) {
       const auto vertices_to_update =
           transaction_.constraint_verification_info.GetVerticesForExistenceConstraintChecking();
@@ -854,9 +824,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        could_replicate_all_sync_replicas = mem_storage->AppendToWalDataManipulation(
-            transaction_, *commit_timestamp_,
-            std::move(reparg.gatekeeper_access_wrapper));  // protected by engine_guard
+        could_replicate_all_sync_replicas =
+            mem_storage->AppendToWal(transaction_, *commit_timestamp_,
+                                     std::move(reparg.gatekeeper_access_wrapper));  // protected by engine_guard
 
         // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
         MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
@@ -1747,7 +1717,7 @@ void InMemoryStorage::FinalizeWalFile() {
   }
 }
 
-bool InMemoryStorage::AppendToWalDataManipulation(
+bool InMemoryStorage::AppendToWal(
     const Transaction &transaction, uint64_t final_commit_timestamp,
     std::optional<std::function<std::function<void()>(std::function<void()>)>> gatekeeper_access_wrapper) {
   if (!InitializeWalFile(repl_storage_state_.epoch_)) {
@@ -1906,26 +1876,13 @@ bool InMemoryStorage::AppendToWalDataManipulation(
     }
   };
 
+  // Handle MVCC deltas
   append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
     wal_file_->AppendDelta(delta, parent, timestamp);
     repl_storage_state_.AppendDelta(delta, parent, timestamp);
   });
 
-  // Add a delta that indicates that the transaction is fully written to the WAL
-  // file.replication_clients_.WithLock
-  wal_file_->AppendTransactionEnd(final_commit_timestamp);
-  FinalizeWalFile();
-
-  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this, std::move(gatekeeper_access_wrapper));
-}
-
-bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp,
-                                                std::optional<gka_wrapper_t> gatekeeper_access_wrapper) {
-  if (!InitializeWalFile(repl_storage_state_.epoch_)) {
-    return true;
-  }
-
-  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this);
+  // Handle metadata deltas
 
   for (const auto &md_delta : transaction.md_deltas) {
     switch (md_delta.action) {
@@ -1993,6 +1950,7 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
   }
 
   // Add a delta that indicates that the transaction is fully written to the WAL
+  // file.replication_clients_.WithLock
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
