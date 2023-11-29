@@ -130,7 +130,8 @@ class ReplicationStorageClient {
   }
 
   // Return whether the transaction could be finalized on the replication client or not.
-  [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage);
+  [[nodiscard]] bool FinalizeTransactionReplication(
+      Storage *storage, std::function<std::function<void()>(std::function<void()>)> gatekeeper_access_wrapper);
 
   void TryCheckReplicaStateAsync(Storage *storage);  // TODO Move back to private
  private:
