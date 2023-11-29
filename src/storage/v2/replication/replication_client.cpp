@@ -70,6 +70,7 @@ void ReplicationStorageClient::CheckReplicaState(Storage *storage) {
     } else {
       spdlog::debug("Replica '{}' is behind", client_.name_);
       state = replication::ReplicaState::RECOVERY;
+      // TODO: ensure database is protected from DROP
       client_.thread_pool_.AddTask(
           [storage, current_commit_timestamp, this] { this->RecoverReplica(current_commit_timestamp, storage); });
     }
@@ -107,6 +108,7 @@ void ReplicationStorageClient::LogRpcFailure() {
 }
 
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *storage) {
+  // TODO: need to protect Database from being dropped
   client_.thread_pool_.AddTask([storage, this] { this->TryCheckReplicaStateSync(storage); });
 }
 
@@ -165,7 +167,8 @@ void ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
   }
 }
 
-bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage) {
+bool ReplicationStorageClient::FinalizeTransactionReplication(
+    Storage *storage, std::function<std::function<void()>(std::function<void()>)> gatekeeper_access_wrapper) {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -202,7 +205,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage) 
   };
 
   if (client_.mode_ == memgraph::replication::ReplicationMode::ASYNC) {
-    client_.thread_pool_.AddTask([task = std::move(task)] { (void)task(); });
+    client_.thread_pool_.AddTask(gatekeeper_access_wrapper([task = std::move(task)] { (void)task(); }));
     return true;
   }
 

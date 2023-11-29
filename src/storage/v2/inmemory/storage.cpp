@@ -763,7 +763,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
     commit_timestamp_.emplace(mem_storage->CommitTimestamp(reparg.desired_commit_timestamp));
 
-    bool is_main = reparg.IsMain();
+    bool const is_main_or_replica_write = reparg.IsMain() || reparg.desired_commit_timestamp.has_value();
     // Write transaction to WAL while holding the engine lock to make sure
     // that committed transactions are sorted by the commit timestamp in the
     // WAL files. We supply the new commit timestamp to the function so that
@@ -773,18 +773,14 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // modifications before they are written to disk.
     // Replica can log only the write transaction received from Main
     // so the Wal files are consistent
-    if (is_main || reparg.desired_commit_timestamp.has_value()) {
-      could_replicate_all_sync_replicas =
-          mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);  // protected by engine_guard
+    if (is_main_or_replica_write) {
+      could_replicate_all_sync_replicas = mem_storage->AppendToWalDataDefinition(
+          transaction_, *commit_timestamp_, std::move(reparg.gatekeeper_access_wrapper));  // protected by engine_guard
       // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
       transaction_.commit_timestamp->store(*commit_timestamp_,
                                            std::memory_order_release);  // protected by engine_guard
-      // Replica can only update the last commit timestamp with
-      // the commits received from main.
-      if (is_main || reparg.desired_commit_timestamp.has_value()) {
-        // Update the last commit timestamp
-        mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);  // protected by engine_guard
-      }
+      // Update the last commit timestamp
+      mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);  // protected by engine_guard
       // Release engine lock because we don't have to hold it anymore
       engine_guard.unlock();
 
@@ -846,7 +842,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       }
 
       if (!unique_constraint_violation) {
-        bool is_main = reparg.IsMain();
+        [[maybe_unused]] bool const is_main_or_replica_write =
+            reparg.IsMain() || reparg.desired_commit_timestamp.has_value();
+        DMG_ASSERT(is_main_or_replica_write, "Should only get here on writes");
         // Write transaction to WAL while holding the engine lock to make sure
         // that committed transactions are sorted by the commit timestamp in the
         // WAL files. We supply the new commit timestamp to the function so that
@@ -856,10 +854,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (is_main || reparg.desired_commit_timestamp.has_value()) {
-          could_replicate_all_sync_replicas =
-              mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);  // protected by engine_guard
-        }
+        could_replicate_all_sync_replicas = mem_storage->AppendToWalDataManipulation(
+            transaction_, *commit_timestamp_,
+            std::move(reparg.gatekeeper_access_wrapper));  // protected by engine_guard
 
         // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
         MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
@@ -867,11 +864,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
                                              std::memory_order_release);  // protected by engine_guard
         // Replica can only update the last commit timestamp with
         // the commits received from main.
-        if (is_main || reparg.desired_commit_timestamp.has_value()) {
-          // Update the last commit timestamp
-          mem_storage->repl_storage_state_.last_commit_timestamp_.store(
-              *commit_timestamp_);  // protected by engine_guard
-        }
+        // Update the last commit timestamp
+        mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);  // protected by engine_guard
         // Release engine lock because we don't have to hold it anymore
         engine_guard.unlock();
 
@@ -1753,7 +1747,9 @@ void InMemoryStorage::FinalizeWalFile() {
   }
 }
 
-bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
+bool InMemoryStorage::AppendToWalDataManipulation(
+    const Transaction &transaction, uint64_t final_commit_timestamp,
+    std::optional<std::function<std::function<void()>(std::function<void()>)>> gatekeeper_access_wrapper) {
   if (!InitializeWalFile(repl_storage_state_.epoch_)) {
     return true;
   }
@@ -1920,10 +1916,11 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
-  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this);
+  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this, std::move(gatekeeper_access_wrapper));
 }
 
-bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp) {
+bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp,
+                                                std::optional<gka_wrapper_t> gatekeeper_access_wrapper) {
   if (!InitializeWalFile(repl_storage_state_.epoch_)) {
     return true;
   }
@@ -1999,7 +1996,7 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
-  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this);
+  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this, std::move(gatekeeper_access_wrapper));
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,

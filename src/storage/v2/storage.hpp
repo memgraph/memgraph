@@ -118,7 +118,7 @@ struct CommitReplArgs {
 
   // MAIN for ASYNC replication will need to wrap the aync task to ensure database
   // isn't dropped while replicaition is happening
-  std::optional<std::function<std::function<void()>(void())>> gatekeeper_access_wrapper_function = std::nullopt;
+  std::optional<std::function<std::function<void()>(std::function<void()>)>> gatekeeper_access_wrapper = std::nullopt;
 
   bool IsMain() { return is_main; }
 };

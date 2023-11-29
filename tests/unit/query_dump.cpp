@@ -704,6 +704,13 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s1").disk;
     config.force_on_disk = true;
   }
+  auto clean_up_s1 = memgraph::utils::OnScopeExit{[&] {
+    if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs("query-dump-s1");
+    }
+    std::filesystem::remove_all(config.durability.storage_directory);
+  }};
+
   memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(config));
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config, repl_state);
@@ -818,6 +825,12 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s2").disk;
     config.force_on_disk = true;
   }
+  auto clean_up_s2 = memgraph::utils::OnScopeExit{[&] {
+    if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs("query-dump-s2");
+    }
+    std::filesystem::remove_all(config.durability.storage_directory);
+  }};
 
   memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
