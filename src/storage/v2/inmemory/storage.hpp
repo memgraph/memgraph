@@ -214,7 +214,7 @@ class InMemoryStorage final : public Storage {
     /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {}) override;
+    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {}, std::any gk = {}) override;
 
     /// @throw std::bad_alloc
     void Abort() override;
@@ -369,8 +369,7 @@ class InMemoryStorage final : public Storage {
   using gka_wrapper_t = std::function<std::function<void()>(std::function<void()>)>;
 
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
-                                 std::optional<gka_wrapper_t> gatekeeper_access_wrapper);
+  [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp, std::any gk);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  uint64_t final_commit_timestamp);

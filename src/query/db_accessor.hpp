@@ -541,8 +541,9 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::StorageManipulationError, void> Commit(storage::CommitReplArgs reparg = {}) {
-    return accessor_->Commit(std::move(reparg));
+  utils::BasicResult<storage::StorageManipulationError, void> Commit(storage::CommitReplArgs reparg = {},
+                                                                     std::any gk = {}) {
+    return accessor_->Commit(std::move(reparg), std::move(gk));
   }
 
   void Abort() { accessor_->Abort(); }

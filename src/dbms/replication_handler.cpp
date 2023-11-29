@@ -145,18 +145,18 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   bool all_clients_good = true;
 
   // Add database specific clients (NOTE Currently all databases are connected to each replica)
-  dbms_handler_.ForEach([&](Database *db) {
-    auto *storage = db->storage();
+  dbms_handler_.ForEach([&](DatabaseAccess db_acc) {
+    auto *storage = db_acc->storage();
     if (!allow_mt_repl && storage->id() != kDefaultDB) {
       return;
     }
     // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
     if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
-    all_clients_good &=
-        storage->repl_storage_state_.replication_clients_.WithLock([storage, &instance_client](auto &storage_clients) {
+    all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
+        [storage, &instance_client, db_acc = std::move(db_acc)](auto &storage_clients) mutable {
           auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client.GetValue());
-          client->Start(storage);
+          client->Start(storage, std::move(db_acc));
           // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
           // MAYBE_BEHIND isn't a statement of the current state, this is the default value
           // Failed to start due to branching of MAIN and REPLICA
@@ -214,25 +214,26 @@ bool ReplicationHandler::IsReplica() const { return dbms_handler_.ReplicationSta
 
 // Per storage
 // NOTE Storage will connect to all replicas. Future work might change this
-void RestoreReplication(replication::ReplicationState &repl_state, storage::Storage &storage) {
+void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAccess db_acc) {
   spdlog::info("Restoring replication role.");
 
   /// MAIN
-  auto const recover_main = [&storage](RoleMainData &mainData) {
+  auto const recover_main = [db_acc = std::move(db_acc)](RoleMainData &mainData) mutable {
     // Each individual client has already been restored and started. Here we just go through each database and start its
     // client
     for (auto &instance_client : mainData.registered_replicas_) {
-      spdlog::info("Replica {} restoration started for {}.", instance_client.name_, storage.id());
+      spdlog::info("Replica {} restoration started for {}.", instance_client.name_, db_acc->id());
 
       // Phase 1: ensure DB exists
       // auto s = instance_client.rpc_client_.Stream<memgraph::replication::????>();
 
       // Phase 2: ensure storage is in sync
-      const auto &ret = storage.repl_storage_state_.replication_clients_.WithLock(
-          [&](auto &storage_clients) -> utils::BasicResult<RegisterReplicaError> {
+      const auto &ret = db_acc->storage()->repl_storage_state_.replication_clients_.WithLock(
+          [&, db_acc](auto &storage_clients) mutable -> utils::BasicResult<RegisterReplicaError> {
             // ONLY VALID if storage.id() exists on REPLICA
             auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client);
-            client->Start(&storage);
+            auto *storage = db_acc->storage();
+            client->Start(storage, std::move(db_acc));
             // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
             // MAYBE_BEHIND isn't a statement of the current state, this is the default value
             // Failed to start due to branching of MAIN and REPLICA
@@ -249,7 +250,7 @@ void RestoreReplication(replication::ReplicationState &repl_state, storage::Stor
         LOG_FATAL("Failure when restoring replica {}: {}.", instance_client.name_,
                   RegisterReplicaErrorToString(ret.GetError()));
       }
-      spdlog::info("Replica {} restored for {}.", instance_client.name_, storage.id());
+      spdlog::info("Replica {} restored for {}.", instance_client.name_, db_acc->id());
     }
     spdlog::info("Replication role restored to MAIN.");
   };

@@ -145,7 +145,7 @@ class DiskStorage final : public Storage {
     ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {}) override;
+    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {}, std::any gk = {}) override;
 
     void UpdateObjectsCountOnAbort();
 

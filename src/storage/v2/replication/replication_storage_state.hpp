@@ -39,15 +39,13 @@ class ReplicationStorageClient;
 
 struct ReplicationStorageState {
   // Only MAIN can send
-  void InitializeTransaction(uint64_t seq_num, Storage *storage);
+  void InitializeTransaction(uint64_t seq_num, Storage *storage, std::any gk);
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
   void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                        const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                        const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp);
-  bool FinalizeTransaction(
-      uint64_t timestamp, Storage *storage,
-      std::optional<std::function<std::function<void()>(std::function<void()>)>> gatekeeper_access_wrapper);
+  bool FinalizeTransaction(uint64_t timestamp, Storage *storage, std::any gk);
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;

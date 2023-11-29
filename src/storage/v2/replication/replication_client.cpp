@@ -29,7 +29,7 @@ namespace memgraph::storage {
 ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::ReplicationClient &client)
     : client_{client} {}
 
-void ReplicationStorageClient::CheckReplicaState(Storage *storage) {
+void ReplicationStorageClient::CheckReplicaState(Storage *storage, std::any gk) {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
   auto &replStorageState = storage->repl_storage_state_;
@@ -71,8 +71,9 @@ void ReplicationStorageClient::CheckReplicaState(Storage *storage) {
       spdlog::debug("Replica '{}' is behind", client_.name_);
       state = replication::ReplicaState::RECOVERY;
       // TODO: ensure database is protected from DROP
-      client_.thread_pool_.AddTask(
-          [storage, current_commit_timestamp, this] { this->RecoverReplica(current_commit_timestamp, storage); });
+      client_.thread_pool_.AddTask([storage, current_commit_timestamp, gk = std::move(gk), this] {
+        this->RecoverReplica(current_commit_timestamp, storage);
+      });
     }
   });
 }
@@ -107,14 +108,15 @@ void ReplicationStorageClient::LogRpcFailure() {
       utils::MessageWithLink("Couldn't replicate data to {}.", client_.name_, "https://memgr.ph/replication"));
 }
 
-void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *storage) {
+void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *storage, std::any gk) {
   // TODO: need to protect Database from being dropped
-  client_.thread_pool_.AddTask([storage, this] { this->TryCheckReplicaStateSync(storage); });
+  client_.thread_pool_.AddTask(
+      [storage, gk = std::move(gk), this]() mutable { this->TryCheckReplicaStateSync(storage, std::move(gk)); });
 }
 
-void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *storage) {
+void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *storage, std::any gk) {
   try {
-    CheckReplicaState(storage);
+    CheckReplicaState(storage, std::move(gk));
   } catch (const rpc::VersionMismatchRpcFailedException &) {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
     spdlog::error(
@@ -128,7 +130,8 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *storage) {
   }
 }
 
-void ReplicationStorageClient::StartTransactionReplication(const uint64_t current_wal_seq_num, Storage *storage) {
+void ReplicationStorageClient::StartTransactionReplication(const uint64_t current_wal_seq_num, Storage *storage,
+                                                           std::any gk) {
   auto locked_state = replica_state_.Lock();
   switch (*locked_state) {
     using enum replication::ReplicaState;
@@ -152,7 +155,7 @@ void ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
     case MAYBE_BEHIND:
       spdlog::error(
           utils::MessageWithLink("Couldn't replicate data to {}.", client_.name_, "https://memgr.ph/replication"));
-      TryCheckReplicaStateAsync(storage);
+      TryCheckReplicaStateAsync(storage, std::move(gk));
       return;
     case READY:
       MG_ASSERT(!replica_stream_);
@@ -167,8 +170,7 @@ void ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
   }
 }
 
-bool ReplicationStorageClient::FinalizeTransactionReplication(
-    Storage *storage, std::function<std::function<void()>(std::function<void()>)> gatekeeper_access_wrapper) {
+bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, std::any gk) {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -179,16 +181,17 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(
 
   if (replica_stream_->IsDefunct()) return false;
 
-  auto task = [storage, this]() {
+  auto task = [storage, gk = std::move(gk), this]() mutable {
     MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
     try {
       auto response = replica_stream_->Finalize();
-      return replica_state_.WithLock([storage, &response, this](auto &state) {
+      return replica_state_.WithLock([storage, &response, gk = std::move(gk), this](auto &state) mutable {
         replica_stream_.reset();
         if (!response.success || state == replication::ReplicaState::RECOVERY) {
           state = replication::ReplicaState::RECOVERY;
-          client_.thread_pool_.AddTask(
-              [storage, &response, this] { this->RecoverReplica(response.current_commit_timestamp, storage); });
+          client_.thread_pool_.AddTask([storage, &response, gk = std::move(gk), this] {
+            this->RecoverReplica(response.current_commit_timestamp, storage);
+          });
           return false;
         }
         state = replication::ReplicaState::READY;
@@ -205,16 +208,16 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(
   };
 
   if (client_.mode_ == memgraph::replication::ReplicationMode::ASYNC) {
-    client_.thread_pool_.AddTask(gatekeeper_access_wrapper([task = std::move(task)] { (void)task(); }));
+    client_.thread_pool_.AddTask([task = std::move(task)]() mutable { (void)task(); });
     return true;
   }
 
   return task();
 }
 
-void ReplicationStorageClient::Start(Storage *storage) {
+void ReplicationStorageClient::Start(Storage *storage, std::any gk) {
   spdlog::trace("Replication client started for database \"{}\"", storage->id());
-  TryCheckReplicaStateSync(storage);
+  TryCheckReplicaStateSync(storage, std::move(gk));
 }
 
 void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) {
