@@ -393,8 +393,8 @@ int main(int argc, char **argv) {
   );
   auto db_acc = dbms_handler.Get();
 
-  memgraph::query::InterpreterContext interpreter_context_(interp_config, &dbms_handler, auth_handler.get(),
-                                                           auth_checker.get());
+  memgraph::query::InterpreterContext interpreter_context_(
+      interp_config, &dbms_handler, &dbms_handler.ReplicationState(), auth_handler.get(), auth_checker.get());
   MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),

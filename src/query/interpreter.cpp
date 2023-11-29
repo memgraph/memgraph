@@ -3406,7 +3406,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
   auto *db_handler = interpreter_context->dbms_handler;
 
-  const bool is_replica = interpreter_context->dbms_handler->ReplicationState().IsReplica();
+  const bool is_replica = interpreter_context->repl_state->IsReplica();
 
   switch (query->action_) {
     case MultiDatabaseQuery::Action::CREATE:
@@ -3884,7 +3884,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     UpdateTypeCount(rw_type);
 
-    if (interpreter_context_->dbms_handler->ReplicationState().IsReplica() && IsQueryWrite(rw_type)) {
+    if (interpreter_context_->repl_state->IsReplica() && IsQueryWrite(rw_type)) {
       query_execution = nullptr;
       throw QueryException("Write query forbidden on the replica!");
     }
@@ -4113,7 +4113,7 @@ void Interpreter::Commit() {
 
   auto commit_confirmed_by_all_sync_repplicas = true;
 
-  bool is_main = interpreter_context_->dbms_handler->ReplicationState().IsMain();
+  bool is_main = interpreter_context_->repl_state->IsMain();
   auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit(
       {.gatekeeper_access_wrapper_function =
            is_main ? std::optional{wrapper_factory(*current_db_.db_acc_)} : std::nullopt});

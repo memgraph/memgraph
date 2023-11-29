@@ -90,7 +90,7 @@ class StorageModeMultiTxTest : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
-  memgraph::query::InterpreterContext interpreter_context{{}, nullptr};
+  memgraph::query::InterpreterContext interpreter_context{{}, nullptr, &repl_state};
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
 };
 

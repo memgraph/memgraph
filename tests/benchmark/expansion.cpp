@@ -40,7 +40,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;
-    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr);
+    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value());
 
     auto label = db_acc->storage()->NameToLabel("Starting");
 
