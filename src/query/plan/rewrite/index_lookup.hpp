@@ -171,7 +171,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (expand.common_.existing_node) {
       return true;
     }
-    if (expand.filter_lambda_.accumulated_path_symbol) {
+    if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST && expand.filter_lambda_.accumulated_path_symbol) {
       // When accumulated path is used, we cannot use ST shortest path algorithm.
       return false;
     }

@@ -1181,7 +1181,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   FrameChangeCollector *frame_change_collector_;
   /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
   mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
-  bool treat_null_as_zero_;
+  bool treat_null_as_zero_{false};
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.

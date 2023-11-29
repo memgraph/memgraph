@@ -2040,7 +2040,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
           edge->filter_lambda_ = visit_lambda(relationshipLambdas[0]);
           if (edge->filter_lambda_.accumulated_weight) {
             throw SemanticException(
-                "Accumulated weight in filter lambdacan be used only with "
+                "Accumulated weight in filter lambda can be used only with "
                 "shortest paths expansion.");
           }
         }
