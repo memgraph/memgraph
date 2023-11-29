@@ -11,6 +11,7 @@
 
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include <memory>
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "utils/skip_list.hpp"
 
@@ -278,7 +279,8 @@ void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const T
 
 std::variant<InMemoryUniqueConstraints::MultipleThreadsConstraintValidation,
              InMemoryUniqueConstraints::SingleThreadConstraintValidation>
-InMemoryUniqueConstraints::GetCreationFunction(const std::optional<ParallelizedConstraintCreationInfo> &par_exec_info) {
+InMemoryUniqueConstraints::GetCreationFunction(
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
   if (par_exec_info.has_value()) {
     return InMemoryUniqueConstraints::MultipleThreadsConstraintValidation{par_exec_info.value()};
   }
@@ -362,9 +364,9 @@ bool InMemoryUniqueConstraints::ValidationFunc(const Vertex &vertex,
 }
 
 utils::BasicResult<ConstraintViolation, InMemoryUniqueConstraints::CreationStatus>
-InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                            utils::SkipList<Vertex>::Accessor vertex_accessor,
-                                            const std::optional<ParallelizedConstraintCreationInfo> &par_exec_info) {
+InMemoryUniqueConstraints::CreateConstraint(
+    LabelId label, const std::set<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertex_accessor,
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
   if (properties.empty()) {
     return CreationStatus::EMPTY_PROPERTIES;
   }

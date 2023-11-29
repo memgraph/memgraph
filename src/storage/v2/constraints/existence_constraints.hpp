@@ -26,6 +26,9 @@ namespace memgraph::storage {
 
 class ExistenceConstraints {
  private:
+  std::vector<std::pair<LabelId, PropertyId>> constraints_;
+
+ public:
   struct MultipleThreadsConstraintValidation {
     std::optional<ConstraintViolation> operator()(utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label,
                                                   const PropertyId &property);
@@ -37,9 +40,6 @@ class ExistenceConstraints {
                                                   const PropertyId &property);
   };
 
-  std::vector<std::pair<LabelId, PropertyId>> constraints_;
-
- public:
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
                                                                                      LabelId label,
                                                                                      PropertyId property) {

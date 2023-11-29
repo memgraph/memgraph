@@ -15,6 +15,7 @@
 #include <thread>
 #include <variant>
 #include "storage/v2/constraints/unique_constraints.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -51,9 +52,22 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     bool operator==(const std::vector<PropertyValue> &rhs) const;
   };
 
+  static bool ValidationFunc(const Vertex &vertex, utils::SkipList<Entry>::Accessor &constraint_accessor,
+                             const LabelId &label, const std::set<PropertyId> &properties);
+
  public:
-  using ParallelizedConstraintCreationInfo =
-      std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
+  struct MultipleThreadsConstraintValidation {
+    bool operator()(utils::SkipList<Vertex>::Accessor &vertex_accessor,
+                    utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
+                    const std::set<PropertyId> &properties);
+
+    const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
+  };
+  struct SingleThreadConstraintValidation {
+    bool operator()(utils::SkipList<Vertex>::Accessor &vertex_accessor,
+                    utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
+                    const std::set<PropertyId> &properties);
+  };
 
   /// Indexes the given vertex for relevant labels and properties.
   /// This method should be called before committing and validating vertices
@@ -75,7 +89,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// @throw std::bad_alloc
   utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
       LabelId label, const std::set<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertex_accessor,
-      const std::optional<ParallelizedConstraintCreationInfo> &par_exec_info);
+      const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info);
 
   /// Deletes the specified constraint. Returns `DeletionStatus::NOT_FOUND` if
   /// there is not such constraint in the storage,
@@ -107,25 +121,10 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
   void Clear() override;
 
- private:
-  static bool ValidationFunc(const Vertex &vertex, utils::SkipList<Entry>::Accessor &constraint_accessor,
-                             const LabelId &label, const std::set<PropertyId> &properties);
-
-  struct MultipleThreadsConstraintValidation {
-    bool operator()(utils::SkipList<Vertex>::Accessor &vertex_accessor,
-                    utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties);
-
-    const ParallelizedConstraintCreationInfo &parallel_exec_info;
-  };
-  struct SingleThreadConstraintValidation {
-    bool operator()(utils::SkipList<Vertex>::Accessor &vertex_accessor,
-                    utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties);
-  };
   static std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation> GetCreationFunction(
-      const std::optional<ParallelizedConstraintCreationInfo> &);
+      const std::optional<durability::ParallelizedSchemaCreationInfo> &);
 
+ private:
   std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>> constraints_;
   std::map<LabelId, std::map<std::set<PropertyId>, utils::SkipList<Entry> *>> constraints_by_label_;
 };
