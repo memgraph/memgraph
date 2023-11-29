@@ -8,14 +8,12 @@ driver = neo4j.GraphDatabase.driver(MEMGRAPH_URL, auth=("", ""))
 
 
 def fill_db(tx):
-    res = tx.run("UNWIND range(1, 2000) AS i CREATE (n:Node {id: i}) RETURN n")
+    tx.run("UNWIND range(1, 2000) AS i CREATE (n:Node {id: i}) RETURN n")
 
 
 def run_queries(tx):
-    big_result = tx.run("match (n) return n;")  # A query that forces the result to have has_more=true
-    short_result = tx.run("match (n) return n limit 1;")  # Any query you can run
-    print(f"Big result values: {big_result.values()}")
-    print(f"Short result values: {short_result.values()}")
+    tx.run("match (n) return n;")  # A query that forces the result to have has_more=true
+    tx.run("match (n) return n limit 1;")  # Any query you can run
 
 
 with driver.session() as session:

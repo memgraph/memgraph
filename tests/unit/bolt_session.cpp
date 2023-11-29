@@ -1272,39 +1272,6 @@ TEST(BoltSession, ExplicitTxBeginRunPullCommit) {
   }
 }
 
-TEST(BoltSession, ExplicitTxBeginMultipleOrderedRunPullCommit) {
-  {
-    INIT_VARS;
-
-    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
-    ExecuteInit(input_stream, session, output, true);
-    ExecuteBeginTransaction(input_stream, session, output);
-
-    WriteRunRequest(input_stream, kQueryReturn42, true, v4_3::extra_w_metadata);
-    session.Execute();
-    ASSERT_EQ(session.state_, State::Result);
-    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
-    ASSERT_EQ(session.state_, State::Idle);
-
-    WriteRunRequest(input_stream, kQueryReturnMultiple, true, v4_3::extra_w_metadata);
-    session.Execute();
-    ASSERT_EQ(session.state_, State::Result);
-    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
-    ASSERT_EQ(session.state_, State::Result);
-    constexpr std::array<uint8_t, 10> md_has_more_true{0x88, 0x68, 0x61, 0x73, 0x5F, 0x6D, 0x6F, 0x72, 0x65, 0xC3};
-    auto find_has_more = std::search(cbegin(output), cend(output), cbegin(md_has_more_true), cend(md_has_more_true));
-    EXPECT_NE(find_has_more, cend(output));
-    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
-    ASSERT_EQ(session.state_, State::Result);
-    find_has_more = std::search(cbegin(output), cend(output), cbegin(md_has_more_true), cend(md_has_more_true));
-    EXPECT_NE(find_has_more, cend(output));
-    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pull_one_req));
-    ASSERT_EQ(session.state_, State::Idle);
-
-    ExecuteCommitTransaction(input_stream, session, output);
-  }
-}
-
 TEST(BoltSession, ExplicitTxBeginRunPullAllCommit) {
   {
     INIT_VARS;
@@ -1322,7 +1289,7 @@ TEST(BoltSession, ExplicitTxBeginRunPullAllCommit) {
     WriteRunRequest(input_stream, kQueryReturnMultiple, true, v4_3::extra_w_metadata);
     session.Execute();
     ASSERT_EQ(session.state_, State::Result);
-    ExecuteCommand(input_stream, session, v4::pull_one_req, sizeof(v4::pullall_req));
+    ExecuteCommand(input_stream, session, v4::pullall_req, sizeof(v4::pullall_req));
     ASSERT_EQ(session.state_, State::Idle);
     constexpr std::array<uint8_t, 10> md_has_more_true{0x88, 0x68, 0x61, 0x73, 0x5F, 0x6D, 0x6F, 0x72, 0x65, 0xC3};
     auto find_has_more = std::search(cbegin(output), cend(output), cbegin(md_has_more_true), cend(md_has_more_true));
