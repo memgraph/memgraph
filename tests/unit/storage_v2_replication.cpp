@@ -120,14 +120,6 @@ struct MinMemgraph {
   memgraph::dbms::DatabaseAccess db_acc;
   memgraph::dbms::Database &db;
   ReplicationHandler repl_handler;
-
-  auto wrapper_factory() {
-    return [this]<typename Func>(Func &&func) {
-      return [ local_copy = db_acc, func = std::forward<Func>(func) ]<typename... Args>(Args && ...args) {
-        return func(std::forward<Args>(args)...);
-      };
-    };
-  }
 };
 
 TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
@@ -162,7 +154,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(v.AddLabel(main.db.storage()->NameToLabel(vertex_label)).HasValue());
     ASSERT_TRUE(v.SetProperty(main.db.storage()->NameToProperty(vertex_property), PropertyValue(vertex_property_value))
                     .HasValue());
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   {
@@ -188,7 +180,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(v->RemoveLabel(main.db.storage()->NameToLabel(vertex_label)).HasValue());
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   {
@@ -207,7 +199,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(acc->DeleteVertex(&*v).HasValue());
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   {
@@ -234,7 +226,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(edge.SetProperty(main.db.storage()->NameToProperty(edge_property), PropertyValue(edge_property_value))
                     .HasValue());
     edge_gid.emplace(edge.Gid());
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   const auto find_edge = [&](const auto &edges, const Gid edge_gid) -> std::optional<EdgeAccessor> {
@@ -271,7 +263,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto edge = find_edge(out_edges->edges, *edge_gid);
     ASSERT_TRUE(edge);
     ASSERT_TRUE(acc->DeleteEdge(&*edge).HasValue());
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   {
@@ -297,25 +289,25 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(main.db.storage()->NameToLabel(label)).HasError());
-    ASSERT_FALSE(unique_acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label), l_stats);
-    ASSERT_FALSE(unique_acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_FALSE(
         unique_acc->CreateIndex(main.db.storage()->NameToLabel(label), main.db.storage()->NameToProperty(property))
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label), main.db.storage()->NameToProperty(property),
                               lp_stats);
-    ASSERT_FALSE(unique_acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
@@ -323,7 +315,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
                      ->CreateExistenceConstraint(main.db.storage()->NameToLabel(label),
                                                  main.db.storage()->NameToProperty(property))
                      .HasError());
-    ASSERT_FALSE(unique_acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
@@ -332,7 +324,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
                                               {main.db.storage()->NameToProperty(property),
                                                main.db.storage()->NameToProperty(property_extra)})
                      .HasError());
-    ASSERT_FALSE(unique_acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
 
   {
@@ -370,24 +362,24 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->DeleteLabelIndexStats(main.db.storage()->NameToLabel(label));
-    ASSERT_FALSE(unique_acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_FALSE(unique_acc->DropIndex(main.db.storage()->NameToLabel(label)).HasError());
-    ASSERT_FALSE(unique_acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->DeleteLabelPropertyIndexStats(main.db.storage()->NameToLabel(label));
-    ASSERT_FALSE(unique_acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_FALSE(
         unique_acc->DropIndex(main.db.storage()->NameToLabel(label), main.db.storage()->NameToProperty(property))
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
@@ -395,7 +387,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
                      ->DropExistenceConstraint(main.db.storage()->NameToLabel(label),
                                                main.db.storage()->NameToProperty(property))
                      .HasError());
-    ASSERT_FALSE(unique_acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
@@ -403,7 +395,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
                   main.db.storage()->NameToLabel(label),
                   {main.db.storage()->NameToProperty(property), main.db.storage()->NameToProperty(property_extra)}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
 
   {
@@ -465,7 +457,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
     ASSERT_TRUE(v.SetProperty(main.db.storage()->NameToProperty(vertex_property), PropertyValue(vertex_property_value))
                     .HasValue());
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   const auto check_replica = [&](memgraph::dbms::Database &replica_database) {
@@ -487,7 +479,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
     auto acc = main.db.Access();
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   // REPLICA1 should contain the new vertex
@@ -525,7 +517,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       // Create the vertex before registering a replica
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
-      ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+      ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
     }
   }
 
@@ -541,13 +533,13 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       auto acc = main.db.Access();
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
-      ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+      ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
     }
     {
       auto acc = main.db.Access();
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
-      ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+      ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
     }
   }
 
@@ -570,7 +562,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       ASSERT_TRUE(
           v->SetProperty(main.db.storage()->NameToProperty(property_name), PropertyValue(property_value)).HasValue());
     }
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   static constexpr const auto *vertex_label = "vertex_label";
@@ -604,7 +596,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
         ASSERT_TRUE(v);
         ASSERT_TRUE(v->AddLabel(main.db.storage()->NameToLabel(vertex_label)).HasValue());
       }
-      ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+      ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
     }
     {
       auto acc = replica.db.Access();
@@ -673,7 +665,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     auto acc = main.db.Access();
     auto v = acc->CreateVertex();
     created_vertices.push_back(v.Gid());
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
 
     if (i == 0) {
       ASSERT_EQ(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
@@ -733,13 +725,13 @@ TEST_F(ReplicationTest, EpochTest) {
     auto acc = main.db.Access();
     const auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto acc = replica1.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto acc = replica2.db.Access();
@@ -766,13 +758,13 @@ TEST_F(ReplicationTest, EpochTest) {
   {
     auto acc = main.db.Access();
     acc->CreateVertex();
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto acc = replica1.db.Access();
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = replica1.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, replica1.db_acc).HasError());
   }
   // Replica1 should forward it's vertex to Replica2
   {
@@ -800,7 +792,7 @@ TEST_F(ReplicationTest, EpochTest) {
     auto acc = main.db.Access();
     const auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(acc->Commit({.gatekeeper_access_wrapper = main.wrapper_factory()}).HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
   // Replica1 is not compatible with the main so it shouldn't contain
   // it's newest vertex

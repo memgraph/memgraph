@@ -27,6 +27,7 @@
 #include "constants.hpp"
 #include "dbms/database.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
+#include "dbms/replication_handler.hpp"
 #ifdef MG_ENTERPRISE
 #include "dbms/database_handler.hpp"
 #endif
@@ -351,7 +352,11 @@ class DbmsHandler {
 #endif
       auto db_acc = db_gk.access();
       if (db_acc) {  // This isn't an error, just a defunct db
-        f(db_acc->get());
+        if constexpr (std::is_invocable_v<decltype(f), DatabaseAccess>) {
+          f(*db_acc);
+        } else if constexpr (std::is_invocable_v<decltype(f), Database *>) {
+          f(db_acc->get());
+        }
       }
     }
   }
@@ -366,8 +371,12 @@ class DbmsHandler {
     std::shared_lock<LockT> rd(lock_);
     for (auto &[_, db_gk] : db_handler_) {
       auto db_acc = db_gk.access();
-      if (db_acc) {                   // This isn't an error, just a defunct db
-        if (f(db_acc->get())) break;  // Run until the first successful one
+      if (db_acc) {  // This isn't an error, just a defunct db
+        if constexpr (std::is_invocable_v<decltype(f), DatabaseAccess>) {
+          if (f(*db_acc)) break;  // Run until the first successful one
+        } else if constexpr (std::is_invocable_v<decltype(f), Database *>) {
+          if (f(db_acc->get())) break;  // Run until the first successful one
+        }
       }
     }
 #else
@@ -432,7 +441,29 @@ class DbmsHandler {
     }
 
     auto new_db = db_handler_.New(name, storage_config, repl_state_);
+
     if (new_db.HasValue()) {
+      // Recovery needs to be done after the database has been added, so we can pass an accessor that protects the db
+      if (allow_mt_repl || name == dbms::kDefaultDB) {
+        // Handle global replication state
+        spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
+        // RECOVER REPLICA CONNECTIONS
+        memgraph::dbms::RestoreReplication(repl_state_, new_db.GetValue());
+      } else if (const ::memgraph::replication::RoleMainData *data =
+                     std::get_if<::memgraph::replication::RoleMainData>(&repl_state_.ReplicationData());
+                 data && !data->registered_replicas_.empty()) {
+        spdlog::warn("Multi-tenant replication is currently not supported!");
+      }
+
+      if (storage_config.durability.snapshot_wal_mode == storage::Config::Durability::SnapshotWalMode::DISABLED &&
+          repl_state_.IsMain()) {
+        spdlog::warn(
+            "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please "
+            "consider "
+            "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
+            "without write-ahead logs this instance is not replicating any data.");
+      }
+
       // Success
       if (durability_) durability_->Put(name, "ok");  // TODO: Serialize the configuration?
       return new_db.GetValue();

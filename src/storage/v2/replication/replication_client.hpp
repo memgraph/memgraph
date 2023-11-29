@@ -100,8 +100,8 @@ class ReplicationStorageClient {
   auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
   auto GetTimestampInfo(Storage const *storage) -> TimestampInfo;
 
-  void Start(Storage *storage);
-  void StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage);
+  void Start(Storage *storage, std::any gk);
+  void StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage, std::any gk);
 
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
@@ -130,17 +130,15 @@ class ReplicationStorageClient {
   }
 
   // Return whether the transaction could be finalized on the replication client or not.
-  [[nodiscard]] bool FinalizeTransactionReplication(
-      Storage *storage, std::function<std::function<void()>(std::function<void()>)> gatekeeper_access_wrapper);
+  [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage, std::any gk);
 
-  void TryCheckReplicaStateAsync(Storage *storage);  // TODO Move back to private
+  void TryCheckReplicaStateAsync(Storage *storage, std::any gk);  // TODO Move back to private
  private:
   void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage);
 
-  void CheckReplicaState(Storage *storage);
+  void CheckReplicaState(Storage *storage, std::any gk);
   void LogRpcFailure();
-  void TryCheckReplicaStateSync(Storage *storage);
-  void FrequentCheck(Storage *storage);
+  void TryCheckReplicaStateSync(Storage *storage, std::any gk);
 
   ::memgraph::replication::ReplicationClient &client_;
   // TODO Do not store the stream, make is a local variable

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "dbms/database.hpp"
 #include "replication/role.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/result.hpp"
@@ -62,6 +63,6 @@ struct ReplicationHandler {
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 /// TODO: extend to do multiple storages
-void RestoreReplication(replication::ReplicationState &repl_state, storage::Storage &storage);
+void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAccess db_acc);
 
 }  // namespace memgraph::dbms

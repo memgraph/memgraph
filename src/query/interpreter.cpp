@@ -107,14 +107,6 @@
 #include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
 
-auto wrapper_factory(memgraph::dbms::DatabaseAccess const &db_acc) {
-  return [db_acc]<typename Func>(Func &&func) {
-    return [ local_copy = db_acc, func = std::forward<Func>(func) ]<typename... Args>(Args && ...args) {
-      return func(std::forward<Args>(args)...);
-    };
-  };
-}
-
 namespace memgraph::metrics {
 extern Event ReadQuery;
 extern Event WriteQuery;
@@ -3988,9 +3980,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     }
 
     bool is_main = interpreter_context->repl_state->IsMain();
-    auto maybe_commit_error = db_accessor.Commit(
-        {.is_main = is_main,
-         .gatekeeper_access_wrapper = is_main ? std::optional{wrapper_factory(db_acc)} : std::nullopt});
+    auto maybe_commit_error = db_accessor.Commit({.is_main = is_main}, db_acc);
 
     if (maybe_commit_error.HasError()) {
       const auto &error = maybe_commit_error.GetError();
@@ -4115,21 +4105,19 @@ void Interpreter::Commit() {
   };
   utils::OnScopeExit members_reseter(reset_necessary_members);
 
-  auto commit_confirmed_by_all_sync_repplicas = true;
+  auto commit_confirmed_by_all_sync_replicas = true;
 
   bool is_main = interpreter_context_->repl_state->IsMain();
-  auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit(
-      {.is_main = is_main,
-       .gatekeeper_access_wrapper = is_main ? std::optional{wrapper_factory(*current_db_.db_acc_)} : std::nullopt});
+  auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit({.is_main = is_main}, current_db_.db_acc_);
   if (maybe_commit_error.HasError()) {
     const auto &error = maybe_commit_error.GetError();
 
     std::visit(
         [&execution_db_accessor = current_db_.execution_db_accessor_,
-         &commit_confirmed_by_all_sync_repplicas]<typename T>(T &&arg) {
+         &commit_confirmed_by_all_sync_replicas]<typename T>(T &&arg) {
           using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-            commit_confirmed_by_all_sync_repplicas = false;
+            commit_confirmed_by_all_sync_replicas = false;
           } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
             const auto &constraint_violation = arg;
             auto &label_name = execution_db_accessor->LabelToName(constraint_violation.label);
@@ -4178,7 +4166,7 @@ void Interpreter::Commit() {
   }
 
   SPDLOG_DEBUG("Finished committing the transaction");
-  if (!commit_confirmed_by_all_sync_repplicas) {
+  if (!commit_confirmed_by_all_sync_replicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
 }

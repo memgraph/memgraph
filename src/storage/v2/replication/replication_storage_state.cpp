@@ -16,10 +16,10 @@
 
 namespace memgraph::storage {
 
-void ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage) {
-  replication_clients_.WithLock([=](auto &clients) {
+void ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage, std::any gk) {
+  replication_clients_.WithLock([=, gk = std::move(gk)](auto &clients) mutable {
     for (auto &client : clients) {
-      client->StartTransactionReplication(seq_num, storage);
+      client->StartTransactionReplication(seq_num, storage, std::move(gk));
     }
   });
 }
@@ -52,25 +52,22 @@ void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperati
   });
 }
 
-bool ReplicationStorageState::FinalizeTransaction(
-    uint64_t timestamp, Storage *storage,
-    std::optional<std::function<std::function<void()>(std::function<void()>)>> gatekeeper_access_wrapper) {
-  return replication_clients_.WithLock(
-      [=, gatekeeper_access_wrapper = std::move(gatekeeper_access_wrapper)](auto &clients) {
-        bool finalized_on_all_replicas = true;
-        MG_ASSERT(clients.empty() || gatekeeper_access_wrapper,
-                  "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
-                  "handle ASYNC tasks");
-        for (ReplicationClientPtr &client : clients) {
-          client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); });
-          const auto finalized = client->FinalizeTransactionReplication(storage, *gatekeeper_access_wrapper);
+bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage, std::any gk) {
+  return replication_clients_.WithLock([=, gk = std::move(gk)](auto &clients) mutable {
+    bool finalized_on_all_replicas = true;
+    MG_ASSERT(clients.empty() || gk.has_value(),
+              "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
+              "handle ASYNC tasks");
+    for (ReplicationClientPtr &client : clients) {
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); });
+      const auto finalized = client->FinalizeTransactionReplication(storage, std::move(gk));
 
-          if (client->Mode() == memgraph::replication::ReplicationMode::SYNC) {
-            finalized_on_all_replicas = finalized && finalized_on_all_replicas;
-          }
-        }
-        return finalized_on_all_replicas;
-      });
+      if (client->Mode() == memgraph::replication::ReplicationMode::SYNC) {
+        finalized_on_all_replicas = finalized && finalized_on_all_replicas;
+      }
+    }
+    return finalized_on_all_replicas;
+  });
 }
 
 std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaState(std::string_view name) const {
