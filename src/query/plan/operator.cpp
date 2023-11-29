@@ -2500,13 +2500,16 @@ std::vector<Symbol> EvaluatePatternFilter::ModifiedSymbols(const SymbolTable &ta
 }
 
 bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("EvaluatePatternFilter");
+  std::function<void(TypedValue *)> function = [&frame, self = this->self_, input_cursor = this->input_cursor_.get(),
+                                                &context](TypedValue *return_value) {
+    OOMExceptionEnabler oom_exception;
+    input_cursor->Reset();
 
-  input_cursor_->Reset();
+    *return_value = TypedValue(input_cursor->Pull(frame, context), context.evaluation_context.memory);
+  };
 
-  frame[self_.output_symbol_] = TypedValue(input_cursor_->Pull(frame, context), context.evaluation_context.memory);
-
+  frame[self_.output_symbol_] = TypedValue(std::move(function));
   return true;
 }
 

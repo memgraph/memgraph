@@ -22,6 +22,7 @@
 #include "storage/v2/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 
 namespace memgraph::query {
@@ -215,6 +216,9 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
       return;
+    case Type::Function:
+      new (&function_v) std::function<void(TypedValue *)>(other.function_v);
+      return;
     case Type::Graph:
       auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
       new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
@@ -267,6 +271,9 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
       break;
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
+      break;
+    case Type::Function:
+      new (&function_v) std::function<void(TypedValue *)>(other.function_v);
       break;
     case Type::Graph:
       if (other.GetMemoryResource() == memory_) {
@@ -343,6 +350,7 @@ DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 
 Graph &TypedValue::ValueGraph() {
   if (type_ != Type::Graph) {
@@ -449,6 +457,8 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "duration";
     case TypedValue::Type::Graph:
       return os << "graph";
+    case TypedValue::Type::Function:
+      return os << "function";
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -601,6 +611,9 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         return *this;
+      case Type::Function:
+        new (&function_v) std::function<void(TypedValue *)>(other.function_v);
+        return *this;
     }
     LOG_FATAL("Unsupported TypedValue::Type");
   }
@@ -660,6 +673,9 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         break;
+      case Type::Function:
+        new (&function_v) std::function<void(TypedValue *)>{other.function_v};
+        break;
       case Type::Graph:
         if (other.GetMemoryResource() == memory_) {
           new (&graph_v) std::unique_ptr<Graph>(std::move(other.graph_v));
@@ -707,6 +723,9 @@ void TypedValue::DestroyValue() {
     case Type::LocalTime:
     case Type::LocalDateTime:
     case Type::Duration:
+      break;
+    case Type::Function:
+      std::destroy_at(&function_v);
       break;
     case Type::Graph: {
       auto *graph = graph_v.release();
@@ -1185,6 +1204,8 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Duration:
       return utils::DurationHash{}(value.ValueDuration());
       break;
+    case TypedValue::Type::Function:
+      throw TypedValueException("Unsupported hash function for Function");
     case TypedValue::Type::Graph:
       throw TypedValueException("Unsupported hash function for Graph");
   }
