@@ -13,38 +13,43 @@ from time import sleep
 
 import mgp
 
+# While the query procedure/function sleeps for this amount of time, a parallel transaction will erase a graph element
+# (node or relationship) contained in the return value. Any operation in the parallel transaction should take far less
+# time than this value.
+SLEEP = 1
+
 
 @mgp.read_proc
 def pass_node_with_id(ctx: mgp.ProcCtx, node: mgp.Vertex) -> mgp.Record(node=mgp.Vertex, id=int):
-    sleep(1)
+    sleep(SLEEP)
     return mgp.Record(node=node, id=node.id)
 
 
 @mgp.function
 def pass_node(ctx: mgp.FuncCtx, node: mgp.Vertex):
-    sleep(1)
+    sleep(SLEEP)
     return node
 
 
 @mgp.function
 def pass_relationship(ctx: mgp.FuncCtx, relationship: mgp.Edge):
-    sleep(1)
+    sleep(SLEEP)
     return relationship
 
 
 @mgp.function
 def pass_path(ctx: mgp.FuncCtx, path: mgp.Path):
-    sleep(1)
+    sleep(SLEEP)
     return path
 
 
 @mgp.function
 def pass_list(ctx: mgp.FuncCtx, list_: mgp.List[mgp.Any]):
-    sleep(1)
+    sleep(SLEEP)
     return list_
 
 
 @mgp.function
 def pass_map(ctx: mgp.FuncCtx, map_: mgp.Map):
-    sleep(1)
+    sleep(SLEEP)
     return map_

@@ -24,7 +24,7 @@ SWITCH_TO_ANALYTICAL = "STORAGE MODE IN_MEMORY_ANALYTICAL;"
 def modify_graph(query):
     subprocess_cursor = connect()
 
-    time.sleep(0.5)
+    time.sleep(0.5)  # Time for the parallel transaction to call a query procedure
 
     subprocess_cursor.execute(query)
 

@@ -22,6 +22,11 @@ constexpr std::string_view kPassNodeWithIdArg = "node";
 constexpr std::string_view kPassNodeWithIdFieldNode = "node";
 constexpr std::string_view kPassNodeWithIdFieldId = "id";
 
+// While the query procedure/function sleeps for this amount of time, a parallel transaction will erase a graph element
+// (node or relationship) contained in the return value. Any operation in the parallel transaction should take far less
+// time than this value.
+const int64_t kSleep = 1;
+
 void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard{memory};
@@ -30,7 +35,7 @@ void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
 
     const auto relationship = arguments[0].ValueRelationship();
 
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::this_thread::sleep_for(std::chrono::seconds(kSleep));
 
     result.SetValue(relationship);
   } catch (const std::exception &e) {
@@ -48,7 +53,7 @@ void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
     const auto node = arguments[0].ValueNode();
     const auto node_id = node.Id().AsInt();
 
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+    std::this_thread::sleep_for(std::chrono::seconds(kSleep));
 
     auto record = record_factory.NewRecord();
     record.Insert(kPassNodeWithIdFieldNode.data(), node);

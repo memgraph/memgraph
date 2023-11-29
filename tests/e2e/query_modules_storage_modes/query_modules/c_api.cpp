@@ -24,10 +24,15 @@ constexpr std::string_view kPassNodeWithIdArg = "node";
 constexpr std::string_view kPassNodeWithIdFieldNode = "node";
 constexpr std::string_view kPassNodeWithIdFieldId = "id";
 
+// While the query procedure/function sleeps for this amount of time, a parallel transaction will erase a graph element
+// (node or relationship) contained in the return value. Any operation in the parallel transaction should take far less
+// time than this value.
+const int64_t kSleep = 1;
+
 void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   auto *relationship = mgp::list_at(args, 0);
 
-  std::this_thread::sleep_for(std::chrono::seconds(1));
+  std::this_thread::sleep_for(std::chrono::seconds(kSleep));
 
   mgp::func_result_set_value(res, relationship, memory);
 }
@@ -36,7 +41,7 @@ void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
   auto *node = mgp::value_get_vertex(mgp::list_at(args, 0));
   auto node_id = mgp::vertex_get_id(node).as_int;
 
-  std::this_thread::sleep_for(std::chrono::seconds(1));
+  std::this_thread::sleep_for(std::chrono::seconds(kSleep));
 
   auto *result_record = mgp::result_new_record(result);
   mgp::result_record_insert(result_record, kPassNodeWithIdFieldNode.data(), mgp::value_make_vertex(node));
@@ -45,13 +50,16 @@ void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
 
 extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memory *memory) {
   try {
-    auto *func = mgp::module_add_function(query_module, kFunctionPassRelationship.data(), PassRelationship);
-    mgp::func_add_arg(func, kPassRelationshipArg.data(), mgp::type_relationship());
-
-    auto *proc = mgp::module_add_read_procedure(query_module, kProcedurePassNodeWithId.data(), PassNodeWithId);
-    mgp::proc_add_arg(proc, kPassNodeWithIdArg.data(), mgp::type_node());
-    mgp::proc_add_result(proc, kPassNodeWithIdFieldNode.data(), mgp::type_node());
-    mgp::proc_add_result(proc, kPassNodeWithIdFieldId.data(), mgp::type_int());
+    {
+      auto *func = mgp::module_add_function(query_module, kFunctionPassRelationship.data(), PassRelationship);
+      mgp::func_add_arg(func, kPassRelationshipArg.data(), mgp::type_relationship());
+    }
+    {
+      auto *proc = mgp::module_add_read_procedure(query_module, kProcedurePassNodeWithId.data(), PassNodeWithId);
+      mgp::proc_add_arg(proc, kPassNodeWithIdArg.data(), mgp::type_node());
+      mgp::proc_add_result(proc, kPassNodeWithIdFieldNode.data(), mgp::type_node());
+      mgp::proc_add_result(proc, kPassNodeWithIdFieldId.data(), mgp::type_int());
+    }
   } catch (const std::exception &e) {
     return 1;
   }

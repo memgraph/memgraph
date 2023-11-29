@@ -383,14 +383,11 @@ bool TypedValue::ContainsDeleted() const {
     case Type::Vertex:
       return vertex_v.impl_.vertex_->deleted;
     case Type::Edge:
-      if (!edge_v.impl_.storage_->config_.items.properties_on_edges) {
-        return false;
-      }
-      return edge_v.impl_.edge_.ptr->deleted;
+      return edge_v.IsDeleted();
     case Type::Path:
       return std::ranges::any_of(path_v.vertices(),
                                  [](auto &vertex_acc) { return vertex_acc.impl_.vertex_->deleted; }) ||
-             std::ranges::any_of(path_v.edges(), [](auto &edge_acc) { return edge_acc.impl_.edge_.ptr->deleted; });
+             std::ranges::any_of(path_v.edges(), [](auto &edge_acc) { return edge_acc.IsDeleted(); });
     default:
       throw TypedValueException("Value of unknown type");
   }

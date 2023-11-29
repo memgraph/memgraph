@@ -919,7 +919,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
   py::Object items(PyDict_Items(fields.Ptr()));
   if (!items) return py::FetchError();
   mgp_result_record *record{nullptr};
-  auto is_transactional = storage::IsTransactional(graph->storage_mode);
+  const auto is_transactional = storage::IsTransactional(graph->storage_mode);
   if (is_transactional) {
     // IN_MEMORY_ANALYTICAL must first verify that the record contains no deleted values
     if (RaiseExceptionFromErrorCode(mgp_result_new_record(result, &record))) {
@@ -1225,7 +1225,7 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
   auto call = [&](py::Object py_graph) -> utils::BasicResult<std::optional<py::ExceptionInfo>, mgp_value *> {
     py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
     if (!py_args) return {py::FetchError()};
-    auto is_transactional = storage::IsTransactional(graph->storage_mode);
+    const auto is_transactional = storage::IsTransactional(graph->storage_mode);
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return {py::FetchError()};
     mgp_value *ret_val = PyObjectToMgpValueWithPythonExceptions(py_res.Ptr(), memory);

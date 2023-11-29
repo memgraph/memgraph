@@ -322,12 +322,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
 
 bool IsDeleted(const mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex_->deleted; }
 
-bool IsDeleted(const mgp_edge *edge) {
-  if (!edge->impl.impl_.storage_->config_.items.properties_on_edges) {
-    return false;
-  }
-  return edge->impl.impl_.edge_.ptr->deleted;
-}
+bool IsDeleted(const mgp_edge *edge) { return edge->impl.IsDeleted(); }
 
 bool ContainsDeleted(const mgp_path *path) {
   return std::ranges::any_of(path->vertices, [](const auto &vertex) { return IsDeleted(&vertex); }) ||
@@ -1623,9 +1618,9 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
         auto *memory = res->rows.get_allocator().GetMemoryResource();
         MG_ASSERT(res->signature, "Expected to have a valid signature");
         res->rows.push_back(mgp_result_record{
-            res->signature,
-            memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory),
-            !res->is_transactional});
+            .signature = res->signature,
+            .values = memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory),
+            .ignore_deleted_values = !res->is_transactional});
         return &res->rows.back();
       },
       result);
@@ -2032,8 +2027,7 @@ mgp_error mgp_vertex_copy(mgp_vertex *v, mgp_memory *memory, mgp_vertex **result
 void mgp_vertex_destroy(mgp_vertex *v) { DeleteRawMgpObject(v); }
 
 mgp_error mgp_vertex_is_deleted(mgp_vertex *v, int *result) {
-  *result = IsDeleted(v);
-  return mgp_error::MGP_ERROR_NO_ERROR;
+  return WrapExceptions([v] { return IsDeleted(v); }, result);
 }
 
 mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
@@ -2394,8 +2388,7 @@ mgp_error mgp_edge_copy(mgp_edge *e, mgp_memory *memory, mgp_edge **result) {
 void mgp_edge_destroy(mgp_edge *e) { DeleteRawMgpObject(e); }
 
 mgp_error mgp_edge_is_deleted(mgp_edge *e, int *result) {
-  *result = IsDeleted(e);
-  return mgp_error::MGP_ERROR_NO_ERROR;
+  return WrapExceptions([e] { return IsDeleted(e); }, result);
 }
 
 mgp_error mgp_edge_equal(mgp_edge *e1, mgp_edge *e2, int *result) {
