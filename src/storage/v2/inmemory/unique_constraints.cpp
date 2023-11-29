@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include <memory>
 #include "storage/v2/id_types.hpp"
 #include "utils/skip_list.hpp"
 
@@ -275,6 +276,91 @@ void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const T
   }
 }
 
+std::variant<InMemoryUniqueConstraints::MultipleThreadsConstraintValidation,
+             InMemoryUniqueConstraints::SingleThreadConstraintValidation>
+InMemoryUniqueConstraints::GetCreationFunction(const std::optional<ParallelizedConstraintCreationInfo> &par_exec_info) {
+  if (par_exec_info.has_value()) {
+    return InMemoryUniqueConstraints::MultipleThreadsConstraintValidation{par_exec_info.value()};
+  }
+  return InMemoryUniqueConstraints::SingleThreadConstraintValidation{};
+}
+
+bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
+    utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
+    const LabelId &label, const std::set<PropertyId> &properties) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  const auto &vertex_batches = parallel_exec_info.first;
+  const auto thread_count = std::min(parallel_exec_info.second, vertex_batches.size());
+
+  MG_ASSERT(!vertex_batches.empty(),
+            "The size of batches should always be greater than zero if you want to use the parallel version of index "
+            "creation!");
+
+  std::atomic<uint64_t> batch_counter = 0;
+  memgraph::utils::Synchronized<bool, utils::RWSpinLock> maybe_error{false};
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(thread_count);
+
+    for (auto i{0U}; i < thread_count; ++i) {
+      threads.emplace_back([&vertex_batches, &maybe_error, &batch_counter, &vertex_accessor, &constraint_accessor,
+                            &label, &properties]() {
+        while (!(*maybe_error.ReadLock())) {
+          const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
+          if (batch_index >= vertex_batches.size()) {
+            return;
+          }
+          const auto &[gid_start, batch_size] = vertex_batches[batch_index];
+
+          auto it = vertex_accessor.find(gid_start);
+
+          for (auto i{0U}; i < batch_size; ++i, ++it) {
+            if (ValidationFunc(*it, constraint_accessor, label, properties)) [[unlikely]] {
+              *maybe_error.Lock() = true;
+              break;
+            }
+          }
+        }
+      });
+    }
+  }
+  return *maybe_error.Lock();
+}
+
+bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
+    utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
+    const LabelId &label, const std::set<PropertyId> &properties) {
+  for (const Vertex &vertex : vertex_accessor) {
+    if (ValidationFunc(vertex, constraint_accessor, label, properties)) {
+      return true;
+      break;
+    }
+  }
+  return false;
+}
+
+bool InMemoryUniqueConstraints::ValidationFunc(const Vertex &vertex,
+                                               utils::SkipList<Entry>::Accessor &constraint_accessor,
+                                               const LabelId &label, const std::set<PropertyId> &properties) {
+  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+    return false;
+  }
+  auto values = vertex.properties.ExtractPropertyValues(properties);
+  if (!values) {
+    return false;
+  }
+
+  // Check whether there already is a vertex with the same values for the
+  // given label and property.
+  auto it = constraint_accessor.find_equal_or_greater(*values);
+  if (it != constraint_accessor.end() && it->values == *values) {
+    return true;
+  }
+
+  constraint_accessor.insert(Entry{std::move(*values), &vertex, 0});
+  return false;
+}
+
 utils::BasicResult<ConstraintViolation, InMemoryUniqueConstraints::CreationStatus>
 InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
                                             utils::SkipList<Vertex>::Accessor vertex_accessor,
@@ -291,36 +377,14 @@ InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<Proper
   }
   memgraph::utils::SkipList<Entry> constraints_skip_list;
   utils::SkipList<Entry>::Accessor constraint_accessor{constraints_skip_list.access()};
-  auto is_vertex_constraint_violated = [&constraint_accessor, &label, &properties](const Vertex &vertex) {
-    if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
-      return false;
-    }
-    auto values = vertex.properties.ExtractPropertyValues(properties);
-    if (!values) {
-      return false;
-    }
 
-    // Check whether there already is a vertex with the same values for the
-    // given label and property.
-    auto it = constraint_accessor.find_equal_or_greater(*values);
-    if (it != constraint_accessor.end() && it->values == *values) {
-      return true;
-    }
+  auto multi_single_thread_processing = GetCreationFunction(par_exec_info);
 
-    constraint_accessor.insert(Entry{std::move(*values), &vertex, 0});
-    return false;
-  };
-
-  auto is_constraint_valid_single_thread = [&vertex_accessor, &is_vertex_constraint_violated]() -> bool {
-    return ValidateConstraintSingleThread(vertex_accessor, is_vertex_constraint_violated);
-  };
-
-  auto is_constraint_valid_multi_thread = [&vertex_accessor, &is_vertex_constraint_violated, &par_exec_info]() -> bool {
-    return ValidateConstraintMultipleThreads(vertex_accessor, is_vertex_constraint_violated, *par_exec_info);
-  };
-
-  bool violation_found =
-      !par_exec_info ? std::invoke(is_constraint_valid_single_thread) : std::invoke(is_constraint_valid_multi_thread);
+  bool violation_found = std::visit(
+      [&vertex_accessor, &constraint_accessor, &label, &properties](auto &multi_single_thread_processing) {
+        return multi_single_thread_processing(vertex_accessor, constraint_accessor, label, properties);
+      },
+      multi_single_thread_processing);
 
   if (violation_found) {
     return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};

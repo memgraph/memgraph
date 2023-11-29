@@ -11,8 +11,12 @@
 
 #pragma once
 
+#include <optional>
 #include <thread>
+#include <variant>
 #include "storage/v2/constraints/unique_constraints.hpp"
+#include "storage/v2/id_types.hpp"
+#include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -103,62 +107,25 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
   void Clear() override;
 
-  template <typename TFunc>
-  static bool ValidateConstraintMultipleThreads(utils::SkipList<Vertex>::Accessor &vertex_accessor,
-                                                const TFunc &validation_func,
-                                                const ParallelizedConstraintCreationInfo &parallel_exec_info) {
-    utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-
-    const auto &vertex_batches = parallel_exec_info.first;
-    const auto thread_count = std::min(parallel_exec_info.second, vertex_batches.size());
-
-    MG_ASSERT(!vertex_batches.empty(),
-              "The size of batches should always be greater than zero if you want to use the parallel version of index "
-              "creation!");
-
-    std::atomic<uint64_t> batch_counter = 0;
-    memgraph::utils::Synchronized<bool, utils::RWSpinLock> maybe_error{false};
-    {
-      std::vector<std::jthread> threads;
-      threads.reserve(thread_count);
-
-      for (auto i{0U}; i < thread_count; ++i) {
-        threads.emplace_back([&validation_func, &vertex_batches, &maybe_error, &batch_counter, &vertex_accessor]() {
-          while (!(*maybe_error.ReadLock())) {
-            const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
-            if (batch_index >= vertex_batches.size()) {
-              return;
-            }
-            const auto &[gid_start, batch_size] = vertex_batches[batch_index];
-
-            auto it = vertex_accessor.find(gid_start);
-
-            for (auto i{0U}; i < batch_size; ++i, ++it) {
-              if (validation_func(*it)) [[unlikely]] {
-                *maybe_error.Lock() = true;
-                break;
-              }
-            }
-          }
-        });
-      }
-    }
-    return *maybe_error.Lock();
-  }
-
-  template <typename TFunc>
-  static bool ValidateConstraintSingleThread(utils::SkipList<Vertex>::Accessor &vertex_accessor,
-                                             const TFunc &validation_func) {
-    for (const Vertex &vertex : vertex_accessor) {
-      if (validation_func(vertex)) {
-        return true;
-        break;
-      }
-    }
-    return false;
-  }
-
  private:
+  static bool ValidationFunc(const Vertex &vertex, utils::SkipList<Entry>::Accessor &constraint_accessor,
+                             const LabelId &label, const std::set<PropertyId> &properties);
+
+  struct MultipleThreadsConstraintValidation {
+    bool operator()(utils::SkipList<Vertex>::Accessor &vertex_accessor,
+                    utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
+                    const std::set<PropertyId> &properties);
+
+    const ParallelizedConstraintCreationInfo &parallel_exec_info;
+  };
+  struct SingleThreadConstraintValidation {
+    bool operator()(utils::SkipList<Vertex>::Accessor &vertex_accessor,
+                    utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
+                    const std::set<PropertyId> &properties);
+  };
+  static std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation> GetCreationFunction(
+      const std::optional<ParallelizedConstraintCreationInfo> &);
+
   std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>> constraints_;
   std::map<LabelId, std::map<std::set<PropertyId>, utils::SkipList<Entry> *>> constraints_by_label_;
 };

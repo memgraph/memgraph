@@ -25,12 +25,14 @@
 #include <vector>
 
 #include "replication/epoch.hpp"
+#include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -138,11 +140,23 @@ void Recovery::RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints
                                             Constraints *constraints, utils::SkipList<Vertex> *vertices,
                                             NameIdMapper *name_id_mapper,
                                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+  RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, parallel_exec_info);
+
+  RecoverExistenceConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
+                              parallel_exec_info);
+
+  RecoverUniqueConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper, parallel_exec_info);
+}
+
+void Recovery::RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata,
+                                      Indices *indices, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                                      const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   spdlog::info("Recreating indices from metadata.");
+
   // Recover label indices.
-  spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
+  spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
-  for (const auto &item : indices_constraints.indices.label) {
+  for (const auto &item : indices_metadata.label) {
     if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info)) {
       throw RecoveryFailure("The label index must be created here!");
     }
@@ -151,9 +165,10 @@ void Recovery::RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints
   spdlog::info("Label indices are recreated.");
 
   spdlog::info("Recreating index statistics from metadata.");
+
   // Recover label indices statistics.
-  spdlog::info("Recreating {} label index statistics from metadata.", indices_constraints.indices.label_stats.size());
-  for (const auto &item : indices_constraints.indices.label_stats) {
+  spdlog::info("Recreating {} label index statistics from metadata.", indices_metadata.label_stats.size());
+  for (const auto &item : indices_metadata.label_stats) {
     mem_label_index->SetIndexStats(item.first, item.second);
     spdlog::info("Statistics for index on :{} are recreated from metadata",
                  name_id_mapper->IdToName(item.first.AsUint()));
@@ -161,10 +176,9 @@ void Recovery::RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints
   spdlog::info("Label indices statistics are recreated.");
 
   // Recover label+property indices.
-  spdlog::info("Recreating {} label+property indices from metadata.",
-               indices_constraints.indices.label_property.size());
+  spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_property.size());
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
-  for (const auto &item : indices_constraints.indices.label_property) {
+  for (const auto &item : indices_metadata.label_property) {
     if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info))
       throw RecoveryFailure("The label+property index must be created here!");
     spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
@@ -174,8 +188,8 @@ void Recovery::RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints
 
   // Recover label+property indices statistics.
   spdlog::info("Recreating {} label+property indices statistics from metadata.",
-               indices_constraints.indices.label_property_stats.size());
-  for (const auto &item : indices_constraints.indices.label_property_stats) {
+               indices_metadata.label_property_stats.size());
+  for (const auto &item : indices_metadata.label_property_stats) {
     const auto label_id = item.first;
     const auto property_id = item.second.first;
     const auto &stats = item.second.second;
@@ -188,10 +202,14 @@ void Recovery::RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints
   spdlog::info("Indices are recreated.");
 
   spdlog::info("Recreating constraints from metadata.");
+}
 
-  // Recover existence constraints.
-  spdlog::info("Recreating {} existence constraints from metadata.", indices_constraints.constraints.existence.size());
-  for (const auto &[label, property] : indices_constraints.constraints.existence) {
+void Recovery::RecoverExistenceConstraints(
+    const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata, Constraints *constraints,
+    utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+    const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+  spdlog::info("Recreating {} existence constraints from metadata.", constraints_metadata.existence.size());
+  for (const auto &[label, property] : constraints_metadata.existence) {
     if (constraints->existence_constraints_->ConstraintExists(label, property)) {
       throw RecoveryFailure("The existence constraint already exists!");
     }
@@ -207,27 +225,38 @@ void Recovery::RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints
                  name_id_mapper->IdToName(property.AsUint()));
   }
   spdlog::info("Existence constraints are recreated from metadata.");
+}
 
-  // Recover unique constraints.
-  spdlog::info("Recreating {} unique constraints from metadata.", indices_constraints.constraints.unique.size());
-  for (const auto &item : indices_constraints.constraints.unique) {
+void Recovery::RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
+                                        Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                                        NameIdMapper *name_id_mapper,
+                                        const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+  spdlog::info("Recreating {} unique constraints from metadata.", constraints_metadata.unique.size());
+
+  for (const auto &[label, properties] : constraints_metadata.unique) {
     auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
-    auto ret =
-        mem_unique_constraints->CreateConstraint(item.first, item.second, vertices->access(), parallel_exec_info);
+    auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices->access(), parallel_exec_info);
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
 
     std::vector<std::string> property_names;
-    property_names.reserve(item.second.size());
-    for (const auto &prop : item.second) {
+    property_names.reserve(properties.size());
+    for (const auto &prop : properties) {
       property_names.emplace_back(name_id_mapper->IdToName(prop.AsUint()));
     }
     const auto property_names_joined = utils::Join(property_names, ",");
-    spdlog::info("Unique constraint on :{}({}) is recreated from metadata",
-                 name_id_mapper->IdToName(item.first.AsUint()), property_names_joined);
+    spdlog::info("Unique constraint on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
+                 property_names_joined);
   }
   spdlog::info("Unique constraints are recreated from metadata.");
   spdlog::info("Constraints are recreated from metadata.");
+}
+
+std::optional<ParallelizedSchemaCreationInfo> Recovery::GetParallelExecInfo(const RecoveryInfo &recovery_info,
+                                                                            const Config &config) {
+  return config.durability.allow_parallel_index_creation
+             ? std::make_optional(std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count))
+             : std::nullopt;
 }
 
 std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, ReplicationStorageState &repl_storage_state,
@@ -284,11 +313,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
 
     if (!utils::DirExists(wal_directory_)) {
-      const auto par_exec_info = config.durability.allow_parallel_index_creation
-                                     ? std::make_optional(std::make_pair(recovery_info.vertex_batches,
-                                                                         config.durability.recovery_thread_count))
-                                     : std::nullopt;
-      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, name_id_mapper, par_exec_info);
+      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, name_id_mapper,
+                                   GetParallelExecInfo(recovery_info, config));
       return recovered_snapshot->recovery_info;
     }
   } else {
@@ -415,12 +441,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     spdlog::info("All necessary WAL files are loaded successfully.");
   }
 
-  const auto par_exec_info =
-      config.durability.allow_parallel_index_creation && !recovery_info.vertex_batches.empty()
-          ? std::make_optional(std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count))
-          : std::nullopt;
-
-  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, name_id_mapper, par_exec_info);
+  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, name_id_mapper,
+                               GetParallelExecInfo(recovery_info, config));
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());

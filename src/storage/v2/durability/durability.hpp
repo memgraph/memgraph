@@ -98,6 +98,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
                                                           std::optional<size_t> current_seq_num = {});
 
 struct Recovery {
+ public:
   // Helper function used to recover all discovered indices and constraints. The
   // indices and constraints must be recovered after the data recovery is done
   // to ensure that the indices and constraints are consistent at the end of the
@@ -107,6 +108,9 @@ struct Recovery {
       const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices, Constraints *constraints,
       utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
       const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
+
+  static std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
+                                                                           const Config &config);
 
   /// Recovers data either from a snapshot and/or WAL files.
   /// @throw RecoveryFailure
@@ -119,6 +123,19 @@ struct Recovery {
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;
+
+ private:
+  static void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &, Indices *,
+                                     utils::SkipList<Vertex> *, NameIdMapper *,
+                                     const std::optional<ParallelizedSchemaCreationInfo> &);
+
+  static void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                                          utils::SkipList<Vertex> *, NameIdMapper *,
+                                          const std::optional<ParallelizedSchemaCreationInfo> &);
+
+  static void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                                       utils::SkipList<Vertex> *, NameIdMapper *,
+                                       const std::optional<ParallelizedSchemaCreationInfo> &);
 };
 
 }  // namespace memgraph::storage::durability
