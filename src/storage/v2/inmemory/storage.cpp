@@ -28,32 +28,38 @@
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
 
+namespace memgraph::storage {
+
 namespace {
 
-memgraph::storage::EdgeDirection ApproximateSmallerDegree(memgraph::storage::Vertex *from_vertex,
-                                                          memgraph::storage::Vertex *to_vertex) {
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
-  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
+    -> Result<EdgesVertexAccessorResult> {
+  auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
+    // Obtain the locks by `gid` order to avoid lock cycles.
+    auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+    auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
+    if (from_vertex->gid < to_vertex->gid) {
+      guard_from.lock();
+      guard_to.lock();
+    } else if (from_vertex->gid > to_vertex->gid) {
+      guard_to.lock();
+      guard_from.lock();
+    } else {
+      // The vertices are the same vertex, only lock one.
+      guard_from.lock();
+    }
 
-  const auto out_n = from_vertex->out_edges.size();
-  const auto in_n = to_vertex->in_edges.size();
-  return (out_n <= in_n) ? memgraph::storage::EdgeDirection::OUT : memgraph::storage::EdgeDirection::IN;
+    // With the potentially cheaper side FindEdges
+    const auto out_n = from_vertex->out_edges.size();
+    const auto in_n = to_vertex->in_edges.size();
+    return out_n <= in_n;
+  };
+
+  return use_out_edges(from_vertex->vertex_, to_vertex->vertex_) ? from_vertex->OutEdges(view, {edge_type}, to_vertex)
+                                                                 : to_vertex->InEdges(view, {edge_type}, from_vertex);
 }
 
 };  // namespace
-
-namespace memgraph::storage {
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
@@ -348,9 +354,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, const View view, EdgeTypeId edge_type,
                                                                         VertexAccessor *from_vertex,
                                                                         VertexAccessor *to_vertex) {
-  const auto cheaper_direction = ApproximateSmallerDegree(from_vertex->vertex_, to_vertex->vertex_);
-  const auto res = (cheaper_direction == EdgeDirection::OUT) ? from_vertex->OutEdges(view, {edge_type}, to_vertex)
-                                                             : to_vertex->InEdges(view, {edge_type}, from_vertex);
+  auto res = FindEdges(view, edge_type, from_vertex, to_vertex);
   if (res.HasError()) return std::nullopt;  // TODO: use a Result type
 
   auto const it = std::invoke([this, gid, &res]() {
@@ -362,7 +366,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
 
   if (it == res->edges.end()) return std::nullopt;  // TODO: use a Result type
 
-  return EdgeAccessor(it->edge_, edge_type, from_vertex->vertex_, to_vertex->vertex_, storage_, &transaction_, false);
+  return *it;
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAccessor *from, VertexAccessor *to,
@@ -1075,8 +1079,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     /// We MUST unlink (aka. remove) entries in indexes and constraints
     /// before we unlink (aka. remove) vertices from storage
     /// this is because they point into vertices skip_list
-    /// hence we need to grab access to vertices now to prevent deletion during any
-    /// iteration of the index/constraints
 
     // INDICES
     for (auto const &[label, vertices] : label_cleanup) {

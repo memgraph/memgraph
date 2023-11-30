@@ -416,10 +416,11 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         spdlog::trace("       Delete vertex {}", delta.vertex_create_delete.gid.AsUint());
         auto *transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_create_delete.gid, View::NEW);
-        if (!vertex) throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+        if (!vertex)
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         auto ret = transaction->DeleteVertex(&*vertex);
         if (ret.HasError() || !ret.GetValue())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::VERTEX_ADD_LABEL: {
@@ -427,10 +428,11 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
                       delta.vertex_add_remove_label.label);
         auto *transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, View::NEW);
-        if (!vertex) throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+        if (!vertex)
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         auto ret = vertex->AddLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
         if (ret.HasError() || !ret.GetValue())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
@@ -438,10 +440,11 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
                       delta.vertex_add_remove_label.label);
         auto *transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, View::NEW);
-        if (!vertex) throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+        if (!vertex)
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         auto ret = vertex->RemoveLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
         if (ret.HasError() || !ret.GetValue())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::VERTEX_SET_PROPERTY: {
@@ -449,11 +452,12 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
                       delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
         auto *transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_edge_set_property.gid, View::NEW);
-        if (!vertex) throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+        if (!vertex)
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         auto ret = vertex->SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
                                        delta.vertex_edge_set_property.value);
         if (ret.HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::EDGE_CREATE: {
@@ -462,14 +466,16 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
                       delta.edge_create_delete.from_vertex.AsUint(), delta.edge_create_delete.to_vertex.AsUint());
         auto *transaction = get_transaction(timestamp);
         auto from_vertex = transaction->FindVertex(delta.edge_create_delete.from_vertex, View::NEW);
-        if (!from_vertex) throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+        if (!from_vertex)
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         auto to_vertex = transaction->FindVertex(delta.edge_create_delete.to_vertex, View::NEW);
-        if (!to_vertex) throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+        if (!to_vertex)
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         auto edge = transaction->CreateEdgeEx(&*from_vertex, &*to_vertex,
                                               transaction->NameToEdgeType(delta.edge_create_delete.edge_type),
                                               delta.edge_create_delete.gid);
         if (edge.HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::EDGE_DELETE: {
@@ -478,15 +484,17 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
                       delta.edge_create_delete.from_vertex.AsUint(), delta.edge_create_delete.to_vertex.AsUint());
         auto *transaction = get_transaction(timestamp);
         auto from_vertex = transaction->FindVertex(delta.edge_create_delete.from_vertex, View::NEW);
-        if (!from_vertex) throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+        if (!from_vertex)
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         auto to_vertex = transaction->FindVertex(delta.edge_create_delete.to_vertex, View::NEW);
-        if (!to_vertex) throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+        if (!to_vertex)
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         auto edgeType = transaction->NameToEdgeType(delta.edge_create_delete.edge_type);
         auto edge =
             transaction->FindEdge(delta.edge_create_delete.gid, View::NEW, edgeType, &*from_vertex, &*to_vertex);
-        if (!edge) throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+        if (!edge) throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         if (auto ret = transaction->DeleteEdge(&*edge); ret.HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::EDGE_SET_PROPERTY: {
@@ -504,7 +512,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         // properties.
         auto edge = edge_acc.find(delta.vertex_edge_set_property.gid);
         if (edge == edge_acc.end())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         // The edge visibility check must be done here manually because we
         // don't allow direct access to the edges through the public API.
         {
@@ -537,7 +545,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
             }
           });
           if (!is_visible)
-            throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+            throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         }
         EdgeRef edge_ref(&*edge);
         // Here we create an edge accessor that we will use to get the
@@ -551,7 +559,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
                                   delta.vertex_edge_set_property.value);
         if (ret.HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
 
@@ -562,7 +570,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         auto ret =
             commit_timestamp_and_accessor->second.Commit(commit_timestamp_and_accessor->first, false /* not main */);
         if (ret.HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         commit_timestamp_and_accessor = std::nullopt;
         break;
       }
@@ -572,14 +580,14 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         // Need to send the timestamp
         auto *transaction = get_transaction(timestamp, kUniqueAccess);
         if (transaction->CreateIndex(storage->NameToLabel(delta.operation_label.label)).HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::LABEL_INDEX_DROP: {
         spdlog::trace("       Drop label index on :{}", delta.operation_label.label);
         auto *transaction = get_transaction(timestamp, kUniqueAccess);
         if (transaction->DropIndex(storage->NameToLabel(delta.operation_label.label)).HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::LABEL_INDEX_STATS_SET: {
@@ -610,7 +618,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
                 ->CreateIndex(storage->NameToLabel(delta.operation_label_property.label),
                               storage->NameToProperty(delta.operation_label_property.property))
                 .HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP: {
@@ -621,7 +629,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
                 ->DropIndex(storage->NameToLabel(delta.operation_label_property.label),
                             storage->NameToProperty(delta.operation_label_property.property))
                 .HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET: {
@@ -654,7 +662,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
             transaction->CreateExistenceConstraint(storage->NameToLabel(delta.operation_label_property.label),
                                                    storage->NameToProperty(delta.operation_label_property.property));
         if (ret.HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
@@ -665,7 +673,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
                 ->DropExistenceConstraint(storage->NameToLabel(delta.operation_label_property.label),
                                           storage->NameToProperty(delta.operation_label_property.property))
                 .HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE: {
@@ -680,7 +688,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         auto ret = transaction->CreateUniqueConstraint(storage->NameToLabel(delta.operation_label_properties.label),
                                                        properties);
         if (!ret.HasValue() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
       case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
@@ -695,7 +703,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         auto ret =
             transaction->DropUniqueConstraint(storage->NameToLabel(delta.operation_label_properties.label), properties);
         if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
-          throw utils::BasicException("Invalid transaction! Please raise an issue, line: {}", __LINE__);
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         }
         break;
       }

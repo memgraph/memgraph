@@ -30,7 +30,7 @@ EdgeImportModeCache::EdgeImportModeCache(const Config &config)
 InMemoryLabelIndex::Iterable EdgeImportModeCache::Vertices(LabelId label, View view, Storage *storage,
                                                            Transaction *transaction) const {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
-  return mem_label_index->Vertices(label, vertices_.access(), view, storage, transaction);  // HERE!
+  return mem_label_index->Vertices(label, vertices_.access(), view, storage, transaction);
 }
 
 InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
