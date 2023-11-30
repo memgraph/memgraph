@@ -1800,9 +1800,10 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
           accumulated_path.Expand(edge);
           accumulated_path.Expand(vertex);
-        }
-        if (self_.filter_lambda_.accumulated_weight_symbol) {
-          frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = next_weight;
+
+          if (self_.filter_lambda_.accumulated_weight_symbol) {
+            frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = next_weight;
+          }
         }
 
         if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
@@ -2050,9 +2051,10 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
           accumulated_path.Expand(edge);
           accumulated_path.Expand(next_vertex);
-        }
-        if (self_.filter_lambda_.accumulated_weight_symbol) {
-          frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = next_weight;
+
+          if (self_.filter_lambda_.accumulated_weight_symbol) {
+            frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = next_weight;
+          }
         }
 
         if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;

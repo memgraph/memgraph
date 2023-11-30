@@ -1981,10 +1981,11 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
       if (lambda->accumulated_path) {
         auto accumulated_path_variable = std::any_cast<std::string>(lambda->accumulated_path->accept(this));
         edge_lambda.accumulated_path = storage_->Create<Identifier>(accumulated_path_variable);
-      }
-      if (lambda->accumulated_weight) {
-        auto accumulated_weight_variable = std::any_cast<std::string>(lambda->accumulated_weight->accept(this));
-        edge_lambda.accumulated_weight = storage_->Create<Identifier>(accumulated_weight_variable);
+
+        if (lambda->accumulated_weight) {
+          auto accumulated_weight_variable = std::any_cast<std::string>(lambda->accumulated_weight->accept(this));
+          edge_lambda.accumulated_weight = storage_->Create<Identifier>(accumulated_weight_variable);
+        }
       }
       edge_lambda.expression = std::any_cast<Expression *>(lambda->expression()->accept(this));
       return edge_lambda;
@@ -2014,9 +2015,10 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         // TODO: In what use case do we need accumulated path and weight here?
         if (edge->filter_lambda_.accumulated_path) {
           anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_path);
-        }
-        if (edge->filter_lambda_.accumulated_weight) {
-          anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_weight);
+
+          if (edge->filter_lambda_.accumulated_weight) {
+            anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_weight);
+          }
         }
         break;
       case 1:
@@ -2031,9 +2033,10 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
           if (edge->filter_lambda_.accumulated_path) {
             anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_path);
-          }
-          if (edge->filter_lambda_.accumulated_weight) {
-            anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_weight);
+
+            if (edge->filter_lambda_.accumulated_weight) {
+              anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_weight);
+            }
           }
         } else {
           // Other variable expands only have the filter lambda.

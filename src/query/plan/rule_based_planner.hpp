@@ -717,9 +717,10 @@ class RuleBasedPlanner {
       filter_lambda.inner_node_symbol = symbol_table.at(*edge->filter_lambda_.inner_node);
       if (edge->filter_lambda_.accumulated_path) {
         filter_lambda.accumulated_path_symbol = symbol_table.at(*edge->filter_lambda_.accumulated_path);
-      }
-      if (edge->filter_lambda_.accumulated_weight) {
-        filter_lambda.accumulated_weight_symbol = symbol_table.at(*edge->filter_lambda_.accumulated_weight);
+
+        if (edge->filter_lambda_.accumulated_weight) {
+          filter_lambda.accumulated_weight_symbol = symbol_table.at(*edge->filter_lambda_.accumulated_weight);
+        }
       }
       {
         // Bind the inner edge and node symbols so they're available for
@@ -730,10 +731,11 @@ class RuleBasedPlanner {
         if (filter_lambda.accumulated_path_symbol) {
           bool accumulated_path_bound = bound_symbols.insert(*filter_lambda.accumulated_path_symbol).second;
           MG_ASSERT(accumulated_path_bound, "The accumulated path can't be bound from before");
-        }
-        if (filter_lambda.accumulated_weight_symbol) {
-          bool accumulated_weight_bound = bound_symbols.insert(*filter_lambda.accumulated_weight_symbol).second;
-          MG_ASSERT(accumulated_weight_bound, "The accumulated weight can't be bound from before");
+
+          if (filter_lambda.accumulated_weight_symbol) {
+            bool accumulated_weight_bound = bound_symbols.insert(*filter_lambda.accumulated_weight_symbol).second;
+            MG_ASSERT(accumulated_weight_bound, "The accumulated weight can't be bound from before");
+          }
         }
       }
       // Join regular filters with lambda filter expression, so that they
@@ -748,9 +750,10 @@ class RuleBasedPlanner {
       std::vector<Symbol> inner_symbols = {filter_lambda.inner_edge_symbol, filter_lambda.inner_node_symbol};
       if (filter_lambda.accumulated_path_symbol) {
         inner_symbols.emplace_back(*filter_lambda.accumulated_path_symbol);
-      }
-      if (filter_lambda.accumulated_weight_symbol) {
-        inner_symbols.emplace_back(*filter_lambda.accumulated_weight_symbol);
+
+        if (filter_lambda.accumulated_weight_symbol) {
+          inner_symbols.emplace_back(*filter_lambda.accumulated_weight_symbol);
+        }
       }
 
       filters.erase(std::remove_if(filters.begin(), filters.end(),
@@ -767,9 +770,10 @@ class RuleBasedPlanner {
       bound_symbols.erase(filter_lambda.inner_node_symbol);
       if (filter_lambda.accumulated_path_symbol) {
         bound_symbols.erase(*filter_lambda.accumulated_path_symbol);
-      }
-      if (filter_lambda.accumulated_weight_symbol) {
-        bound_symbols.erase(*filter_lambda.accumulated_weight_symbol);
+
+        if (filter_lambda.accumulated_weight_symbol) {
+          bound_symbols.erase(*filter_lambda.accumulated_weight_symbol);
+        }
       }
 
       if (total_weight) {

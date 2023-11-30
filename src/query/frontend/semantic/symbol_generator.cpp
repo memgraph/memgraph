@@ -662,9 +662,10 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
                                                           edge_atom.filter_lambda_.inner_node};
       if (edge_atom.filter_lambda_.accumulated_path) {
         filter_lambda_identifiers.emplace_back(edge_atom.filter_lambda_.accumulated_path);
-      }
-      if (edge_atom.filter_lambda_.accumulated_weight) {
-        filter_lambda_identifiers.emplace_back(edge_atom.filter_lambda_.accumulated_weight);
+
+        if (edge_atom.filter_lambda_.accumulated_weight) {
+          filter_lambda_identifiers.emplace_back(edge_atom.filter_lambda_.accumulated_weight);
+        }
       }
       VisitWithIdentifiers(edge_atom.filter_lambda_.expression, filter_lambda_identifiers);
     } else {
@@ -679,11 +680,12 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
         auto *accumulated_path = edge_atom.filter_lambda_.accumulated_path;
         accumulated_path->MapTo(
             symbol_table_->CreateSymbol(accumulated_path->name_, accumulated_path->user_declared_, Symbol::Type::PATH));
-      }
-      if (edge_atom.filter_lambda_.accumulated_weight) {
-        auto *accumulated_weight = edge_atom.filter_lambda_.accumulated_weight;
-        accumulated_weight->MapTo(symbol_table_->CreateSymbol(
-            accumulated_weight->name_, accumulated_weight->user_declared_, Symbol::Type::NUMBER));
+
+        if (edge_atom.filter_lambda_.accumulated_weight) {
+          auto *accumulated_weight = edge_atom.filter_lambda_.accumulated_weight;
+          accumulated_weight->MapTo(symbol_table_->CreateSymbol(
+              accumulated_weight->name_, accumulated_weight->user_declared_, Symbol::Type::NUMBER));
+        }
       }
     }
     if (edge_atom.weight_lambda_.expression) {
