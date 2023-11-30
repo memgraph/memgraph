@@ -107,7 +107,7 @@ struct MinMemgraph {
              ,
              reinterpret_cast<
                  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *>(0),
-             true, false
+             true
 #endif
         },
         repl_state{dbms.ReplicationState()},
