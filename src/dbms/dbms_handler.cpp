@@ -49,6 +49,15 @@ DbmsHandler::DbmsHandler(
     }
   }
 
+  if (default_config_.durability.snapshot_wal_mode == storage::Config::Durability::SnapshotWalMode::DISABLED &&
+      repl_state_.IsMain()) {
+    spdlog::warn(
+        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please "
+        "consider "
+        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
+        "without write-ahead logs this instance is not replicating any data.");
+  }
+
   // Startup replication state (if recovered at startup)
   auto replica = [this](replication::RoleReplicaData const &data) {
     // Register handlers

@@ -8,3 +8,5 @@ copy_graphql_e2e_python_files(callable_alias_mapping.json)
 
 add_subdirectory(graphql_library_config)
 add_subdirectory(temporary_procedures)
+
+copy_e2e_files(graphql workloads.yaml)

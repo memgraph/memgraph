@@ -11,3 +11,5 @@ copy_load_csv_e2e_files(simple.csv)
 
 copy_load_csv_e2e_python_files(load_csv_nullif.py)
 copy_load_csv_e2e_files(nullif.csv)
+
+copy_e2e_files(load_csv workloads.yaml)
