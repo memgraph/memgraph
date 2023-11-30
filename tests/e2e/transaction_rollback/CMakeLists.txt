@@ -7,3 +7,5 @@ transaction_rollback_e2e_python_files(conftest.py)
 transaction_rollback_e2e_python_files(transaction.py)
 
 add_subdirectory(procedures)
+
+copy_e2e_files(transaction_rollback workloads.yaml)

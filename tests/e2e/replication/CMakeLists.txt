@@ -17,3 +17,5 @@ copy_e2e_python_files(replication_show edge_delete.py)
 copy_e2e_python_files_from_parent_folder(replication_show ".." memgraph.py)
 copy_e2e_python_files_from_parent_folder(replication_show ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(replication_show ".." mg_utils.py)
+
+copy_e2e_files(replication workloads.yaml)

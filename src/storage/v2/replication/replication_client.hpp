@@ -100,13 +100,27 @@ class ReplicationStorageClient {
   auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
   auto GetTimestampInfo(Storage const *storage) -> TimestampInfo;
 
+  /**
+   * @brief Check the replica state
+   *
+   * @param storage pointer to the storage associated with the client
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
   void Start(Storage *storage, std::any gk);
+
+  /**
+   * @brief Start a new transaction replication (open up a stream)
+   *
+   * @param current_wal_seq_num
+   * @param storage pointer to the storage associated with the client
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
   void StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage, std::any gk);
 
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
   // we want to send part of transaction and to avoid adding some GC logic this
-  // function will run a callback if, after previously callling
+  // function will run a callback if, after previously calling
   // StartTransactionReplication, stream is created.
   template <InvocableWithStream F>
   void IfStreamingTransaction(F &&callback) {
@@ -129,15 +143,48 @@ class ReplicationStorageClient {
     }
   }
 
-  // Return whether the transaction could be finalized on the replication client or not.
+  /**
+   * @brief Return whether the transaction could be finalized on the replication client or not.
+   *
+   * @param storage pointer to the storage associated with the client
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @return true
+   * @return false
+   */
   [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage, std::any gk);
 
+  /**
+   * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
+   *
+   * @param storage pointer to the storage associated with the client
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
   void TryCheckReplicaStateAsync(Storage *storage, std::any gk);  // TODO Move back to private
  private:
+  /**
+   * @brief Get necessary recovery steps and execute them.
+   *
+   * @param replica_commit the commit up to which we should recover to
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
   void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage);
 
+  /**
+   * @brief Check replica state
+   *
+   * @param storage pointer to the storage associated with the client
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
   void CheckReplicaState(Storage *storage, std::any gk);
+
   void LogRpcFailure();
+
+  /**
+   * @brief Synchronously try to check the replica state and start a recovery thread if necessary
+   *
+   * @param storage pointer to the storage associated with the client
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
   void TryCheckReplicaStateSync(Storage *storage, std::any gk);
 
   ::memgraph::replication::ReplicationClient &client_;

@@ -34,6 +34,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   repl_dir /= kReplicationDirectory;
   utils::EnsureDirOrDie(repl_dir);
   durability_ = std::make_unique<kvstore::KVStore>(std::move(repl_dir));
+  spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
 
   auto replicationData = FetchReplicationData();
   if (replicationData.HasError()) {
@@ -54,7 +55,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
 }
 
 bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config) {
-  if (!ShouldPersist()) return true;
+  if (!HasDurability()) return true;
 
   auto data = durability::ReplicationRoleEntry{.role = durability::ReplicaRole{
                                                    .config = config,
@@ -78,7 +79,7 @@ bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &conf
 }
 
 bool ReplicationState::TryPersistRoleMain(std::string new_epoch) {
-  if (!ShouldPersist()) return true;
+  if (!HasDurability()) return true;
 
   auto data =
       durability::ReplicationRoleEntry{.role = durability::MainRole{.epoch = ReplicationEpoch{std::move(new_epoch)}}};
@@ -92,7 +93,7 @@ bool ReplicationState::TryPersistRoleMain(std::string new_epoch) {
 }
 
 bool ReplicationState::TryPersistUnregisterReplica(std::string_view name) {
-  if (!ShouldPersist()) return true;
+  if (!HasDurability()) return true;
 
   auto key = BuildReplicaKey(name);
 
@@ -104,7 +105,7 @@ bool ReplicationState::TryPersistUnregisterReplica(std::string_view name) {
 // TODO: FetchEpochData (agnostic of FetchReplicationData, but should be done before)
 
 auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
-  if (!ShouldPersist()) return FetchReplicationError::NOTHING_FETCHED;
+  if (!HasDurability()) return FetchReplicationError::NOTHING_FETCHED;
   const auto replication_data = durability_->Get(durability::kReplicationRoleName);
   if (!replication_data.has_value()) {
     return FetchReplicationError::NOTHING_FETCHED;
@@ -199,7 +200,7 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
 }
 
 bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig &config) {
-  if (!ShouldPersist()) return true;
+  if (!HasDurability()) return true;
 
   // If any replicas are persisted then Role must be persisted
   if (role_persisted != RolePersisted::YES) {

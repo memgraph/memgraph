@@ -120,7 +120,9 @@ class DbmsHandler {
                          config.name = kDefaultDB;
                          return std::move(config);
                        }(),
-                       repl_state_} {}
+                       repl_state_} {
+    RecoverReplication(Get());
+  }
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -442,29 +444,10 @@ class DbmsHandler {
 
     auto new_db = db_handler_.New(name, storage_config, repl_state_);
 
-    if (new_db.HasValue()) {
-      // Recovery needs to be done after the database has been added, so we can pass an accessor that protects the db
-      if (allow_mt_repl || name == dbms::kDefaultDB) {
-        // Handle global replication state
-        spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-        // RECOVER REPLICA CONNECTIONS
-        memgraph::dbms::RestoreReplication(repl_state_, new_db.GetValue());
-      } else if (const ::memgraph::replication::RoleMainData *data =
-                     std::get_if<::memgraph::replication::RoleMainData>(&repl_state_.ReplicationData());
-                 data && !data->registered_replicas_.empty()) {
-        spdlog::warn("Multi-tenant replication is currently not supported!");
-      }
-
-      if (storage_config.durability.snapshot_wal_mode == storage::Config::Durability::SnapshotWalMode::DISABLED &&
-          repl_state_.IsMain()) {
-        spdlog::warn(
-            "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please "
-            "consider "
-            "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-            "without write-ahead logs this instance is not replicating any data.");
-      }
-
-      // Success
+    if (new_db.HasValue()) {  // Success
+      // Recover replication (if durable)
+      RecoverReplication(new_db.GetValue());
+      // Save database in a list of active databases
       if (durability_) durability_->Put(name, "ok");  // TODO: Serialize the configuration?
       return new_db.GetValue();
     }
@@ -546,7 +529,25 @@ class DbmsHandler {
     }
     throw UnknownDatabaseException("Tried to retrieve an unknown database \"{}\".", name);
   }
+#endif
 
+  void RecoverReplication(DatabaseAccess db_acc) {
+    // Recovery needs to be done after the database has been added, so we can pass an accessor that protects the db
+    if (repl_state_.HasDurability()) {
+      if (allow_mt_repl || db_acc->id() == dbms::kDefaultDB) {
+        // Handle global replication state
+        spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
+        // RECOVER REPLICA CONNECTIONS
+        memgraph::dbms::RestoreReplication(repl_state_, std::move(db_acc));
+      } else if (const ::memgraph::replication::RoleMainData *data =
+                     std::get_if<::memgraph::replication::RoleMainData>(&repl_state_.ReplicationData());
+                 data && !data->registered_replicas_.empty()) {
+        spdlog::warn("Multi-tenant replication is currently not supported!");
+      }
+    }
+  }
+
+#ifdef MG_ENTERPRISE
   mutable LockT lock_{utils::RWLock::Priority::READ};  //!< protective lock
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
