@@ -16,10 +16,8 @@ namespace memgraph::dbms {
 DbmsHandler::DbmsHandler(
     storage::Config config,
     memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-    bool recovery_on_startup, bool delete_on_drop)
-    : default_config_{std::move(config)},
-      delete_on_drop_(delete_on_drop),
-      repl_state_{ReplicationStateRootPath(default_config_)} {
+    bool recovery_on_startup)
+    : default_config_{std::move(config)}, repl_state_{ReplicationStateRootPath(default_config_)} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
   storage::UpdatePaths(default_config_, default_config_.durability.storage_directory / "databases");

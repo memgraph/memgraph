@@ -131,12 +131,6 @@ DEFINE_uint64(storage_recovery_thread_count,
 DEFINE_bool(storage_enable_schema_metadata, false,
             "Controls whether metadata should be collected about the resident labels and edge types.");
 
-#ifdef MG_ENTERPRISE
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_delete_on_drop, true,
-            "If set to true the query 'DROP DATABASE x' will delete the underlying storage as well.");
-#endif
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "

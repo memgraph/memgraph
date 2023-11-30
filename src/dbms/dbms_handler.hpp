@@ -103,11 +103,10 @@ class DbmsHandler {
    * @param configs storage configuration
    * @param auth pointer to the global authenticator
    * @param recovery_on_startup restore databases (and its content) and authentication data
-   * @param delete_on_drop when dropping delete any associated directories on disk
    */
   DbmsHandler(storage::Config config,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-              bool recovery_on_startup, bool delete_on_drop);  // TODO If more arguments are added use a config strut
+              bool recovery_on_startup);  // TODO If more arguments are added use a config struct
 #else
   /**
    * @brief Initialize the handler. A single database is supported in community edition.
@@ -192,14 +191,12 @@ class DbmsHandler {
     if (durability_) durability_->Delete(db_name);
 
     // Delete disk storage
-    if (delete_on_drop_) {
-      std::error_code ec;
-      (void)std::filesystem::remove_all(*storage_path, ec);
-      if (ec) {
-        spdlog::error("Failed to clean disk while deleting database \"{}\".", db_name);
-        defunct_dbs_.emplace(db_name);
-        return DeleteError::DISK_FAIL;
-      }
+    std::error_code ec;
+    (void)std::filesystem::remove_all(*storage_path, ec);
+    if (ec) {
+      spdlog::error("Failed to clean disk while deleting database \"{}\".", db_name);
+      defunct_dbs_.emplace(db_name);
+      return DeleteError::DISK_FAIL;
     }
 
     // Delete from defunct_dbs_ (in case a second delete call was successful)
@@ -552,7 +549,6 @@ class DbmsHandler {
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;       //!< list of active dbs (pointer so we can postpone its creation)
-  bool delete_on_drop_;                                //!< Flag defining if dropping storage also deletes its directory
   std::set<std::string> defunct_dbs_;  //!< Databases that are in an unknown state due to various failures
 #endif
   replication::ReplicationState repl_state_;  //!< Global replication state
