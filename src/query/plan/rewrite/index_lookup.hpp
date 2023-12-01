@@ -109,7 +109,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (op.expression_) {
       Filters leftover_filters;
       leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
-      op.all_filters_ = leftover_filters;
+      op.all_filters_ = std::move(leftover_filters);
     }
 
     // edge uniqueness filter comes always before filter in plan generation
