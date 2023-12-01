@@ -299,34 +299,36 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
             "creation!");
 
   std::atomic<uint64_t> batch_counter = 0;
-  memgraph::utils::Synchronized<bool, utils::RWSpinLock> maybe_error{false};
+  memgraph::utils::Synchronized<bool, utils::RWSpinLock> has_error{false};
   {
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
-
-    for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&vertex_batches, &maybe_error, &batch_counter, &vertex_accessor, &constraint_accessor,
-                            &label, &properties]() {
-        while (!(*maybe_error.ReadLock())) {
-          const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
-          if (batch_index >= vertex_batches.size()) {
-            return;
-          }
-          const auto &[gid_start, batch_size] = vertex_batches[batch_index];
-
-          auto it = vertex_accessor.find(gid_start);
-
-          for (auto i{0U}; i < batch_size; ++i, ++it) {
-            if (ValidationFunc(*it, constraint_accessor, label, properties)) [[unlikely]] {
-              *maybe_error.Lock() = true;
-              break;
-            }
-          }
+    auto thread_function = [&vertex_batches, &has_error, &batch_counter, &vertex_accessor, &constraint_accessor, &label,
+                            &properties]() {
+      while (!(*has_error.ReadLock())) {
+        const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
+        if (batch_index >= vertex_batches.size()) {
+          return;
         }
-      });
+        const auto &[gid_start, batch_size] = vertex_batches[batch_index];
+
+        auto vertex_curr = vertex_accessor.find(gid_start);
+
+        for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
+          const auto validation_error = ValidationFunc(*vertex_curr, constraint_accessor, label, properties);
+          if (!validation_error) [[likely]] {
+            continue;
+          }
+          *has_error.Lock() = true;
+          break;
+        }
+      }
+    };
+    for (auto i{0U}; i < thread_count; ++i) {
+      threads.emplace_back(thread_function);
     }
   }
-  return *maybe_error.Lock();
+  return *has_error.Lock();
 }
 
 bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(

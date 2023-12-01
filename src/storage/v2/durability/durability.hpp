@@ -97,19 +97,29 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 
 struct Recovery {
  public:
-  // Helper function used to recover all discovered indices and constraints. The
-  // indices and constraints must be recovered after the data recovery is done
-  // to ensure that the indices and constraints are consistent at the end of the
+  // Helper function used to recover all discovered indices. The
+  // indices must be recovered after the data recovery is done
+  // to ensure that the indices consistent at the end of the
   // recovery process.
   /// @throw RecoveryFailure
-  static void RecoverIndicesAndConstraints(
-      const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices, Constraints *constraints,
-      utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-      const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
+  static void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &, Indices *,
+                                     utils::SkipList<Vertex> *, NameIdMapper *,
+                                     const std::optional<ParallelizedSchemaCreationInfo> &);
+
+  // Helper function used to recover all discovered constraints. The
+  // constraints must be recovered after the data recovery is done
+  // to ensure that the constraints are consistent at the end of the
+  // recovery process.
+  /// @throw RecoveryFailure
+  static void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                                 utils::SkipList<Vertex> *, NameIdMapper *,
+                                 const std::optional<ParallelizedSchemaCreationInfo> &);
 
   static std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                            const Config &config);
 
+  static std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
+                                                                                  const Config &config);
   /// Recovers data either from a snapshot and/or WAL files.
   /// @throw RecoveryFailure
   /// @throw std::bad_alloc
@@ -123,10 +133,6 @@ struct Recovery {
   const std::filesystem::path wal_directory_;
 
  private:
-  static void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &, Indices *,
-                                     utils::SkipList<Vertex> *, NameIdMapper *,
-                                     const std::optional<ParallelizedSchemaCreationInfo> &);
-
   static void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                                           utils::SkipList<Vertex> *, NameIdMapper *,
                                           const std::optional<ParallelizedSchemaCreationInfo> &);

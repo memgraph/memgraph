@@ -111,6 +111,10 @@ modifications:
     value: "false"
     override: true
 
+  - name: "storage_parallel_schema_recovery"
+    value: "false"
+    override: true
+
   - name: "query_callable_mappings_path"
     value: "/etc/memgraph/apoc_compatibility_mappings.json"
     override: true

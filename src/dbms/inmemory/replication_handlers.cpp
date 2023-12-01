@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "dbms/inmemory/replication_handlers.hpp"
+#include <optional>
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_server.hpp"
@@ -219,9 +220,12 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
-    memgraph::storage::durability::Recovery::RecoverIndicesAndConstraints(
-        recovered_snapshot.indices_constraints, &storage->indices_, &storage->constraints_, &storage->vertices_,
-        storage->name_id_mapper_.get());
+    memgraph::storage::durability::Recovery::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices,
+                                                                    &storage->indices_, &storage->vertices_,
+                                                                    storage->name_id_mapper_.get(), std::nullopt);
+    memgraph::storage::durability::Recovery::RecoverConstraints(recovered_snapshot.indices_constraints.constraints,
+                                                                &storage->constraints_, &storage->vertices_,
+                                                                storage->name_id_mapper_.get(), std::nullopt);
   } catch (const storage::durability::RecoveryFailure &e) {
     LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
   }

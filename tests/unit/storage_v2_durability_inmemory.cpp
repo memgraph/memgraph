@@ -2759,7 +2759,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
                                                   .recover_on_startup = true,
                                                   .snapshot_on_exit = false,
                                                   .items_per_batch = 13,
-                                                  .allow_parallel_index_creation = true}};
+                                                  .allow_parallel_schema_creation = true}};
   // Create snapshot.
   {
     config.durability.recover_on_startup = false;

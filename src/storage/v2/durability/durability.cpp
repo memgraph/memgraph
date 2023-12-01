@@ -20,10 +20,13 @@
 #include <cstring>
 
 #include <algorithm>
+#include <optional>
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#include "flags/all.hpp"
+#include "gflags/gflags.h"
 #include "replication/epoch.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -34,16 +37,23 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "utils/event_histogram.hpp"
+#include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 #include "utils/timer.hpp"
-
 namespace memgraph::metrics {
 extern const Event SnapshotRecoveryLatency_us;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage::durability {
+
+DEFINE_VALIDATED_bool(storage_mode_parallel_index_recovery, false, "no help here", {
+  spdlog::warn(
+      "storage_mode_parallel_index_recovery flag is deprecated. Check storage_mode_parallel_schema_recovery for more "
+      "details.");
+  return true;
+});
 
 void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path &storage_directory) {
   // Get the process user ID.
@@ -136,16 +146,13 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // indices and constraints must be recovered after the data recovery is done
 // to ensure that the indices and constraints are consistent at the end of the
 // recovery process.
-void Recovery::RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
-                                            Constraints *constraints, utils::SkipList<Vertex> *vertices,
-                                            NameIdMapper *name_id_mapper,
-                                            const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
-  RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, parallel_exec_info);
 
-  RecoverExistenceConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
-                              parallel_exec_info);
-
-  RecoverUniqueConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper, parallel_exec_info);
+void Recovery::RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
+                                  Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                                  NameIdMapper *name_id_mapper,
+                                  const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+  RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
+  RecoverUniqueConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
 }
 
 void Recovery::RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata,
@@ -254,7 +261,14 @@ void Recovery::RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::Co
 
 std::optional<ParallelizedSchemaCreationInfo> Recovery::GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                             const Config &config) {
-  return config.durability.allow_parallel_index_creation
+  return config.durability.allow_parallel_schema_creation
+             ? std::make_optional(std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count))
+             : std::nullopt;
+}
+
+std::optional<ParallelizedSchemaCreationInfo> Recovery::GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
+                                                                                   const Config &config) {
+  return config.durability.allow_parallel_schema_creation || config.durability.allow_parallel_index_creation
              ? std::make_optional(std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count))
              : std::nullopt;
 }
@@ -313,8 +327,10 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
 
     if (!utils::DirExists(wal_directory_)) {
-      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, name_id_mapper,
-                                   GetParallelExecInfo(recovery_info, config));
+      RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper,
+                             GetParallelExecInfoIndices(recovery_info, config));
+      RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
+                         GetParallelExecInfo(recovery_info, config));
       return recovered_snapshot->recovery_info;
     }
   } else {
@@ -441,8 +457,10 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     spdlog::info("All necessary WAL files are loaded successfully.");
   }
 
-  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, name_id_mapper,
-                               GetParallelExecInfo(recovery_info, config));
+  RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper,
+                         GetParallelExecInfoIndices(recovery_info, config));
+  RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
+                     GetParallelExecInfo(recovery_info, config));
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());

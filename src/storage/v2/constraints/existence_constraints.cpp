@@ -86,31 +86,33 @@ std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstrai
             "creation!");
 
   std::atomic<uint64_t> batch_counter = 0;
-  // using ReturnValue = std::optional<ConstraintViolation>;
   memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::SpinLock> maybe_error{};
   {
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
 
-    for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&label, &property, &vertex_batches, &maybe_error, &batch_counter, &vertices]() {
-        while (!maybe_error.Lock()->has_value()) {
-          const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
-          if (batch_index >= vertex_batches.size()) {
-            return;
-          }
-          const auto &[gid_start, batch_size] = vertex_batches[batch_index];
-
-          auto it = vertices.find(gid_start);
-
-          for (auto i{0U}; i < batch_size; ++i, ++it) {
-            if (const auto violation = ValidateVertexOnConstraint(*it, label, property); violation.has_value()) {
-              *maybe_error.Lock() = std::move(*violation);
-              break;
-            }
-          }
+    auto thread_function = [&label, &property, &vertex_batches, &maybe_error, &batch_counter, &vertices]() {
+      while (!maybe_error.Lock()->has_value()) {
+        const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
+        if (batch_index >= vertex_batches.size()) {
+          return;
         }
-      });
+        const auto &[gid_start, batch_size] = vertex_batches[batch_index];
+
+        auto vertex_curr = vertices.find(gid_start);
+
+        for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
+          const auto violation = ValidateVertexOnConstraint(*vertex_curr, label, property);
+          if (!violation.has_value()) [[likely]] {
+            continue;
+          }
+          *maybe_error.Lock() = *violation;
+          break;
+        }
+      }
+    };
+    for (auto i{0U}; i < thread_count; ++i) {
+      threads.emplace_back(thread_function);
     }
   }
   if (maybe_error.Lock()->has_value()) {
