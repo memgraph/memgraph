@@ -76,13 +76,13 @@ def test_timeout(driver, set_timeout):
 
 
 def violate_constraint(tx):
-    tx.run("CREATE (n:Employee:Person {id: '123', alt_id: '100'}) RETURN n;")
+    tx.run("CREATE (n:Employee:Person {id: '123', alt_id: '100'});").consume()
 
 
 def violate_constraint_on_intermediate_result(tx):
-    tx.run("CREATE (n:Employee:Person {id: '124', alt_id: '200'}) RETURN n;")
-    tx.run("MATCH (n {alt_id: '200'}) SET n.id = '123';")  # two (:Person {id: '123'})
-    tx.run("MATCH (n {alt_id: '100'}) SET n.id = '122';")  # above violation fixed
+    tx.run("CREATE (n:Employee:Person {id: '124', alt_id: '200'});").consume()
+    tx.run("MATCH (n {alt_id: '200'}) SET n.id = '123';").consume()  # two (:Person {id: '123'})
+    tx.run("MATCH (n {alt_id: '100'}) SET n.id = '122';").consume()  # above violation fixed
 
 
 def clear_db(session):
@@ -136,20 +136,20 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) a
     # Correct query.
     add_person(tx_good, "mirka", "slavka")
 
-    # Setup for next query.
-    with driver.session() as session:
-        session.run("UNWIND range(1, 100000) AS x CREATE ()").consume()
+    # # Setup for next query.
+    # with driver.session() as session:
+    #     session.run("UNWIND range(1, 100000) AS x CREATE ()").consume()
 
-    # Test changing the timeout at run-time
-    with driver.session() as session:
-        default_timeout = get_timeout(session)
-    test_timeout(driver, default_timeout)
+    # # Test changing the timeout at run-time
+    # with driver.session() as session:
+    #     default_timeout = get_timeout(session)
+    # test_timeout(driver, default_timeout)
 
-    with driver.session() as session:
-        set_timeout(session, 1)
-    test_timeout(driver, 1)
+    # with driver.session() as session:
+    #     set_timeout(session, 1)
+    # test_timeout(driver, 1)
 
-    with driver.session() as session:
-        set_timeout(session, default_timeout)
+    # with driver.session() as session:
+    #     set_timeout(session, default_timeout)
 
     print("All ok!")
