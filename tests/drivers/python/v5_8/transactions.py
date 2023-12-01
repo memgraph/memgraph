@@ -126,7 +126,7 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) a
 
     def add_person(f, name, name2):
         with driver.session() as session:
-            session.write_transaction(f, name, name2)
+            session.execute_write(f, name, name2)
 
     # Wrong query.
     try:
