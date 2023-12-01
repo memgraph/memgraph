@@ -93,6 +93,19 @@ enum class Size : uint8_t {
   INT64 = 0x03,
 };
 
+uint64_t SizeToUint(Size size) {
+  switch (size) {
+    case Size::INT8:
+      return 1;
+    case Size::INT16:
+      return 2;
+    case Size::INT32:
+      return 4;
+    case Size::INT64:
+      return 8;
+  }
+}
+
 // All of these values must have the lowest 4 bits set to zero because they are
 // used to store two `Size` values as described in the comment above.
 enum class Type : uint8_t {
@@ -572,6 +585,84 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader) {
   }
 }
 
+[[nodiscard]] bool DecodePropertyValueSize(Reader *reader, Type type, Size payload_size, uint64_t &property_size) {
+  switch (type) {
+    case Type::EMPTY: {
+      return false;
+    }
+    case Type::NONE: {
+      return true;
+    }
+    case Type::BOOL: {
+      return true;
+    }
+    case Type::INT: {
+      property_size += SizeToUint(payload_size);
+      return true;
+    }
+    case Type::DOUBLE: {
+      property_size += SizeToUint(payload_size);
+      return true;
+    }
+    case Type::STRING: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+      property_size += SizeToUint(payload_size);
+      property_size += *size;
+      return true;
+    }
+    case Type::LIST: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+
+      uint64_t temporary_size = SizeToUint(payload_size);
+
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return false;
+
+        temporary_size += 1;
+        if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, temporary_size)) return false;
+      }
+
+      property_size += temporary_size;
+      return true;
+    }
+    case Type::MAP: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+
+      uint64_t temporary_size = 0;
+
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return false;
+
+        temporary_size += 1;
+
+        auto key_size = reader->ReadUint(metadata->id_size);
+        if (!key_size) return false;
+
+        std::string key(*key_size, '\0');
+        if (!reader->ReadBytes(key.data(), *key_size)) return false;
+
+        temporary_size += *key_size;
+
+        if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, temporary_size)) return false;
+      }
+
+      property_size += temporary_size;
+      return true;
+    }
+
+    case Type::TEMPORAL_DATA: {
+      const auto maybe_temporal_data = DecodeTemporalData(*reader);
+      if (!maybe_temporal_data) return false;
+      return true;
+    }
+  }
+}
+
 // Function used to skip a PropertyValue from a byte stream.
 //
 // @sa ComparePropertyValue
@@ -788,6 +879,26 @@ enum class ExpectedPropertyStatus {
                                                      : ExpectedPropertyStatus::GREATER;
 }
 
+[[nodiscard]] ExpectedPropertyStatus DecodeExpectedPropertySize(Reader *reader, PropertyId expected_property,
+                                                                uint64_t &size) {
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return ExpectedPropertyStatus::MISSING_DATA;
+
+  auto property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return ExpectedPropertyStatus::MISSING_DATA;
+
+  if (*property_id == expected_property.AsUint()) {
+    size += 1;
+    if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, size))
+      return ExpectedPropertyStatus::MISSING_DATA;
+    return ExpectedPropertyStatus::EQUAL;
+  }
+  // Don't load the value if this isn't the expected property.
+  if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return ExpectedPropertyStatus::MISSING_DATA;
+  return (*property_id < expected_property.AsUint()) ? ExpectedPropertyStatus::SMALLER
+                                                     : ExpectedPropertyStatus::GREATER;
+}
+
 // Function used to check a property exists (PropertyId) from a byte stream.
 // It will skip the encoded PropertyValue.
 //
@@ -864,6 +975,20 @@ enum class ExpectedPropertyStatus {
 [[nodiscard]] ExpectedPropertyStatus FindSpecificProperty(Reader *reader, PropertyId property, PropertyValue &value) {
   while (true) {
     auto ret = DecodeExpectedProperty(reader, property, value);
+    // Because the properties are sorted in the buffer, we only need to
+    // continue searching for the property while this function returns a
+    // `SMALLER` value indicating that the ID of the found property is smaller
+    // than the seeked ID. All other return values (`MISSING_DATA`, `EQUAL` and
+    // `GREATER`) terminate the search.
+    if (ret != ExpectedPropertyStatus::SMALLER) {
+      return ret;
+    }
+  }
+}
+
+[[nodiscard]] ExpectedPropertyStatus FindSpecificPropertySize(Reader *reader, PropertyId property, uint64_t &size) {
+  while (true) {
+    auto ret = DecodeExpectedPropertySize(reader, property, size);
     // Because the properties are sorted in the buffer, we only need to
     // continue searching for the property while this function returns a
     // `SMALLER` value indicating that the ID of the found property is smaller
@@ -1035,6 +1160,22 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   PropertyValue value;
   if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return {};
   return value;
+}
+
+uint64_t PropertyStore::PropertySize(PropertyId property) const {
+  uint64_t size;
+  const uint8_t *data;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size % 8 != 0) {
+    // We are storing the data in the local buffer.
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+  }
+  Reader reader(data, size);
+
+  uint64_t property_size = 0;
+  if (FindSpecificPropertySize(&reader, property, property_size) != ExpectedPropertyStatus::EQUAL) return 0;
+  return property_size;
 }
 
 bool PropertyStore::HasProperty(PropertyId property) const {

@@ -239,6 +239,11 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   return std::move(value);
 }
 
+Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property) const {
+  if (!storage_->config_.items.properties_on_edges) return 0;
+  return edge_.ptr->properties.PropertySize(property);
+};
+
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
   if (!storage_->config_.items.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
   bool exists = true;

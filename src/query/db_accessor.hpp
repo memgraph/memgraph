@@ -52,6 +52,8 @@ class EdgeAccessor final {
     return impl_.GetProperty(key, view);
   }
 
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key) const { return impl_.GetPropertySize(key); }
+
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
@@ -126,6 +128,8 @@ class VertexAccessor final {
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
     return impl_.GetProperty(key, view);
   }
+
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key) const { return impl_.GetPropertySize(key); }
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
@@ -265,6 +269,8 @@ class SubgraphVertexAccessor final {
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
     return impl_.GetProperty(view, key);
   }
+
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key) const { return impl_.GetPropertySize(key); }
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 

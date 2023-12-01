@@ -442,6 +442,25 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   }
 }
 
+TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Vertex, Edge>, Or<String>>("property_size", args, nargs);
+
+  auto *dba = ctx.db_accessor;
+  const auto &value = args[0];
+  const auto &property = args[1].ValueString();
+  const auto prop_id = dba->NameToProperty(property);
+
+  if (value.IsNull()) {
+    return TypedValue(0, ctx.memory);
+  } else if (value.IsVertex()) {
+    uint64_t property_size = value.ValueVertex().GetPropertySize(prop_id).GetValue();
+    return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
+  } else {
+    uint64_t property_size = value.ValueEdge().GetPropertySize(prop_id).GetValue();
+    return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
+  }
+}
+
 TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("startNode", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
@@ -1325,6 +1344,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "PROPERTIES") return Properties;
   if (function_name == "RANDOMUUID") return RandomUuid;
   if (function_name == "SIZE") return Size;
+  if (function_name == "PROPERTY_SIZE") return PropertySize;
   if (function_name == "STARTNODE") return StartNode;
   if (function_name == "TIMESTAMP") return Timestamp;
   if (function_name == "TOBOOLEAN") return ToBoolean;

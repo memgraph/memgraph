@@ -80,6 +80,8 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
+  Result<uint64_t> GetPropertySize(PropertyId property) const;
+
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 

@@ -399,6 +399,10 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   return std::move(value);
 }
 
+Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property) const {
+  return vertex_->properties.PropertySize(property);
+};
+
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view) const {
   bool exists = true;
   bool deleted = false;
