@@ -34,7 +34,7 @@ void ReplicationStorageClient::CheckReplicaState(Storage *storage, std::any gk) 
 
   auto &replStorageState = storage->repl_storage_state_;
   auto stream{client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-      storage->id(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()})};
+      storage->name(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()})};
 
   const auto replica = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
@@ -70,7 +70,6 @@ void ReplicationStorageClient::CheckReplicaState(Storage *storage, std::any gk) 
     } else {
       spdlog::debug("Replica '{}' is behind", client_.name_);
       state = replication::ReplicaState::RECOVERY;
-      // TODO: ensure database is protected from DROP
       client_.thread_pool_.AddTask([storage, current_commit_timestamp, gk = std::move(gk), this] {
         this->RecoverReplica(current_commit_timestamp, storage);
       });
@@ -84,7 +83,7 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
   info.current_number_of_timestamp_behind_master = 0;
 
   try {
-    auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(storage->id())};
+    auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(storage->name())};
     const auto response = stream.AwaitResponse();
     const auto is_success = response.success;
     if (!is_success) {
@@ -109,7 +108,6 @@ void ReplicationStorageClient::LogRpcFailure() {
 }
 
 void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *storage, std::any gk) {
-  // TODO: need to protect Database from being dropped
   client_.thread_pool_.AddTask(
       [storage, gk = std::move(gk), this]() mutable { this->TryCheckReplicaStateSync(storage, std::move(gk)); });
 }
@@ -216,7 +214,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
 }
 
 void ReplicationStorageClient::Start(Storage *storage, std::any gk) {
-  spdlog::trace("Replication client started for database \"{}\"", storage->id());
+  spdlog::trace("Replication client started for database \"{}\"", storage->name());
   TryCheckReplicaStateSync(storage, std::move(gk));
 }
 
@@ -239,12 +237,12 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
         std::visit(utils::Overloaded{
                        [&replica_commit, mem_storage, &rpcClient](RecoverySnapshot const &snapshot) {
                          spdlog::debug("Sending the latest snapshot file: {}", snapshot);
-                         auto response = TransferSnapshot(mem_storage->id(), rpcClient, snapshot);
+                         auto response = TransferSnapshot(mem_storage->name(), rpcClient, snapshot);
                          replica_commit = response.current_commit_timestamp;
                        },
                        [&replica_commit, mem_storage, &rpcClient](RecoveryWals const &wals) {
                          spdlog::debug("Sending the latest wal files");
-                         auto response = TransferWalFiles(mem_storage->id(), rpcClient, wals);
+                         auto response = TransferWalFiles(mem_storage->name(), rpcClient, wals);
                          replica_commit = response.current_commit_timestamp;
                          spdlog::debug("Wal files successfully transferred.");
                        },
@@ -297,7 +295,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
 ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const uint64_t current_seq_num)
     : storage_{storage},
       stream_(rpc_client.Stream<replication::AppendDeltasRpc>(
-          storage->id(), storage->repl_storage_state_.last_commit_timestamp_.load(), current_seq_num)) {
+          storage->name(), storage->repl_storage_state_.last_commit_timestamp_.load(), current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }

@@ -44,7 +44,7 @@ class InMemoryCurrentWalHandler {
 
 ////// CurrentWalHandler //////
 InMemoryCurrentWalHandler::InMemoryCurrentWalHandler(InMemoryStorage const *storage, rpc::Client &rpc_client)
-    : stream_(rpc_client.Stream<replication::CurrentWalRpc>(storage->id())) {}
+    : stream_(rpc_client.Stream<replication::CurrentWalRpc>(storage->name())) {}
 
 void InMemoryCurrentWalHandler::AppendFilename(const std::string &filename) {
   replication::Encoder encoder(stream_.GetBuilder());

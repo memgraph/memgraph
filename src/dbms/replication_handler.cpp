@@ -147,7 +147,7 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   // Add database specific clients (NOTE Currently all databases are connected to each replica)
   dbms_handler_.ForEach([&](DatabaseAccess db_acc) {
     auto *storage = db_acc->storage();
-    if (!allow_mt_repl && storage->id() != kDefaultDB) {
+    if (!allow_mt_repl && storage->name() != kDefaultDB) {
       return;
     }
     // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
@@ -222,7 +222,7 @@ void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAcces
     // Each individual client has already been restored and started. Here we just go through each database and start its
     // client
     for (auto &instance_client : mainData.registered_replicas_) {
-      spdlog::info("Replica {} restoration started for {}.", instance_client.name_, db_acc->id());
+      spdlog::info("Replica {} restoration started for {}.", instance_client.name_, db_acc->name());
 
       // Phase 1: ensure DB exists
       // auto s = instance_client.rpc_client_.Stream<memgraph::replication::????>();
@@ -250,7 +250,7 @@ void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAcces
         LOG_FATAL("Failure when restoring replica {}: {}.", instance_client.name_,
                   RegisterReplicaErrorToString(ret.GetError()));
       }
-      spdlog::info("Replica {} restored for {}.", instance_client.name_, db_acc->id());
+      spdlog::info("Replica {} restored for {}.", instance_client.name_, db_acc->name());
     }
     spdlog::info("Replication role restored to MAIN.");
   };
