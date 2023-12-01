@@ -6,7 +6,8 @@ find_package(Threads REQUIRED)
 
 add_custom_target(memgraph__unit)
 
-set(memgraph_unit_main main.cpp)
+add_library(memgraph_unit_main OBJECT main.cpp)
+target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl)
 
 function(add_unit_test test_cpp)
   _add_unit_test(${test_cpp} FALSE ${ARGN})
@@ -25,19 +26,19 @@ function(_add_unit_test test_cpp custom_main)
     ${test_cpp}
     ${ARGN})
 
-  if(NOT ${custom_main})
-    set(source_files
-      ${source_files}
-      ${memgraph_unit_main})
-  endif()
-
   add_executable(${target_name} ${source_files})
+
+  if(NOT ${custom_main})
+    target_link_libraries(${target_name} memgraph_unit_main)
+  else()
+    target_link_libraries(${target_name} gtest gmock Threads::Threads dl)
+  endif()
 
   # OUTPUT_NAME sets the real name of a target when it is built and can be
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} mg-memory mg-utils gtest gmock Threads::Threads dl)
+
 
   # register test
   if(TEST_COVERAGE)

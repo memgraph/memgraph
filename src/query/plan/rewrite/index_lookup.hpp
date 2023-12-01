@@ -21,6 +21,7 @@
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include <gflags/gflags.h>
@@ -84,7 +85,7 @@ template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
   IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(index_hints) {}
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(std::move(index_hints)) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -681,9 +682,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
           continue;
         }
-        candidate_indices.emplace_back(std::make_pair(
+        candidate_indices.emplace_back(
             IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY, .label_ = label, .property_ = property},
-            filter));
+            filter);
         candidate_index_lookup.insert({std::make_pair(label, property), filter});
       }
     }

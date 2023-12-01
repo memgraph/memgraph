@@ -11,13 +11,14 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 #include "dbms/constants.hpp"
+#include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/metadata_delta.hpp"
 
 /// REPLICATION ///
 #include "dbms/inmemory/replication_handlers.hpp"
-#include "storage/v2/inmemory/replication/replication_client.hpp"
+#include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
@@ -101,8 +102,13 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
           "those files into a .backup directory inside the storage directory.");
     }
   }
+
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
+    // TODO: move out of storage have one global gc_runner_
+    gc_runner_.Run("Storage GC", config_.gc.interval, [this] {
+      this->FreeMemory(std::unique_lock<utils::ResourceLock>{main_lock_, std::defer_lock});
+    });
+    gc_jemalloc_runner_.Run("Jemalloc GC", config_.gc.interval, [] { memory::PurgeUnusedMemory(); });
   }
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
@@ -116,6 +122,7 @@ InMemoryStorage::InMemoryStorage(Config config) : InMemoryStorage(config, Storag
 InMemoryStorage::~InMemoryStorage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
+    gc_jemalloc_runner_.Stop();
   }
   {
     // Stop replication (Stop all clients or stop the REPLICA server)
@@ -996,7 +1003,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  MG_ASSERT(unique_guard_.owns_lock(), "Creating label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->CreateIndex(label, in_memory->vertices_.access(), std::nullopt)) {
@@ -1010,7 +1017,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  MG_ASSERT(unique_guard_.owns_lock(), "Creating label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
@@ -1024,7 +1031,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->DropIndex(label)) {
@@ -1038,7 +1045,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping label-property index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
@@ -1053,7 +1060,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  MG_ASSERT(unique_guard_.owns_lock(), "Creating existence requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
   if (existence_constraints->ConstraintExists(label, property)) {
@@ -1071,7 +1078,7 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void>
 InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping existence constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
   if (!existence_constraints->DropConstraint(label, property)) {
@@ -1083,7 +1090,7 @@ InMemoryStorage::InMemoryAccessor::DropExistenceConstraint(LabelId label, Proper
 
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  MG_ASSERT(unique_guard_.owns_lock(), "Creating unique constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
@@ -1100,7 +1107,7 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
 
 UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping unique constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
@@ -1210,7 +1217,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       main_lock_.lock_shared();
     }
   } else {
-    MG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
+    DMG_ASSERT(main_guard.mutex() == std::addressof(main_lock_), "main_guard should be only for the main_lock_");
   }
 
   utils::OnScopeExit lock_releaser{[&] {
@@ -1601,7 +1608,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber());
+  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this);
 
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
@@ -1760,7 +1767,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
-  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp);
+  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this);
 }
 
 bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp) {
@@ -1768,7 +1775,7 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
     return true;
   }
 
-  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber());
+  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this);
 
   for (const auto &md_delta : transaction.md_deltas) {
     switch (md_delta.action) {
@@ -1839,7 +1846,7 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
-  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp);
+  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -1963,12 +1970,6 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   // after we call clean queue.
   file_retainer_.CleanQueue();
   return true;
-}
-
-auto InMemoryStorage::CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config,
-                                              const memgraph::replication::ReplicationEpoch *current_epoch)
-    -> std::unique_ptr<ReplicationClient> {
-  return std::make_unique<InMemoryReplicationClient>(this, config, current_epoch);
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,9 +20,9 @@ namespace fs = std::filesystem;
 
 class KVStore : public ::testing::Test {
  protected:
-  virtual void SetUp() { memgraph::utils::EnsureDir(test_folder_); }
+  void SetUp() override { memgraph::utils::EnsureDir(test_folder_); }
 
-  virtual void TearDown() { fs::remove_all(test_folder_); }
+  void TearDown() override { fs::remove_all(test_folder_); }
 
   fs::path test_folder_{fs::temp_directory_path() /
                         ("unit_kvstore_test_" + std::to_string(static_cast<int>(getpid())))};

@@ -670,7 +670,7 @@ TEST(PropertyStore, SetMultipleProperties) {
   const std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> data_in_map{data.begin(), data.end()};
 
   auto check_store = [data](const memgraph::storage::PropertyStore &store) {
-    for (auto &[key, value] : data) {
+    for (const auto &[key, value] : data) {
       ASSERT_TRUE(store.IsPropertyEqual(key, value));
     }
   };

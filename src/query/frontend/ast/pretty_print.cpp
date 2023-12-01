@@ -105,7 +105,7 @@ void PrintObject(std::ostream *out, const std::map<K, V> &map);
 
 template <typename T>
 void PrintObject(std::ostream *out, const T &arg) {
-  static_assert(!std::is_convertible<T, Expression *>::value,
+  static_assert(!std::is_convertible_v<T, Expression *>,
                 "This overload shouldn't be called with pointers convertible "
                 "to Expression *. This means your other PrintObject overloads aren't "
                 "being called for certain AST nodes when they should (or perhaps such "

@@ -176,7 +176,10 @@ class RuleBasedPlanner {
   PlanResult Plan(const QueryParts &query_parts) {
     auto &context = *context_;
     std::unique_ptr<LogicalOperator> final_plan;
-
+    // procedures need to start from 1
+    // due to swapping mechanism of procedure
+    // tracking
+    uint64_t procedure_id = 1;
     for (const auto &query_part : query_parts.query_parts) {
       std::unique_ptr<LogicalOperator> input_op;
 
@@ -186,10 +189,6 @@ class RuleBasedPlanner {
 
         uint64_t merge_id = 0;
         uint64_t subquery_id = 0;
-        // procedures need to start from 1
-        // due to swapping mechanism of procedure
-        // tracking
-        uint64_t procedure_id = 1;
 
         for (const auto &clause : single_query_part.remaining_clauses) {
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
