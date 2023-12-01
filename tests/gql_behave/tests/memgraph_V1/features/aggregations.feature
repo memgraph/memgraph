@@ -410,9 +410,9 @@ Feature: Aggregations
           CREATE (s:Subnet {ip: "192.168.0.1"})
           """
       When executing query:
-      """
-      MATCH (subnet:Subnet) WHERE FALSE WITH subnet, collect(subnet.ip) as ips RETURN id(subnet) as id
-      """
+          """
+          MATCH (subnet:Subnet) WHERE FALSE WITH subnet, collect(subnet.ip) as ips RETURN id(subnet) as id
+          """
       Then the result should be empty
 
     Scenario: Empty count aggregation
@@ -422,10 +422,26 @@ Feature: Aggregations
           CREATE (s:Subnet {ip: "192.168.0.1"})
           """
       When executing query:
-      """
-      MATCH (subnet:Subnet) WHERE FALSE WITH subnet, count(subnet.ip) as ips RETURN id(subnet) as id
-      """
+          """
+          MATCH (subnet:Subnet) WHERE FALSE WITH subnet, count(subnet.ip) as ips RETURN id(subnet) as id
+          """
       Then the result should be empty
+
+    Scenario: Collect nodes properties into a map:
+      Given an empty graph
+      And having executed
+          """
+          CREATE (t:Tag {short_code: "TST", description: "SYSTEM_TAG"}), (t2:Tag {short_code: "PRD", description: "SYSTEM_TAG"}),
+          (t3:Tag {short_code: "STG", description: "SYSTEM_TAG"}), (device {name: "name1"}), (device)-[a1:ASSOCIATED]->(t),
+          (device)-[a2:ASSOCIATED]->(t2), (device)-[a3:ASSOCIATED]->(t3);
+          """
+      When executing query:
+          """
+          MATCH (d {name: "name1"})-[t:ASSOCIATED]-(tag:Tag) RETURN collect({short_code: tag.short_code, description: tag.description}) as tags;
+          """
+      Then the result should be:
+          | tags                                                                                                                                             |
+          | [{description: 'SYSTEM_TAG', short_code: 'TST'}, {description: 'SYSTEM_TAG', short_code: 'PRD'}, {description: 'SYSTEM_TAG', short_code: 'STG'}] |
 
     Scenario: Count directly without WITH clause 01
       Given an empty graph
