@@ -3464,7 +3464,7 @@ class AggregateCursor : public Cursor {
     SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!pulled_all_input_) {
-      if (!ProcessAll(&frame, &context) && !self_.group_by_.empty()) return false;
+      if (!ProcessAll(&frame, &context) && self_.AreAllAggregationsForCollecting()) return false;
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 

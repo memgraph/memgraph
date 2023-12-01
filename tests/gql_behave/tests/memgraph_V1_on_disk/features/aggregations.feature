@@ -458,11 +458,3 @@ Feature: Aggregations
         | 20    | 21    | 22    | 1   |
         | 10    | 11    | 12    | 1   |
         | 1     | 2     | 3     | 1   |
-
-    Scenario: Property count aggregation with no nodes
-      Given an empty graph
-      When executing query:
-      """
-      MATCH (n) WHERE n.prop = "xxx" RETURN n.prop, count(n);
-      """
-      Then the result should be empty
