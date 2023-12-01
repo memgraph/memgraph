@@ -367,12 +367,12 @@ State HandleReset(TSession &session, const Marker marker) {
     return State::Close;
   }
 
+  session.Abort();
+
   if (!session.encoder_.MessageSuccess()) {
     spdlog::trace("Couldn't send success message!");
     return State::Close;
   }
-
-  session.Abort();
 
   return State::Idle;
 }
