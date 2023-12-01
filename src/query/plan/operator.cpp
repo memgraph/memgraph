@@ -3678,13 +3678,14 @@ class AggregateCursor : public Cursor {
     for (; count_it != counts_end; ++count_it, ++value_it, ++unique_values_it, ++agg_elem_it) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
-      auto input_expr_ptr = agg_elem_it->value;
+      auto *input_expr_ptr = agg_elem_it->value;
       if (!input_expr_ptr) {
         *count_it += 1;
         // value is deferred to post-processing
         continue;
       }
 
+      evaluator->ClearPropertyLookupCache();
       TypedValue input_value = input_expr_ptr->Accept(*evaluator);
 
       // Aggregations skip Null input values.
