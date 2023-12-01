@@ -71,6 +71,37 @@
 
 namespace memgraph::storage {
 
+namespace {
+
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
+    -> Result<EdgesVertexAccessorResult> {
+  auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
+    // Obtain the locks by `gid` order to avoid lock cycles.
+    auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+    auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
+    if (from_vertex->gid < to_vertex->gid) {
+      guard_from.lock();
+      guard_to.lock();
+    } else if (from_vertex->gid > to_vertex->gid) {
+      guard_to.lock();
+      guard_from.lock();
+    } else {
+      // The vertices are the same vertex, only lock one.
+      guard_from.lock();
+    }
+
+    // With the potentially cheaper side FindEdges
+    const auto out_n = from_vertex->out_edges.size();
+    const auto in_n = to_vertex->in_edges.size();
+    return out_n <= in_n;
+  };
+
+  return use_out_edges(from_vertex->vertex_, to_vertex->vertex_) ? from_vertex->OutEdges(view, {edge_type}, to_vertex)
+                                                                 : to_vertex->InEdges(view, {edge_type}, from_vertex);
+}
+
+}  // namespace
+
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
@@ -947,6 +978,20 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
+}
+
+std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid gid, View view, EdgeTypeId edge_type,
+                                                                VertexAccessor *from_vertex,
+                                                                VertexAccessor *to_vertex) {
+  auto res = FindEdges(view, edge_type, from_vertex, to_vertex);
+  if (res.HasError()) return std::nullopt;  // TODO: use a Result type
+
+  auto const it = std::ranges::find_if(
+      res->edges, [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; });
+
+  if (it == res->edges.end()) return std::nullopt;  // TODO: use a Result type
+
+  return *it;
 }
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetFrom(EdgeAccessor * /*edge*/, VertexAccessor * /*new_from*/) {
