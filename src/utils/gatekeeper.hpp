@@ -79,26 +79,37 @@ template <typename Func, typename T>
 EvalResult(run_t, Func &&, T &) -> EvalResult<std::invoke_result_t<Func, T &>>;
 
 template <typename T>
+struct GKInternals {
+  template <typename... Args>
+  explicit GKInternals(Args &&...args) : value_{std::in_place, std::forward<Args>(args)...} {}
+
+  std::optional<T> value_;
+  uint64_t count_ = 0;
+  std::mutex mutex_;  // TODO change to something cheaper?
+  std::condition_variable cv_;
+};
+
+template <typename T>
 struct Gatekeeper {
   template <typename... Args>
-  explicit Gatekeeper(Args &&...args) : value_{std::in_place, std::forward<Args>(args)...} {}
+  explicit Gatekeeper(Args &&...args) : pimpl_(new GKInternals<T>(std::forward<Args>(args)...)) {}
 
   Gatekeeper(Gatekeeper const &) = delete;
-  Gatekeeper(Gatekeeper &&) noexcept = delete;
+  Gatekeeper(Gatekeeper &&) noexcept = default;
   Gatekeeper &operator=(Gatekeeper const &) = delete;
-  Gatekeeper &operator=(Gatekeeper &&) = delete;
+  Gatekeeper &operator=(Gatekeeper &&) noexcept = default;
 
   struct Accessor {
     friend Gatekeeper;
 
    private:
-    explicit Accessor(Gatekeeper *owner) : owner_{owner} { ++owner_->count_; }
+    explicit Accessor(Gatekeeper *owner) : owner_{owner} { ++owner_->pimpl_->count_; }
 
    public:
     Accessor(Accessor const &other) : owner_{other.owner_} {
       if (owner_) {
-        auto guard = std::unique_lock{owner_->mutex_};
-        ++owner_->count_;
+        auto guard = std::unique_lock{owner_->pimpl_->mutex_};
+        ++owner_->pimpl_->count_;
       }
     };
     Accessor(Accessor &&other) noexcept : owner_{std::exchange(other.owner_, nullptr)} {};
@@ -110,14 +121,14 @@ struct Gatekeeper {
 
       // gain ownership
       if (other.owner_) {
-        auto guard = std::unique_lock{other.owner_->mutex_};
-        ++other.owner_->count_;
+        auto guard = std::unique_lock{other.owner_->pimpl_->mutex_};
+        ++other.owner_->pimpl_->count_;
       }
 
       // reliquish ownership
       if (owner_) {
-        auto guard = std::unique_lock{owner_->mutex_};
-        --owner_->count_;
+        auto guard = std::unique_lock{owner_->pimpl_->mutex_};
+        --owner_->pimpl_->count_;
       }
 
       // correct owner
@@ -130,8 +141,8 @@ struct Gatekeeper {
 
       // reliquish ownership
       if (owner_) {
-        auto guard = std::unique_lock{owner_->mutex_};
-        --owner_->count_;
+        auto guard = std::unique_lock{owner_->pimpl_->mutex_};
+        --owner_->pimpl_->count_;
       }
 
       // correct owners
@@ -141,32 +152,32 @@ struct Gatekeeper {
 
     ~Accessor() { reset(); }
 
-    auto get() -> T * { return std::addressof(*owner_->value_); }
-    auto get() const -> const T * { return std::addressof(*owner_->value_); }
-    T *operator->() { return std::addressof(*owner_->value_); }
-    const T *operator->() const { return std::addressof(*owner_->value_); }
+    auto get() -> T * { return std::addressof(*owner_->pimpl_->value_); }
+    auto get() const -> const T * { return std::addressof(*owner_->pimpl_->value_); }
+    T *operator->() { return std::addressof(*owner_->pimpl_->value_); }
+    const T *operator->() const { return std::addressof(*owner_->pimpl_->value_); }
 
     template <typename Func>
     [[nodiscard]] auto try_exclusively(Func &&func) -> EvalResult<std::invoke_result_t<Func, T &>> {
       // Prevent new access
-      auto guard = std::unique_lock{owner_->mutex_};
+      auto guard = std::unique_lock{owner_->pimpl_->mutex_};
       // Only invoke if we have exclusive access
-      if (owner_->count_ != 1) {
+      if (owner_->pimpl_->count_ != 1) {
         return {not_run_t{}};
       }
       // Invoke and hold result in wrapper type
-      return {run_t{}, std::forward<Func>(func), *owner_->value_};
+      return {run_t{}, std::forward<Func>(func), *owner_->pimpl_->value_};
     }
 
     // Completely invalidated the accessor if return true
     [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100)) {
       // Prevent new access
-      auto guard = std::unique_lock{owner_->mutex_};
-      if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
+      auto guard = std::unique_lock{owner_->pimpl_->mutex_};
+      if (!owner_->pimpl_->cv_.wait_for(guard, timeout, [this] { return owner_->pimpl_->count_ == 1; })) {
         return false;
       }
       // Delete value
-      owner_->value_ = std::nullopt;
+      owner_->pimpl_->value_ = std::nullopt;
       return true;
     }
 
@@ -175,10 +186,10 @@ struct Gatekeeper {
     void reset() {
       if (owner_) {
         {
-          auto guard = std::unique_lock{owner_->mutex_};
-          --owner_->count_;
+          auto guard = std::unique_lock{owner_->pimpl_->mutex_};
+          --owner_->pimpl_->count_;
         }
-        owner_->cv_.notify_all();
+        owner_->pimpl_->cv_.notify_all();
       }
       owner_ = nullptr;
     }
@@ -190,8 +201,8 @@ struct Gatekeeper {
   };
 
   std::optional<Accessor> access() {
-    auto guard = std::unique_lock{mutex_};
-    if (value_) {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    if (pimpl_->value_) {
       return Accessor{this};
     }
     return std::nullopt;
@@ -199,15 +210,12 @@ struct Gatekeeper {
 
   ~Gatekeeper() {
     // wait for count to drain to 0
-    auto lock = std::unique_lock{mutex_};
-    cv_.wait(lock, [this] { return count_ == 0; });
+    auto lock = std::unique_lock{pimpl_->mutex_};
+    pimpl_->cv_.wait(lock, [this] { return pimpl_->count_ == 0; });
   }
 
  private:
-  std::optional<T> value_;
-  uint64_t count_ = 0;
-  std::mutex mutex_;  // TODO change to something cheaper?
-  std::condition_variable cv_;
+  std::unique_ptr<GKInternals<T>> pimpl_;
 };
 
 }  // namespace memgraph::utils

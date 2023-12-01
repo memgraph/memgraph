@@ -119,7 +119,7 @@ std::string SessionHL::GetDefaultDB() {
 std::string SessionHL::GetCurrentDB() const {
   if (!interpreter_.current_db_.db_acc_) return "";
   const auto *db = interpreter_.current_db_.db_acc_->get();
-  return db->id();
+  return db->name();
 }
 
 std::optional<std::string> SessionHL::GetServerNameForInit() {
@@ -203,7 +203,7 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
   auto *db = interpreter_.current_db_.db_acc_->get();
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                       memgraph::storage::PropertyValue(params_pv), db->id());
+                       memgraph::storage::PropertyValue(params_pv), db->name());
   }
 #endif
   try {

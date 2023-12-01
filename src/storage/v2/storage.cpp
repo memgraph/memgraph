@@ -45,7 +45,7 @@ Storage::Storage(Config config, StorageMode storage_mode)
       storage_mode_(storage_mode),
       indices_(config, storage_mode),
       constraints_(config, storage_mode),
-      id_(config.name) {
+      name_(config.name) {
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 

@@ -84,6 +84,21 @@ class Handler {
    */
   bool Delete(const std::string &name) {
     if (auto itr = items_.find(name); itr != items_.end()) {
+      // auto db_acc = itr->second.access();
+      // if (db_acc) {
+      //   if (db_acc->try_delete()) {
+      //     // Delete the database now
+      //     db_acc->reset();
+      //   } else {
+      //     // Defer deletion
+      //     std::thread([gk = std::move(itr->second)]() { gk.~Gatekeeper<T>(); }).detach();
+      //   }
+      //   // In any case remove from handled map
+      //   items_.erase(itr);
+      //   return true;
+      // }
+      // return false;
+
       auto db_acc = itr->second.access();
       if (db_acc && db_acc->try_delete()) {
         db_acc->reset();

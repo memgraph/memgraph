@@ -2865,7 +2865,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, con
 
     auto get_interpreter_db_name = [&]() -> std::string const & {
       static std::string all;
-      return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->id() : all;
+      return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : all;
     };
     if (transaction_id.has_value() &&
         (interpreter->username_ == username || privilege_checker(get_interpreter_db_name()))) {
@@ -3126,7 +3126,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
         const int64_t vm_max_map_count_storage_info =
             vm_max_map_count.has_value() ? vm_max_map_count.value() : memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT;
         std::vector<std::vector<TypedValue>> results{
-            {TypedValue("name"), TypedValue(storage->id())},
+            {TypedValue("name"), TypedValue(storage->name())},
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
@@ -3458,7 +3458,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
                              std::string res;
 
                              try {
-                               if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->id()) {
+                               if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->name()) {
                                  res = "Already using " + db_name;
                                } else {
                                  auto tmp = db_handler->Get(db_name);
@@ -3551,7 +3551,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, CurrentDB &cur
   callback.header = {"Name", "Current"};
   callback.fn = [auth, storage, db_handler, username]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> status;
-    const auto &in_use = storage->id();
+    const auto &in_use = storage->name();
     bool found_current = false;
 
     auto gen_status = [&]<typename T, typename K>(T all, K denied) {
@@ -3765,7 +3765,30 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     auto system_unique = std::unique_lock{interpreter_context_->system_lock, std::defer_lock};
     auto system_shared = std::shared_lock{interpreter_context_->system_lock, std::defer_lock};
     if (!in_explicit_transaction_ && requires_system_modification_transaction) {
+      // TODO
+      // Think about how the locks and database access (in an older interpreter) work together
+      // Timeout the lock
+      // Add "DROPPING" databases to the "SHOW DATABASES" command <- merge branch that changes this command
+      // How does "SHOW TRANSACTIONS" work with multi-tenancy? Can we see the dropping db's tx?
+      // Do we need unique lock for all queries that are part of the query type?
+
       system_unique.lock();
+      // Bump up the system clock
+      // At the end there will be a priority queue and vector clock to handle the ordering
+      // NOW
+      // There is only a single communication stream + each SYSTEM query has a global lock
+      // Meaning that each replica has a fifo - sequenced messages
+      // How does async work
+      // If we just keep adding to the same thread fifo everything should work????
+      // RECOVERY means no stream, means defer any changes to later recovery
+      // When we have a database and it is connected to the replica, everything should work as expected
+      // What happens when adding a database in SYNC vs ASYNC?
+      // What happens when deleting a database in SYNC vs ASYNC?
+      //   We cannot drop until all communication between the database and replica have stopped.
+
+      // Send an drop rpc req, the replica is using the db so it doesn't drop???
+      // Create a new db with same name. <- different ID?
+
     } else {
       system_shared.lock();
     }
@@ -3883,7 +3906,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     // Set the target db to the current db (some queries have different target from the current db)
     if (!query_execution->prepared_query->db) {
-      query_execution->prepared_query->db = current_db_.db_acc_->get()->id();
+      query_execution->prepared_query->db = current_db_.db_acc_->get()->name();
     }
     query_execution->summary["db"] = *query_execution->prepared_query->db;
 
@@ -4157,7 +4180,6 @@ void Interpreter::Commit() {
   if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
     db->AddTask([this, trigger_context = std::move(*trigger_context),
                  user_transaction = std::shared_ptr(std::move(current_db_.db_transactional_accessor_))]() mutable {
-      // TODO: Should this take the db_ and not Access()?
       RunTriggersAfterCommit(*current_db_.db_acc_, interpreter_context_, std::move(trigger_context),
                              &this->transaction_status_);
       user_transaction->FinalizeTransaction();

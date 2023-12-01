@@ -114,7 +114,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
 
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();
-  storage::replication::HeartbeatRes res{storage->id(), true,
+  storage::replication::HeartbeatRes res{storage->name(), true,
                                          storage->repl_storage_state_.last_commit_timestamp_.load(),
                                          std::string{storage->repl_storage_state_.epoch_.id()}};
   slk::Save(res, res_builder);
@@ -165,7 +165,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
           storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
     }
 
-    storage::replication::AppendDeltasRes res{storage->id(), false, repl_storage_state.last_commit_timestamp_.load()};
+    storage::replication::AppendDeltasRes res{storage->name(), false, repl_storage_state.last_commit_timestamp_.load()};
     slk::Save(res, res_builder);
     return;
   }
@@ -174,7 +174,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
       storage, &decoder,
       storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
 
-  storage::replication::AppendDeltasRes res{storage->id(), true, repl_storage_state.last_commit_timestamp_.load()};
+  storage::replication::AppendDeltasRes res{storage->name(), true, repl_storage_state.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
@@ -232,7 +232,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   }
   storage_guard.unlock();
 
-  storage::replication::SnapshotRes res{storage->id(), true,
+  storage::replication::SnapshotRes res{storage->name(), true,
                                         storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 
@@ -278,7 +278,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
     LoadWal(storage, &decoder);
   }
 
-  storage::replication::WalFilesRes res{storage->id(), true,
+  storage::replication::WalFilesRes res{storage->name(), true,
                                         storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
@@ -298,7 +298,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   LoadWal(storage, &decoder);
 
-  storage::replication::CurrentWalRes res{storage->id(), true,
+  storage::replication::CurrentWalRes res{storage->name(), true,
                                           storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
@@ -360,7 +360,7 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
 
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();
-  storage::replication::TimestampRes res{storage->id(), true,
+  storage::replication::TimestampRes res{storage->name(), true,
                                          storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 }

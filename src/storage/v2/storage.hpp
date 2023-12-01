@@ -137,7 +137,7 @@ class Storage {
 
   virtual ~Storage() = default;
 
-  const std::string &id() const { return id_; }
+  const std::string &name() const { return name_; }
 
   class Accessor {
    public:
@@ -255,7 +255,7 @@ class Storage {
 
     StorageMode GetCreationStorageMode() const noexcept;
 
-    const std::string &id() const { return storage_->id(); }
+    const std::string &id() const { return storage_->name(); }
 
     std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
 
@@ -413,7 +413,7 @@ class Storage {
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
-  const std::string id_;  //!< High-level assigned ID
+  const std::string name_;  //!< User-assigned ID
 };
 
 }  // namespace memgraph::storage

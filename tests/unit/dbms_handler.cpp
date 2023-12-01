@@ -25,8 +25,23 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 
+namespace {
+std::set<std::string> GetDirs(auto path) {
+  std::set<std::string> dirs;
+  // Clean the unused directories
+  for (const auto &entry : std::filesystem::directory_iterator(path)) {
+    const auto &name = entry.path().filename().string();
+    if (entry.is_directory() && !name.empty() && name.front() != '.') {
+      dirs.emplace(name);
+    }
+  }
+  return dirs;
+}
+}  // namespace
+
 // Global
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_handler"};
+std::filesystem::path db_dir{storage_directory / "databases"};
 static memgraph::storage::Config storage_conf;
 std::unique_ptr<memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>> auth;
 
@@ -74,7 +89,7 @@ TEST(DBMS_Handler, Init) {
   std::vector<std::string> dirs = {"snapshots", "streams", "triggers", "wal"};
   for (const auto &dir : dirs)
     ASSERT_TRUE(std::filesystem::exists(storage_directory / dir)) << (storage_directory / dir);
-  const auto db_path = storage_directory / "databases" / memgraph::dbms::kDefaultDB;
+  const auto db_path = db_dir / memgraph::dbms::kDefaultDB;
   ASSERT_TRUE(std::filesystem::exists(db_path));
   for (const auto &dir : dirs) {
     std::error_code ec;
@@ -92,10 +107,14 @@ TEST(DBMS_Handler, New) {
     ASSERT_EQ(all[0], memgraph::dbms::kDefaultDB);
   }
   {
+    const auto dirs = GetDirs(db_dir);
     auto db1 = dbms.New("db1");
     ASSERT_TRUE(db1.HasValue());
     ASSERT_TRUE(db1.GetValue());
-    ASSERT_TRUE(std::filesystem::exists(storage_directory / "databases" / "db1"));
+    // New flow doesn't make db named directories
+    ASSERT_FALSE(std::filesystem::exists(db_dir / "db1"));
+    const auto dirs_w_db1 = GetDirs(db_dir);
+    ASSERT_EQ(dirs_w_db1.size(), dirs.size() + 1);
     ASSERT_TRUE(db1.GetValue()->storage() != nullptr);
     ASSERT_TRUE(db1.GetValue()->streams() != nullptr);
     ASSERT_TRUE(db1.GetValue()->trigger_store() != nullptr);
@@ -111,9 +130,13 @@ TEST(DBMS_Handler, New) {
     ASSERT_TRUE(db2.HasError() && db2.GetError() == memgraph::dbms::NewError::EXISTS);
   }
   {
+    const auto dirs = GetDirs(db_dir);
     auto db3 = dbms.New("db3");
     ASSERT_TRUE(db3.HasValue());
-    ASSERT_TRUE(std::filesystem::exists(storage_directory / "databases" / "db3"));
+    // New flow doesn't make db named directories
+    ASSERT_FALSE(std::filesystem::exists(db_dir / "db3"));
+    const auto dirs_w_db3 = GetDirs(db_dir);
+    ASSERT_EQ(dirs_w_db3.size(), dirs.size() + 1);
     ASSERT_TRUE(db3.GetValue()->storage() != nullptr);
     ASSERT_TRUE(db3.GetValue()->streams() != nullptr);
     ASSERT_TRUE(db3.GetValue()->trigger_store() != nullptr);
@@ -179,9 +202,11 @@ TEST(DBMS_Handler, Delete) {
     ASSERT_TRUE(del2.HasError() && del2.GetError() == memgraph::dbms::DeleteError::NON_EXISTENT);
   }
   {
+    const auto dirs = GetDirs(db_dir);
     auto del = dbms.Delete("db3");
     ASSERT_FALSE(del.HasError());
-    ASSERT_FALSE(std::filesystem::exists(storage_directory / "databases" / "db3"));
+    const auto dirs_wo_db3 = GetDirs(db_dir);
+    ASSERT_EQ(dirs_wo_db3.size(), dirs.size() - 1);
   }
 }
 

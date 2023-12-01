@@ -133,7 +133,8 @@ class DbmsHandler {
    */
   NewResultT New(const std::string &name) {
     std::lock_guard<LockT> wr(lock_);
-    return New_(name, name);
+    const auto uuid = utils::GenerateUUID();
+    return New_(name, uuid);
   }
 
   /**
@@ -167,43 +168,7 @@ class DbmsHandler {
    * @param db_name database name
    * @return DeleteResult error on failure
    */
-  DeleteResult Delete(const std::string &db_name) {
-    std::lock_guard<LockT> wr(lock_);
-    if (db_name == kDefaultDB) {
-      // MSG cannot delete the default db
-      return DeleteError::DEFAULT_DB;
-    }
-
-    const auto storage_path = StorageDir_(db_name);
-    if (!storage_path) return DeleteError::NON_EXISTENT;
-
-    // Check if db exists
-    try {
-      // Low level handlers
-      if (!db_handler_.Delete(db_name)) {
-        return DeleteError::USING;
-      }
-    } catch (utils::BasicException &) {
-      return DeleteError::NON_EXISTENT;
-    }
-
-    // Remove from durability list
-    if (durability_) durability_->Delete(db_name);
-
-    // Delete disk storage
-    std::error_code ec;
-    (void)std::filesystem::remove_all(*storage_path, ec);
-    if (ec) {
-      spdlog::error("Failed to clean disk while deleting database \"{}\".", db_name);
-      defunct_dbs_.emplace(db_name);
-      return DeleteError::DISK_FAIL;
-    }
-
-    // Delete from defunct_dbs_ (in case a second delete call was successful)
-    defunct_dbs_.erase(db_name);
-
-    return {};  // Success
-  }
+  DeleteResult Delete(const std::string &db_name);
 #endif
 
   /**
@@ -216,7 +181,7 @@ class DbmsHandler {
     std::shared_lock<LockT> rd(lock_);
     return db_handler_.All();
 #else
-    return {db_gatekeeper_.access()->get()->id()};
+    return {db_gatekeeper_.access()->get()->name()};
 #endif
   }
 
@@ -305,7 +270,7 @@ class DbmsHandler {
       auto db_acc_opt = db_gk.access();
       if (db_acc_opt) {
         auto &db_acc = *db_acc_opt;
-        spdlog::debug("Restoring trigger for database \"{}\"", db_acc->id());
+        spdlog::debug("Restoring trigger for database \"{}\"", db_acc->name());
         auto storage_accessor = db_acc->Access();
         auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
         db_acc->trigger_store()->RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
@@ -330,7 +295,7 @@ class DbmsHandler {
       auto db_acc = db_gk.access();
       if (db_acc) {
         auto *db = db_acc->get();
-        spdlog::debug("Restoring streams for database \"{}\"", db->id());
+        spdlog::debug("Restoring streams for database \"{}\"", db->name());
         db->streams()->RestoreStreams(*db_acc, ic);
       }
     }
@@ -408,14 +373,6 @@ class DbmsHandler {
    * @brief Create a new Database associated with the "name" database
    *
    * @param name name of the database
-   * @return NewResultT context on success, error on failure
-   */
-  NewResultT New_(const std::string &name) { return New_(name, name); }
-
-  /**
-   * @brief Create a new Database associated with the "name" database
-   *
-   * @param name name of the database
    * @param storage_subdir undelying RocksDB directory
    * @return NewResultT context on success, error on failure
    */
@@ -432,24 +389,7 @@ class DbmsHandler {
    * @param storage_config storage configuration
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(const std::string &name, storage::Config &storage_config) {
-    if (defunct_dbs_.contains(name)) {
-      spdlog::warn("Failed to generate database due to the unknown state of the previously defunct database \"{}\".",
-                   name);
-      return NewError::DEFUNCT;
-    }
-
-    auto new_db = db_handler_.New(name, storage_config, repl_state_);
-
-    if (new_db.HasValue()) {  // Success
-      // Recover replication (if durable)
-      RecoverReplication(new_db.GetValue());
-      // Save database in a list of active databases
-      if (durability_) durability_->Put(name, "ok");  // TODO: Serialize the configuration?
-      return new_db.GetValue();
-    }
-    return new_db.GetError();
-  }
+  NewResultT New_(const std::string &name, storage::Config &storage_config);
 
   /**
    * @brief Create a new Database associated with the default database
@@ -531,7 +471,7 @@ class DbmsHandler {
   void RecoverReplication(DatabaseAccess db_acc) {
     // Recovery needs to be done after the database has been added, so we can pass an accessor that protects the db
     if (repl_state_.HasDurability()) {
-      if (allow_mt_repl || db_acc->id() == dbms::kDefaultDB) {
+      if (allow_mt_repl || db_acc->name() == dbms::kDefaultDB) {
         // Handle global replication state
         spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
         // RECOVER REPLICA CONNECTIONS
