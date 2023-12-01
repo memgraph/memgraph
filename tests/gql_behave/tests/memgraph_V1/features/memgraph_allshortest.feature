@@ -266,6 +266,30 @@ Feature: All Shortest Path
           | path                                                     | total_weight   |
           | <(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> | 4              |
 
+    Scenario: Test match allShortest with accumulated path filtered by edge type1 and accumulated weight based on vertex and edge are ints
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH path=(:label1)-[*ALLSHORTEST (r, n | n.id + coalesce(r.id, 0)) total_weight (e, n, p, w | NOT(type(e)='type1' AND type(last(relationships(p))) = 'type1') AND w > 0)]->(:label3) RETURN path, total_weight;
+          """
+      Then the result should be:
+          | path                                                     | total_weight   |
+          | <(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> | 14             |
+
+    Scenario: Test match AllShortest with accumulated path filtered by edge type1 and accumulated weight based on vertex and edge are doubles
+      Given an empty graph
+      And having executed:
+            """
+            CREATE (:label1 {id: 1})-[:type1 {id:1.5}]->(:label2 {id: 2})-[:type1 {id: 2.1}]->(:label3 {id: 3})-[:type1 {id: 3.4}]->(:label4 {id: 4});
+            """
+      When executing query:
+          """
+          MATCH path=(:label1)-[*ALLSHORTEST (r, n | n.id + coalesce(r.id, 0)) total_weight (e, n, p, w | w > 0)]->(:label3) RETURN path, total_weight;
+          """
+      Then the result should be:
+          | path                                                                                            | total_weight   |
+          | <(:label1 {id: 1})-[:type1 {id: 1.5}]->(:label2 {id: 2})-[:type1 {id: 2.1}]->(:label3 {id: 3})> | 9.6            |
+
     Scenario: Test match AllShortest with accumulated path filtered by order of ids and accumulated weight based on both vertex and edge is duration
       Given an empty graph
       And having executed:
@@ -274,7 +298,7 @@ Feature: All Shortest Path
           """
       When executing query:
           """
-          MATCH path=(:station {name:"A"})-[*ALLSHORTEST (r, v | v.departure - v.arrival + r.duration) total_weight (r,n,p,w | (nodes(p)[-1]).name > (nodes(p)[-2]).name AND not(w is null))]->(:station {name:"C"}) RETURN path, total_weight;
+          MATCH path=(:station {name:"A"})-[*ALLSHORTEST (r, v | v.departure - v.arrival + coalesce(r.duration, duration("PT0M"))) total_weight (r,n,p,w | (nodes(p)[-1]).name > (nodes(p)[-2]).name AND not(w is null))]->(:station {name:"C"}) RETURN path, total_weight;
           """
       Then the result should be:
           | path   | total_weight   |

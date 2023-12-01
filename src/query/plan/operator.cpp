@@ -1701,6 +1701,10 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 namespace {
 
 void CheckWeightType(TypedValue current_weight, utils::MemoryResource *memory) {
+  if (current_weight.IsNull()) {
+    return;
+  }
+
   if (!current_weight.IsNumeric() && !current_weight.IsDuration()) {
     throw QueryRuntimeException("Calculated weight must be numeric or a Duration, got {}.", current_weight.type());
   }
@@ -1719,10 +1723,7 @@ void CheckWeightType(TypedValue current_weight, utils::MemoryResource *memory) {
 }
 
 void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
-  if ((lhs.IsNumeric() && rhs.IsNumeric()) || (lhs.IsDuration() && rhs.IsDuration()) ||
-      // We make implicit conversion of 0 as int to Duration to work correctly in weight lambda at the path begin.
-      (lhs.IsInt() && lhs.ValueInt() == 0 && rhs.IsDuration()) ||
-      (lhs.IsDuration() && rhs.IsInt() && rhs.ValueInt() == 0)) {
+  if ((lhs.IsNumeric() && rhs.IsNumeric()) || (lhs.IsDuration() && rhs.IsDuration())) {
     return;
   }
   throw QueryRuntimeException(utils::MessageWithLink(
@@ -1766,8 +1767,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::View::OLD, nullptr /* frame_change_collector */,
-                                  true /* treat_null_as_zero */);
+                                  storage::View::OLD);
     auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
     };
@@ -2023,8 +2023,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::View::OLD, nullptr /* frame_change_collector */,
-                                  true /* treat_null_as_zero */);
+                                  storage::View::OLD);
     auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
     };
