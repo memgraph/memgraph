@@ -163,7 +163,7 @@ int main(int argc, char **argv) {
         // libstd.
         auto gil = memgraph::py::EnsureGIL();
         // NOLINTNEXTLINE(hicpp-signed-bitwise)
-        auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
+        auto *flag = PyLong_FromLong(RTLD_NOW);
         auto *setdl = PySys_GetObject("setdlopenflags");
         MG_ASSERT(setdl);
         auto *arg = PyTuple_New(1);
