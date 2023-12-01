@@ -96,6 +96,7 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
     MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
   }
 
+  std::sort(snapshot_files.begin(), snapshot_files.end());
   return snapshot_files;
 }
 
@@ -106,13 +107,17 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 
   std::vector<WalDurabilityInfo> wal_files;
   std::error_code error_code;
+  // There could be multiple "current" WAL files, the "_current" tag just means that the previous session didn't
+  // finalize. We cannot skip based on name, will be able to skip based on invalid data or sequence number, so the
+  // actual current wal will be skipped
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!item.is_regular_file()) continue;
     try {
       auto info = ReadWalInfo(item.path());
-      if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num))
+      if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num)) {
         wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, std::move(info.uuid),
                                std::move(info.epoch_id), item.path());
+      }
     } catch (const RecoveryFailure &e) {
       spdlog::warn("Failed to read {}", item.path());
       continue;
@@ -120,6 +125,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
   }
   MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
 
+  // Sort based on the sequence number, not the file name
   std::sort(wal_files.begin(), wal_files.end());
   return std::move(wal_files);
 }
@@ -246,8 +252,6 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   std::optional<uint64_t> snapshot_timestamp;
   if (!snapshot_files.empty()) {
     spdlog::info("Try recovering from snapshot directory {}.", snapshot_directory);
-    // Order the files by name
-    std::sort(snapshot_files.begin(), snapshot_files.end());
 
     // UUID used for durability is the UUID of the last snapshot file.
     *uuid = snapshot_files.back().uuid;

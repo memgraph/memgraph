@@ -313,12 +313,6 @@ class DiskStorage final : public Storage {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig & /*config*/,
-                               const memgraph::replication::ReplicationEpoch * /*current_epoch*/)
-      -> std::unique_ptr<ReplicationClient> override {
-    throw utils::BasicException("Disk storage mode does not support replication.");
-  }
-
   std::unique_ptr<RocksDBStorage> kvstore_;
   DurableMetadata durable_metadata_;
   EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};

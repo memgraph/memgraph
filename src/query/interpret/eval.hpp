@@ -18,6 +18,7 @@
 #include <map>
 #include <optional>
 #include <regex>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -827,8 +828,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       throw QueryRuntimeException("'coalesce' requires at least one argument.");
     }
 
-    for (int64_t i = 0; i < exprs.size(); ++i) {
-      TypedValue val(exprs[i]->Accept(*this), ctx_->memory);
+    for (auto &expr : exprs) {
+      TypedValue val(expr->Accept(*this), ctx_->memory);
       if (!val.IsNull()) {
         return val;
       }
@@ -905,7 +906,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(std::move(result), ctx_->memory);
   }
 
-  TypedValue Visit(Exists &exists) override { return TypedValue{frame_->at(symbol_table_->at(exists)), ctx_->memory}; }
+  TypedValue Visit(Exists &exists) override {
+    TypedValue &frame_exists_value = frame_->at(symbol_table_->at(exists));
+    if (!frame_exists_value.IsFunction()) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
+          frame_exists_value.type());
+    }
+    TypedValue result{ctx_->memory};
+    frame_exists_value.ValueFunction()(&result);
+    return result;
+  }
 
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);

@@ -24,7 +24,7 @@ namespace memgraph::utils {
 template <class TKey, class TVal>
 class LRUCache {
  public:
-  LRUCache(int cache_size_) : cache_size(cache_size_){};
+  explicit LRUCache(int cache_size_) : cache_size(cache_size_){};
 
   void put(const TKey &key, const TVal &val) {
     auto it = item_map.find(key);

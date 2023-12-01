@@ -159,7 +159,7 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
   *os << "{";
   if (property_id) {
     *os << kInternalPropertyId << ": " << *property_id;
-    if (store.size() > 0) *os << ", ";
+    if (!store.empty()) *os << ", ";
   }
   utils::PrintIterable(*os, store, ", ", [&dba](auto &os, const auto &kv) {
     os << EscapeName(dba->PropertyToName(kv.first)) << ": ";
@@ -228,7 +228,7 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
         throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
   }
-  if (maybe_props->size() > 0) {
+  if (!maybe_props->empty()) {
     *os << " ";
     DumpProperties(os, dba, *maybe_props);
   }
