@@ -367,14 +367,16 @@ State HandleReset(TSession &session, const Marker marker) {
     return State::Close;
   }
 
-  session.Abort();
-
-  if (!session.encoder_.MessageSuccess()) {
-    spdlog::trace("Couldn't send success message!");
-    return State::Close;
+  try {
+    session.Abort();
+    if (!session.encoder_.MessageSuccess({})) {
+      spdlog::trace("Couldn't send success message!");
+      return State::Close;
+    }
+    return State::Idle;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
   }
-
-  return State::Idle;
 }
 
 template <typename TSession>
@@ -397,19 +399,17 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  if (!session.encoder_.MessageSuccess({})) {
-    spdlog::trace("Couldn't send success message!");
-    return State::Close;
-  }
-
   try {
     session.Configure(extra.ValueMap());
     session.BeginTransaction(extra.ValueMap());
+    if (!session.encoder_.MessageSuccess({})) {
+      spdlog::trace("Couldn't send success message!");
+      return State::Close;
+    }
+    return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
-
-  return State::Idle;
 }
 
 template <typename TSession>
