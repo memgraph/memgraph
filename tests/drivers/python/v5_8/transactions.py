@@ -136,20 +136,20 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) a
     # Correct query.
     add_person(tx_good, "mirka", "slavka")
 
-    # # Setup for next query.
-    # with driver.session() as session:
-    #     session.run("UNWIND range(1, 100000) AS x CREATE ()").consume()
+    # Setup for next query.
+    with driver.session() as session:
+        session.run("UNWIND range(1, 100000) AS x CREATE ()").consume()
 
-    # # Test changing the timeout at run-time
-    # with driver.session() as session:
-    #     default_timeout = get_timeout(session)
-    # test_timeout(driver, default_timeout)
+    # Test changing the timeout at run-time
+    with driver.session() as session:
+        default_timeout = get_timeout(session)
+    test_timeout(driver, default_timeout)
 
-    # with driver.session() as session:
-    #     set_timeout(session, 1)
-    # test_timeout(driver, 1)
+    with driver.session() as session:
+        set_timeout(session, 1)
+    test_timeout(driver, 1)
 
-    # with driver.session() as session:
-    #     set_timeout(session, default_timeout)
+    with driver.session() as session:
+        set_timeout(session, default_timeout)
 
     print("All ok!")
