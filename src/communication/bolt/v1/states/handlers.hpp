@@ -427,11 +427,11 @@ State HandleCommit(TSession &session, const State state, const Marker marker) {
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
   try {
+    session.CommitTransaction();
     if (!session.encoder_.MessageSuccess({})) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
-    session.CommitTransaction();
     return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
@@ -453,11 +453,11 @@ State HandleRollback(TSession &session, const State state, const Marker marker) 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
   try {
+    session.RollbackTransaction();
     if (!session.encoder_.MessageSuccess({})) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
-    session.RollbackTransaction();
     return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
