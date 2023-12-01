@@ -66,6 +66,11 @@ bool DeleteDir(const std::filesystem::path &dir) noexcept {
   return std::filesystem::remove_all(dir, error_code) > 0;
 }
 
+bool IsDirEmpty(const std::filesystem::path &dir) noexcept {
+  std::filesystem::directory_iterator it(dir);
+  return it == std::filesystem::directory_iterator();
+}
+
 bool DeleteFile(const std::filesystem::path &file) noexcept {
   std::error_code error_code;  // For exception suppression.
   return std::filesystem::remove(file, error_code);

@@ -53,6 +53,9 @@ bool DirExists(const std::filesystem::path &dir);
 /// Deletes everything from the given directory including the directory.
 bool DeleteDir(const std::filesystem::path &dir) noexcept;
 
+/// Checks if a given directory contains any files.
+bool IsDirEmpty(const std::filesystem::path &dir) noexcept;
+
 /// Deletes just the specified file. Symlinks are not followed.
 bool DeleteFile(const std::filesystem::path &file) noexcept;
 

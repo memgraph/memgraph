@@ -75,7 +75,7 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
                                                      const std::string_view uuid) {
   std::vector<SnapshotDurabilityInfo> snapshot_files;
   std::error_code error_code;
-  if (utils::DirExists(snapshot_directory)) {
+  if (!utils::IsDirEmpty(snapshot_directory)) {
     for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
       if (!item.is_regular_file()) continue;
       if (!utils::HasReadAccess(item.path())) {
@@ -103,7 +103,7 @@ std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path
 std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
                                                           const std::string_view uuid,
                                                           const std::optional<size_t> current_seq_num) {
-  if (!utils::DirExists(wal_directory)) return std::nullopt;
+  if (utils::IsDirEmpty(wal_directory)) return std::nullopt;
 
   std::vector<WalDurabilityInfo> wal_files;
   std::error_code error_code;
@@ -236,8 +236,8 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
                wal_directory);
-  if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory)) {
-    spdlog::warn(utils::MessageWithLink("Snapshot or WAL directory don't exist, there is nothing to recover.",
+  if (utils::IsDirEmpty(snapshot_directory) && utils::IsDirEmpty(wal_directory)) {
+    spdlog::warn(utils::MessageWithLink("Snapshot and WAL directory are both empty, there is nothing to recover.",
                                         "https://memgr.ph/durability"));
     return std::nullopt;
   }
@@ -281,7 +281,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
 
-    if (!utils::DirExists(wal_directory)) {
+    if (utils::IsDirEmpty(wal_directory)) {
       const auto par_exec_info = config.durability.allow_parallel_index_creation
                                      ? std::make_optional(std::make_pair(recovery_info.vertex_batches,
                                                                          config.durability.recovery_thread_count))
@@ -292,7 +292,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   } else {
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory);
     std::error_code error_code;
-    if (!utils::DirExists(wal_directory)) return std::nullopt;
+    if (utils::IsDirEmpty(wal_directory)) return std::nullopt;
     // We use this smaller struct that contains only a subset of information
     // necessary for the rest of the recovery function.
     // Also, the struct is sorted primarily on the path it contains.
