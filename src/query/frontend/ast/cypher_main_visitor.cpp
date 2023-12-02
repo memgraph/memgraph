@@ -1978,6 +1978,15 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
       edge_lambda.inner_edge = storage_->Create<Identifier>(traversed_edge_variable);
       auto traversed_node_variable = std::any_cast<std::string>(lambda->traversed_node->accept(this));
       edge_lambda.inner_node = storage_->Create<Identifier>(traversed_node_variable);
+      if (lambda->accumulated_path) {
+        auto accumulated_path_variable = std::any_cast<std::string>(lambda->accumulated_path->accept(this));
+        edge_lambda.accumulated_path = storage_->Create<Identifier>(accumulated_path_variable);
+
+        if (lambda->accumulated_weight) {
+          auto accumulated_weight_variable = std::any_cast<std::string>(lambda->accumulated_weight->accept(this));
+          edge_lambda.accumulated_weight = storage_->Create<Identifier>(accumulated_weight_variable);
+        }
+      }
       edge_lambda.expression = std::any_cast<Expression *>(lambda->expression()->accept(this));
       return edge_lambda;
     };
@@ -2002,6 +2011,15 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         // In variable expansion inner variables are mandatory.
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
+
+        // TODO: In what use case do we need accumulated path and weight here?
+        if (edge->filter_lambda_.accumulated_path) {
+          anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_path);
+
+          if (edge->filter_lambda_.accumulated_weight) {
+            anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_weight);
+          }
+        }
         break;
       case 1:
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
@@ -2013,9 +2031,21 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
           // Add mandatory inner variables for filter lambda.
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
+          if (edge->filter_lambda_.accumulated_path) {
+            anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_path);
+
+            if (edge->filter_lambda_.accumulated_weight) {
+              anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_weight);
+            }
+          }
         } else {
           // Other variable expands only have the filter lambda.
           edge->filter_lambda_ = visit_lambda(relationshipLambdas[0]);
+          if (edge->filter_lambda_.accumulated_weight) {
+            throw SemanticException(
+                "Accumulated weight in filter lambda can be used only with "
+                "shortest paths expansion.");
+          }
         }
         break;
       case 2:
