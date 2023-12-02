@@ -155,3 +155,103 @@ Feature: Weighted Shortest Path
           MATCH (n {a:'0'})-[le *wShortest 10 (e, n | e.w ) w]->(m) RETURN m.a, size(le) as s, w
           """
       Then an error should be raised
+
+    Scenario: Test match wShortest with accumulated path filtered by order of ids
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})-[:type1 {id: 3}]->(:label4 {id: 4});
+          """
+      When executing query:
+          """
+          MATCH pth=(:label1)-[*WSHORTEST (r, n | r.id) total_weight (e,n,p | e.id > 0 and (nodes(p)[-1]).id > (nodes(p)[-2]).id)]->(:label4) RETURN pth, total_weight;
+          """
+      Then the result should be:
+          | pth                                                                                                               | total_weight   |
+          | <(:label1{id:1})-[:type1{id:1}]->(:label2{id:2})-[:type1{id:2}]->(:label3{id:3})-[:type1{id:3}]->(:label4{id:4})> | 6              |
+
+    Scenario: Test match wShortest with accumulated path filtered by edge type1
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH path=(:label1)-[*WSHORTEST (r, n | r.id) total_weight (e, n, p | NOT(type(e)='type1' AND type(last(relationships(p))) = 'type1'))]->(:label3) RETURN path, total_weight;
+          """
+      Then the result should be:
+          | path                                                     | total_weight   |
+          | <(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> | 10             |
+
+    Scenario: Test match wShortest with accumulated path filtered by edge type2
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH path=(:label1)-[*WSHORTEST (r, n | r.id) total_weight (e, n, p | NOT(type(e)='type2' AND type(last(relationships(p))) = 'type2'))]->(:label3) RETURN path, total_weight;
+          """
+      Then the result should be:
+          | path                                                                                        | total_weight   |
+          | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> | 3              |
+
+    Scenario: Test match wShortest with accumulated path filtered by edge type1 and accumulated weight based on edge
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH path=(:label1)-[*WSHORTEST (r, n | r.id) total_weight (e, n, p, w | NOT(type(e)='type1' AND type(last(relationships(p))) = 'type1') AND w > 0)]->(:label3) RETURN path, total_weight;
+          """
+      Then the result should be:
+          | path                                                     | total_weight   |
+          | <(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> | 10             |
+
+    Scenario: Test match wShortest with accumulated path filtered by edge type1 and accumulated weight based on edge too restricted
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH path=(:label1)-[*WSHORTEST (r, n | r.id) total_weight (e, n, p, w | NOT(type(e)='type1' AND type(last(relationships(p))) = 'type1') AND w < 10)]->(:label3) RETURN path, total_weight;
+          """
+      Then the result should be empty
+
+    Scenario: Test match wShortest with accumulated path filtered by edge type1 and accumulated weight based on vertex is int
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH path=(:label1)-[*WSHORTEST (r, n | n.id) total_weight (e, n, p, w | NOT(type(e)='type1' AND type(last(relationships(p))) = 'type1') AND w > 0)]->(:label3) RETURN path, total_weight;
+          """
+      Then the result should be:
+          | path                                                     | total_weight   |
+          | <(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> | 4              |
+
+    Scenario: Test match wShortest with accumulated path filtered by edge type1 and accumulated weight based on vertex and edge are ints
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH path=(:label1)-[*WSHORTEST (r, n | n.id + coalesce(r.id, 0)) total_weight (e, n, p, w | NOT(type(e)='type1' AND type(last(relationships(p))) = 'type1') AND w > 0)]->(:label3) RETURN path, total_weight;
+          """
+      Then the result should be:
+          | path                                                     | total_weight   |
+          | <(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> | 14             |
+
+    Scenario: Test match wShortest with accumulated path filtered by edge type1 and accumulated weight based on vertex and edge are doubles
+      Given an empty graph
+      And having executed:
+            """
+            CREATE (:label1 {id: 1})-[:type1 {id:1.5}]->(:label2 {id: 2})-[:type1 {id: 2.1}]->(:label3 {id: 3})-[:type1 {id: 3.4}]->(:label4 {id: 4});
+            """
+      When executing query:
+          """
+          MATCH path=(:label1)-[*WSHORTEST (r, n | n.id + coalesce(r.id, 0)) total_weight (e, n, p, w | w > 0)]->(:label3) RETURN path, total_weight;
+          """
+      Then the result should be:
+          | path                                                                                            | total_weight   |
+          | <(:label1 {id: 1})-[:type1 {id: 1.5}]->(:label2 {id: 2})-[:type1 {id: 2.1}]->(:label3 {id: 3})> | 9.6            |
+
+    Scenario: Test match wShortest with accumulated path filtered by order of ids and accumulated weight based on both vertex and edge is duration
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:station {name: "A", arrival: localTime("08:00"), departure: localTime("08:15")})-[:ride {id: 1, duration: duration("PT1H5M")}]->(:station {name: "B", arrival: localtime("09:20"), departure: localTime("09:30")})-[:ride {id: 2, duration: duration("PT30M")}]->(:station {name: "C", arrival: localTime("10:00"), departure: localTime("10:20")});
+          """
+      When executing query:
+          """
+          MATCH path=(:station {name:"A"})-[*WSHORTEST (r, v | v.departure - v.arrival + coalesce(r.duration, duration("PT0M"))) total_weight (r,n,p,w | (nodes(p)[-1]).name > (nodes(p)[-2]).name AND not(w is null))]->(:station {name:"C"}) RETURN path, total_weight;
+          """
+      Then the result should be:
+          | path   | total_weight   |
+          | <(:station {arrival: 08:00:00.000000000, departure: 08:15:00.000000000, name: 'A'})-[:ride {duration: PT1H5M, id: 1}]->(:station {arrival: 09:20:00.000000000, departure: 09:30:00.000000000, name: 'B'})-[:ride {duration: PT30M, id: 2}]->(:station {arrival: 10:00:00.000000000, departure: 10:20:00.000000000, name: 'C'})> | PT2H20M  |

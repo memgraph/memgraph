@@ -917,12 +917,18 @@ struct ExpansionLambda {
   Symbol inner_node_symbol;
   /// Expression used in lambda during expansion.
   Expression *expression;
+  /// Currently expanded accumulated path symbol.
+  std::optional<Symbol> accumulated_path_symbol;
+  /// Currently expanded accumulated weight symbol.
+  std::optional<Symbol> accumulated_weight_symbol;
 
   ExpansionLambda Clone(AstStorage *storage) const {
     ExpansionLambda object;
     object.inner_edge_symbol = inner_edge_symbol;
     object.inner_node_symbol = inner_node_symbol;
     object.expression = expression ? expression->Clone(storage) : nullptr;
+    object.accumulated_path_symbol = accumulated_path_symbol;
+    object.accumulated_weight_symbol = accumulated_weight_symbol;
     return object;
   }
 };
