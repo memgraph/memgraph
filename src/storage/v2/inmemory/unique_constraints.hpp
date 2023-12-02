@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <span>
+
 #include "storage/v2/constraints/unique_constraints.hpp"
 
 namespace memgraph::storage {
@@ -53,6 +55,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
   void UpdateBeforeCommit(const Vertex *vertex, std::unordered_set<LabelId> &added_labels,
                           std::unordered_set<PropertyId> &added_properties, const Transaction &tx);
+
+  void AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp);
 
   /// Creates unique constraint on the given `label` and a list of `properties`.
   /// Returns constraint violation if there are multiple vertices with the same
