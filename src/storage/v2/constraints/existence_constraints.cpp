@@ -55,6 +55,15 @@ void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::strin
   }
 }
 
+[[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::ValidateVertexOnConstraint(const Vertex &vertex,
+                                                                                                  LabelId label,
+                                                                                                  PropertyId property) {
+  if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
+    return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
+  }
+  return std::nullopt;
+}
+
 std::variant<ExistenceConstraints::MultipleThreadsConstraintValidation,
              ExistenceConstraints::SingleThreadConstraintValidation>
 ExistenceConstraints::GetCreationFunction(
@@ -75,15 +84,14 @@ ExistenceConstraints::GetCreationFunction(
 }
 
 std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstraintValidation::operator()(
-    utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) {
+    const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.first;
-  const auto thread_count = std::min(parallel_exec_info.second, vertex_batches.size());
-
   MG_ASSERT(!vertex_batches.empty(),
             "The size of batches should always be greater than zero if you want to use the parallel version of index "
             "creation!");
+  const auto thread_count = std::min(parallel_exec_info.second, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
   memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::SpinLock> maybe_error{};
@@ -100,7 +108,7 @@ std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstrai
         const auto &[gid_start, batch_size] = vertex_batches[batch_index];
 
         auto vertex_curr = vertices.find(gid_start);
-
+        DMG_ASSERT(vertex_curr != vertex_accessor.end(), "No vertex was found with given gid");
         for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
           const auto violation = ValidateVertexOnConstraint(*vertex_curr, label, property);
           if (!violation.has_value()) [[likely]] {
@@ -122,8 +130,8 @@ std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstrai
 }
 
 std::optional<ConstraintViolation> ExistenceConstraints::SingleThreadConstraintValidation::operator()(
-    utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) {
-  for (Vertex &vertex : vertices) {
+    const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) {
+  for (const Vertex &vertex : vertices) {
     if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
       return violation;
     }

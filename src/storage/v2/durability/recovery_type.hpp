@@ -16,4 +16,4 @@
 namespace memgraph::storage::durability {
 using ParallelizedSchemaCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
-}
+}  // namespace memgraph::storage::durability

@@ -48,13 +48,6 @@ extern const Event SnapshotRecoveryLatency_us;
 
 namespace memgraph::storage::durability {
 
-DEFINE_VALIDATED_bool(storage_mode_parallel_index_recovery, false, "no help here", {
-  spdlog::warn(
-      "storage_mode_parallel_index_recovery flag is deprecated. Check storage_mode_parallel_schema_recovery for more "
-      "details.");
-  return true;
-});
-
 void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path &storage_directory) {
   // Get the process user ID.
   auto process_euid = geteuid();

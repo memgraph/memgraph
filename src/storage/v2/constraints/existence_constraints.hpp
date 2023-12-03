@@ -30,28 +30,23 @@ class ExistenceConstraints {
 
  public:
   struct MultipleThreadsConstraintValidation {
-    std::optional<ConstraintViolation> operator()(utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label,
-                                                  const PropertyId &property);
+    std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
+                                                  const LabelId &label, const PropertyId &property);
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
   struct SingleThreadConstraintValidation {
-    std::optional<ConstraintViolation> operator()(utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label,
-                                                  const PropertyId &property);
+    std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
+                                                  const LabelId &label, const PropertyId &property);
   };
 
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
                                                                                      LabelId label,
-                                                                                     PropertyId property) {
-    if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
-      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
-    }
-    return std::nullopt;
-  }
+                                                                                     PropertyId property);
 
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
-      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info);
+      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
 
   static std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation> GetCreationFunction(
       const std::optional<durability::ParallelizedSchemaCreationInfo> &);

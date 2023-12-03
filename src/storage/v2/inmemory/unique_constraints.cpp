@@ -13,6 +13,7 @@
 #include <memory>
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -288,15 +289,14 @@ InMemoryUniqueConstraints::GetCreationFunction(
 }
 
 bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
-    utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
+    const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
     const LabelId &label, const std::set<PropertyId> &properties) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   const auto &vertex_batches = parallel_exec_info.first;
-  const auto thread_count = std::min(parallel_exec_info.second, vertex_batches.size());
-
   MG_ASSERT(!vertex_batches.empty(),
             "The size of batches should always be greater than zero if you want to use the parallel version of index "
             "creation!");
+  const auto thread_count = std::min(parallel_exec_info.second, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
   memgraph::utils::Synchronized<bool, utils::RWSpinLock> has_error{false};
@@ -313,7 +313,7 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
         const auto &[gid_start, batch_size] = vertex_batches[batch_index];
 
         auto vertex_curr = vertex_accessor.find(gid_start);
-
+        DMG_ASSERT(vertex_curr != vertex_accessor.end(), "No vertex was found with given gid");
         for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
           const auto validation_error = ValidationFunc(*vertex_curr, constraint_accessor, label, properties);
           if (!validation_error) [[likely]] {
@@ -332,12 +332,11 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
 }
 
 bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
-    utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
+    const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
     const LabelId &label, const std::set<PropertyId> &properties) {
   for (const Vertex &vertex : vertex_accessor) {
     if (ValidationFunc(vertex, constraint_accessor, label, properties)) {
       return true;
-      break;
     }
   }
   return false;
@@ -367,7 +366,7 @@ bool InMemoryUniqueConstraints::ValidationFunc(const Vertex &vertex,
 
 utils::BasicResult<ConstraintViolation, InMemoryUniqueConstraints::CreationStatus>
 InMemoryUniqueConstraints::CreateConstraint(
-    LabelId label, const std::set<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertex_accessor,
+    LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
   if (properties.empty()) {
     return CreationStatus::EMPTY_PROPERTIES;

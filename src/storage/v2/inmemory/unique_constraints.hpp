@@ -57,14 +57,14 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
  public:
   struct MultipleThreadsConstraintValidation {
-    bool operator()(utils::SkipList<Vertex>::Accessor &vertex_accessor,
+    bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties);
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
   struct SingleThreadConstraintValidation {
-    bool operator()(utils::SkipList<Vertex>::Accessor &vertex_accessor,
+    bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
                     const std::set<PropertyId> &properties);
   };
@@ -88,7 +88,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
   utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
-      LabelId label, const std::set<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertex_accessor,
+      LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
       const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info);
 
   /// Deletes the specified constraint. Returns `DeletionStatus::NOT_FOUND` if
