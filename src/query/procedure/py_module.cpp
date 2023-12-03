@@ -866,7 +866,6 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 }
 
 void PyCollectGarbage() {
-  std::cout << "I HAVE BEEN SUMMONED\n";
   auto gil = py::EnsureGIL();
 
   py::Object gc(PyImport_ImportModule("gc"));
