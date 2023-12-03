@@ -162,12 +162,13 @@ def test_label_property_index_hint(memgraph):
 
     expected_explain_no_hint = [
         " * Produce {n}",
-        " * Filter (n :Label), {n.id1}, {n.id2}",
+        " * Filter {n.id1}",
         " * ScanAllByLabelPropertyValue (n :Label {id2})",
         " * Once",
     ]
     expected_explain_with_hint = [
-        row.replace("(n :Label {id2})", "(n :Label {id1})") for row in expected_explain_no_hint
+        row.replace("(n :Label {id2})", "(n :Label {id1})").replace(" * Filter {n.id1}", " * Filter {n.id2}")
+        for row in expected_explain_no_hint
     ]
 
     explain_no_hint = [
@@ -192,7 +193,7 @@ def test_label_property_index_hint_alternative_orderings(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n}",
-        " * Filter (n :Label), {n.id1}, {n.id2}",
+        " * Filter {n.id2}",
         " * ScanAllByLabelPropertyValue (n :Label {id1})",
         " * Once",
     ]
@@ -221,7 +222,7 @@ def test_multiple_label_property_index_hints(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n}",
-        " * Filter (n :Label), {n.id1}, {n.id2}",
+        " * Filter {n.id2}",
         " * ScanAllByLabelPropertyValue (n :Label {id1})",
         " * Once",
     ]
@@ -251,7 +252,7 @@ def test_multiple_applicable_label_property_index_hints(memgraph):
 
     expected_explain_with_hint = [
         " * Produce {n}",
-        " * Filter (n :Label), {n.id1}, {n.id2}",
+        " * Filter {n.id2}",
         " * ScanAllByLabelPropertyValue (n :Label {id1})",
         " * Once",
     ]
@@ -275,12 +276,13 @@ def test_multiple_applicable_label_property_index_hints_alternative_orderings(me
 
     expected_explain_with_hint_1 = [
         " * Produce {n}",
-        " * Filter (n :Label), {n.id1}, {n.id2}",
+        " * Filter {n.id2}",
         " * ScanAllByLabelPropertyValue (n :Label {id1})",
         " * Once",
     ]
     expected_explain_with_hint_2 = [
-        row.replace("(n :Label {id1})", "(n :Label {id2})") for row in expected_explain_with_hint_1
+        row.replace("(n :Label {id1})", "(n :Label {id2})").replace(" * Filter {n.id2}", " * Filter {n.id1}")
+        for row in expected_explain_with_hint_1
     ]
 
     explain_with_hint_ordering_1a = [
@@ -407,6 +409,7 @@ def test_multiple_match_query(memgraph):
     memgraph.execute("CREATE INDEX ON :Label2;")
     memgraph.execute("CREATE INDEX ON :Label3;")
 
+    # TODO: Fix this test since it has the filtering info wrong (filtering by label that's already indexed)
     expected_explain_with_hint = [
         " * Produce {n, m}",
         " * Cartesian {m : n}",
@@ -414,7 +417,7 @@ def test_multiple_match_query(memgraph):
         " | * Filter (n :Label1:Label2), {n.id}",
         " | * ScanAllByLabel (n :Label1)",
         " | * Once",
-        " * Filter (m :Label2:Label3), (n :Label1:Label2), {n.id}",
+        " * Filter (m :Label2:Label3)",
         " * ScanAllByLabel (m :Label2)",
         " * Once",
     ]
