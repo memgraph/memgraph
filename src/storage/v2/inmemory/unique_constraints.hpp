@@ -14,6 +14,7 @@
 #include <optional>
 #include <thread>
 #include <variant>
+#include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
@@ -52,8 +53,9 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     bool operator==(const std::vector<PropertyValue> &rhs) const;
   };
 
-  static bool ValidationFunc(const Vertex &vertex, utils::SkipList<Entry>::Accessor &constraint_accessor,
-                             const LabelId &label, const std::set<PropertyId> &properties);
+  static std::optional<ConstraintViolation> DoValidate(const Vertex &vertex,
+                                                       utils::SkipList<Entry>::Accessor &constraint_accessor,
+                                                       const LabelId &label, const std::set<PropertyId> &properties);
 
  public:
   struct MultipleThreadsConstraintValidation {

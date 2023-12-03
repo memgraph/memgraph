@@ -2799,7 +2799,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
                                          name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num);
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
-  const auto par_exec_info = recovery.GetParallelExecInfo(*info, config);
+  const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);
 
   MG_ASSERT(par_exec_info.has_value(), "Parallel exec info should have value present");
 

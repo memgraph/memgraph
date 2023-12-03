@@ -11,10 +11,11 @@
 
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "utils/logging.hpp"
-
+#include "utils/rw_spin_lock.hpp"
 namespace memgraph::storage {
 
 bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) const {
@@ -55,9 +56,8 @@ void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::strin
   }
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::ValidateVertexOnConstraint(const Vertex &vertex,
-                                                                                                  LabelId label,
-                                                                                                  PropertyId property) {
+[[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::ValidateVertexOnConstraint(
+    const Vertex &vertex, const LabelId &label, const PropertyId &property) {
   if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
     return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
   }
@@ -94,33 +94,17 @@ std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstrai
   const auto thread_count = std::min(parallel_exec_info.second, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
-  memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::SpinLock> maybe_error{};
+  memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> maybe_error{};
   {
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
 
-    auto thread_function = [&label, &property, &vertex_batches, &maybe_error, &batch_counter, &vertices]() {
-      while (!maybe_error.Lock()->has_value()) {
-        const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
-        if (batch_index >= vertex_batches.size()) {
-          return;
-        }
-        const auto &[gid_start, batch_size] = vertex_batches[batch_index];
-
-        auto vertex_curr = vertices.find(gid_start);
-        DMG_ASSERT(vertex_curr != vertex_accessor.end(), "No vertex was found with given gid");
-        for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
-          const auto violation = ValidateVertexOnConstraint(*vertex_curr, label, property);
-          if (!violation.has_value()) [[likely]] {
-            continue;
-          }
-          *maybe_error.Lock() = *violation;
-          break;
-        }
-      }
+    auto thread_func = [&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property]() {
+      do_per_thread_validation(maybe_error, ValidateVertexOnConstraint, vertex_batches, batch_counter, vertices, label,
+                               property);
     };
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(thread_function);
+      threads.emplace_back(thread_func);
     }
   }
   if (maybe_error.Lock()->has_value()) {

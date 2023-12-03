@@ -95,31 +95,39 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
                                                           std::string_view uuid = "",
                                                           std::optional<size_t> current_seq_num = {});
 
-struct Recovery {
- public:
-  // Helper function used to recover all discovered indices. The
-  // indices must be recovered after the data recovery is done
-  // to ensure that the indices consistent at the end of the
-  // recovery process.
-  /// @throw RecoveryFailure
-  static void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &, Indices *,
-                                     utils::SkipList<Vertex> *, NameIdMapper *,
-                                     const std::optional<ParallelizedSchemaCreationInfo> &);
+// Helper function used to recover all discovered indices. The
+// indices must be recovered after the data recovery is done
+// to ensure that the indices consistent at the end of the
+// recovery process.
+/// @throw RecoveryFailure
+void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &, Indices *,
+                            utils::SkipList<Vertex> *, NameIdMapper *,
+                            const std::optional<ParallelizedSchemaCreationInfo> &);
 
-  // Helper function used to recover all discovered constraints. The
-  // constraints must be recovered after the data recovery is done
-  // to ensure that the constraints are consistent at the end of the
-  // recovery process.
-  /// @throw RecoveryFailure
-  static void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+// Helper function used to recover all discovered constraints. The
+// constraints must be recovered after the data recovery is done
+// to ensure that the constraints are consistent at the end of the
+// recovery process.
+/// @throw RecoveryFailure
+void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                        utils::SkipList<Vertex> *, NameIdMapper *,
+                        const std::optional<ParallelizedSchemaCreationInfo> &);
+
+std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
+                                                                  const Config &config);
+
+std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
+                                                                         const Config &config);
+
+void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                                  utils::SkipList<Vertex> *, NameIdMapper *,
                                  const std::optional<ParallelizedSchemaCreationInfo> &);
 
-  static std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
-                                                                           const Config &config);
-
-  static std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
-                                                                                  const Config &config);
+void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                              utils::SkipList<Vertex> *, NameIdMapper *,
+                              const std::optional<ParallelizedSchemaCreationInfo> &);
+struct Recovery {
+ public:
   /// Recovers data either from a snapshot and/or WAL files.
   /// @throw RecoveryFailure
   /// @throw std::bad_alloc
@@ -131,15 +139,6 @@ struct Recovery {
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;
-
- private:
-  static void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
-                                          utils::SkipList<Vertex> *, NameIdMapper *,
-                                          const std::optional<ParallelizedSchemaCreationInfo> &);
-
-  static void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
-                                       utils::SkipList<Vertex> *, NameIdMapper *,
-                                       const std::optional<ParallelizedSchemaCreationInfo> &);
 };
 
 }  // namespace memgraph::storage::durability

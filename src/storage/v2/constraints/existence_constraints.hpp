@@ -41,8 +41,8 @@ class ExistenceConstraints {
   };
 
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
-                                                                                     LabelId label,
-                                                                                     PropertyId property);
+                                                                                     const LabelId &label,
+                                                                                     const PropertyId &property);
 
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,

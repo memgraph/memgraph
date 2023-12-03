@@ -140,17 +140,16 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // to ensure that the indices and constraints are consistent at the end of the
 // recovery process.
 
-void Recovery::RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                                  Constraints *constraints, utils::SkipList<Vertex> *vertices,
-                                  NameIdMapper *name_id_mapper,
-                                  const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
+                        Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                        const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
   RecoverUniqueConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
 }
 
-void Recovery::RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata,
-                                      Indices *indices, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                                      const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
+                            utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                            const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   spdlog::info("Recreating indices from metadata.");
 
   // Recover label indices.
@@ -204,10 +203,10 @@ void Recovery::RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::Indi
   spdlog::info("Recreating constraints from metadata.");
 }
 
-void Recovery::RecoverExistenceConstraints(
-    const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata, Constraints *constraints,
-    utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-    const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
+                                 Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                                 NameIdMapper *name_id_mapper,
+                                 const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   spdlog::info("Recreating {} existence constraints from metadata.", constraints_metadata.existence.size());
   for (const auto &[label, property] : constraints_metadata.existence) {
     if (constraints->existence_constraints_->ConstraintExists(label, property)) {
@@ -227,10 +226,9 @@ void Recovery::RecoverExistenceConstraints(
   spdlog::info("Existence constraints are recreated from metadata.");
 }
 
-void Recovery::RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                                        Constraints *constraints, utils::SkipList<Vertex> *vertices,
-                                        NameIdMapper *name_id_mapper,
-                                        const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
+                              Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                              const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   spdlog::info("Recreating {} unique constraints from metadata.", constraints_metadata.unique.size());
 
   for (const auto &[label, properties] : constraints_metadata.unique) {
@@ -252,15 +250,15 @@ void Recovery::RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::Co
   spdlog::info("Constraints are recreated from metadata.");
 }
 
-std::optional<ParallelizedSchemaCreationInfo> Recovery::GetParallelExecInfo(const RecoveryInfo &recovery_info,
-                                                                            const Config &config) {
+std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
+                                                                  const Config &config) {
   return config.durability.allow_parallel_schema_creation
              ? std::make_optional(std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count))
              : std::nullopt;
 }
 
-std::optional<ParallelizedSchemaCreationInfo> Recovery::GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
-                                                                                   const Config &config) {
+std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
+                                                                         const Config &config) {
   return config.durability.allow_parallel_schema_creation || config.durability.allow_parallel_index_creation
              ? std::make_optional(std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count))
              : std::nullopt;

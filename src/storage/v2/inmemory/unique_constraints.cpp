@@ -11,11 +11,12 @@
 
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include <memory>
+#include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
-
 namespace memgraph::storage {
 
 namespace {
@@ -299,69 +300,53 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
   const auto thread_count = std::min(parallel_exec_info.second, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
-  memgraph::utils::Synchronized<bool, utils::RWSpinLock> has_error{false};
+  memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> has_error;
   {
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
-    auto thread_function = [&vertex_batches, &has_error, &batch_counter, &vertex_accessor, &constraint_accessor, &label,
-                            &properties]() {
-      while (!(*has_error.ReadLock())) {
-        const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
-        if (batch_index >= vertex_batches.size()) {
-          return;
-        }
-        const auto &[gid_start, batch_size] = vertex_batches[batch_index];
-
-        auto vertex_curr = vertex_accessor.find(gid_start);
-        DMG_ASSERT(vertex_curr != vertex_accessor.end(), "No vertex was found with given gid");
-        for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
-          const auto validation_error = ValidationFunc(*vertex_curr, constraint_accessor, label, properties);
-          if (!validation_error) [[likely]] {
-            continue;
-          }
-          *has_error.Lock() = true;
-          break;
-        }
-      }
+    auto thread_func = [&has_error, &vertex_batches, &batch_counter, &vertex_accessor, &constraint_accessor, &label,
+                        &properties]() {
+      do_per_thread_validation(has_error, DoValidate, vertex_batches, batch_counter, vertex_accessor,
+                               constraint_accessor, label, properties);
     };
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(thread_function);
+      threads.emplace_back(thread_func);
     }
   }
-  return *has_error.Lock();
+  return has_error.Lock()->has_value();
 }
 
 bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
     const LabelId &label, const std::set<PropertyId> &properties) {
   for (const Vertex &vertex : vertex_accessor) {
-    if (ValidationFunc(vertex, constraint_accessor, label, properties)) {
+    if (const auto violation = DoValidate(vertex, constraint_accessor, label, properties); violation.has_value()) {
       return true;
     }
   }
   return false;
 }
 
-bool InMemoryUniqueConstraints::ValidationFunc(const Vertex &vertex,
-                                               utils::SkipList<Entry>::Accessor &constraint_accessor,
-                                               const LabelId &label, const std::set<PropertyId> &properties) {
+std::optional<ConstraintViolation> InMemoryUniqueConstraints::DoValidate(
+    const Vertex &vertex, utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
+    const std::set<PropertyId> &properties) {
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
-    return false;
+    return std::nullopt;
   }
   auto values = vertex.properties.ExtractPropertyValues(properties);
   if (!values) {
-    return false;
+    return std::nullopt;
   }
 
   // Check whether there already is a vertex with the same values for the
   // given label and property.
   auto it = constraint_accessor.find_equal_or_greater(*values);
   if (it != constraint_accessor.end() && it->values == *values) {
-    return true;
+    return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
   }
 
   constraint_accessor.insert(Entry{std::move(*values), &vertex, 0});
-  return false;
+  return std::nullopt;
 }
 
 utils::BasicResult<ConstraintViolation, InMemoryUniqueConstraints::CreationStatus>
