@@ -42,4 +42,4 @@ add_library(mg-storage-v2 STATIC
         inmemory/replication/recovery.cpp
 )
 
-target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk mg-events mg-memory)
+target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk mg-events mg-memory mg-query)

@@ -66,6 +66,9 @@ DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed i
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector interval (in seconds).",
                         FLAG_IN_RANGE(1, 24UL * 3600));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_uint64(storage_python_gc_cycle_sec, 180,
+                        "Storage python full garbage collector interval (in seconds).", FLAG_IN_RANGE(1, 24UL * 3600));
 // NOTE: The `storage_properties_on_edges` flag must be the same here and in
 // `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

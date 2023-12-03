@@ -14,6 +14,7 @@
 #include <functional>
 #include "dbms/constants.hpp"
 #include "memory/global_memory_control.hpp"
+#include "query/procedure/py_module.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
@@ -139,6 +140,11 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     }
   }
 
+  if (config_.gc_python.type == Config::Gc::Type::PERIODIC) {
+    gc_python_runner_.Run("Python GC", config_.gc_python.interval,
+                          [] { memgraph::query::procedure::PyCollectGarbage(); });
+  }
+
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     // TODO: move out of storage have one global gc_runner_
     gc_runner_.Run("Storage GC", config_.gc.interval, [this] {
@@ -160,6 +166,10 @@ InMemoryStorage::~InMemoryStorage() {
     gc_runner_.Stop();
     gc_jemalloc_runner_.Stop();
   }
+  if (config_.gc_python.type == Config::Gc::Type::PERIODIC) {
+    gc_python_runner_.Stop();
+  }
+
   {
     // Stop replication (Stop all clients or stop the REPLICA server)
     repl_storage_state_.Reset();
