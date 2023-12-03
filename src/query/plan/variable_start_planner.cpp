@@ -72,8 +72,9 @@ void AddNextExpansions(const Symbol &node_symbol, const Matching &matching, cons
       // We are not expanding from node1, so flip the expansion.
       DMG_ASSERT(expansion.node2 && symbol_table.at(*expansion.node2->identifier_) == node_symbol,
                  "Expected node_symbol to be bound in node2");
-      if (expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST) {
+      if (expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST && !expansion.edge->filter_lambda_.accumulated_path) {
         // BFS must *not* be flipped. Doing that changes the BFS results.
+        // When filter lambda uses accumulated path, path must not be flipped.
         std::swap(expansion.node1, expansion.node2);
         expansion.is_flipped = true;
         if (expansion.direction != EdgeAtom::Direction::BOTH) {
