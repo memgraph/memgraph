@@ -3676,6 +3676,7 @@ class AggregateCursor : public Cursor {
   void ProcessOne(const Frame &frame, ExpressionEvaluator *evaluator) {
     // Preallocated group_by, since most of the time the aggregation key won't be unique
     reused_group_by_.clear();
+    evaluator->ResetPropertyLookupCache();
 
     for (Expression *expression : self_.group_by_) {
       reused_group_by_.emplace_back(expression->Accept(*evaluator));
