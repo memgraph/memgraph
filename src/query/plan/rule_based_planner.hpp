@@ -511,10 +511,6 @@ class RuleBasedPlanner {
 
     std::set<ExpansionGroupId> visited_expansion_groups;
 
-    last_op =
-        GenerateExpansionOnAlreadySeenSymbols(std::move(last_op), matching, visited_expansion_groups, symbol_table,
-                                              storage, bound_symbols, new_symbols, named_paths, filters, view);
-
     // We want to create separate branches of scan operators for each expansion group group of patterns
     // Whenever there are 2 scan branches, they will be joined with a Cartesian operator
 
@@ -524,6 +520,14 @@ class RuleBasedPlanner {
     std::vector<Symbol> cross_branch_new_symbols;
     bool initial_expansion_done = false;
     for (const auto &expansion : matching.expansions) {
+      if (visited_expansion_groups.contains(expansion.expansion_group_id)) {
+        continue;
+      }
+
+      last_op =
+          GenerateExpansionOnAlreadySeenSymbols(std::move(last_op), matching, visited_expansion_groups, symbol_table,
+                                                storage, bound_symbols, new_symbols, named_paths, filters, view);
+
       if (visited_expansion_groups.contains(expansion.expansion_group_id)) {
         continue;
       }
