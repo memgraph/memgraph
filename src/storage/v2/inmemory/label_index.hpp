@@ -12,6 +12,7 @@
 #pragma once
 
 #include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/vertex.hpp"
