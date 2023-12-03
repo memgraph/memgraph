@@ -10,7 +10,9 @@
 // licenses/APL.txt.
 
 #include "storage/v2/disk//edge_import_mode_cache.hpp"
+
 #include <algorithm>
+
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -28,7 +30,7 @@ EdgeImportModeCache::EdgeImportModeCache(const Config &config)
 InMemoryLabelIndex::Iterable EdgeImportModeCache::Vertices(LabelId label, View view, Storage *storage,
                                                            Transaction *transaction) const {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
-  return mem_label_index->Vertices(label, view, storage, transaction);
+  return mem_label_index->Vertices(label, vertices_.access(), view, storage, transaction);
 }
 
 InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
@@ -37,7 +39,8 @@ InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
     Transaction *transaction) const {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  return mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage, transaction);
+  return mem_label_property_index->Vertices(label, property, vertices_.access(), lower_bound, upper_bound, view,
+                                            storage, transaction);
 }
 
 bool EdgeImportModeCache::CreateIndex(

@@ -262,11 +262,12 @@ bool InMemoryUniqueConstraints::Entry::operator==(const std::vector<PropertyValu
 
 void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
   for (const auto &label : vertex->labels) {
-    if (!constraints_by_label_.contains(label)) {
+    const auto &constraint = constraints_by_label_.find(label);
+    if (constraint == constraints_by_label_.end()) {
       continue;
     }
 
-    for (auto &[props, storage] : constraints_by_label_.at(label)) {
+    for (auto &[props, storage] : constraint->second) {
       auto values = vertex->properties.ExtractPropertyValues(props);
 
       if (!values) {
@@ -349,6 +350,28 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::DoValidate(
   return std::nullopt;
 }
 
+void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp) {
+  for (const auto &vertex : vertices) {
+    for (const auto &label : vertex->labels) {
+      const auto &constraint = constraints_by_label_.find(label);
+      if (constraint == constraints_by_label_.end()) {
+        return;
+      }
+
+      for (auto &[props, storage] : constraint->second) {
+        auto values = vertex->properties.ExtractPropertyValues(props);
+
+        if (!values) {
+          continue;
+        }
+
+        auto acc = storage->access();
+        acc.remove(Entry{std::move(*values), vertex, exact_start_timestamp});
+      }
+    }
+  }
+}
+
 utils::BasicResult<ConstraintViolation, InMemoryUniqueConstraints::CreationStatus>
 InMemoryUniqueConstraints::CreateConstraint(
     LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
@@ -420,12 +443,14 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
   if (vertex.deleted) {
     return std::nullopt;
   }
+
   for (const auto &label : vertex.labels) {
-    if (!constraints_by_label_.contains(label)) {
+    const auto &constraint = constraints_by_label_.find(label);
+    if (constraint == constraints_by_label_.end()) {
       continue;
     }
 
-    for (const auto &[properties, storage] : constraints_by_label_.at(label)) {
+    for (const auto &[properties, storage] : constraint->second) {
       auto value_array = vertex.properties.ExtractPropertyValues(properties);
 
       if (!value_array) {

@@ -410,19 +410,67 @@ Feature: Aggregations
           CREATE (s:Subnet {ip: "192.168.0.1"})
           """
       When executing query:
-      """
-      MATCH (subnet:Subnet) WHERE FALSE WITH subnet, collect(subnet.ip) as ips RETURN id(subnet) as id
-      """
+          """
+          MATCH (subnet:Subnet) WHERE FALSE WITH subnet, collect(subnet.ip) as ips RETURN id(subnet) as id
+          """
       Then the result should be empty
 
-    Scenario: Empty count aggregation:
+    Scenario: Empty count aggregation
       Given an empty graph
       And having executed
           """
           CREATE (s:Subnet {ip: "192.168.0.1"})
           """
       When executing query:
-      """
-      MATCH (subnet:Subnet) WHERE FALSE WITH subnet, count(subnet.ip) as ips RETURN id(subnet) as id
-      """
+          """
+          MATCH (subnet:Subnet) WHERE FALSE WITH subnet, count(subnet.ip) as ips RETURN id(subnet) as id
+          """
       Then the result should be empty
+
+    Scenario: Collect nodes properties into a map:
+      Given an empty graph
+      And having executed
+          """
+          CREATE (t:Tag {short_code: "TST", description: "SYSTEM_TAG"}), (t2:Tag {short_code: "PRD", description: "SYSTEM_TAG"}),
+          (t3:Tag {short_code: "STG", description: "SYSTEM_TAG"}), (device {name: "name1"}), (device)-[a1:ASSOCIATED]->(t),
+          (device)-[a2:ASSOCIATED]->(t2), (device)-[a3:ASSOCIATED]->(t3);
+          """
+      When executing query:
+          """
+          MATCH (d {name: "name1"})-[t:ASSOCIATED]-(tag:Tag) RETURN collect({short_code: tag.short_code, description: tag.description}) as tags;
+          """
+      Then the result should be:
+          | tags                                                                                                                                             |
+          | [{description: 'SYSTEM_TAG', short_code: 'TST'}, {description: 'SYSTEM_TAG', short_code: 'PRD'}, {description: 'SYSTEM_TAG', short_code: 'STG'}] |
+
+    Scenario: Count directly without WITH clause 01
+      Given an empty graph
+      And having executed
+          """
+          CREATE (:Node {prop1: 1, prop2: 2, prop3: 3}), (:Node {prop1: 10, prop2: 11, prop3: 12}), (:Node {prop1: 20, prop2: 21, prop3: 22})
+          """
+      When executing query:
+      """
+      MATCH (n) RETURN n.prop1, n.prop2, n.prop3, count(*) AS cnt
+      """
+      Then the result should be:
+        | n.prop1 | n.prop2 | n.prop3 | cnt |
+        | 20      | 21      | 22      | 1   |
+        | 10      | 11      | 12      | 1   |
+        | 1       | 2       | 3       | 1   |
+
+    Scenario: Count directly without WITH clause 02
+      Given an empty graph
+      And having executed
+          """
+          CREATE (:Node {prop1: 1, prop2: 2, prop3: 3}), (:Node {prop1: 10, prop2: 11, prop3: 12}), (:Node {prop1: 20, prop2: 21, prop3: 22})
+          """
+      When executing query:
+      """
+      MATCH (n) WITH n.prop1 AS prop1, n.prop2 AS prop2, n.prop3 AS prop3 RETURN prop1, prop2, prop3, count(*) AS cnt;
+      """
+      Then the result should be:
+        | prop1 | prop2 | prop3 | cnt |
+        | 20    | 21    | 22    | 1   |
+        | 10    | 11    | 12    | 1   |
+        | 1     | 2     | 3     | 1   |

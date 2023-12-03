@@ -10,8 +10,12 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/label_index.hpp"
+
+#include <span>
+
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 namespace memgraph::storage {
 
@@ -97,9 +101,23 @@ void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
   }
 }
 
-InMemoryLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
-                                       Storage *storage, Transaction *transaction)
-    : index_accessor_(std::move(index_accessor)),
+void InMemoryLabelIndex::AbortEntries(LabelId labelId, std::span<Vertex *const> vertices,
+                                      uint64_t exact_start_timestamp) {
+  auto const it = index_.find(labelId);
+  if (it == index_.end()) return;
+
+  auto &label_storage = it->second;
+  auto vertices_acc = label_storage.access();
+  for (auto *vertex : vertices) {
+    vertices_acc.remove(Entry{vertex, exact_start_timestamp});
+  }
+}
+
+InMemoryLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
+                                       utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
+                                       View view, Storage *storage, Transaction *transaction)
+    : pin_accessor_(std::move(vertices_accessor)),
+      index_accessor_(std::move(index_accessor)),
       label_(label),
       view_(view),
       storage_(storage),
@@ -148,9 +166,21 @@ void InMemoryLabelIndex::RunGC() {
 
 InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(LabelId label, View view, Storage *storage,
                                                           Transaction *transaction) {
+  DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
+                 storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
+             "LabelIndex trying to access InMemory vertices from OnDisk!");
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   const auto it = index_.find(label);
   MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-  return {it->second.access(), label, view, storage, transaction};
+  return {it->second.access(), std::move(vertices_acc), label, view, storage, transaction};
+}
+
+InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(
+    LabelId label, memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc, View view,
+    Storage *storage, Transaction *transaction) {
+  const auto it = index_.find(label);
+  MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
+  return {it->second.access(), std::move(vertices_acc), label, view, storage, transaction};
 }
 
 void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
@@ -188,4 +218,12 @@ bool InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
   return false;
 }
 
+std::vector<LabelId> InMemoryLabelIndex::Analysis() const {
+  std::vector<LabelId> res;
+  res.reserve(index_.size());
+  for (const auto &[label, _] : index_) {
+    res.emplace_back(label);
+  }
+  return res;
+}
 }  // namespace memgraph::storage
