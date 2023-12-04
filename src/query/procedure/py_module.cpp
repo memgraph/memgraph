@@ -1093,17 +1093,7 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
 
 void CallPythonCleanup(const py::Object &py_cleanup) {
   auto gil = py::EnsureGIL();
-
   auto py_res = py_cleanup.Call();
-
-  py::Object gc(PyImport_ImportModule("gc"));
-  if (!gc) {
-    LOG_FATAL(py::FetchError().value());
-  }
-
-  if (!gc.CallMethod("collect")) {
-    LOG_FATAL(py::FetchError().value());
-  }
 }
 
 void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
