@@ -249,7 +249,7 @@ TYPED_TEST(CypherType, VertexSatisfiesType) {
   auto vertex = dba.InsertVertex();
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   memgraph::utils::Allocator<mgp_vertex> alloc(memory.impl);
-  mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr};
+  mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr, dba.GetStorageMode()};
   auto *mgp_vertex_v =
       EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_vertex, alloc.new_object<mgp_vertex>(vertex, &graph));
   const memgraph::query::TypedValue tv_vertex(vertex);
@@ -274,7 +274,7 @@ TYPED_TEST(CypherType, EdgeSatisfiesType) {
   auto edge = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   memgraph::utils::Allocator<mgp_edge> alloc(memory.impl);
-  mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr};
+  mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr, dba.GetStorageMode()};
   auto *mgp_edge_v = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_edge, alloc.new_object<mgp_edge>(edge, &graph));
   const memgraph::query::TypedValue tv_edge(edge);
   CheckSatisfiesTypesAndNullable(
@@ -298,7 +298,7 @@ TYPED_TEST(CypherType, PathSatisfiesType) {
   auto edge = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   memgraph::utils::Allocator<mgp_path> alloc(memory.impl);
-  mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr};
+  mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr, dba.GetStorageMode()};
   auto *mgp_vertex_v = alloc.new_object<mgp_vertex>(v1, &graph);
   auto path = EXPECT_MGP_NO_ERROR(mgp_path *, mgp_path_make_with_start, mgp_vertex_v, &memory);
   ASSERT_TRUE(path);
