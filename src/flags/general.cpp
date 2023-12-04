@@ -114,6 +114,10 @@ DEFINE_uint64(storage_recovery_thread_count,
                        memgraph::storage::Config::Durability().recovery_thread_count),
               "The number of threads used to recover persisted data from disk.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_enable_schema_metadata, false,
+            "Controls whether metadata should be collected about the resident labels and edge types.");
+
 #ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_delete_on_drop, true,
