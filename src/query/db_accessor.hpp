@@ -42,6 +42,8 @@ class EdgeAccessor final {
 
   explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(std::move(impl)) {}
 
+  bool IsDeleted() const { return impl_.IsDeleted(); }
+
   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
 
   storage::EdgeTypeId EdgeType() const { return impl_.EdgeType(); }
@@ -543,7 +545,7 @@ class DbAccessor final {
 
   void Abort() { accessor_->Abort(); }
 
-  storage::StorageMode GetStorageMode() const { return accessor_->GetCreationStorageMode(); }
+  storage::StorageMode GetStorageMode() const noexcept { return accessor_->GetCreationStorageMode(); }
 
   bool LabelIndexExists(storage::LabelId label) const { return accessor_->LabelIndexExists(label); }
 
@@ -699,6 +701,8 @@ class SubgraphDbAccessor final {
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view);
 
   Graph *getGraph();
+
+  storage::StorageMode GetStorageMode() const noexcept;
 
   DbAccessor *GetAccessor();
 };
