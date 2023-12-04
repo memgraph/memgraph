@@ -1138,6 +1138,11 @@ class ExpandVariableCursor : public Cursor {
         edges_it_.emplace_back(edges_.back().begin());
       }
 
+      if (self_.filter_lambda_.accumulated_path_symbol) {
+        // Add initial vertex of path to the accumulated path
+        frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(vertex);
+      }
+
       // reset the frame value to an empty edge list
       auto *pull_memory = context.evaluation_context.memory;
       frame[self_.common_.edge_symbol] = TypedValue::TVector(pull_memory);
@@ -1234,6 +1239,13 @@ class ExpandVariableCursor : public Cursor {
       // Skip expanding out of filtered expansion.
       frame[self_.filter_lambda_.inner_edge_symbol] = current_edge.first;
       frame[self_.filter_lambda_.inner_node_symbol] = current_vertex;
+      if (self_.filter_lambda_.accumulated_path_symbol) {
+        MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
+                  "Accumulated path must be path");
+        Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
+        accumulated_path.Expand(current_edge.first);
+        accumulated_path.Expand(current_vertex);
+      }
       if (self_.filter_lambda_.expression && !EvaluateFilter(evaluator, self_.filter_lambda_.expression)) continue;
 
       // we are doing depth-first search, so place the current
@@ -1546,6 +1558,13 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 #endif
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;
       frame[self_.filter_lambda_.inner_node_symbol] = vertex;
+      if (self_.filter_lambda_.accumulated_path_symbol) {
+        MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
+                  "Accumulated path must have Path type");
+        Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
+        accumulated_path.Expand(edge);
+        accumulated_path.Expand(vertex);
+      }
 
       if (self_.filter_lambda_.expression) {
         TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
@@ -1606,6 +1625,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
         const auto &vertex = vertex_value.ValueVertex();
         processed_.emplace(vertex, std::nullopt);
+
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          // Add initial vertex of path to the accumulated path
+          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(vertex);
+        }
 
         expand_from_vertex(vertex);
 
@@ -1677,6 +1701,10 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 namespace {
 
 void CheckWeightType(TypedValue current_weight, utils::MemoryResource *memory) {
+  if (current_weight.IsNull()) {
+    return;
+  }
+
   if (!current_weight.IsNumeric() && !current_weight.IsDuration()) {
     throw QueryRuntimeException("Calculated weight must be numeric or a Duration, got {}.", current_weight.type());
   }
@@ -1692,6 +1720,34 @@ void CheckWeightType(TypedValue current_weight, utils::MemoryResource *memory) {
   if (!is_valid_numeric() && !is_valid_duration()) {
     throw QueryRuntimeException("Calculated weight must be non-negative!");
   }
+}
+
+void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
+  if ((lhs.IsNumeric() && rhs.IsNumeric()) || (lhs.IsDuration() && rhs.IsDuration())) {
+    return;
+  }
+  throw QueryRuntimeException(utils::MessageWithLink(
+      "All weights should be of the same type, either numeric or a Duration. Please update the weight "
+      "expression or the filter expression.",
+      "https://memgr.ph/wsp"));
+}
+
+TypedValue CalculateNextWeight(const std::optional<memgraph::query::plan::ExpansionLambda> &weight_lambda,
+                               const TypedValue &total_weight, ExpressionEvaluator evaluator) {
+  if (!weight_lambda) {
+    return {};
+  }
+  auto *memory = evaluator.GetMemoryResource();
+  TypedValue current_weight = weight_lambda->expression->Accept(evaluator);
+  CheckWeightType(current_weight, memory);
+
+  if (total_weight.IsNull()) {
+    return current_weight;
+  }
+
+  ValidateWeightTypes(current_weight, total_weight);
+
+  return TypedValue(current_weight, memory) + total_weight;
 }
 
 }  // namespace
@@ -1722,7 +1778,6 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     auto expand_pair = [this, &evaluator, &frame, &create_state, &context](
                            const EdgeAccessor &edge, const VertexAccessor &vertex, const TypedValue &total_weight,
                            int64_t depth) {
-      auto *memory = evaluator.GetMemoryResource();
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(vertex, storage::View::OLD,
@@ -1731,31 +1786,30 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         return;
       }
 #endif
+
+      frame[self_.weight_lambda_->inner_edge_symbol] = edge;
+      frame[self_.weight_lambda_->inner_node_symbol] = vertex;
+      TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
+
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
         frame[self_.filter_lambda_.inner_node_symbol] = vertex;
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
+                    "Accumulated path must be path");
+          Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
+          accumulated_path.Expand(edge);
+          accumulated_path.Expand(vertex);
+
+          if (self_.filter_lambda_.accumulated_weight_symbol) {
+            frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = next_weight;
+          }
+        }
 
         if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
       }
 
-      frame[self_.weight_lambda_->inner_edge_symbol] = edge;
-      frame[self_.weight_lambda_->inner_node_symbol] = vertex;
-
-      TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
-
-      CheckWeightType(current_weight, memory);
-
       auto next_state = create_state(vertex, depth);
-
-      TypedValue next_weight = std::invoke([&] {
-        if (total_weight.IsNull()) {
-          return current_weight;
-        }
-
-        ValidateWeightTypes(current_weight, total_weight);
-
-        return TypedValue(current_weight, memory) + total_weight;
-      });
 
       auto found_it = total_cost_.find(next_state);
       if (found_it != total_cost_.end() && (found_it->second.IsNull() || (found_it->second <= next_weight).ValueBool()))
@@ -1796,6 +1850,10 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           // Skip expansion for such nodes.
           if (node.IsNull()) continue;
         }
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          // Add initial vertex of path to the accumulated path
+          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(vertex);
+        }
         if (self_.upper_bound_) {
           upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
           upper_bound_set_ = true;
@@ -1808,12 +1866,17 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
               "Maximum depth in weighted shortest path expansion must be at "
               "least 1.");
 
+        frame[self_.weight_lambda_->inner_edge_symbol] = TypedValue();
+        frame[self_.weight_lambda_->inner_node_symbol] = vertex;
+        TypedValue current_weight =
+            CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator);
+
         // Clear existing data structures.
         previous_.clear();
         total_cost_.clear();
         yielded_vertices_.clear();
 
-        pq_.emplace(TypedValue(), 0, vertex, std::nullopt);
+        pq_.emplace(current_weight, 0, vertex, std::nullopt);
         // We are adding the starting vertex to the set of yielded vertices
         // because we don't want to yield paths that end with the starting
         // vertex.
@@ -1913,15 +1976,6 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   // Keeps track of vertices for which we yielded a path already.
   utils::pmr::unordered_set<VertexAccessor> yielded_vertices_;
 
-  static void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
-    if (!((lhs.IsNumeric() && lhs.IsNumeric()) || (rhs.IsDuration() && rhs.IsDuration()))) {
-      throw QueryRuntimeException(utils::MessageWithLink(
-          "All weights should be of the same type, either numeric or a Duration. Please update the weight "
-          "expression or the filter expression.",
-          "https://memgr.ph/wsp"));
-    }
-  }
-
   // Priority queue comparator. Keep lowest weight on top of the queue.
   class PriorityQueueComparator {
    public:
@@ -1979,35 +2033,31 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // queue.
     auto expand_vertex = [this, &evaluator, &frame](const EdgeAccessor &edge, const EdgeAtom::Direction direction,
                                                     const TypedValue &total_weight, int64_t depth) {
-      auto *memory = evaluator.GetMemoryResource();
-
       auto const &next_vertex = direction == EdgeAtom::Direction::IN ? edge.From() : edge.To();
+
+      // Evaluate current weight
+      frame[self_.weight_lambda_->inner_edge_symbol] = edge;
+      frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
+      TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
 
       // If filter expression exists, evaluate filter
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
         frame[self_.filter_lambda_.inner_node_symbol] = next_vertex;
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
+                    "Accumulated path must be path");
+          Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
+          accumulated_path.Expand(edge);
+          accumulated_path.Expand(next_vertex);
+
+          if (self_.filter_lambda_.accumulated_weight_symbol) {
+            frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = next_weight;
+          }
+        }
 
         if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
       }
-
-      // Evaluate current weight
-      frame[self_.weight_lambda_->inner_edge_symbol] = edge;
-      frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
-
-      TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
-
-      CheckWeightType(current_weight, memory);
-
-      TypedValue next_weight = std::invoke([&] {
-        if (total_weight.IsNull()) {
-          return current_weight;
-        }
-
-        ValidateWeightTypes(current_weight, total_weight);
-
-        return TypedValue(current_weight, memory) + total_weight;
-      });
 
       auto found_it = visited_cost_.find(next_vertex);
       // Check if the vertex has already been processed.
@@ -2200,7 +2250,17 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         traversal_stack_.clear();
         total_cost_.clear();
 
-        expand_from_vertex(*start_vertex, TypedValue(), 0);
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          // Add initial vertex of path to the accumulated path
+          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(*start_vertex);
+        }
+
+        frame[self_.weight_lambda_->inner_edge_symbol] = TypedValue();
+        frame[self_.weight_lambda_->inner_node_symbol] = *start_vertex;
+        TypedValue current_weight =
+            CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator);
+
+        expand_from_vertex(*start_vertex, current_weight, 0);
         visited_cost_.emplace(*start_vertex, 0);
         frame[self_.common_.edge_symbol] = TypedValue::TVector(memory);
       }
@@ -2251,15 +2311,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   utils::pmr::unordered_map<NextEdgesState, utils::pmr::list<DirectedEdge>, AspStateHash> next_edges_;
   // Stack indicating the traversal level.
   utils::pmr::list<utils::pmr::list<DirectedEdge>> traversal_stack_;
-
-  static void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
-    if (!((lhs.IsNumeric() && lhs.IsNumeric()) || (rhs.IsDuration() && rhs.IsDuration()))) {
-      throw QueryRuntimeException(utils::MessageWithLink(
-          "All weights should be of the same type, either numeric or a Duration. Please update the weight "
-          "expression or the filter expression.",
-          "https://memgr.ph/wsp"));
-    }
-  }
 
   // Priority queue comparator. Keep lowest weight on top of the queue.
   class PriorityQueueComparator {
@@ -3625,6 +3676,7 @@ class AggregateCursor : public Cursor {
   void ProcessOne(const Frame &frame, ExpressionEvaluator *evaluator) {
     // Preallocated group_by, since most of the time the aggregation key won't be unique
     reused_group_by_.clear();
+    evaluator->ResetPropertyLookupCache();
 
     for (Expression *expression : self_.group_by_) {
       reused_group_by_.emplace_back(expression->Accept(*evaluator));
