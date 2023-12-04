@@ -321,6 +321,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
+  if (storage_->config_.items.enable_schema_metadata) {
+    storage_->stored_edge_types_.try_insert(edge_type);
+  }
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
@@ -401,6 +404,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   if (to_vertex != from_vertex) {
     if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
+  }
+
+  if (storage_->config_.items.enable_schema_metadata) {
+    storage_->stored_edge_types_.try_insert(edge_type);
   }
 
   // NOTE: When we update the next `edge_id_` here we perform a RMW

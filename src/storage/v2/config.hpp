@@ -40,6 +40,7 @@ struct Config {
 
   struct Items {
     bool properties_on_edges{true};
+    bool enable_schema_metadata{false};
     friend bool operator==(const Items &lrh, const Items &rhs) = default;
   } items;
 
