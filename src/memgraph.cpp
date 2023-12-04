@@ -305,7 +305,9 @@ int main(int argc, char **argv) {
                      .restore_replication_state_on_startup = FLAGS_replication_restore_state_on_startup,
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
-                     .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
+                     // deprecated
+                     .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery,
+                     .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",

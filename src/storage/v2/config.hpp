@@ -65,7 +65,10 @@ struct Config {
     uint64_t items_per_batch{1'000'000};
     uint64_t recovery_thread_count{8};
 
+    // deprecated
     bool allow_parallel_index_creation{false};
+
+    bool allow_parallel_schema_creation{false};
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 

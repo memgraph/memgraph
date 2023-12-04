@@ -35,9 +35,9 @@ bool InMemoryLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) cons
 
 bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
-bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
-                                             utils::SkipList<Vertex>::Accessor vertices,
-                                             const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
+bool InMemoryLabelPropertyIndex::CreateIndex(
+    LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
   auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
                                  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
@@ -54,7 +54,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
   auto create_index_par =
       [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
              std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
-             const ParallelizedIndexCreationInfo &parallel_exec_info) {
+             const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
         using IndexAccessor = decltype(label_property_it->second.access());
 
         CreateIndexOnMultipleThreads(
