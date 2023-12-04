@@ -25,6 +25,13 @@
 
 namespace memgraph::storage {
 
+bool EdgeAccessor::IsDeleted() const {
+  if (!storage_->config_.items.properties_on_edges) {
+    return false;
+  }
+  return edge_.ptr->deleted;
+}
+
 bool EdgeAccessor::IsVisible(const View view) const {
   bool exists = true;
   bool deleted = true;
