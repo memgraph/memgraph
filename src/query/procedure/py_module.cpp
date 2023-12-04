@@ -868,7 +868,7 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 }
 
 void PyCollectGarbage() {
-  if (_Py_IsFinalizing) {
+  if (_Py_IsFinalizing()) {
     return;
   }
   auto gil = py::EnsureGIL();
