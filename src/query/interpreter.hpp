@@ -282,6 +282,12 @@ class Interpreter final {
   void SetUser(std::string_view username);
 
  private:
+  void ResetInterpreter() {
+    query_executions_.clear();
+    system_guard.reset();
+    transaction_queries_->clear();
+  }
+
   struct QueryExecution {
     std::variant<utils::MonotonicBufferResource, utils::PoolResource> execution_memory;
     utils::ResourceWithOutOfMemoryException execution_memory_with_exception;
@@ -340,6 +346,9 @@ class Interpreter final {
   // TODO Figure out how this would work for multi-database
   // Exists only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
+  // TODO: our upgradable lock guard for system
+  std::optional<utils::ResourceLockGuard> system_guard;
+
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;
 
@@ -435,8 +444,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         // NOTE: we cannot clear query_execution inside the Abort and Commit
         // methods as we will delete summary contained in them which we need
         // after our query finished executing.
-        query_executions_.clear();
-        transaction_queries_->clear();
+        ResetInterpreter();
       } else {
         // We can only clear this execution as some of the queries
         // in the transaction can be in unfinished state

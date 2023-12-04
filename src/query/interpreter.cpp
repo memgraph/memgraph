@@ -1457,8 +1457,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
   std::function<void()> handler;
 
   if (query_upper == "BEGIN") {
-    query_executions_.clear();
-    transaction_queries_->clear();
+    ResetInterpreter();
     // TODO: Evaluate doing move(extras). Currently the extras is very small, but this will be important if it ever
     // becomes large.
     handler = [this, extras = extras] {
@@ -3484,6 +3483,10 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
+
+      // try upgrade to unique (100ms)
+      //  auto system_unique = std::unique_lock{interpreter_context_->system_lock, std::defer_lock};
+
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
@@ -3631,15 +3634,13 @@ void Interpreter::BeginTransaction(QueryExtras const &extras) {
 void Interpreter::CommitTransaction() {
   const auto prepared_query = PrepareTransactionQuery("COMMIT");
   prepared_query.query_handler(nullptr, {});
-  query_executions_.clear();
-  transaction_queries_->clear();
+  ResetInterpreter();
 }
 
 void Interpreter::RollbackTransaction() {
   const auto prepared_query = PrepareTransactionQuery("ROLLBACK");
   prepared_query.query_handler(nullptr, {});
-  query_executions_.clear();
-  transaction_queries_->clear();
+  ResetInterpreter();
 }
 
 #if MG_ENTERPRISE
@@ -3673,18 +3674,16 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
   }
 
-  if (!in_explicit_transaction_) {
-    transaction_queries_->clear();
-  }
-  // Don't save BEGIN, COMMIT or ROLLBACK
-  transaction_queries_->push_back(query_string);
+  // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
 
   // All queries other than transaction control queries advance the command in
   // an explicit transaction block.
   if (in_explicit_transaction_) {
+    transaction_queries_->push_back(query_string);
     AdvanceCommand();
   } else {
-    query_executions_.clear();
+    ResetInterpreter();
+    transaction_queries_->push_back(query_string);
     if (current_db_.db_transactional_accessor_ /* && !in_explicit_transaction_*/) {
       // If we're not in an explicit transaction block and we have an open
       // transaction, abort it since we're about to prepare a new query.
@@ -3692,6 +3691,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     }
 
     SetupInterpreterTransaction(extras);
+  }
+
+  // If this is the first query command within a transaction
+  // get a shared lock over the system
+  if (!system_guard) {
+    system_guard.emplace(interpreter_context_->system_lock);
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
@@ -3760,38 +3765,38 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       SetupDatabaseTransaction(could_commit, unique);
     }
 
-    // TODO: extend to other system write queries
-    bool requires_system_modification_transaction = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
-    auto system_unique = std::unique_lock{interpreter_context_->system_lock, std::defer_lock};
-    auto system_shared = std::shared_lock{interpreter_context_->system_lock, std::defer_lock};
-    if (!in_explicit_transaction_ && requires_system_modification_transaction) {
-      // TODO
-      // Think about how the locks and database access (in an older interpreter) work together
-      // Timeout the lock
-      // Add "DROPPING" databases to the "SHOW DATABASES" command <- merge branch that changes this command
-      // How does "SHOW TRANSACTIONS" work with multi-tenancy? Can we see the dropping db's tx?
-      // Do we need unique lock for all queries that are part of the query type?
-
-      system_unique.lock();
-      // Bump up the system clock
-      // At the end there will be a priority queue and vector clock to handle the ordering
-      // NOW
-      // There is only a single communication stream + each SYSTEM query has a global lock
-      // Meaning that each replica has a fifo - sequenced messages
-      // How does async work
-      // If we just keep adding to the same thread fifo everything should work????
-      // RECOVERY means no stream, means defer any changes to later recovery
-      // When we have a database and it is connected to the replica, everything should work as expected
-      // What happens when adding a database in SYNC vs ASYNC?
-      // What happens when deleting a database in SYNC vs ASYNC?
-      //   We cannot drop until all communication between the database and replica have stopped.
-
-      // Send an drop rpc req, the replica is using the db so it doesn't drop???
-      // Create a new db with same name. <- different ID?
-
-    } else {
-      system_shared.lock();
-    }
+    // // TODO: extend to other system write queries
+    // bool requires_system_modification_transaction = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
+    // auto system_unique = std::unique_lock{interpreter_context_->system_lock, std::defer_lock};
+    // auto system_shared = std::shared_lock{interpreter_context_->system_lock, std::defer_lock};
+    // if (!in_explicit_transaction_ && requires_system_modification_transaction) {
+    //   // TODO
+    //   // Think about how the locks and database access (in an older interpreter) work together
+    //   // Timeout the lock
+    //   // Add "DROPPING" databases to the "SHOW DATABASES" command <- merge branch that changes this command
+    //   // How does "SHOW TRANSACTIONS" work with multi-tenancy? Can we see the dropping db's tx?
+    //   // Do we need unique lock for all queries that are part of the query type?
+    //
+    //   system_unique.lock();
+    //   // Bump up the system clock
+    //   // At the end there will be a priority queue and vector clock to handle the ordering
+    //   // NOW
+    //   // There is only a single communication stream + each SYSTEM query has a global lock
+    //   // Meaning that each replica has a fifo - sequenced messages
+    //   // How does async work
+    //   // If we just keep adding to the same thread fifo everything should work????
+    //   // RECOVERY means no stream, means defer any changes to later recovery
+    //   // When we have a database and it is connected to the replica, everything should work as expected
+    //   // What happens when adding a database in SYNC vs ASYNC?
+    //   // What happens when deleting a database in SYNC vs ASYNC?
+    //   //   We cannot drop until all communication between the database and replica have stopped.
+    //
+    //   // Send an drop rpc req, the replica is using the db so it doesn't drop???
+    //   // Create a new db with same name. <- different ID?
+    //
+    // } else {
+    //   system_shared.lock();
+    // }
 
     utils::Timer planning_timer;
     PreparedQuery prepared_query;

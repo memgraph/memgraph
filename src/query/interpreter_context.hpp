@@ -57,7 +57,7 @@ struct InterpreterContext {
 
   // GLOBAL
   memgraph::replication::ReplicationState *repl_state;
-  utils::RWLock system_lock{utils::RWLock::Priority::WRITE};
+  utils::ResourceLock system_lock{};
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;
 
