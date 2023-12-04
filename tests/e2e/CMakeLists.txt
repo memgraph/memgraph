@@ -72,6 +72,7 @@ add_subdirectory(constraints)
 add_subdirectory(inspect_query)
 add_subdirectory(filter_info)
 add_subdirectory(queries)
+add_subdirectory(query_modules_storage_modes)
 add_subdirectory(garbage_collection)
 add_subdirectory(query_planning)
 
