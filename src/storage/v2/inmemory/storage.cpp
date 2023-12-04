@@ -10,10 +10,14 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+#include <algorithm>
+#include <functional>
 #include "dbms/constants.hpp"
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/edge_direction.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 
@@ -21,10 +25,42 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
 
 namespace memgraph::storage {
+
+namespace {
+
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
+    -> Result<EdgesVertexAccessorResult> {
+  auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
+    // Obtain the locks by `gid` order to avoid lock cycles.
+    auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+    auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
+    if (from_vertex->gid < to_vertex->gid) {
+      guard_from.lock();
+      guard_to.lock();
+    } else if (from_vertex->gid > to_vertex->gid) {
+      guard_to.lock();
+      guard_from.lock();
+    } else {
+      // The vertices are the same vertex, only lock one.
+      guard_from.lock();
+    }
+
+    // With the potentially cheaper side FindEdges
+    const auto out_n = from_vertex->out_edges.size();
+    const auto in_n = to_vertex->in_edges.size();
+    return out_n <= in_n;
+  };
+
+  return use_out_edges(from_vertex->vertex_, to_vertex->vertex_) ? from_vertex->OutEdges(view, {edge_type}, to_vertex)
+                                                                 : to_vertex->InEdges(view, {edge_type}, from_vertex);
+}
+
+};  // namespace
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
@@ -314,6 +350,24 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
+}
+
+std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, const View view, EdgeTypeId edge_type,
+                                                                        VertexAccessor *from_vertex,
+                                                                        VertexAccessor *to_vertex) {
+  auto res = FindEdges(view, edge_type, from_vertex, to_vertex);
+  if (res.HasError()) return std::nullopt;  // TODO: use a Result type
+
+  auto const it = std::invoke([this, gid, &res]() {
+    auto const byGid = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.gid == gid; };
+    auto const byEdgePtr = [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; };
+    if (config_.properties_on_edges) return std::ranges::find_if(res->edges, byEdgePtr);
+    return std::ranges::find_if(res->edges, byGid);
+  });
+
+  if (it == res->edges.end()) return std::nullopt;  // TODO: use a Result type
+
+  return *it;
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAccessor *from, VertexAccessor *to,
@@ -698,7 +752,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       could_replicate_all_sync_replicas =
           mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);  // protected by engine_guard
       // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
-      transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);  // protected by engine_guard
+      transaction_.commit_timestamp->store(*commit_timestamp_,
+                                           std::memory_order_release);  // protected by engine_guard
       // Replica can only update the last commit timestamp with
       // the commits received from main.
       if (is_main || desired_commit_timestamp.has_value()) {
@@ -824,6 +879,21 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   std::list<Gid> my_deleted_vertices;
   std::list<Gid> my_deleted_edges;
 
+  std::map<LabelId, std::vector<Vertex *>> label_cleanup;
+  std::map<LabelId, std::vector<std::pair<PropertyValue, Vertex *>>> label_property_cleanup;
+  std::map<PropertyId, std::vector<std::pair<PropertyValue, Vertex *>>> property_cleanup;
+
+  // CONSTRAINTS
+  if (transaction_.constraint_verification_info.NeedsUniqueConstraintVerification()) {
+    // Need to remove elements from constraints before handling of the deltas, so the elements match the correct
+    // values
+    auto vertices_to_check = transaction_.constraint_verification_info.GetVerticesForUniqueConstraintChecking();
+    auto vertices_to_check_v = std::vector<Vertex const *>{vertices_to_check.begin(), vertices_to_check.end()};
+    storage_->constraints_.AbortEntries(vertices_to_check_v, transaction_.start_timestamp);
+  }
+
+  const auto index_stats = storage_->indices_.Analysis();
+
   for (const auto &delta : transaction_.deltas.use()) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
@@ -839,6 +909,24 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
               std::swap(*it, *vertex->labels.rbegin());
               vertex->labels.pop_back();
+
+              // For label index
+              //  check if there is a label index for the label and add entry if so
+              // For property label index
+              //  check if we care about the label; this will return all the propertyIds we care about and then get
+              //  the current property value
+              if (std::binary_search(index_stats.label.begin(), index_stats.label.end(), current->label)) {
+                label_cleanup[current->label].emplace_back(vertex);
+              }
+              const auto &properties = index_stats.property_label.l2p.find(current->label);
+              if (properties != index_stats.property_label.l2p.end()) {
+                for (const auto &property : properties->second) {
+                  auto current_value = vertex->properties.GetProperty(property);
+                  if (!current_value.IsNull()) {
+                    label_property_cleanup[current->label].emplace_back(std::move(current_value), vertex);
+                  }
+                }
+              }
               break;
             }
             case Delta::Action::ADD_LABEL: {
@@ -848,6 +936,18 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               break;
             }
             case Delta::Action::SET_PROPERTY: {
+              // For label index nothing
+              // For property label index
+              //  check if we care about the property, this will return all the labels and then get current property
+              //  value
+              const auto &labels = index_stats.property_label.p2l.find(current->property.key);
+              if (labels != index_stats.property_label.p2l.end()) {
+                auto current_value = vertex->properties.GetProperty(current->property.key);
+                if (!current_value.IsNull()) {
+                  property_cleanup[current->property.key].emplace_back(std::move(current_value), vertex);
+                }
+              }
+              // Setting the correct value
               vertex->properties.SetProperty(current->property.key, current->property.value);
               break;
             }
@@ -964,7 +1064,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   {
-    std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+    auto engine_guard = std::unique_lock(storage_->engine_lock_);
     uint64_t mark_timestamp = storage_->timestamp_;
     // Take garbage_undo_buffers lock while holding the engine lock to make
     // sure that entries are sorted by mark timestamp in the list.
@@ -976,10 +1076,37 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
                                         std::move(transaction_.commit_timestamp));
     });
-    mem_storage->deleted_vertices_.WithLock(
-        [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
-    mem_storage->deleted_edges_.WithLock(
-        [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.begin(), my_deleted_edges); });
+
+    /// We MUST unlink (aka. remove) entries in indexes and constraints
+    /// before we unlink (aka. remove) vertices from storage
+    /// this is because they point into vertices skip_list
+
+    // INDICES
+    for (auto const &[label, vertices] : label_cleanup) {
+      storage_->indices_.AbortEntries(label, vertices, transaction_.start_timestamp);
+    }
+    for (auto const &[label, prop_vertices] : label_property_cleanup) {
+      storage_->indices_.AbortEntries(label, prop_vertices, transaction_.start_timestamp);
+    }
+    for (auto const &[property, prop_vertices] : property_cleanup) {
+      storage_->indices_.AbortEntries(property, prop_vertices, transaction_.start_timestamp);
+    }
+
+    // VERTICES
+    {
+      auto vertices_acc = mem_storage->vertices_.access();
+      for (auto gid : my_deleted_vertices) {
+        vertices_acc.remove(gid);
+      }
+    }
+
+    // EDGES
+    {
+      auto edges_acc = mem_storage->edges_.access();
+      for (auto gid : my_deleted_edges) {
+        edges_acc.remove(gid);
+      }
+    }
   }
 
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
@@ -1302,8 +1429,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // vertices that appear in an index also exist in main storage.
   std::list<Gid> current_deleted_edges;
   std::list<Gid> current_deleted_vertices;
-  deleted_vertices_->swap(current_deleted_vertices);
-  deleted_edges_->swap(current_deleted_edges);
 
   auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false);
   auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false);
@@ -1953,12 +2078,12 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) {
   CollectGarbage<true>(std::move(main_guard));
 
+  static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
+  static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
+
   // SkipList is already threadsafe
   vertices_.run_gc();
   edges_.run_gc();
-
-  static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
-  static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
 }
 
 uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {

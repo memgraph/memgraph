@@ -51,6 +51,8 @@ class InMemoryStorage final : public Storage {
   friend std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit,
                                                     utils::FileRetainer::FileLocker *file_locker,
                                                     const InMemoryStorage *storage);
+  friend class InMemoryLabelIndex;
+  friend class InMemoryLabelPropertyIndex;
 
  public:
   enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };
@@ -188,6 +190,9 @@ class InMemoryStorage final : public Storage {
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
+
+    std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
+                                         VertexAccessor *to_vertex) override;
 
     Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) override;
 

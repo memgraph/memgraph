@@ -188,6 +188,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
+  void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
+
   TypedValue Visit(NamedExpression &named_expression) override {
     const auto &symbol = symbol_table_->at(named_expression);
     auto value = named_expression.expression_->Accept(*this);
