@@ -96,12 +96,12 @@ def clear_db(session):
 with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) as driver:
     with driver.session() as session:
         # Clear the DB
-        session.run("MATCH (n) DETACH DELETE n;")
+        session.run("MATCH (n) DETACH DELETE n;").consume()
 
         # Add constraints
-        session.run("CREATE CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
-        session.run("CREATE CONSTRAINT ON (n:Employee) ASSERT n.id IS UNIQUE;")
-        session.run("CREATE CONSTRAINT ON (n:Employee) ASSERT EXISTS (n.id);")
+        session.run("CREATE CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;").consume()
+        session.run("CREATE CONSTRAINT ON (n:Employee) ASSERT n.id IS UNIQUE;").consume()
+        session.run("CREATE CONSTRAINT ON (n:Employee) ASSERT EXISTS (n.id);").consume()
 
         # Set the initial graph state
         session.execute_write(lambda tx: tx.run("CREATE (n:Employee:Person {id: '123', alt_id: '100'}) RETURN n;"))
@@ -109,18 +109,18 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) a
         # Run a transaction that violates a constraint
         try:
             session.execute_write(violate_constraint)
-        except TransientError:
+        except ClientError:
             pass
         else:
             clear_db(session)
-            raise Exception("neo4j.exceptions.TransientError should have been thrown!")
+            raise Exception("neo4j.exceptions.ClientError should have been thrown!")
 
         # Run a transaction that violates no constraints even though an intermediate result does
         try:
             session.execute_write(violate_constraint_on_intermediate_result)
-        except TransientError:
+        except ClientError:
             clear_db(session)
-            raise Exception("neo4j.exceptions.TransientError should not have been thrown!")
+            raise Exception("neo4j.exceptions.ClientError should not have been thrown!")
 
         clear_db(session)
 
