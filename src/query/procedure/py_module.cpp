@@ -868,8 +868,11 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 }
 
 void PyCollectGarbage() {
+  if (_Py_IsFinalizing) {
+    return;
+  }
   auto gil = py::EnsureGIL();
-  return;
+
   py::Object gc(PyImport_ImportModule("gc"));
   if (!gc) {
     LOG_FATAL(py::FetchError().value());
