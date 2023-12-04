@@ -133,8 +133,8 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
   std::optional<uint64_t> current_wal_from_timestamp;
 
   std::unique_lock transaction_guard(
-      storage->engine_lock_);                         // Hold the storage lock so the current wal file cannot be changed
-  (void)locker_acc.AddPath(storage->wal_directory_);  // Protect all WALs from being deleted
+      storage->engine_lock_);  // Hold the storage lock so the current wal file cannot be changed
+  (void)locker_acc.AddPath(storage->recovery_.wal_directory_);  // Protect all WALs from being deleted
 
   if (storage->wal_file_) {
     current_wal_seq_num.emplace(storage->wal_file_->SequenceNumber());
@@ -146,20 +146,22 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
   // Read in finalized WAL files (excluding the current/active WAL)
   utils::OnScopeExit
       release_wal_dir(  // Each individually used file will be locked, so at the end, the dir can be released
-          [&locker_acc, &wal_dir = storage->wal_directory_]() { (void)locker_acc.RemovePath(wal_dir); });
+          [&locker_acc, &wal_dir = storage->recovery_.wal_directory_]() { (void)locker_acc.RemovePath(wal_dir); });
   // Get WAL files, ordered by timestamp, from oldest to newest
-  auto wal_files = durability::GetWalFiles(storage->wal_directory_, storage->uuid_, current_wal_seq_num);
+  auto wal_files = durability::GetWalFiles(storage->recovery_.wal_directory_, storage->uuid_, current_wal_seq_num);
   MG_ASSERT(wal_files, "Wal files could not be loaded");
   if (transaction_guard.owns_lock())
     transaction_guard.unlock();  // In case we didn't have a current wal file, we can unlock only now since there is no
                                  // guarantee what we'll see after we add the wal file
 
   // Read in snapshot files
-  (void)locker_acc.AddPath(storage->snapshot_directory_);  // Protect all snapshots from being deleted
+  (void)locker_acc.AddPath(storage->recovery_.snapshot_directory_);  // Protect all snapshots from being deleted
   utils::OnScopeExit
       release_snapshot_dir(  // Each individually used file will be locked, so at the end, the dir can be released
-          [&locker_acc, &snapshot_dir = storage->snapshot_directory_]() { (void)locker_acc.RemovePath(snapshot_dir); });
-  auto snapshot_files = durability::GetSnapshotFiles(storage->snapshot_directory_, storage->uuid_);
+          [&locker_acc, &snapshot_dir = storage->recovery_.snapshot_directory_]() {
+            (void)locker_acc.RemovePath(snapshot_dir);
+          });
+  auto snapshot_files = durability::GetSnapshotFiles(storage->recovery_.snapshot_directory_, storage->uuid_);
   std::optional<durability::SnapshotDurabilityInfo> latest_snapshot{};
   if (!snapshot_files.empty()) {
     latest_snapshot.emplace(std::move(snapshot_files.back()));

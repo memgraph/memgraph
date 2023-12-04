@@ -115,6 +115,11 @@ startup_config_dict = {
         "false",
         "Controls whether the index creation can be done in a multithreaded fashion.",
     ),
+    "storage_parallel_schema_recovery": (
+        "false",
+        "false",
+        "Controls whether the indices and constraints creation can be done in a multithreaded fashion.",
+    ),
     "storage_enable_schema_metadata": (
         "false",
         "false",
