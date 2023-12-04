@@ -1,0 +1,13 @@
+filter_info_cluster: &filter_info_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "filter_info.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Filter info information"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["filter_info/filter_info.py"]
+    <<: *filter_info_cluster

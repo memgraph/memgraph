@@ -18,9 +18,7 @@
 
 #include "query/typed_value.hpp"
 
-namespace memgraph::query {
-
-namespace plan {
+namespace memgraph::query::plan {
 
 /**
  * Stores profiling statistics for a single logical operator.
@@ -43,5 +41,4 @@ std::vector<std::vector<TypedValue>> ProfilingStatsToTable(const ProfilingStatsW
 
 nlohmann::json ProfilingStatsToJson(const ProfilingStatsWithTotalTime &stats);
 
-}  // namespace plan
-}  // namespace memgraph::query
+}  // namespace memgraph::query::plan

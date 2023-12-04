@@ -23,9 +23,7 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/typeinfo.hpp"
 
-namespace memgraph {
-
-namespace query {
+namespace memgraph::query {
 
 struct LabelIx {
   static const utils::TypeInfo kType;
@@ -62,8 +60,8 @@ inline bool operator!=(const PropertyIx &a, const PropertyIx &b) { return !(a ==
 inline bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) { return a.ix == b.ix && a.name == b.name; }
 
 inline bool operator!=(const EdgeTypeIx &a, const EdgeTypeIx &b) { return !(a == b); }
-}  // namespace query
-}  // namespace memgraph
+}  // namespace memgraph::query
+
 namespace std {
 
 template <>
@@ -83,9 +81,7 @@ struct hash<memgraph::query::EdgeTypeIx> {
 
 }  // namespace std
 
-namespace memgraph {
-
-namespace query {
+namespace memgraph::query {
 
 class Tree;
 
@@ -1822,6 +1818,10 @@ class EdgeAtom : public memgraph::query::PatternAtom {
     memgraph::query::Identifier *inner_edge{nullptr};
     /// Argument identifier for the destination node of the edge.
     memgraph::query::Identifier *inner_node{nullptr};
+    /// Argument identifier for the currently-accumulated path.
+    memgraph::query::Identifier *accumulated_path{nullptr};
+    /// Argument identifier for the weight of the currently-accumulated path.
+    memgraph::query::Identifier *accumulated_weight{nullptr};
     /// Evaluates the result of the lambda.
     memgraph::query::Expression *expression{nullptr};
 
@@ -1829,6 +1829,8 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       Lambda object;
       object.inner_edge = inner_edge ? inner_edge->Clone(storage) : nullptr;
       object.inner_node = inner_node ? inner_node->Clone(storage) : nullptr;
+      object.accumulated_path = accumulated_path ? accumulated_path->Clone(storage) : nullptr;
+      object.accumulated_weight = accumulated_weight ? accumulated_weight->Clone(storage) : nullptr;
       object.expression = expression ? expression->Clone(storage) : nullptr;
       return object;
     }
@@ -3029,7 +3031,7 @@ class ReplicationQuery : public memgraph::query::Query {
 
   enum class SyncMode { SYNC, ASYNC };
 
-  enum class ReplicaState { READY, REPLICATING, RECOVERY, INVALID };
+  enum class ReplicaState { READY, REPLICATING, RECOVERY, MAYBE_BEHIND };
 
   ReplicationQuery() = default;
 
@@ -3577,5 +3579,4 @@ class ShowDatabasesQuery : public memgraph::query::Query {
   }
 };
 
-}  // namespace query
-}  // namespace memgraph
+}  // namespace memgraph::query

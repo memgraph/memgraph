@@ -58,7 +58,7 @@ class Base {
   ParsingContext context_;
   Parameters parameters_;
 
-  virtual ~Base() {}
+  virtual ~Base() = default;
 
   virtual Query *ParseQuery(const std::string &query_string) = 0;
 
@@ -199,8 +199,8 @@ class CachedAstGenerator : public Base {
 
 class MockModule : public procedure::Module {
  public:
-  MockModule(){};
-  ~MockModule() override{};
+  MockModule() = default;
+  ~MockModule() override = default;
   MockModule(const MockModule &) = delete;
   MockModule(MockModule &&) = delete;
   MockModule &operator=(const MockModule &) = delete;
@@ -1925,6 +1925,41 @@ TEST_P(CypherMainVisitorTest, MatchBfsReturn) {
   ASSERT_TRUE(eq);
 }
 
+TEST_P(CypherMainVisitorTest, MatchBfsFilterByPathReturn) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH pth=(r:type1 {id: 1})<-[*BFS ..10 (e, n, p | startNode(relationships(e)[-1]) = "
+                                 "c:type2)]->(:type3 {id: 3}) RETURN pth;"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *bfs = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(bfs);
+    EXPECT_TRUE(bfs->IsVariable());
+    EXPECT_EQ(bfs->filter_lambda_.inner_edge->name_, "e");
+    EXPECT_TRUE(bfs->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_EQ(bfs->filter_lambda_.inner_node->name_, "n");
+    EXPECT_TRUE(bfs->filter_lambda_.inner_node->user_declared_);
+    EXPECT_EQ(bfs->filter_lambda_.accumulated_path->name_, "p");
+    EXPECT_TRUE(bfs->filter_lambda_.accumulated_path->user_declared_);
+    EXPECT_EQ(bfs->filter_lambda_.accumulated_weight, nullptr);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnBfsFilterByWeight) {
+  auto &ast_generator = *GetParam();
+  {
+    ASSERT_THROW(ast_generator.ParseQuery(
+                     "MATCH pth=(:type1 {id: 1})<-[*BFS ..10 (e, n, p, w | startNode(relationships(e)[-1] AND w > 0) = "
+                     "c:type2)]->(:type3 {id: 3}) RETURN pth;"),
+                 SemanticException);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, MatchVariableLambdaSymbols) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH () -[*]- () RETURN *"));
@@ -1979,6 +2014,57 @@ TEST_P(CypherMainVisitorTest, MatchWShortestReturn) {
   ASSERT_TRUE(shortest->total_weight_);
   EXPECT_EQ(shortest->total_weight_->name_, "total_weight");
   EXPECT_TRUE(shortest->total_weight_->user_declared_);
+}
+
+TEST_P(CypherMainVisitorTest, MatchWShortestFilterByPathReturn) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH pth=()-[r:type1 *wShortest 10 (we, wn | 42) total_weight "
+                                 "(e, n, p | startNode(relationships(e)[-1]) = c:type3)]->(:type2) RETURN pth"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortestPath = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortestPath);
+    EXPECT_TRUE(shortestPath->IsVariable());
+    EXPECT_EQ(shortestPath->filter_lambda_.inner_edge->name_, "e");
+    EXPECT_TRUE(shortestPath->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_EQ(shortestPath->filter_lambda_.inner_node->name_, "n");
+    EXPECT_TRUE(shortestPath->filter_lambda_.inner_node->user_declared_);
+    EXPECT_EQ(shortestPath->filter_lambda_.accumulated_path->name_, "p");
+    EXPECT_TRUE(shortestPath->filter_lambda_.accumulated_path->user_declared_);
+    EXPECT_EQ(shortestPath->filter_lambda_.accumulated_weight, nullptr);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, MatchWShortestFilterByPathWeightReturn) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "MATCH pth=()-[r:type1 *wShortest 10 (we, wn | 42) total_weight "
+        "(e, n, p, w | startNode(relationships(e)[-1]) = c:type3 AND w < 50)]->(:type2) RETURN pth"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortestPath = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortestPath);
+    EXPECT_TRUE(shortestPath->IsVariable());
+    EXPECT_EQ(shortestPath->filter_lambda_.inner_edge->name_, "e");
+    EXPECT_TRUE(shortestPath->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_EQ(shortestPath->filter_lambda_.inner_node->name_, "n");
+    EXPECT_TRUE(shortestPath->filter_lambda_.inner_node->user_declared_);
+    EXPECT_EQ(shortestPath->filter_lambda_.accumulated_path->name_, "p");
+    EXPECT_TRUE(shortestPath->filter_lambda_.accumulated_path->user_declared_);
+    EXPECT_EQ(shortestPath->filter_lambda_.accumulated_weight->name_, "w");
+    EXPECT_TRUE(shortestPath->filter_lambda_.accumulated_weight->user_declared_);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, MatchWShortestNoFilterReturn) {

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include <execinfo.h>
 #include <fmt/format.h>
 #include <stdexcept>
+#include <utility>
 
 #include "utils/on_scope_exit.hpp"
 
@@ -25,10 +26,10 @@ class Stacktrace {
   class Line {
    public:
     // cppcheck-suppress noExplicitConstructor
-    Line(const std::string &original) : original(original) {}
+    explicit Line(std::string original) : original(std::move(original)) {}
 
-    Line(const std::string &original, const std::string &function, const std::string &location)
-        : original(original), function(function), location(location) {}
+    Line(std::string original, std::string function, std::string location)
+        : original(std::move(original)), function(std::move(function)), location(std::move(location)) {}
 
     std::string original, function, location;
   };
@@ -84,7 +85,7 @@ class Stacktrace {
     auto begin = line.find('(');
     auto end = line.find('+');
 
-    if (begin == std::string::npos || end == std::string::npos) return {original};
+    if (begin == std::string::npos || end == std::string::npos) return Line{original};
 
     line[end] = '\0';
 

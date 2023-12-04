@@ -14,6 +14,7 @@
 #include <stack>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 
 #include "query/exceptions.hpp"
@@ -73,6 +74,13 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
           // Remove symbols which are bound by lambda arguments.
           collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_edge));
           collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_node));
+          if (edge->filter_lambda_.accumulated_path) {
+            collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.accumulated_path));
+
+            if (edge->filter_lambda_.accumulated_weight) {
+              collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.accumulated_weight));
+            }
+          }
           if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
               edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
             collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_edge));
@@ -199,7 +207,7 @@ auto SplitExpressionOnAnd(Expression *expression) {
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                Expression *value, Type type)
-    : symbol_(symbol), property_(property), type_(type), value_(value) {
+    : symbol_(symbol), property_(std::move(property)), type_(type), value_(value) {
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
@@ -209,7 +217,11 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                const std::optional<PropertyFilter::Bound> &lower_bound,
                                const std::optional<PropertyFilter::Bound> &upper_bound)
-    : symbol_(symbol), property_(property), type_(Type::RANGE), lower_bound_(lower_bound), upper_bound_(upper_bound) {
+    : symbol_(symbol),
+      property_(std::move(property)),
+      type_(Type::RANGE),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {
   UsedSymbolsCollector collector(symbol_table);
   if (lower_bound) {
     lower_bound->value()->Accept(collector);
@@ -220,8 +232,8 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
 }
 
-PropertyFilter::PropertyFilter(const Symbol &symbol, PropertyIx property, Type type)
-    : symbol_(symbol), property_(property), type_(type) {
+PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
+    : symbol_(std::move(symbol)), property_(std::move(property)), type_(type) {
   // As this constructor is used for property filters where
   // we don't have to evaluate the filter expression, we set
   // the is_symbol_in_value_ to false, although the filter
@@ -290,6 +302,13 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
           prop_pair.second->Accept(collector);
           collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.inner_node));
           collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.inner_edge));
+          if (atom->filter_lambda_.accumulated_path) {
+            collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.accumulated_path));
+
+            if (atom->filter_lambda_.accumulated_weight) {
+              collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.accumulated_weight));
+            }
+          }
           // First handle the inline property filter.
           auto *property_lookup = storage.Create<PropertyLookup>(atom->filter_lambda_.inner_edge, prop_pair.first);
           auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);

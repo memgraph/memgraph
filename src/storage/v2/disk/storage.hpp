@@ -121,6 +121,9 @@ class DiskStorage final : public Storage {
 
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
+    std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
+                                         VertexAccessor *to_vertex) override;
+
     Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) override;
 
     Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) override;
@@ -312,12 +315,6 @@ class DiskStorage final : public Storage {
   void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
-
-  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig & /*config*/,
-                               const memgraph::replication::ReplicationEpoch * /*current_epoch*/)
-      -> std::unique_ptr<ReplicationClient> override {
-    throw utils::BasicException("Disk storage mode does not support replication.");
-  }
 
   std::unique_ptr<RocksDBStorage> kvstore_;
   DurableMetadata durable_metadata_;

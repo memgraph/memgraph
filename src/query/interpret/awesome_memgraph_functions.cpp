@@ -593,6 +593,7 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
     case TypedValue::Type::Duration:
       return TypedValue("DURATION", ctx.memory);
     case TypedValue::Type::Graph:
+    case TypedValue::Type::Function:
       throw QueryRuntimeException("Cannot fetch graph as it is not standardized openCypher type name");
   }
 }

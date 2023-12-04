@@ -93,7 +93,7 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
       return State::Close;
     }
 
-    if (summary.count("has_more") && summary.at("has_more").ValueBool()) {
+    if (summary.contains("has_more") && summary.at("has_more").ValueBool()) {
       return State::Result;
     }
 
@@ -148,13 +148,13 @@ State HandlePullDiscardV4(TSession &session, const State state, const Marker mar
     spdlog::trace("Couldn't read extra field!");
   }
   const auto &extra_map = extra.ValueMap();
-  if (extra_map.count("n")) {
+  if (extra_map.contains("n")) {
     if (const auto n_value = extra_map.at("n").ValueInt(); n_value != kPullAll) {
       n = n_value;
     }
   }
 
-  if (extra_map.count("qid")) {
+  if (extra_map.contains("qid")) {
     if (const auto qid_value = extra_map.at("qid").ValueInt(); qid_value != kPullLast) {
       qid = qid_value;
     }
@@ -367,14 +367,16 @@ State HandleReset(TSession &session, const Marker marker) {
     return State::Close;
   }
 
-  if (!session.encoder_.MessageSuccess()) {
-    spdlog::trace("Couldn't send success message!");
-    return State::Close;
+  try {
+    session.Abort();
+    if (!session.encoder_.MessageSuccess({})) {
+      spdlog::trace("Couldn't send success message!");
+      return State::Close;
+    }
+    return State::Idle;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
   }
-
-  session.Abort();
-
-  return State::Idle;
 }
 
 template <typename TSession>
@@ -397,19 +399,17 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  if (!session.encoder_.MessageSuccess({})) {
-    spdlog::trace("Couldn't send success message!");
-    return State::Close;
-  }
-
   try {
     session.Configure(extra.ValueMap());
     session.BeginTransaction(extra.ValueMap());
+    if (!session.encoder_.MessageSuccess({})) {
+      spdlog::trace("Couldn't send success message!");
+      return State::Close;
+    }
+    return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
-
-  return State::Idle;
 }
 
 template <typename TSession>
@@ -427,11 +427,11 @@ State HandleCommit(TSession &session, const State state, const Marker marker) {
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
   try {
+    session.CommitTransaction();
     if (!session.encoder_.MessageSuccess({})) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
-    session.CommitTransaction();
     return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
@@ -453,11 +453,11 @@ State HandleRollback(TSession &session, const State state, const Marker marker) 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
   try {
+    session.RollbackTransaction();
     if (!session.encoder_.MessageSuccess({})) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
-    session.RollbackTransaction();
     return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);

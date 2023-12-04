@@ -14,7 +14,7 @@
 
 import time
 
-from neo4j import GraphDatabase, basic_auth
+from neo4j import GraphDatabase
 from neo4j.exceptions import ClientError, TransientError
 
 
@@ -75,11 +75,58 @@ def test_timeout(driver, set_timeout):
         raise Exception("The query should have timed out, but it didn't!")
 
 
+def violate_constraint(tx):
+    tx.run("CREATE (n:Employee:Person {id: '123', alt_id: '100'});").consume()
+
+
+def violate_constraint_on_intermediate_result(tx):
+    tx.run("CREATE (n:Employee:Person {id: '124', alt_id: '200'});").consume()
+    tx.run("MATCH (n {alt_id: '200'}) SET n.id = '123';").consume()  # two (:Person {id: '123'})
+    tx.run("MATCH (n {alt_id: '100'}) SET n.id = '122';").consume()  # above violation fixed
+
+
+def clear_db(session):
+    session.run("DROP CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
+    session.run("DROP CONSTRAINT ON (n:Employee) ASSERT n.id IS UNIQUE;")
+    session.run("DROP CONSTRAINT ON (n:Employee) ASSERT EXISTS (n.id);")
+
+    session.run("MATCH (n) DETACH DELETE n;")
+
+
 with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) as driver:
+    with driver.session() as session:
+        # Clear the DB
+        session.run("MATCH (n) DETACH DELETE n;")
+
+        # Add constraints
+        session.run("CREATE CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
+        session.run("CREATE CONSTRAINT ON (n:Employee) ASSERT n.id IS UNIQUE;")
+        session.run("CREATE CONSTRAINT ON (n:Employee) ASSERT EXISTS (n.id);")
+
+        # Set the initial graph state
+        session.execute_write(lambda tx: tx.run("CREATE (n:Employee:Person {id: '123', alt_id: '100'}) RETURN n;"))
+
+        # Run a transaction that violates a constraint
+        try:
+            session.execute_write(violate_constraint)
+        except TransientError:
+            pass
+        else:
+            clear_db(session)
+            raise Exception("neo4j.exceptions.TransientError should have been thrown!")
+
+        # Run a transaction that violates no constraints even though an intermediate result does
+        try:
+            session.execute_write(violate_constraint_on_intermediate_result)
+        except TransientError:
+            clear_db(session)
+            raise Exception("neo4j.exceptions.TransientError should not have been thrown!")
+
+        clear_db(session)
 
     def add_person(f, name, name2):
         with driver.session() as session:
-            session.write_transaction(f, name, name2)
+            session.execute_write(f, name, name2)
 
     # Wrong query.
     try:

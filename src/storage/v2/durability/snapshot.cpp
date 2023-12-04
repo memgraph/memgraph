@@ -1212,7 +1212,7 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
     spdlog::info("Recover connectivity.");
     recovery_info.vertex_batches.reserve(vertex_batches.size());
     for (const auto batch : vertex_batches) {
-      recovery_info.vertex_batches.emplace_back(std::make_pair(Gid::FromUint(0), batch.count));
+      recovery_info.vertex_batches.emplace_back(Gid::FromUint(0), batch.count);
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
@@ -1505,7 +1505,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     spdlog::info("Recover connectivity.");
     recovery_info.vertex_batches.reserve(vertex_batches.size());
     for (const auto batch : vertex_batches) {
-      recovery_info.vertex_batches.emplace_back(std::make_pair(Gid::FromUint(0), batch.count));
+      recovery_info.vertex_batches.emplace_back(Gid::FromUint(0), batch.count);
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
