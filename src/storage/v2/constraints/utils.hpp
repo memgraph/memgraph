@@ -34,7 +34,7 @@ void do_per_thread_validation(ErrorType &maybe_error, Func func,
       if (!violation.has_value()) [[likely]] {
         continue;
       }
-      *maybe_error.Lock() = *violation;
+      maybe_error.WithLock([&violation](auto &maybe_error) { maybe_error = *violation; });
       break;
     }
   }

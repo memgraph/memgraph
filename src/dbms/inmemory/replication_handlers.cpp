@@ -222,10 +222,10 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     spdlog::trace("Recovering indices and constraints from snapshot.");
     memgraph::storage::durability::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices,
                                                           &storage->indices_, &storage->vertices_,
-                                                          storage->name_id_mapper_.get(), std::nullopt);
+                                                          storage->name_id_mapper_.get());
     memgraph::storage::durability::RecoverConstraints(recovered_snapshot.indices_constraints.constraints,
                                                       &storage->constraints_, &storage->vertices_,
-                                                      storage->name_id_mapper_.get(), std::nullopt);
+                                                      storage->name_id_mapper_.get());
   } catch (const storage::durability::RecoveryFailure &e) {
     LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
   }

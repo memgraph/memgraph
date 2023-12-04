@@ -100,18 +100,18 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // to ensure that the indices consistent at the end of the
 // recovery process.
 /// @throw RecoveryFailure
-void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &, Indices *,
-                            utils::SkipList<Vertex> *, NameIdMapper *,
-                            const std::optional<ParallelizedSchemaCreationInfo> &);
+void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
+                            utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                            const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
 
 // Helper function used to recover all discovered constraints. The
 // constraints must be recovered after the data recovery is done
 // to ensure that the constraints are consistent at the end of the
 // recovery process.
 /// @throw RecoveryFailure
-void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
-                        utils::SkipList<Vertex> *, NameIdMapper *,
-                        const std::optional<ParallelizedSchemaCreationInfo> &);
+void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
+                        Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                        const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                   const Config &config);

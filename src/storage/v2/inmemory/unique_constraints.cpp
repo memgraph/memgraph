@@ -294,24 +294,23 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
     const LabelId &label, const std::set<PropertyId> &properties) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  const auto &vertex_batches = parallel_exec_info.first;
+  const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
   MG_ASSERT(!vertex_batches.empty(),
             "The size of batches should always be greater than zero if you want to use the parallel version of index "
             "creation!");
-  const auto thread_count = std::min(parallel_exec_info.second, vertex_batches.size());
+  const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
   memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> has_error;
   {
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
-    auto thread_func = [&has_error, &vertex_batches, &batch_counter, &vertex_accessor, &constraint_accessor, &label,
-                        &properties]() {
-      do_per_thread_validation(has_error, DoValidate, vertex_batches, batch_counter, vertex_accessor,
-                               constraint_accessor, label, properties);
-    };
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(thread_func);
+      threads.emplace_back(
+          [&has_error, &vertex_batches, &batch_counter, &vertex_accessor, &constraint_accessor, &label, &properties]() {
+            do_per_thread_validation(has_error, DoValidate, vertex_batches, batch_counter, vertex_accessor,
+                                     constraint_accessor, label, properties);
+          });
     }
   }
   return has_error.Lock()->has_value();
@@ -401,10 +400,10 @@ InMemoryUniqueConstraints::CreateConstraint(
     return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
   }
 
-  constraints_[{label, properties}] = std::move(constraints_skip_list);
+  auto [it, _] = constraints_.emplace(std::make_pair(label, properties), std::move(constraints_skip_list));
 
   // Add the new constraint to the optimized structure only if there are no violations.
-  constraints_by_label_[label].insert({properties, &constraints_.at({label, properties})});
+  constraints_by_label_[label].insert({properties, &it->second});
   return CreationStatus::SUCCESS;
 }
 

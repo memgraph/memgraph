@@ -87,11 +87,11 @@ std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstrai
     const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
-  const auto &vertex_batches = parallel_exec_info.first;
+  const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
   MG_ASSERT(!vertex_batches.empty(),
             "The size of batches should always be greater than zero if you want to use the parallel version of index "
             "creation!");
-  const auto thread_count = std::min(parallel_exec_info.second, vertex_batches.size());
+  const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
   memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> maybe_error{};
@@ -99,12 +99,11 @@ std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstrai
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
 
-    auto thread_func = [&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property]() {
-      do_per_thread_validation(maybe_error, ValidateVertexOnConstraint, vertex_batches, batch_counter, vertices, label,
-                               property);
-    };
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(thread_func);
+      threads.emplace_back([&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property]() {
+        do_per_thread_validation(maybe_error, ValidateVertexOnConstraint, vertex_batches, batch_counter, vertices,
+                                 label, property);
+      });
     }
   }
   if (maybe_error.Lock()->has_value()) {

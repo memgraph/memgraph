@@ -9,11 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#pragma once
+
 #include <utility>
 #include <vector>
 #include "storage/v2/id_types.hpp"
 
 namespace memgraph::storage::durability {
-using ParallelizedSchemaCreationInfo =
-    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
+struct ParallelizedSchemaCreationInfo {
+  std::vector<std::pair<Gid, uint64_t>> vertex_recovery_info;
+  uint64_t thread_count;
+};
 }  // namespace memgraph::storage::durability

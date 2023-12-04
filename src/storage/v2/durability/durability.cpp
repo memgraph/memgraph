@@ -9,8 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/durability/durability.hpp"
-
 #include <pwd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -28,6 +26,7 @@
 #include "flags/all.hpp"
 #include "gflags/gflags.h"
 #include "replication/epoch.hpp"
+#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -253,14 +252,16 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                   const Config &config) {
   return config.durability.allow_parallel_schema_creation
-             ? std::make_optional(std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count))
+             ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
+                                                                 config.durability.recovery_thread_count})
              : std::nullopt;
 }
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
                                                                          const Config &config) {
   return config.durability.allow_parallel_schema_creation || config.durability.allow_parallel_index_creation
-             ? std::make_optional(std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count))
+             ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
+                                                                 config.durability.recovery_thread_count})
              : std::nullopt;
 }
 
