@@ -14,6 +14,7 @@
 #include <span>
 
 #include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/vertex.hpp"
@@ -21,9 +22,6 @@
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
-
-using ParallelizedIndexCreationInfo =
-    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 class InMemoryLabelIndex : public storage::LabelIndex {
  private:
@@ -47,7 +45,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info);
+                   const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info);
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) override;

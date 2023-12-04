@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "dbms/inmemory/replication_handlers.hpp"
+#include <optional>
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_server.hpp"
@@ -187,9 +188,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   storage::replication::Decoder decoder(req_reader);
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
-  utils::EnsureDirOrDie(storage->snapshot_directory_);
+  utils::EnsureDirOrDie(storage->recovery_.snapshot_directory_);
 
-  const auto maybe_snapshot_path = decoder.ReadFile(storage->snapshot_directory_);
+  const auto maybe_snapshot_path = decoder.ReadFile(storage->recovery_.snapshot_directory_);
   MG_ASSERT(maybe_snapshot_path, "Failed to load snapshot!");
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
 
@@ -219,7 +220,10 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
-    storage::durability::RecoverIndicesAndConstraints(recovered_snapshot.indices_constraints, &storage->indices_,
+    memgraph::storage::durability::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices,
+                                                          &storage->indices_, &storage->vertices_,
+                                                          storage->name_id_mapper_.get());
+    memgraph::storage::durability::RecoverConstraints(recovered_snapshot.indices_constraints.constraints,
                                                       &storage->constraints_, &storage->vertices_,
                                                       storage->name_id_mapper_.get());
   } catch (const storage::durability::RecoveryFailure &e) {
@@ -233,7 +237,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
 
   spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
   // Delete other durability files
-  auto snapshot_files = storage::durability::GetSnapshotFiles(storage->snapshot_directory_, storage->uuid_);
+  auto snapshot_files = storage::durability::GetSnapshotFiles(storage->recovery_.snapshot_directory_, storage->uuid_);
   for (const auto &[path, uuid, _] : snapshot_files) {
     if (path != *maybe_snapshot_path) {
       spdlog::trace("Deleting snapshot file {}", path);
@@ -242,7 +246,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   }
 
   spdlog::trace("Deleting old WAL files due to snapshot recovery.");
-  auto wal_files = storage::durability::GetWalFiles(storage->wal_directory_, storage->uuid_);
+  auto wal_files = storage::durability::GetWalFiles(storage->recovery_.wal_directory_, storage->uuid_);
   if (wal_files) {
     for (const auto &wal_file : *wal_files) {
       spdlog::trace("Deleting WAL file {}", wal_file.path);
@@ -267,7 +271,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   storage::replication::Decoder decoder(req_reader);
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
-  utils::EnsureDirOrDie(storage->wal_directory_);
+  utils::EnsureDirOrDie(storage->recovery_.wal_directory_);
 
   for (auto i = 0; i < wal_file_number; ++i) {
     LoadWal(storage, &decoder);
@@ -289,7 +293,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   storage::replication::Decoder decoder(req_reader);
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
-  utils::EnsureDirOrDie(storage->wal_directory_);
+  utils::EnsureDirOrDie(storage->recovery_.wal_directory_);
 
   LoadWal(storage, &decoder);
 
