@@ -44,6 +44,8 @@ class EdgeAccessor final {
         transaction_(transaction),
         for_deleted_(for_deleted) {}
 
+  bool IsDeleted() const;
+
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
 
