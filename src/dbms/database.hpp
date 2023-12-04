@@ -95,7 +95,7 @@ class Database {
    *
    * @return storage::StorageMode
    */
-  storage::StorageMode GetStorageMode() const { return storage_->GetStorageMode(); }
+  storage::StorageMode GetStorageMode() const noexcept { return storage_->GetStorageMode(); }
 
   /**
    * @brief Get the storage info
