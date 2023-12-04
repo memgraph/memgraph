@@ -13,6 +13,7 @@
 
 #include <datetime.h>
 #include <methodobject.h>
+#include <objimpl.h>
 #include <pyerrors.h>
 #include <array>
 #include <optional>
@@ -868,7 +869,7 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 
 void PyCollectGarbage() {
   auto gil = py::EnsureGIL();
-
+  return;
   py::Object gc(PyImport_ImportModule("gc"));
   if (!gc) {
     LOG_FATAL(py::FetchError().value());
