@@ -74,6 +74,7 @@ add_subdirectory(filter_info)
 add_subdirectory(queries)
 add_subdirectory(query_modules_storage_modes)
 add_subdirectory(garbage_collection)
+add_subdirectory(query_planning)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 copy_e2e_python_files(x x.sh "")
