@@ -15,7 +15,7 @@
 
 namespace memgraph::storage {
 template <typename ErrorType, typename Func, typename... Args>
-void do_per_thread_validation(ErrorType &maybe_error, Func &&func,
+void do_per_thread_validation(ErrorType &maybe_error, Func func,
                               const std::vector<std::pair<Gid, uint64_t>> &vertex_batches,
                               std::atomic<uint64_t> &batch_counter,
                               const memgraph::utils::SkipList<memgraph::storage::Vertex>::Accessor &vertices,
