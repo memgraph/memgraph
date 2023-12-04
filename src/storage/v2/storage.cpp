@@ -104,6 +104,18 @@ std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   return {};
 }
 
+std::vector<LabelId> Storage::Accessor::ListAllPossiblyPresentVertexLabels() const {
+  std::vector<LabelId> vertex_labels;
+  storage_->stored_node_labels_.for_each([&vertex_labels](const auto &label) { vertex_labels.push_back(label); });
+  return vertex_labels;
+}
+
+std::vector<EdgeTypeId> Storage::Accessor::ListAllPossiblyPresentEdgeTypes() const {
+  std::vector<EdgeTypeId> edge_types;
+  storage_->stored_edge_types_.for_each([&edge_types](const auto &type) { edge_types.push_back(type); });
+  return edge_types;
+}
+
 void Storage::Accessor::AdvanceCommand() {
   transaction_.manyDeltasCache.Clear();  // TODO: Just invalidate the View::OLD cache, NEW should still be fine
   ++transaction_.command_id;
