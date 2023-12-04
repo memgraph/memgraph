@@ -116,7 +116,7 @@ DEFINE_VALIDATED_bool(
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_parallel_schema_recovery, false,
-            "Controls whether the index and constraint creation can be done in a multithreaded fashion.");
+            "Controls whether the indices and constraints creation can be done in a multithreaded fashion.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,
