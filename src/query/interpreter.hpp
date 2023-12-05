@@ -286,6 +286,9 @@ class Interpreter final {
     query_executions_.clear();
     system_guard.reset();
     transaction_queries_->clear();
+    if (current_db_.db_acc_->is_deleting()) {
+      current_db_.db_acc_.reset();
+    }
   }
 
   struct QueryExecution {
