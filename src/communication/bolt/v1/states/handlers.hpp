@@ -170,6 +170,10 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
     spdlog::trace("Error trace: {}", p->trace());
   }
   session.encoder_buffer_.Clear();
+
+  // WE need to handle drop database error as something that will disconnect the session
+  // (ie force the client to establish new session)
+
   auto code_message = ExceptionToErrorMessage(e);
   bool fail_sent = session.encoder_.MessageFailure({{"code", code_message.first}, {"message", code_message.second}});
   if (!fail_sent) {

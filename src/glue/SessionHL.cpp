@@ -200,6 +200,7 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
 
 #ifdef MG_ENTERPRISE
   // TODO: Update once interpreter can handle non-database queries (db_acc will be nullopt)
+  // can fix segfault
   auto *db = interpreter_.current_db_.db_acc_->get();
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
@@ -314,6 +315,9 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
     MultiDatabaseAuth(user_, db);
     interpreter_.SetCurrentDB(db, in_explicit_db_);
   }
+  // TODO: remove this check when we make the interpreter (and all stages before it) current database agnostic.
+  if (!interpreter_.current_db_.db_acc_)
+    throw query::DatabaseContextRequiredException("Database required for the query.");
 #endif
 }
 SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,

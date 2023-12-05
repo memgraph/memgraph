@@ -3675,8 +3675,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     throw DatabaseContextRequiredException("Database required for the query.");
   }
 
+  // Best effort attempt to relinquish db_acc proactivly
   if (current_db_.db_acc_->is_deleting()) {
-    throw QueryException("Database is being dropped");
+    current_db_.db_acc_.reset();
+    throw DatabaseContextRequiredException("Database is being dropped");
   }
 
   // Handle transaction control queries.
