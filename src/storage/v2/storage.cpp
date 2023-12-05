@@ -85,7 +85,7 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   other.commit_timestamp_.reset();
 }
 
-StorageMode Storage::GetStorageMode() const { return storage_mode_; }
+StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
@@ -95,13 +95,25 @@ utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(I
   return {};
 }
 
-StorageMode Storage::Accessor::GetCreationStorageMode() const { return creation_storage_mode_; }
+StorageMode Storage::Accessor::GetCreationStorageMode() const noexcept { return creation_storage_mode_; }
 
 std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   if (is_transaction_active_) {
     return transaction_.transaction_id;
   }
   return {};
+}
+
+std::vector<LabelId> Storage::Accessor::ListAllPossiblyPresentVertexLabels() const {
+  std::vector<LabelId> vertex_labels;
+  storage_->stored_node_labels_.for_each([&vertex_labels](const auto &label) { vertex_labels.push_back(label); });
+  return vertex_labels;
+}
+
+std::vector<EdgeTypeId> Storage::Accessor::ListAllPossiblyPresentEdgeTypes() const {
+  std::vector<EdgeTypeId> edge_types;
+  storage_->stored_edge_types_.for_each([&edge_types](const auto &type) { edge_types.push_back(type); });
+  return edge_types;
 }
 
 void Storage::Accessor::AdvanceCommand() {

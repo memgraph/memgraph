@@ -36,7 +36,7 @@ class Log {
   };
 
  public:
-  Log(const std::filesystem::path &storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis);
+  Log(std::filesystem::path storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis);
 
   ~Log();
 

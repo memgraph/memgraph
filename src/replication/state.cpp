@@ -11,9 +11,11 @@
 
 #include "replication/state.hpp"
 
+#include "replication/replication_client.hpp"
 #include "replication/replication_server.hpp"
 #include "replication/status.hpp"
 #include "utils/file.hpp"
+#include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
 
 constexpr auto kReplicationDirectory = std::string_view{"replication"};
@@ -125,12 +127,9 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
     return std::visit(
         utils::Overloaded{
             [&](durability::MainRole &&r) -> FetchReplicationResult_t {
-              auto res = RoleMainData{
-                  .epoch_ = std::move(r.epoch),
-              };
+              auto res = RoleMainData{std::move(r.epoch)};
               auto b = durability_->begin(durability::kReplicationReplicaPrefix);
               auto e = durability_->end(durability::kReplicationReplicaPrefix);
-              res.registered_replicas_.reserve(durability_->Size(durability::kReplicationReplicaPrefix));
               for (; b != e; ++b) {
                 auto const &[replica_name, replica_data] = *b;
                 auto json = nlohmann::json::parse(replica_data, nullptr, false);
@@ -141,7 +140,8 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                   if (key_name != data.config.name) {
                     return FetchReplicationError::PARSE_ERROR;
                   }
-                  res.registered_replicas_.emplace_back(std::move(data.config));
+                  // Instance clients
+                  res.registered_replicas_.emplace_back(data.config);
                 } catch (...) {
                   return FetchReplicationError::PARSE_ERROR;
                 }
@@ -221,7 +221,7 @@ bool ReplicationState::SetReplicationRoleMain() {
   if (!TryPersistRoleMain(new_epoch)) {
     return false;
   }
-  replication_data_ = RoleMainData{.epoch_ = ReplicationEpoch{new_epoch}};
+  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}};
   return true;
 }
 
@@ -233,16 +233,14 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   return true;
 }
 
-auto ReplicationState::RegisterReplica(const ReplicationClientConfig &config) -> RegisterReplicaError {
-  auto const replica_handler = [](RoleReplicaData const &) -> RegisterReplicaError {
-    return RegisterReplicaError::NOT_MAIN;
-  };
-  auto const main_handler = [this, &config](RoleMainData &mainData) -> RegisterReplicaError {
+utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::RegisterReplica(
+    const ReplicationClientConfig &config) {
+  auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaError::NOT_MAIN; };
+  ReplicationClient *client{nullptr};
+  auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaError {
     // name check
     auto name_check = [&config](auto const &replicas) {
-      auto name_matches = [&name = config.name](ReplicationClientConfig const &registered_config) {
-        return registered_config.name == name;
-      };
+      auto name_matches = [&name = config.name](auto const &replica) { return replica.name_ == name; };
       return std::any_of(replicas.begin(), replicas.end(), name_matches);
     };
     if (name_check(mainData.registered_replicas_)) {
@@ -251,8 +249,9 @@ auto ReplicationState::RegisterReplica(const ReplicationClientConfig &config) ->
 
     // endpoint check
     auto endpoint_check = [&](auto const &replicas) {
-      auto endpoint_matches = [&config](ReplicationClientConfig const &registered_config) {
-        return registered_config.ip_address == config.ip_address && registered_config.port == config.port;
+      auto endpoint_matches = [&config](auto const &replica) {
+        const auto &ep = replica.rpc_client_.Endpoint();
+        return ep.address == config.ip_address && ep.port == config.port;
       };
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
     };
@@ -266,10 +265,14 @@ auto ReplicationState::RegisterReplica(const ReplicationClientConfig &config) ->
     }
 
     // set
-    mainData.registered_replicas_.emplace_back(config);
+    client = &mainData.registered_replicas_.emplace_back(config);
     return RegisterReplicaError::SUCCESS;
   };
 
-  return std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
+  const auto &res = std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
+  if (res == RegisterReplicaError::SUCCESS) {
+    return client;
+  }
+  return res;
 }
 }  // namespace memgraph::replication

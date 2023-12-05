@@ -1,4 +1,4 @@
-name: Package All
+name: Package memgraph
 
 # TODO(gitbuda): Cleanup docker container if GHA job was canceled.
 
@@ -6,18 +6,56 @@ on:
   workflow_dispatch:
     inputs:
       memgraph_version:
-        description: "Memgraph version to upload as. If empty upload is skipped. Format: 'X.Y.Z'"
+        description: "Memgraph version to upload as. Leave this field empty if you don't want to upload binaries to S3. Format: 'X.Y.Z'"
         required: false
       build_type:
         type: choice
-        description: "Memgraph Build type. Default value is Release."
+        description: "Memgraph Build type. Default value is Release"
         default: 'Release'
         options:
           - Release
           - RelWithDebInfo
+      target_os:
+        type: choice
+        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. Default is Ubuntu 22.04"
+        default: 'ubuntu-22_04'
+        options:
+          - all
+          - amzn-2
+          - centos-7
+          - centos-9
+          - debian-10
+          - debian-11
+          - debian-11-arm
+          - debian-11-platform
+          - docker
+          - fedora-36
+          - ubuntu-18_04
+          - ubuntu-20_04
+          - ubuntu-22_04
+          - ubuntu-22_04-arm
 
 jobs:
+  amzn-2:
+    if: ${{ github.event.inputs.target_os == 'amzn-2' || github.event.inputs.target_os == 'all' }}
+    runs-on: [self-hosted, DockerMgBuild, X64]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package amzn-2 ${{ github.event.inputs.build_type }}
+      - name: "Upload package"
+        uses: actions/upload-artifact@v3
+        with:
+          name: amzn-2
+          path: build/output/amzn-2/memgraph*.rpm
+
   centos-7:
+    if: ${{ github.event.inputs.target_os == 'centos-7' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -35,6 +73,7 @@ jobs:
           path: build/output/centos-7/memgraph*.rpm
 
   centos-9:
+    if: ${{ github.event.inputs.target_os == 'centos-9' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -52,6 +91,7 @@ jobs:
           path: build/output/centos-9/memgraph*.rpm
 
   debian-10:
+    if: ${{ github.event.inputs.target_os == 'debian-10' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -69,6 +109,7 @@ jobs:
           path: build/output/debian-10/memgraph*.deb
 
   debian-11:
+    if: ${{ github.event.inputs.target_os == 'debian-11' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -85,7 +126,44 @@ jobs:
           name: debian-11
           path: build/output/debian-11/memgraph*.deb
 
+  debian-11-arm:
+    if: ${{ github.event.inputs.target_os == 'debian-11-arm' || github.event.inputs.target_os == 'all' }}
+    runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
+    timeout-minutes: 120
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package debian-11-arm ${{ github.event.inputs.build_type }}
+      - name: "Upload package"
+        uses: actions/upload-artifact@v3
+        with:
+          name: debian-11-aarch64
+          path: build/output/debian-11-arm/memgraph*.deb
+
+  debian-11-platform:
+    if: ${{ github.event.inputs.target_os == 'debian-11-platform' || github.event.inputs.target_os == 'all' }}
+    runs-on: [self-hosted, DockerMgBuild, X64]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package debian-11 ${{ github.event.inputs.build_type }} --for-platform
+      - name: "Upload package"
+        uses: actions/upload-artifact@v3
+        with:
+          name: debian-11-platform
+          path: build/output/debian-11/memgraph*.deb
+
   docker:
+    if: ${{ github.event.inputs.target_os == 'docker' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -104,75 +182,8 @@ jobs:
           name: docker
           path: build/output/docker/memgraph*.tar.gz
 
-  ubuntu-1804:
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-18.04 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: ubuntu-18.04
-          path: build/output/ubuntu-18.04/memgraph*.deb
-
-  ubuntu-2004:
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-20.04 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: ubuntu-20.04
-          path: build/output/ubuntu-20.04/memgraph*.deb
-
-  ubuntu-2204:
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-22.04 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: ubuntu-22.04
-          path: build/output/ubuntu-22.04/memgraph*.deb
-
-  debian-11-platform:
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-11 ${{ github.event.inputs.build_type }} --for-platform
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: debian-11-platform
-          path: build/output/debian-11/memgraph*.deb
-
   fedora-36:
+    if: ${{ github.event.inputs.target_os == 'fedora-36' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -189,7 +200,8 @@ jobs:
           name: fedora-36
           path: build/output/fedora-36/memgraph*.rpm
 
-  amzn-2:
+  ubuntu-18_04:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-18_04' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -199,16 +211,17 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package amzn-2 ${{ github.event.inputs.build_type }}
+          ./release/package/run.sh package ubuntu-18.04 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
-          name: amzn-2
-          path: build/output/amzn-2/memgraph*.rpm
+          name: ubuntu-18.04
+          path: build/output/ubuntu-18.04/memgraph*.deb
 
-  debian-11-arm:
-    runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 120
+  ubuntu-20_04:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-20_04' || github.event.inputs.target_os == 'all' }}
+    runs-on: [self-hosted, DockerMgBuild, X64]
+    timeout-minutes: 60
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v3
@@ -216,14 +229,33 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
-          ./release/package/run.sh package debian-11-arm ${{ github.event.inputs.build_type }}
+          ./release/package/run.sh package ubuntu-20.04 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
-          name: debian-11-aarch64
-          path: build/output/debian-11-arm/memgraph*.deb
+          name: ubuntu-20.04
+          path: build/output/ubuntu-20.04/memgraph*.deb
 
-  ubuntu-2204-arm:
+  ubuntu-22_04:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-22_04' || github.event.inputs.target_os == 'all' }}
+    runs-on: [self-hosted, DockerMgBuild, X64]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package ubuntu-22.04 ${{ github.event.inputs.build_type }}
+      - name: "Upload package"
+        uses: actions/upload-artifact@v3
+        with:
+          name: ubuntu-22.04
+          path: build/output/ubuntu-22.04/memgraph*.deb
+
+  ubuntu-22_04-arm:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-22_04-arm' || github.event.inputs.target_os == 'all' }}
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
     timeout-minutes: 120
     steps:
@@ -243,7 +275,7 @@ jobs:
   upload-to-s3:
     # only run upload if we specified version. Allows for runs without upload
     if: "${{ github.event.inputs.memgraph_version != '' }}"
-    needs: [centos-7, centos-9, debian-10, debian-11, docker, ubuntu-1804, ubuntu-2004, ubuntu-2204, debian-11-platform, fedora-36, amzn-2, debian-11-arm, ubuntu-2204-arm]
+    needs: [amzn-2, centos-7, centos-9, debian-10, debian-11, debian-11-arm, debian-11-platform, docker, fedora-36, ubuntu-18_04, ubuntu-20_04, ubuntu-22_04, ubuntu-22_04-arm]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts

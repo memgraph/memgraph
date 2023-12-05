@@ -147,6 +147,8 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
 
 namespace memgraph::query {
 
+constexpr std::string_view kSchemaAssert = "SCHEMA.ASSERT";
+
 template <typename>
 constexpr auto kAlwaysFalse = false;
 
@@ -272,8 +274,7 @@ inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode
 
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(dbms::DbmsHandler *dbms_handler, memgraph::replication::ReplicationState *repl_state)
-      : dbms_handler_(dbms_handler), handler_{*repl_state, *dbms_handler} {}
+  explicit ReplQueryHandler(dbms::DbmsHandler *dbms_handler) : dbms_handler_(dbms_handler), handler_{*dbms_handler} {}
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
@@ -402,8 +403,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         case storage::replication::ReplicaState::RECOVERY:
           replica.state = ReplicationQuery::ReplicaState::RECOVERY;
           break;
-        case storage::replication::ReplicaState::INVALID:
-          replica.state = ReplicationQuery::ReplicaState::INVALID;
+        case storage::replication::ReplicaState::MAYBE_BEHIND:
+          replica.state = ReplicationQuery::ReplicaState::MAYBE_BEHIND;
           break;
       }
 
@@ -477,7 +478,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         MG_ASSERT(password.IsString() || password.IsNull());
         if (!auth->CreateUser(username, password.IsString() ? std::make_optional(std::string(password.ValueString()))
                                                             : std::nullopt)) {
-          throw QueryRuntimeException("User '{}' already exists.", username);
+          throw UserAlreadyExistsException("User '{}' already exists.", username);
         }
 
         // If the license is not valid we create users with admin access
@@ -711,8 +712,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
                                 dbms::DbmsHandler *dbms_handler, const query::InterpreterConfig &config,
-                                std::vector<Notification> *notifications,
-                                memgraph::replication::ReplicationState *repl_state) {
+                                std::vector<Notification> *notifications) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
@@ -732,8 +732,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         notifications->emplace_back(SeverityLevel::WARNING, NotificationCode::REPLICA_PORT_WARNING,
                                     "Be careful the replication port must be different from the memgraph port!");
       }
-      callback.fn = [handler = ReplQueryHandler{dbms_handler, repl_state}, role = repl_query->role_,
-                     maybe_port]() mutable {
+      callback.fn = [handler = ReplQueryHandler{dbms_handler}, role = repl_query->role_, maybe_port]() mutable {
         handler.SetReplicationRole(role, maybe_port);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -745,7 +744,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication role"};
-      callback.fn = [handler = ReplQueryHandler{dbms_handler, repl_state}] {
+      callback.fn = [handler = ReplQueryHandler{dbms_handler}] {
         auto mode = handler.ShowReplicationRole();
         switch (mode) {
           case ReplicationQuery::ReplicationRole::MAIN: {
@@ -764,7 +763,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       const auto replica_check_frequency = config.replication_replica_check_frequency;
 
-      callback.fn = [handler = ReplQueryHandler{dbms_handler, repl_state}, name, socket_address, sync_mode,
+      callback.fn = [handler = ReplQueryHandler{dbms_handler}, name, socket_address, sync_mode,
                      replica_check_frequency]() mutable {
         handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
@@ -775,7 +774,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
-      callback.fn = [handler = ReplQueryHandler{dbms_handler, repl_state}, name]() mutable {
+      callback.fn = [handler = ReplQueryHandler{dbms_handler}, name]() mutable {
         handler.DropReplica(name);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -787,7 +786,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       callback.header = {
           "name", "socket_address", "sync_mode", "current_timestamp_of_replica", "number_of_timestamp_behind_master",
           "state"};
-      callback.fn = [handler = ReplQueryHandler{dbms_handler, repl_state}, replica_nfields = callback.header.size()] {
+      callback.fn = [handler = ReplQueryHandler{dbms_handler}, replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
@@ -795,34 +794,33 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           std::vector<TypedValue> typed_replica;
           typed_replica.reserve(replica_nfields);
 
-          typed_replica.emplace_back(TypedValue(replica.name));
-          typed_replica.emplace_back(TypedValue(replica.socket_address));
+          typed_replica.emplace_back(replica.name);
+          typed_replica.emplace_back(replica.socket_address);
 
           switch (replica.sync_mode) {
             case ReplicationQuery::SyncMode::SYNC:
-              typed_replica.emplace_back(TypedValue("sync"));
+              typed_replica.emplace_back("sync");
               break;
             case ReplicationQuery::SyncMode::ASYNC:
-              typed_replica.emplace_back(TypedValue("async"));
+              typed_replica.emplace_back("async");
               break;
           }
 
-          typed_replica.emplace_back(TypedValue(static_cast<int64_t>(replica.current_timestamp_of_replica)));
-          typed_replica.emplace_back(
-              TypedValue(static_cast<int64_t>(replica.current_number_of_timestamp_behind_master)));
+          typed_replica.emplace_back(static_cast<int64_t>(replica.current_timestamp_of_replica));
+          typed_replica.emplace_back(static_cast<int64_t>(replica.current_number_of_timestamp_behind_master));
 
           switch (replica.state) {
             case ReplicationQuery::ReplicaState::READY:
-              typed_replica.emplace_back(TypedValue("ready"));
+              typed_replica.emplace_back("ready");
               break;
             case ReplicationQuery::ReplicaState::REPLICATING:
-              typed_replica.emplace_back(TypedValue("replicating"));
+              typed_replica.emplace_back("replicating");
               break;
             case ReplicationQuery::ReplicaState::RECOVERY:
-              typed_replica.emplace_back(TypedValue("recovery"));
+              typed_replica.emplace_back("recovery");
               break;
-            case ReplicationQuery::ReplicaState::INVALID:
-              typed_replica.emplace_back(TypedValue("invalid"));
+            case ReplicationQuery::ReplicaState::MAYBE_BEHIND:
+              typed_replica.emplace_back("invalid");
               break;
           }
 
@@ -1535,7 +1533,6 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
       continue;
     }
     frame_change_collector->AddTrackingKey(*cached_id);
-    spdlog::trace("Tracking {} operator, by id: {}", InListOperator::kType.name, *cached_id);
   }
 }
 
@@ -1961,11 +1958,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     result.reserve(kComputeStatisticsNumResults);
 
     result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first));
-    result.emplace_back(TypedValue());
+    result.emplace_back();
     result.emplace_back(static_cast<int64_t>(stat_entry.second.count));
-    result.emplace_back(TypedValue());
-    result.emplace_back(TypedValue());
-    result.emplace_back(TypedValue());
+    result.emplace_back();
+    result.emplace_back();
+    result.emplace_back();
     result.emplace_back(stat_entry.second.avg_degree);
     results.push_back(std::move(result));
   });
@@ -2263,15 +2260,14 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                       std::vector<Notification> *notifications, dbms::DbmsHandler &dbms_handler,
-                                      const InterpreterConfig &config,
-                                      memgraph::replication::ReplicationState *repl_state) {
+                                      const InterpreterConfig &config) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, &dbms_handler, config,
-                                         notifications, repl_state);
+  auto callback =
+      HandleReplicationQuery(replication_query, parsed_query.parameters, &dbms_handler, config, notifications);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -2882,7 +2878,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, con
           metadata_tv.emplace(md.first, TypedValue(md.second));
         }
       }
-      results.back().push_back(TypedValue(metadata_tv));
+      results.back().emplace_back(metadata_tv);
     }
   }
   return results;
@@ -3044,6 +3040,46 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
+      break;
+    }
+    case DatabaseInfoQuery::InfoType::EDGE_TYPES: {
+      header = {"edge types"};
+      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
+        if (!storage->config_.items.enable_schema_metadata) {
+          throw QueryRuntimeException(
+              "The metadata collection for edge-types is disabled. To enable it, restart your instance and set the "
+              "storage-enable-schema-metadata flag to True.");
+        }
+        auto edge_types = dba->ListAllPossiblyPresentEdgeTypes();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(edge_types.size());
+        for (auto &edge_type : edge_types) {
+          results.push_back({TypedValue(storage->EdgeTypeToName(edge_type))});
+        }
+
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
+
+      break;
+    }
+    case DatabaseInfoQuery::InfoType::NODE_LABELS: {
+      header = {"node labels"};
+      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
+        if (!storage->config_.items.enable_schema_metadata) {
+          throw QueryRuntimeException(
+              "The metadata collection for node-labels is disabled. To enable it, restart your instance and set the "
+              "storage-enable-schema-metadata flag to True.");
+        }
+        auto node_labels = dba->ListAllPossiblyPresentVertexLabels();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(node_labels.size());
+        for (auto &node_label : node_labels) {
+          results.push_back({TypedValue(storage->LabelToName(node_label))});
+        }
+
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
+
       break;
     }
   }
@@ -3349,8 +3385,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
                                         InterpreterContext *interpreter_context,
-                                        std::optional<std::function<void(std::string_view)>> on_change_cb,
-                                        memgraph::replication::ReplicationState *repl_state) {
+                                        std::optional<std::function<void(std::string_view)>> on_change_cb) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
@@ -3361,9 +3396,11 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
   auto *db_handler = interpreter_context->dbms_handler;
 
+  const bool is_replica = interpreter_context->repl_state->IsReplica();
+
   switch (query->action_) {
     case MultiDatabaseQuery::Action::CREATE:
-      if (repl_state->IsReplica()) {
+      if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
       return PreparedQuery{
@@ -3408,12 +3445,12 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       if (current_db.in_explicit_db_) {
         throw QueryException("Database switching is prohibited if session explicitly defines the used database");
       }
-      if (!dbms::allow_mt_repl && repl_state->IsReplica()) {
+      if (!dbms::allow_mt_repl && is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
       return PreparedQuery{{"STATUS"},
                            std::move(parsed_query.required_privileges),
-                           [db_name = query->db_name_, db_handler, &current_db, on_change_cb](
+                           [db_name = query->db_name_, db_handler, &current_db, on_change = std::move(on_change_cb)](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
                              std::vector<std::vector<TypedValue>> status;
                              std::string res;
@@ -3423,7 +3460,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
                                  res = "Already using " + db_name;
                                } else {
                                  auto tmp = db_handler->Get(db_name);
-                                 if (on_change_cb) (*on_change_cb)(db_name);  // Will trow if cb fails
+                                 if (on_change) (*on_change)(db_name);  // Will trow if cb fails
                                  current_db.SetCurrentDB(std::move(tmp), false);
                                  res = "Using " + db_name;
                                }
@@ -3442,7 +3479,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
                            query->db_name_};
 
     case MultiDatabaseQuery::Action::DROP:
-      if (repl_state->IsReplica()) {
+      if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
       return PreparedQuery{
@@ -3716,7 +3753,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       // TODO: ATM only a single database, will change when we have multiple database transactions
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
       bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr ||
-                    utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr;
+                    utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
+                    upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
     }
 
@@ -3764,9 +3802,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                               &query_execution->notifications, current_db_);
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       /// TODO: make replication DB agnostic
-      prepared_query = PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_,
-                                               &query_execution->notifications, *interpreter_context_->dbms_handler,
-                                               interpreter_context_->config, interpreter_context_->repl_state);
+      prepared_query =
+          PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
+                                  *interpreter_context_->dbms_handler, interpreter_context_->config);
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
@@ -3806,8 +3844,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw MultiDatabaseQueryInMulticommandTxException();
       }
       /// SYSTEM (Replication) + INTERPRETER
-      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_,
-                                                 interpreter_context_->repl_state);
+      prepared_query =
+          PrepareMultiDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       /// SYSTEM PURE ("SHOW DATABASES")
       /// INTERPRETER (TODO: "SHOW DATABASE")

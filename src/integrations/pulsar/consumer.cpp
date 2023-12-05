@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -67,7 +67,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consum
         return std::move(batch);
       case pulsar_client::Result::ResultOk:
         if (message.getMessageId() != last_message_id) {
-          batch.emplace_back(Message{std::move(message)});
+          batch.emplace_back(std::move(message));
         }
         break;
       default:

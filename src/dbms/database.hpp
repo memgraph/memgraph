@@ -48,7 +48,7 @@ class Database {
    *
    * @param config storage configuration
    */
-  explicit Database(storage::Config config, const replication::ReplicationState &repl_state);
+  explicit Database(storage::Config config, replication::ReplicationState &repl_state);
 
   /**
    * @brief Returns the raw storage pointer.
@@ -95,7 +95,7 @@ class Database {
    *
    * @return storage::StorageMode
    */
-  storage::StorageMode GetStorageMode() const { return storage_->GetStorageMode(); }
+  storage::StorageMode GetStorageMode() const noexcept { return storage_->GetStorageMode(); }
 
   /**
    * @brief Get the storage info
