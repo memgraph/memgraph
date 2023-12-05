@@ -54,6 +54,7 @@ def test_indexed_join_with_indices(memgraph):
     local_time_bytes = get_bytes("localtime_prop")
     local_date_time_bytes = get_bytes("localdatetime_prop")
     duration_bytes = get_bytes("duration_prop")
+    nonexistent_bytes = get_bytes("nonexistent_prop")
 
     # No property stored, no bytes allocated
     assert null_bytes == 0
@@ -138,6 +139,8 @@ def test_indexed_join_with_indices(memgraph):
     #   - id field contains the length of the specific temporal type (1, 2, 4 or 8 bytes) -> probably always 1
     #   - payload field contains the length of the microseconds (1, 2, 4, or 8 bytes) -> probably always 8
     assert duration_bytes == 12
+
+    assert nonexistent_bytes == 0
 
 
 if __name__ == "__main__":

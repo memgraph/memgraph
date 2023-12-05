@@ -535,6 +535,10 @@ class DbAccessor final {
 
   storage::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }
 
+  std::optional<storage::PropertyId> NameToPropertyIfExists(const std::string_view name) {
+    return accessor_->NameToPropertyIfExists(name);
+  }
+
   storage::LabelId NameToLabel(const std::string_view name) { return accessor_->NameToLabel(name); }
 
   storage::EdgeTypeId NameToEdgeType(const std::string_view name) { return accessor_->NameToEdgeType(name); }
