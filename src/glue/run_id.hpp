@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <string>
+
 namespace memgraph::glue {
 extern const std::string run_id_;
 }  // namespace memgraph::glue

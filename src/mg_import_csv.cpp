@@ -19,7 +19,9 @@
 #include <regex>
 #include <unordered_map>
 
+#include "dbms/inmemory/storage_helper.hpp"
 #include "helpers.hpp"
+#include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -702,14 +704,16 @@ int main(int argc, char *argv[]) {
   }
 
   std::unordered_map<NodeId, memgraph::storage::Gid> node_id_map;
-  auto store = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+  memgraph::storage::Config config{
 
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = false,
                      .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED,
                      .snapshot_on_exit = true},
-  });
+  };
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  auto store = memgraph::dbms::CreateInMemoryStorage(config, repl_state);
 
   memgraph::utils::Timer load_timer;
 

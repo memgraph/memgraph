@@ -1,0 +1,14 @@
+query_modules_storage_modes_cluster: &query_modules_storage_modes_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "query_modules_storage_modes.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Test query module API behavior in Memgraph storage modes"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/query_modules_storage_modes/query_modules/"
+    args: ["query_modules_storage_modes/test_query_modules_storage_modes.py"]
+    <<: *query_modules_storage_modes_cluster

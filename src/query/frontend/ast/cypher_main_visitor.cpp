@@ -124,6 +124,14 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
     info_query->info_type_ = DatabaseInfoQuery::InfoType::CONSTRAINT;
     return info_query;
   }
+  if (ctx->edgetypeInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::EDGE_TYPES;
+    return info_query;
+  }
+  if (ctx->nodelabelInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::NODE_LABELS;
+    return info_query;
+  }
   // Should never get here
   throw utils::NotYetImplemented("Database info query: '{}'", ctx->getText());
 }
@@ -200,6 +208,20 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
       throw SemanticException("Invalid combination of UNION and UNION ALL.");
     }
     cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
+  }
+
+  if (auto *index_hints_ctx = ctx->indexHints()) {
+    for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
+      auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
+      if (!index_hint_ctx->propertyKeyName()) {
+        cypher_query->index_hints_.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
+        continue;
+      }
+      cypher_query->index_hints_.emplace_back(
+          IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
+                    .label_ = label,
+                    .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
+    }
   }
 
   if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
@@ -1202,10 +1224,6 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
       call_proc->memory_limit_ = memory_limit_info->first;
       call_proc->memory_scale_ = memory_limit_info->second;
     }
-  } else {
-    // Default to 100 MB
-    call_proc->memory_limit_ = storage_->Create<PrimitiveLiteral>(TypedValue(100));
-    call_proc->memory_scale_ = 1024U * 1024U;
   }
 
   const auto &maybe_found =
@@ -1226,11 +1244,13 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
       throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
     }
   }
-  call_proc->is_write_ = maybe_found->second->info.is_write;
+  if (maybe_found) {
+    call_proc->is_write_ = maybe_found->second->info.is_write;
+  }
 
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
-    if (!maybe_found->second->results.empty() && !call_proc->void_procedure_) {
+    if ((maybe_found && !maybe_found->second->results.empty()) && !call_proc->void_procedure_) {
       throw SemanticException(
           "CALL without YIELD may only be used on procedures which do not "
           "return any result fields.");
@@ -1966,6 +1986,15 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
       edge_lambda.inner_edge = storage_->Create<Identifier>(traversed_edge_variable);
       auto traversed_node_variable = std::any_cast<std::string>(lambda->traversed_node->accept(this));
       edge_lambda.inner_node = storage_->Create<Identifier>(traversed_node_variable);
+      if (lambda->accumulated_path) {
+        auto accumulated_path_variable = std::any_cast<std::string>(lambda->accumulated_path->accept(this));
+        edge_lambda.accumulated_path = storage_->Create<Identifier>(accumulated_path_variable);
+
+        if (lambda->accumulated_weight) {
+          auto accumulated_weight_variable = std::any_cast<std::string>(lambda->accumulated_weight->accept(this));
+          edge_lambda.accumulated_weight = storage_->Create<Identifier>(accumulated_weight_variable);
+        }
+      }
       edge_lambda.expression = std::any_cast<Expression *>(lambda->expression()->accept(this));
       return edge_lambda;
     };
@@ -1990,6 +2019,15 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         // In variable expansion inner variables are mandatory.
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
+
+        // TODO: In what use case do we need accumulated path and weight here?
+        if (edge->filter_lambda_.accumulated_path) {
+          anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_path);
+
+          if (edge->filter_lambda_.accumulated_weight) {
+            anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_weight);
+          }
+        }
         break;
       case 1:
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
@@ -2001,9 +2039,21 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
           // Add mandatory inner variables for filter lambda.
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
+          if (edge->filter_lambda_.accumulated_path) {
+            anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_path);
+
+            if (edge->filter_lambda_.accumulated_weight) {
+              anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_weight);
+            }
+          }
         } else {
           // Other variable expands only have the filter lambda.
           edge->filter_lambda_ = visit_lambda(relationshipLambdas[0]);
+          if (edge->filter_lambda_.accumulated_weight) {
+            throw SemanticException(
+                "Accumulated weight in filter lambda can be used only with "
+                "shortest paths expansion.");
+          }
         }
         break;
       case 2:

@@ -12,11 +12,13 @@
 #pragma once
 
 #include <atomic>
+#include <utility>
 
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/result.hpp"
 
 /// REPLICATION ///
@@ -27,32 +29,46 @@
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
 class Storage;
-class ReplicationServer;
-class ReplicationClient;
+
+class ReplicationStorageClient;
 
 struct ReplicationStorageState {
   // Only MAIN can send
-  void InitializeTransaction(uint64_t seq_num);
+  void InitializeTransaction(uint64_t seq_num, Storage *storage);
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
   void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                        const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                        const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp);
-  bool FinalizeTransaction(uint64_t timestamp);
+  bool FinalizeTransaction(uint64_t timestamp, Storage *storage);
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;
-  auto ReplicasInfo() const -> std::vector<ReplicaInfo>;
+  auto ReplicasInfo(const Storage *storage) const -> std::vector<ReplicaInfo>;
 
   // History
-  void AddEpochToHistory(std::string prev_epoch);
+  void TrackLatestHistory();
   void AddEpochToHistoryForce(std::string prev_epoch);
 
   void Reset();
+
+  template <typename F>
+  bool WithClient(std::string_view replica_name, F &&callback) {
+    return replication_clients_.WithLock([replica_name, cb = std::forward<F>(callback)](auto &clients) {
+      for (const auto &client : clients) {
+        if (client->Name() == replica_name) {
+          cb(client.get());
+          return true;
+        }
+      }
+      return false;
+    });
+  }
 
   // Questions:
   //    - storage durability <- databases/*name*/wal and snapshots (where this for epoch_id)
@@ -73,13 +89,12 @@ struct ReplicationStorageState {
   // This way we can initialize client in main thread which means
   // that we can immediately notify the user if the initialization
   // failed.
-  using ReplicationClientPtr = std::unique_ptr<ReplicationClient>;
+  using ReplicationClientPtr = std::unique_ptr<ReplicationStorageClient>;
   using ReplicationClientList = utils::Synchronized<std::vector<ReplicationClientPtr>, utils::RWSpinLock>;
 
-  // NOTE: Server is not in MAIN it is in REPLICA
-  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
-
   ReplicationClientList replication_clients_;
+
+  memgraph::replication::ReplicationEpoch epoch_;
 };
 
 }  // namespace memgraph::storage

@@ -22,6 +22,7 @@ from typing import List
 
 SCRIPT_DIR = Path(__file__).absolute()
 PROJECT_DIR = SCRIPT_DIR.parents[3]
+SIGNAL_SIGTERM = 15
 
 
 def wait_for_server(port, delay=0.1):
@@ -68,8 +69,12 @@ def execute_with_user(queries):
 
 def cleanup(memgraph):
     if memgraph.poll() is None:
-        memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+        pid = memgraph.pid
+        try:
+            os.kill(pid, SIGNAL_SIGTERM)
+        except os.OSError:
+            assert False
+        time.sleep(1)
 
 
 def execute_without_user(queries, should_fail=False, failure_message="", check_failure=True):

@@ -38,7 +38,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
   Listener(Listener &&) = delete;
   Listener &operator=(const Listener &) = delete;
   Listener &operator=(Listener &&) = delete;
-  ~Listener() {}
+  ~Listener() = default;
 
   template <typename... Args>
   static std::shared_ptr<Listener> Create(Args &&...args) {

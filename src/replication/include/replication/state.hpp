@@ -11,58 +11,94 @@
 
 #pragma once
 
-#include <atomic>
-#include <cstdint>
-#include <variant>
-#include <vector>
-
 #include "kvstore/kvstore.hpp"
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
 #include "replication/mode.hpp"
+#include "replication/replication_client.hpp"
 #include "replication/role.hpp"
+#include "replication_server.hpp"
+#include "status.hpp"
 #include "utils/result.hpp"
+#include "utils/synchronized.hpp"
+
+#include <atomic>
+#include <cstdint>
+#include <list>
+#include <variant>
+#include <vector>
 
 namespace memgraph::replication {
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 
+enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
+
+struct RoleMainData {
+  RoleMainData() = default;
+  explicit RoleMainData(ReplicationEpoch e) : epoch_(std::move(e)) {}
+  ~RoleMainData() = default;
+
+  RoleMainData(RoleMainData const &) = delete;
+  RoleMainData &operator=(RoleMainData const &) = delete;
+  RoleMainData(RoleMainData &&) = default;
+  RoleMainData &operator=(RoleMainData &&) = default;
+
+  ReplicationEpoch epoch_;
+  std::list<ReplicationClient> registered_replicas_{};
+};
+
+struct RoleReplicaData {
+  ReplicationServerConfig config;
+  std::unique_ptr<ReplicationServer> server;
+};
+
+// Global (instance) level object
 struct ReplicationState {
-  ReplicationState(std::optional<std::filesystem::path> durability_dir);
+  explicit ReplicationState(std::optional<std::filesystem::path> durability_dir);
+  ~ReplicationState() = default;
 
   ReplicationState(ReplicationState const &) = delete;
   ReplicationState(ReplicationState &&) = delete;
   ReplicationState &operator=(ReplicationState const &) = delete;
   ReplicationState &operator=(ReplicationState &&) = delete;
 
-  void SetRole(ReplicationRole role) { return replication_role_.store(role); }
-  auto GetRole() const -> ReplicationRole { return replication_role_.load(); }
-  bool IsMain() const { return replication_role_ == ReplicationRole::MAIN; }
-  bool IsReplica() const { return replication_role_ == ReplicationRole::REPLICA; }
-
-  auto GetEpoch() const -> const ReplicationEpoch & { return epoch_; }
-  auto GetEpoch() -> ReplicationEpoch & { return epoch_; }
-
   enum class FetchReplicationError : uint8_t {
     NOTHING_FETCHED,
     PARSE_ERROR,
   };
-  using ReplicationDataReplica = ReplicationServerConfig;
-  using ReplicationDataMain = std::vector<ReplicationClientConfig>;
-  using ReplicationData = std::variant<ReplicationDataMain, ReplicationDataReplica>;
-  using FetchReplicationResult = utils::BasicResult<FetchReplicationError, ReplicationData>;
-  auto FetchReplicationData() -> FetchReplicationResult;
+
+  using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData>;
+  using FetchReplicationResult_t = utils::BasicResult<FetchReplicationError, ReplicationData_t>;
+  auto FetchReplicationData() -> FetchReplicationResult_t;
+
+  auto GetRole() const -> ReplicationRole {
+    return std::holds_alternative<RoleReplicaData>(replication_data_) ? ReplicationRole::REPLICA
+                                                                      : ReplicationRole::MAIN;
+  }
+  bool IsMain() const { return GetRole() == ReplicationRole::MAIN; }
+  bool IsReplica() const { return GetRole() == ReplicationRole::REPLICA; }
 
   bool ShouldPersist() const { return nullptr != durability_; }
-  bool TryPersistRoleMain();
+  bool TryPersistRoleMain(std::string new_epoch);
   bool TryPersistRoleReplica(const ReplicationServerConfig &config);
-  bool TryPersistUnregisterReplica(std::string_view &name);
+  bool TryPersistUnregisterReplica(std::string_view name);
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config);
 
+  // TODO: locked access
+  auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
+  auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
+  utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
+
+  bool SetReplicationRoleMain();
+
+  bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
+
  private:
-  ReplicationEpoch epoch_;
-  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
+  bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
+
   std::unique_ptr<kvstore::KVStore> durability_;
+  ReplicationData_t replication_data_;
   std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
 };
 

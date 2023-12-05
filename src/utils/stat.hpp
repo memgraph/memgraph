@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
+#include <optional>
 
 #include <unistd.h>
 
@@ -19,6 +21,8 @@
 #include "utils/string.hpp"
 
 namespace memgraph::utils {
+
+static constexpr int64_t VM_MAX_MAP_COUNT_DEFAULT{-1};
 
 /// Returns the number of bytes a directory is using on disk. If the given path
 /// isn't a directory, zero will be returned.
@@ -40,7 +44,7 @@ inline uint64_t GetDirDiskUsage(const std::filesystem::path &path) {
 }
 
 /// Returns the number of bytes the process is using in the memory.
-inline uint64_t GetMemoryUsage() {
+inline uint64_t GetMemoryRES() {
   // Get PID of entire process.
   pid_t pid = getpid();
   uint64_t memory = 0;
@@ -52,6 +56,22 @@ inline uint64_t GetMemoryUsage() {
     }
   }
   return memory;
+}
+
+/// Returns the size of vm.max_map_count
+inline std::optional<int64_t> GetVmMaxMapCount() {
+  auto vm_max_map_count_data = utils::ReadLines("/proc/sys/vm/max_map_count");
+  if (vm_max_map_count_data.empty()) {
+    return std::nullopt;
+  }
+  if (vm_max_map_count_data.size() != 1) {
+    return std::nullopt;
+  }
+  const auto parts{utils::Split(vm_max_map_count_data[0])};
+  if (parts.size() != 1) {
+    return std::nullopt;
+  }
+  return std::stoi(parts[0]);
 }
 
 }  // namespace memgraph::utils

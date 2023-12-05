@@ -22,6 +22,7 @@
 #include "query/common.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
+#include "query/plan/preprocess.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "utils/bound.hpp"
@@ -31,9 +32,7 @@
 #include "utils/synchronized.hpp"
 #include "utils/visitor.hpp"
 
-namespace memgraph {
-
-namespace query {
+namespace memgraph::query {
 
 struct ExecutionContext;
 class ExpressionEvaluator;
@@ -67,7 +66,7 @@ class Cursor {
   /// Perform cleanup which may throw an exception
   virtual void Shutdown() = 0;
 
-  virtual ~Cursor() {}
+  virtual ~Cursor() = default;
 };
 
 /// unique_ptr to Cursor managed with a custom deleter.
@@ -129,6 +128,8 @@ class Foreach;
 class EmptyResult;
 class EvaluatePatternFilter;
 class Apply;
+class IndexedJoin;
+class HashJoin;
 
 using LogicalOperatorCompositeVisitor =
     utils::CompositeVisitor<Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange,
@@ -136,7 +137,7 @@ using LogicalOperatorCompositeVisitor =
                             ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
                             RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
                             OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
-                            Foreach, EmptyResult, EvaluatePatternFilter, Apply>;
+                            Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -169,7 +170,7 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
   static const utils::TypeInfo kType;
   virtual const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
-  virtual ~LogicalOperator() {}
+  ~LogicalOperator() override = default;
 
   /** Construct a @c Cursor which is used to run this operator.
    *
@@ -271,7 +272,7 @@ class Once : public memgraph::query::plan::LogicalOperator {
  private:
   class OnceCursor : public Cursor {
    public:
-    OnceCursor() {}
+    OnceCursor() = default;
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -337,7 +338,7 @@ class CreateNode : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  CreateNode() {}
+  CreateNode() = default;
 
   /**
    * @param input Optional. If @c nullptr, then a single node will be
@@ -346,7 +347,7 @@ class CreateNode : public memgraph::query::plan::LogicalOperator {
    *    successful pull from the given input.
    * @param node_info @c NodeCreationInfo
    */
-  CreateNode(const std::shared_ptr<LogicalOperator> &input, const NodeCreationInfo &node_info);
+  CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeCreationInfo node_info);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -442,7 +443,7 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  CreateExpand() {}
+  CreateExpand() = default;
 
   /** @brief Construct @c CreateExpand.
    *
@@ -456,8 +457,8 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
    * @param existing_node @c bool indicating whether the @c node_atom refers to
    *     an existing node. If @c false, the operator will also create the node.
    */
-  CreateExpand(const NodeCreationInfo &node_info, const EdgeCreationInfo &edge_info,
-               const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, bool existing_node);
+  CreateExpand(NodeCreationInfo node_info, EdgeCreationInfo edge_info, const std::shared_ptr<LogicalOperator> &input,
+               Symbol input_symbol, bool existing_node);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -526,7 +527,7 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  ScanAll() {}
+  ScanAll() = default;
   ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -568,7 +569,7 @@ class ScanAllByLabel : public memgraph::query::plan::ScanAll {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  ScanAllByLabel() {}
+  ScanAllByLabel() = default;
   ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
                  storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -603,7 +604,7 @@ class ScanAllByLabelPropertyRange : public memgraph::query::plan::ScanAll {
 
   /** Bound with expression which when evaluated produces the bound value. */
   using Bound = utils::Bound<Expression *>;
-  ScanAllByLabelPropertyRange() {}
+  ScanAllByLabelPropertyRange() = default;
   /**
    * Constructs the operator for given label and property value in range
    * (inclusive).
@@ -619,7 +620,7 @@ class ScanAllByLabelPropertyRange : public memgraph::query::plan::ScanAll {
    * @param view storage::View used when obtaining vertices.
    */
   ScanAllByLabelPropertyRange(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                              storage::LabelId label, storage::PropertyId property, const std::string &property_name,
+                              storage::LabelId label, storage::PropertyId property, std::string property_name,
                               std::optional<Bound> lower_bound, std::optional<Bound> upper_bound,
                               storage::View view = storage::View::OLD);
 
@@ -672,7 +673,7 @@ class ScanAllByLabelPropertyValue : public memgraph::query::plan::ScanAll {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  ScanAllByLabelPropertyValue() {}
+  ScanAllByLabelPropertyValue() = default;
   /**
    * Constructs the operator for given label and property value.
    *
@@ -684,7 +685,7 @@ class ScanAllByLabelPropertyValue : public memgraph::query::plan::ScanAll {
    * @param view storage::View used when obtaining vertices.
    */
   ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                              storage::LabelId label, storage::PropertyId property, const std::string &property_name,
+                              storage::LabelId label, storage::PropertyId property, std::string property_name,
                               Expression *expression, storage::View view = storage::View::OLD);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -724,9 +725,9 @@ class ScanAllByLabelProperty : public memgraph::query::plan::ScanAll {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  ScanAllByLabelProperty() {}
+  ScanAllByLabelProperty() = default;
   ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
-                         storage::PropertyId property, const std::string &property_name,
+                         storage::PropertyId property, std::string property_name,
                          storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -760,7 +761,7 @@ class ScanAllById : public memgraph::query::plan::ScanAll {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  ScanAllById() {}
+  ScanAllById() = default;
   ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
               storage::View view = storage::View::OLD);
 
@@ -839,7 +840,7 @@ class Expand : public memgraph::query::plan::LogicalOperator {
          EdgeAtom::Direction direction, const std::vector<storage::EdgeTypeId> &edge_types, bool existing_node,
          storage::View view);
 
-  Expand() {}
+  Expand() = default;
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -916,12 +917,18 @@ struct ExpansionLambda {
   Symbol inner_node_symbol;
   /// Expression used in lambda during expansion.
   Expression *expression;
+  /// Currently expanded accumulated path symbol.
+  std::optional<Symbol> accumulated_path_symbol;
+  /// Currently expanded accumulated weight symbol.
+  std::optional<Symbol> accumulated_weight_symbol;
 
   ExpansionLambda Clone(AstStorage *storage) const {
     ExpansionLambda object;
     object.inner_edge_symbol = inner_edge_symbol;
     object.inner_node_symbol = inner_node_symbol;
     object.expression = expression ? expression->Clone(storage) : nullptr;
+    object.accumulated_path_symbol = accumulated_path_symbol;
+    object.accumulated_weight_symbol = accumulated_weight_symbol;
     return object;
   }
 };
@@ -947,7 +954,7 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  ExpandVariable() {}
+  ExpandVariable() = default;
 
   /**
    * Creates a variable-length expansion. Most params are forwarded
@@ -1070,10 +1077,10 @@ class ConstructNamedPath : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  ConstructNamedPath() {}
+  ConstructNamedPath() = default;
   ConstructNamedPath(const std::shared_ptr<LogicalOperator> &input, Symbol path_symbol,
                      const std::vector<Symbol> &path_elements)
-      : input_(input), path_symbol_(path_symbol), path_elements_(path_elements) {}
+      : input_(input), path_symbol_(std::move(path_symbol)), path_elements_(path_elements) {}
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1105,10 +1112,13 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Filter() {}
+  Filter() = default;
 
-  Filter(const std::shared_ptr<LogicalOperator> &input_,
-         const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters_, Expression *expression_);
+  Filter(const std::shared_ptr<LogicalOperator> &input,
+         const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression);
+  Filter(const std::shared_ptr<LogicalOperator> &input,
+         const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression,
+         Filters all_filters);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1120,6 +1130,53 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::vector<std::shared_ptr<memgraph::query::plan::LogicalOperator>> pattern_filters_;
   Expression *expression_;
+  memgraph::query::plan::Filters all_filters_;
+
+  static std::string SingleFilterName(const query::plan::FilterInfo &single_filter) {
+    using Type = query::plan::FilterInfo::Type;
+    if (single_filter.type == Type::Generic) {
+      std::set<std::string, std::less<>> symbol_names;
+      for (const auto &symbol : single_filter.used_symbols) {
+        symbol_names.insert(symbol.name());
+      }
+      return fmt::format("Generic {{{}}}",
+                         utils::IterableToString(symbol_names, ", ", [](const auto &name) { return name; }));
+    } else if (single_filter.type == Type::Id) {
+      return fmt::format("id({})", single_filter.id_filter->symbol_.name());
+    } else if (single_filter.type == Type::Label) {
+      if (single_filter.expression->GetTypeInfo() != LabelsTest::kType) {
+        LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
+      }
+      auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+      std::set<std::string, std::less<>> label_names;
+      for (const auto &label : filter_expression->labels_) {
+        label_names.insert(label.name);
+      }
+
+      if (filter_expression->expression_->GetTypeInfo() != Identifier::kType) {
+        return fmt::format("(:{})", utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
+      }
+      auto identifier_expression = static_cast<Identifier *>(filter_expression->expression_);
+
+      return fmt::format("({} :{})", identifier_expression->name_,
+                         utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
+    } else if (single_filter.type == Type::Pattern) {
+      return "Pattern";
+    } else if (single_filter.type == Type::Property) {
+      return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(),
+                         single_filter.property_filter->property_.name);
+    } else {
+      LOG_FATAL("Unexpected FilterInfo::Type");
+    }
+  }
+
+  std::string ToString() const override {
+    std::set<std::string, std::less<>> filter_names;
+    for (const auto &filter : all_filters_) {
+      filter_names.insert(Filter::SingleFilterName(filter));
+    }
+    return fmt::format("Filter {}", utils::IterableToString(filter_names, ", ", [](const auto &name) { return name; }));
+  }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<Filter>();
@@ -1161,7 +1218,7 @@ class Produce : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Produce() {}
+  Produce() = default;
 
   Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -1218,7 +1275,7 @@ class Delete : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Delete() {}
+  Delete() = default;
 
   Delete(const std::shared_ptr<LogicalOperator> &input_, const std::vector<Expression *> &expressions, bool detach_);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -1273,7 +1330,7 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  SetProperty() {}
+  SetProperty() = default;
 
   SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property, PropertyLookup *lhs,
               Expression *rhs);
@@ -1332,7 +1389,7 @@ class SetProperties : public memgraph::query::plan::LogicalOperator {
   /// that the old properties are discarded and replaced with new ones.
   enum class Op { UPDATE, REPLACE };
 
-  SetProperties() {}
+  SetProperties() = default;
 
   SetProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Expression *rhs, Op op);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -1380,7 +1437,7 @@ class SetLabels : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  SetLabels() {}
+  SetLabels() = default;
 
   SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
             const std::vector<storage::LabelId> &labels);
@@ -1424,7 +1481,7 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  RemoveProperty() {}
+  RemoveProperty() = default;
 
   RemoveProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property, PropertyLookup *lhs);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -1469,7 +1526,7 @@ class RemoveLabels : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  RemoveLabels() {}
+  RemoveLabels() = default;
 
   RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                const std::vector<storage::LabelId> &labels);
@@ -1525,7 +1582,7 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  EdgeUniquenessFilter() {}
+  EdgeUniquenessFilter() = default;
 
   EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator> &input, Symbol expand_symbol,
                        const std::vector<Symbol> &previous_symbols);
@@ -1536,6 +1593,12 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
   bool HasSingleInput() const override { return true; }
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString() const override {
+    return fmt::format("EdgeUniquenessFilter {{{0} : {1}}}",
+                       utils::IterableToString(previous_symbols_, ", ", [](const auto &sym) { return sym.name(); }),
+                       expand_symbol_.name());
+  }
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Symbol expand_symbol_;
@@ -1577,7 +1640,7 @@ class EmptyResult : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  EmptyResult() {}
+  EmptyResult() = default;
 
   EmptyResult(const std::shared_ptr<LogicalOperator> &input);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -1629,7 +1692,7 @@ class Accumulate : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Accumulate() {}
+  Accumulate() = default;
 
   Accumulate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &symbols,
              bool advance_command = false);
@@ -1699,6 +1762,7 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   Aggregate() = default;
   Aggregate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Element> &aggregations,
             const std::vector<Expression *> &group_by, const std::vector<Symbol> &remember);
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1751,7 +1815,7 @@ class Skip : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Skip() {}
+  Skip() = default;
 
   Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -1797,7 +1861,7 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  EvaluatePatternFilter() {}
+  EvaluatePatternFilter() = default;
 
   EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -1851,7 +1915,7 @@ class Limit : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Limit() {}
+  Limit() = default;
 
   Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -1906,7 +1970,7 @@ class OrderBy : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  OrderBy() {}
+  OrderBy() = default;
 
   OrderBy(const std::shared_ptr<LogicalOperator> &input, const std::vector<SortItem> &order_by,
           const std::vector<Symbol> &output_symbols);
@@ -1958,7 +2022,7 @@ class Merge : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Merge() {}
+  Merge() = default;
 
   Merge(const std::shared_ptr<LogicalOperator> &input, const std::shared_ptr<LogicalOperator> &merge_match,
         const std::shared_ptr<LogicalOperator> &merge_create);
@@ -2018,7 +2082,7 @@ class Optional : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Optional() {}
+  Optional() = default;
 
   Optional(const std::shared_ptr<LogicalOperator> &input, const std::shared_ptr<LogicalOperator> &optional,
            const std::vector<Symbol> &optional_symbols);
@@ -2072,7 +2136,7 @@ class Unwind : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Unwind() {}
+  Unwind() = default;
 
   Unwind(const std::shared_ptr<LogicalOperator> &input, Expression *input_expression_, Symbol output_symbol);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -2107,7 +2171,7 @@ class Distinct : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Distinct() {}
+  Distinct() = default;
 
   Distinct(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &value_symbols);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -2140,7 +2204,7 @@ class Union : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Union() {}
+  Union() = default;
 
   Union(const std::shared_ptr<LogicalOperator> &left_op, const std::shared_ptr<LogicalOperator> &right_op,
         const std::vector<Symbol> &union_symbols, const std::vector<Symbol> &left_symbols,
@@ -2196,7 +2260,7 @@ class Cartesian : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Cartesian() {}
+  Cartesian() = default;
   /** Construct the operator with left input branch and right input branch. */
   Cartesian(const std::shared_ptr<LogicalOperator> &left_op, const std::vector<Symbol> &left_symbols,
             const std::shared_ptr<LogicalOperator> &right_op, const std::vector<Symbol> &right_symbols)
@@ -2231,7 +2295,7 @@ class OutputTable : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  OutputTable() {}
+  OutputTable() = default;
   OutputTable(std::vector<Symbol> output_symbols,
               std::function<std::vector<std::vector<TypedValue>>(Frame *, ExecutionContext *)> callback);
   OutputTable(std::vector<Symbol> output_symbols, std::vector<std::vector<TypedValue>> rows);
@@ -2267,7 +2331,7 @@ class OutputTableStream : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  OutputTableStream() {}
+  OutputTableStream() = default;
   OutputTableStream(std::vector<Symbol> output_symbols,
                     std::function<std::optional<std::vector<TypedValue>>(Frame *, ExecutionContext *)> callback);
 
@@ -2302,7 +2366,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   CallProcedure() = default;
   CallProcedure(std::shared_ptr<LogicalOperator> input, std::string name, std::vector<Expression *> arguments,
                 std::vector<std::string> fields, std::vector<Symbol> symbols, Expression *memory_limit,
-                size_t memory_scale, bool is_write, bool void_procedure = false);
+                size_t memory_scale, bool is_write, int64_t procedure_id, bool void_procedure = false);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -2324,6 +2388,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
   bool is_write_;
+  int64_t procedure_id_;
   bool void_procedure_;
   mutable utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
   utils::MemoryResource *memory_resource = &monotonic_memory;
@@ -2346,6 +2411,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->is_write_ = is_write_;
+    object->procedure_id_ = procedure_id_;
     object->void_procedure_ = void_procedure_;
     return object;
   }
@@ -2436,7 +2502,7 @@ class Apply : public memgraph::query::plan::LogicalOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Apply() {}
+  Apply() = default;
 
   Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
         bool subquery_has_return);
@@ -2477,6 +2543,96 @@ class Apply : public memgraph::query::plan::LogicalOperator {
   };
 };
 
+/// Applies symbols from both join branches
+class IndexedJoin : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  IndexedJoin() = default;
+
+  IndexedJoin(std::shared_ptr<LogicalOperator> main_branch, std::shared_ptr<LogicalOperator> sub_branch);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource * /*unused*/) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable & /*unused*/) const override;
+
+  bool HasSingleInput() const override;
+  std::shared_ptr<LogicalOperator> input() const override;
+  void set_input(std::shared_ptr<LogicalOperator> /*unused*/) override;
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> main_branch_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> sub_branch_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<IndexedJoin>();
+    object->main_branch_ = main_branch_ ? main_branch_->Clone(storage) : nullptr;
+    object->sub_branch_ = sub_branch_ ? sub_branch_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ private:
+  class IndexedJoinCursor : public Cursor {
+   public:
+    IndexedJoinCursor(const IndexedJoin &, utils::MemoryResource *);
+    bool Pull(Frame & /*unused*/, ExecutionContext & /*unused*/) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    const IndexedJoin &self_;
+    UniqueCursorPtr main_branch_;
+    UniqueCursorPtr sub_branch_;
+    bool pull_input_{true};
+  };
+};
+
+/// Operator for producing the hash join of two input branches
+class HashJoin : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  HashJoin() = default;
+  /** Construct the operator with left input branch and right input branch. */
+  HashJoin(const std::shared_ptr<LogicalOperator> &left_op, const std::vector<Symbol> &left_symbols,
+           const std::shared_ptr<LogicalOperator> &right_op, const std::vector<Symbol> &right_symbols,
+           EqualOperator *hash_join_condition)
+      : left_op_(left_op),
+        left_symbols_(left_symbols),
+        right_op_(right_op),
+        right_symbols_(right_symbols),
+        hash_join_condition_(hash_join_condition) {}
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override;
+  std::shared_ptr<LogicalOperator> input() const override;
+  void set_input(std::shared_ptr<LogicalOperator>) override;
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> left_op_;
+  std::vector<Symbol> left_symbols_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> right_op_;
+  std::vector<Symbol> right_symbols_;
+  EqualOperator *hash_join_condition_;
+
+  std::string ToString() const override {
+    return fmt::format("HashJoin {{{} : {}}}",
+                       utils::IterableToString(left_symbols_, ", ", [](const auto &sym) { return sym.name(); }),
+                       utils::IterableToString(right_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
+  }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<HashJoin>();
+    object->left_op_ = left_op_ ? left_op_->Clone(storage) : nullptr;
+    object->left_symbols_ = left_symbols_;
+    object->right_op_ = right_op_ ? right_op_->Clone(storage) : nullptr;
+    object->right_symbols_ = right_symbols_;
+    object->hash_join_condition_ = hash_join_condition_ ? hash_join_condition_->Clone(storage) : nullptr;
+    return object;
+  }
+};
+
 }  // namespace plan
-}  // namespace query
-}  // namespace memgraph
+}  // namespace memgraph::query

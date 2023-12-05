@@ -25,6 +25,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/stream/streams.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -45,7 +46,7 @@ const char *kRemoveInternalLabelProperty = "MATCH (u) REMOVE u:__mg_vertex__, u.
 struct DatabaseState {
   struct Vertex {
     int64_t id;
-    std::set<std::string> labels;
+    std::set<std::string, std::less<>> labels;
     std::map<std::string, memgraph::storage::PropertyValue> props;
   };
 
@@ -66,7 +67,7 @@ struct DatabaseState {
 
   struct LabelPropertiesItem {
     std::string label;
-    std::set<std::string> properties;
+    std::set<std::string, std::less<>> properties;
   };
 
   std::set<Vertex> vertices;
@@ -138,7 +139,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   std::set<DatabaseState::Vertex> vertices;
   auto dba = db->Access();
   for (const auto &vertex : dba->Vertices(memgraph::storage::View::NEW)) {
-    std::set<std::string> labels;
+    std::set<std::string, std::less<>> labels;
     auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
     MG_ASSERT(maybe_labels.HasValue());
     for (const auto &label : *maybe_labels) {
@@ -197,7 +198,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
       existence_constraints.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
     }
     for (const auto &item : info.unique) {
-      std::set<std::string> properties;
+      std::set<std::string, std::less<>> properties;
       for (const auto &property : item.second) {
         properties.insert(dba->PropertyToName(property));
       }
@@ -282,7 +283,7 @@ class DumpTest : public ::testing::Test {
   const std::string testSuite = "query_dump";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump_class"};
 
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+  memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
         config.durability.storage_directory = data_directory;
@@ -295,6 +296,8 @@ class DumpTest : public ::testing::Test {
       }()  // iile
   };
 
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -308,7 +311,7 @@ class DumpTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr};
+  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr, &repl_state};
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -697,8 +700,9 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s1").disk;
     config.force_on_disk = true;
   }
+  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(config));
 
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config);
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config, repl_state);
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
   auto &db_acc = *db_acc_opt;
@@ -707,7 +711,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
       << "Wrong storage mode!";
 
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state);
 
   {
     ResultStreamFaker stream(this->db->storage());
@@ -811,7 +815,8 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     config.force_on_disk = true;
   }
 
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config);
+  memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
   auto &db_acc = *db_acc_opt;
@@ -820,7 +825,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
       << "Wrong storage mode!";
 
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state);
   {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());

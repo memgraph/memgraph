@@ -211,8 +211,7 @@ uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(
 void DiskLabelPropertyIndex::LoadIndexInfo(const std::vector<std::string> &keys) {
   for (const auto &label_property : keys) {
     std::vector<std::string> label_property_split = utils::Split(label_property, ",");
-    index_.emplace(
-        std::make_pair(LabelId::FromString(label_property_split[0]), PropertyId::FromString(label_property_split[1])));
+    index_.emplace(LabelId::FromString(label_property_split[0]), PropertyId::FromString(label_property_split[1]));
   }
 }
 

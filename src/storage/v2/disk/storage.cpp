@@ -71,6 +71,37 @@
 
 namespace memgraph::storage {
 
+namespace {
+
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
+    -> Result<EdgesVertexAccessorResult> {
+  auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
+    // Obtain the locks by `gid` order to avoid lock cycles.
+    auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+    auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
+    if (from_vertex->gid < to_vertex->gid) {
+      guard_from.lock();
+      guard_to.lock();
+    } else if (from_vertex->gid > to_vertex->gid) {
+      guard_to.lock();
+      guard_from.lock();
+    } else {
+      // The vertices are the same vertex, only lock one.
+      guard_from.lock();
+    }
+
+    // With the potentially cheaper side FindEdges
+    const auto out_n = from_vertex->out_edges.size();
+    const auto in_n = to_vertex->in_edges.size();
+    return out_n <= in_n;
+  };
+
+  return use_out_edges(from_vertex->vertex_, to_vertex->vertex_) ? from_vertex->OutEdges(view, {edge_type}, to_vertex)
+                                                                 : to_vertex->InEdges(view, {edge_type}, from_vertex);
+}
+
+}  // namespace
+
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
@@ -271,7 +302,6 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
     Abort();
   }
   FinalizeTransaction();
-  transaction_.deltas.~Bond<PmrListDelta>();
 }
 
 void DiskStorage::LoadPersistingMetadataInfo() {
@@ -462,12 +492,12 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
         AllVerticesIterable(disk_storage->edge_import_mode_cache_->AccessToVertices(), storage_, &transaction_, view));
   }
   if (transaction_.scanned_all_vertices_) {
-    return VerticesIterable(AllVerticesIterable(transaction_.vertices_.access(), storage_, &transaction_, view));
+    return VerticesIterable(AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view));
   }
 
   disk_storage->LoadVerticesToMainMemoryCache(&transaction_);
   transaction_.scanned_all_vertices_ = true;
-  return VerticesIterable(AllVerticesIterable(transaction_.vertices_.access(), storage_, &transaction_, view));
+  return VerticesIterable(AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
@@ -586,7 +616,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCache(
     Transaction *transaction, LabelId label, View view, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices) {
-  auto main_cache_acc = transaction->vertices_.access();
+  auto main_cache_acc = transaction->vertices_->access();
   std::unordered_set<Gid> gids;
   gids.reserve(main_cache_acc.size());
 
@@ -638,7 +668,7 @@ void DiskStorage::LoadVerticesFromDiskLabelIndex(Transaction *transaction, Label
 std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
     Transaction *transaction, LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter) {
-  auto main_cache_acc = transaction->vertices_.access();
+  auto main_cache_acc = transaction->vertices_->access();
   std::unordered_set<storage::Gid> gids;
   gids.reserve(main_cache_acc.size());
 
@@ -721,7 +751,7 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
     utils::SkipList<Vertex> *indexed_vertices) {
-  auto main_cache_acc = transaction->vertices_.access();
+  auto main_cache_acc = transaction->vertices_->access();
   std::unordered_set<storage::Gid> gids;
   gids.reserve(main_cache_acc.size());
 
@@ -802,7 +832,7 @@ StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
-  info.memory_usage = utils::GetMemoryUsage();
+  info.memory_res = utils::GetMemoryRES();
   info.disk_usage = GetDiskSpaceUsage();
   return info;
 }
@@ -849,10 +879,9 @@ EdgeImportMode DiskStorage::GetEdgeImportMode() const {
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
-  OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto gid = disk_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
-  auto acc = transaction_.vertices_.access();
+  auto acc = transaction_.vertices_->access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
@@ -912,7 +941,6 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                            EdgeTypeId edge_type) {
-  OOMExceptionEnabler oom_exception;
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -924,8 +952,8 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
   if (storage_->config_.items.properties_on_edges) {
-    auto acc =
-        edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges() : transaction_.edges_.access();
+    auto acc = edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges()
+                                       : transaction_.edges_->access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -947,9 +975,26 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
   transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
+  if (storage_->config_.items.enable_schema_metadata) {
+    storage_->stored_edge_types_.try_insert(edge_type);
+  }
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
+}
+
+std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid gid, View view, EdgeTypeId edge_type,
+                                                                VertexAccessor *from_vertex,
+                                                                VertexAccessor *to_vertex) {
+  auto res = FindEdges(view, edge_type, from_vertex, to_vertex);
+  if (res.HasError()) return std::nullopt;  // TODO: use a Result type
+
+  auto const it = std::ranges::find_if(
+      res->edges, [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; });
+
+  if (it == res->edges.end()) return std::nullopt;  // TODO: use a Result type
+
+  return *it;
 }
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetFrom(EdgeAccessor * /*edge*/, VertexAccessor * /*new_from*/) {
@@ -959,6 +1004,11 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetFrom(EdgeAccessor * /*edg
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetTo(EdgeAccessor * /*edge*/, VertexAccessor * /*new_to*/) {
   MG_ASSERT(false, "EdgeSetTo is currently only implemented for InMemory storage");
+  return Error::NONEXISTENT_OBJECT;
+}
+
+Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeChangeType(EdgeAccessor * /*edge*/, EdgeTypeId /*new_edge_type*/) {
+  MG_ASSERT(false, "EdgeChangeType is currently only implemented for InMemory storage");
   return Error::NONEXISTENT_OBJECT;
 }
 
@@ -1277,7 +1327,7 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
                                                                                 const std::string &key,
                                                                                 const std::string &value,
                                                                                 std::string &&ts) {
-  auto main_storage_accessor = transaction->vertices_.access();
+  auto main_storage_accessor = transaction->vertices_->access();
 
   storage::Gid gid = Gid::FromString(utils::ExtractGidFromKey(key));
   if (ObjectExistsInCache(main_storage_accessor, gid)) {
@@ -1292,7 +1342,6 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
 VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
                                                  storage::Gid gid, std::vector<LabelId> label_ids,
                                                  PropertyStore properties, Delta *delta) {
-  OOMExceptionEnabler oom_exception;
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
@@ -1304,7 +1353,7 @@ VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils
 
 std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transaction *transaction, View view) {
   auto acc = edge_import_status_ == EdgeImportMode::ACTIVE ? edge_import_mode_cache_->AccessToVertices()
-                                                           : transaction->vertices_.access();
+                                                           : transaction->vertices_->access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
     return VertexAccessor::Create(&*vertex_it, this, transaction, view);
@@ -1338,7 +1387,6 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
                                                             Transaction *transaction, EdgeTypeId edge_type,
                                                             storage::Gid gid, const std::string_view properties,
                                                             const std::string &old_disk_key, std::string &&read_ts) {
-  OOMExceptionEnabler oom_exception;
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -1353,7 +1401,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
 
   EdgeRef edge(gid);
   if (config_.items.properties_on_edges) {
-    auto acc = edge_import_mode_active ? edge_import_mode_cache_->AccessToEdges() : transaction->edges_.access();
+    auto acc = edge_import_mode_active ? edge_import_mode_cache_->AccessToEdges() : transaction->edges_->access();
     auto *delta = CreateDeleteDeserializedObjectDelta(transaction, old_disk_key, std::move(read_ts));
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -1551,7 +1599,7 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Commit(
-    const std::optional<uint64_t> desired_commit_timestamp) {
+    const std::optional<uint64_t> desired_commit_timestamp, bool /*is_main*/) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -1655,7 +1703,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     } else {
       std::vector<std::vector<PropertyValue>> unique_storage;
       if (auto vertices_flush_res =
-              disk_storage->FlushVertices(&transaction_, transaction_.vertices_.access(), unique_storage);
+              disk_storage->FlushVertices(&transaction_, transaction_.vertices_->access(), unique_storage);
           vertices_flush_res.HasError()) {
         Abort();
         return vertices_flush_res.GetError();
@@ -1666,7 +1714,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         return del_vertices_res.GetError();
       }
 
-      if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, transaction_.edges_.access());
+      if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, transaction_.edges_->access());
           modified_edges_res.HasError()) {
         Abort();
         return modified_edges_res.GetError();
@@ -1957,7 +2005,7 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
-Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
+Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool /*is_main*/) {
   /// We acquire the transaction engine lock here because we access (and
   /// modify) the transaction engine variables (`transaction_id` and
   /// `timestamp`) below.
@@ -1982,7 +2030,8 @@ uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_comm
   return *desired_commit_timestamp;
 }
 
-std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
+std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLevel> override_isolation_level,
+                                                       bool /*is_main*/) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
@@ -1990,7 +2039,8 @@ std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLe
   return std::unique_ptr<DiskAccessor>(
       new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_});
 }
-std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level) {
+std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                             bool /*is_main*/) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");

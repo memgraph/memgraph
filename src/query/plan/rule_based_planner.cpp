@@ -17,6 +17,7 @@
 #include <stack>
 #include <unordered_set>
 
+#include "query/plan/preprocess.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -516,13 +517,24 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, cons
 
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
   Expression *filter_expr = nullptr;
+  std::vector<FilterInfo> and_joinable_filters{};
   for (auto filters_it = filters.begin(); filters_it != filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
-      filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, filters_it->expression);
+      and_joinable_filters.emplace_back(*filters_it);
       filters_it = filters.erase(filters_it);
     } else {
       filters_it++;
     }
+  }
+  // Idea here is to join filters in a way
+  // that pattern filter ( exists() ) is at the end
+  // so if any of the AND filters before
+  // evaluate to false we don't need to
+  // evaluate pattern ( exists() ) filter
+  std::partition(and_joinable_filters.begin(), and_joinable_filters.end(),
+                 [](const FilterInfo &filter_info) { return filter_info.type != FilterInfo::Type::Pattern; });
+  for (auto &and_joinable_filter : and_joinable_filters) {
+    filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, and_joinable_filter.expression);
   }
   return filter_expr;
 }
@@ -605,6 +617,9 @@ std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::
   return std::make_unique<Union>(left_op, right_op, cypher_union.union_symbols_, left_op->OutputSymbols(symbol_table),
                                  right_op->OutputSymbols(symbol_table));
 }
+
+Symbol GetSymbol(NodeAtom *atom, const SymbolTable &symbol_table) { return symbol_table.at(*atom->identifier_); }
+Symbol GetSymbol(EdgeAtom *atom, const SymbolTable &symbol_table) { return symbol_table.at(*atom->identifier_); }
 
 }  // namespace impl
 

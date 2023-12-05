@@ -65,7 +65,7 @@ DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed i
 // Storage flags.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector interval (in seconds).",
-                        FLAG_IN_RANGE(1, 24 * 3600));
+                        FLAG_IN_RANGE(1, 24UL * 3600));
 // NOTE: The `storage_properties_on_edges` flag must be the same here and in
 // `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -104,15 +104,29 @@ DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creat
 DEFINE_uint64(storage_items_per_batch, memgraph::storage::Config::Durability().items_per_batch,
               "The number of edges and vertices stored in a batch in a snapshot file.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-unused-parameters)
+DEFINE_VALIDATED_bool(
+    storage_parallel_index_recovery, false,
+    "Controls whether the index creation can be done in a multithreaded fashion.", {
+      spdlog::warn(
+          "storage_parallel_index_recovery flag is deprecated. Check storage_mode_parallel_schema_recovery for more "
+          "details.");
+      return true;
+    });
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_parallel_index_recovery, false,
-            "Controls whether the index creation can be done in a multithreaded fashion.");
+DEFINE_bool(storage_parallel_schema_recovery, false,
+            "Controls whether the indices and constraints creation can be done in a multithreaded fashion.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,
               std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
                        memgraph::storage::Config::Durability().recovery_thread_count),
               "The number of threads used to recover persisted data from disk.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_enable_schema_metadata, false,
+            "Controls whether metadata should be collected about the resident labels and edge types.");
 
 #ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

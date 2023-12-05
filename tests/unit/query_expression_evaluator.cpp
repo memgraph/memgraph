@@ -13,6 +13,7 @@
 #include <cmath>
 #include <iterator>
 #include <memory>
+#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
@@ -69,7 +70,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
         storage_dba(db->Access()),
         dba(storage_dba.get()) {}
 
-  ~ExpressionEvaluatorTest() {
+  ~ExpressionEvaluatorTest() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
@@ -80,6 +81,14 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     auto symbol = symbol_table.CreateSymbol(name, true);
     id->MapTo(symbol);
     frame[symbol] = value;
+    return id;
+  }
+
+  Exists *CreateExistsWithValue(std::string name, TypedValue &&value) {
+    auto id = storage.template Create<Exists>();
+    auto symbol = symbol_table.CreateSymbol(name, true);
+    id->MapTo(symbol);
+    frame[symbol] = std::move(value);
     return id;
   }
 
@@ -146,6 +155,33 @@ TYPED_TEST(ExpressionEvaluatorTest, AndOperatorShortCircuit) {
     // sides and return `false` without checking for type of the first
     // expression.
     EXPECT_THROW(this->Eval(op), QueryRuntimeException);
+  }
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, AndExistsOperatorShortCircuit) {
+  {
+    std::function<void(TypedValue *)> my_func = [](TypedValue * /*return_value*/) {
+      throw QueryRuntimeException("This should not be evaluated");
+    };
+    TypedValue func_should_not_evaluate{std::move(my_func)};
+
+    auto *op = this->storage.template Create<AndOperator>(
+        this->storage.template Create<PrimitiveLiteral>(false),
+        this->CreateExistsWithValue("anon1", std::move(func_should_not_evaluate)));
+    auto value = this->Eval(op);
+    EXPECT_EQ(value.ValueBool(), false);
+  }
+  {
+    std::function<void(TypedValue *)> my_func = [memory = this->ctx.memory](TypedValue *return_value) {
+      *return_value = TypedValue(false, memory);
+    };
+    TypedValue should_evaluate{std::move(my_func)};
+
+    auto *op =
+        this->storage.template Create<AndOperator>(this->storage.template Create<PrimitiveLiteral>(true),
+                                                   this->CreateExistsWithValue("anon1", std::move(should_evaluate)));
+    auto value = this->Eval(op);
+    EXPECT_EQ(value.ValueBool(), false);
   }
 }
 
@@ -580,7 +616,7 @@ TYPED_TEST(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 TYPED_TEST(ExpressionEvaluatorTest, TypedValueListIndexing) {
   auto list_vector = memgraph::utils::pmr::vector<TypedValue>(this->ctx.memory);
   list_vector.emplace_back("string1");
-  list_vector.emplace_back(TypedValue("string2"));
+  list_vector.emplace_back("string2");
 
   auto *identifier = this->storage.template Create<Identifier>("n");
   auto node_symbol = this->symbol_table.CreateSymbol("n", true);
@@ -1196,7 +1232,7 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest<Storage
   Identifier *identifier = this->storage.template Create<Identifier>("element");
   Symbol symbol = this->symbol_table.CreateSymbol("element", true);
 
-  void SetUp() { identifier->MapTo(symbol); }
+  void SetUp() override { identifier->MapTo(symbol); }
 
   auto Value(std::pair<std::string, memgraph::storage::PropertyId> property) {
     auto *op = this->storage.template Create<PropertyLookup>(identifier, this->storage.GetPropertyIx(property.first));
@@ -1388,7 +1424,7 @@ class ExpressionEvaluatorAllPropertiesLookup : public ExpressionEvaluatorTest<St
   Identifier *identifier = this->storage.template Create<Identifier>("element");
   Symbol symbol = this->symbol_table.CreateSymbol("element", true);
 
-  void SetUp() { identifier->MapTo(symbol); }
+  void SetUp() override { identifier->MapTo(symbol); }
 
   auto Value() {
     auto *op = this->storage.template Create<AllPropertiesLookup>(identifier);
