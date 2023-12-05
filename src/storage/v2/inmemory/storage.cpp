@@ -141,7 +141,8 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   }
 
   if (config_.gc_python.type == Config::Gc::Type::PERIODIC) {
-    gc_python_runner_.Run("Python GC", config_.gc_python.interval, [] { std::cout << "filler operation"; });
+    gc_python_runner_.Run("Python GC", config_.gc_python.interval,
+                          [] { memgraph::query::procedure::PyCollectGarbage(); });
   }
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {

@@ -867,6 +867,24 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
   return MgpListToPyTuple(list, reinterpret_cast<PyGraph *>(py_graph));
 }
 
+void PyCollectGarbage() {
+  if (!Py_IsInitialized() || _Py_IsFinalizing()) {
+    // Calling EnsureGIL will crash the program this is true
+    return;
+  }
+
+  auto gil = py::EnsureGIL();
+
+  py::Object gc(PyImport_ImportModule("gc"));
+  if (!gc) {
+    LOG_FATAL(py::FetchError().value());
+  }
+
+  if (!gc.CallMethod("collect")) {
+    LOG_FATAL(py::FetchError().value());
+  }
+}
+
 namespace {
 struct RecordFieldCache {
   PyObject *key;
@@ -1099,7 +1117,6 @@ void CallPythonCleanup(const py::Object &py_cleanup) {
 
 void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
   auto gil = py::EnsureGIL();
-
   auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
     if (!exc_info) return std::nullopt;
     // Here we tell the traceback formatter to skip the first line of the
