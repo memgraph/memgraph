@@ -22,7 +22,7 @@ def test_indexed_join_with_indices(memgraph):
 
     memgraph.execute(
         """
-        CREATE (:Node)
+        CREATE (n:Node)
         SET n.null_prop = null,
             n.bool_prop = True,
             n.S_int_prop = 4,
@@ -36,7 +36,7 @@ def test_indexed_join_with_indices(memgraph):
             n.date_prop = date('2023-01-01'),
             n.localtime_prop = localtime('23:00:00'),
             n.localdatetime_prop = localdatetime('2022-01-01T23:00:00'),
-            n.duration_prop = duration('P5DT2M2.33S')})
+            n.duration_prop = duration('P5DT2M2.33S');
         """
     )
 
