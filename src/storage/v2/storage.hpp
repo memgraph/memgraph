@@ -40,6 +40,7 @@
 #include "utils/event_histogram.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/synchronized_metadata_store.hpp"
 #include "utils/timer.hpp"
 #include "utils/uuid.hpp"
 
@@ -246,6 +247,10 @@ class Storage {
 
     const std::string &id() const { return storage_->id(); }
 
+    std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
+
+    std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
+
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
@@ -404,6 +409,18 @@ class Storage {
 
   Indices indices_;
   Constraints constraints_;
+
+  // Datastructures to provide fast retrieval of node-label and
+  // edge-type related metadata.
+  // Currently we should not remove any node-labels or edge-types even
+  // if the set of given types are currently not present in the
+  // database. This metadata is usually used by client side
+  // applications that want to be aware of the kind of data that *may*
+  // be present in the database.
+
+  // TODO(gvolfing): check if this would be faster with flat_maps.
+  utils::SynchronizedMetaDataStore<LabelId> stored_node_labels_;
+  utils::SynchronizedMetaDataStore<EdgeTypeId> stored_edge_types_;
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};

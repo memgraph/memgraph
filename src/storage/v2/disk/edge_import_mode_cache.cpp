@@ -43,8 +43,9 @@ InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
                                             storage, transaction);
 }
 
-bool EdgeImportModeCache::CreateIndex(LabelId label, PropertyId property,
-                                      const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
+bool EdgeImportModeCache::CreateIndex(
+    LabelId label, PropertyId property,
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
   bool res = mem_label_property_index->CreateIndex(label, property, vertices_.access(), parallel_exec_info);
@@ -54,8 +55,8 @@ bool EdgeImportModeCache::CreateIndex(LabelId label, PropertyId property,
   return res;
 }
 
-bool EdgeImportModeCache::CreateIndex(LabelId label,
-                                      const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
+bool EdgeImportModeCache::CreateIndex(
+    LabelId label, const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
   bool res = mem_label_index->CreateIndex(label, vertices_.access(), parallel_exec_info);
   if (res) {
