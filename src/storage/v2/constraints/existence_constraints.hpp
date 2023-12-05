@@ -11,34 +11,45 @@
 
 #pragma once
 
+#include <atomic>
 #include <optional>
+#include <thread>
+#include <variant>
 
 #include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
 class ExistenceConstraints {
+ private:
+  std::vector<std::pair<LabelId, PropertyId>> constraints_;
+
  public:
+  struct MultipleThreadsConstraintValidation {
+    std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
+                                                  const LabelId &label, const PropertyId &property);
+
+    const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
+  };
+  struct SingleThreadConstraintValidation {
+    std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
+                                                  const LabelId &label, const PropertyId &property);
+  };
+
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
-                                                                                     LabelId label,
-                                                                                     PropertyId property) {
-    if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
-      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
-    }
-    return std::nullopt;
-  }
+                                                                                     const LabelId &label,
+                                                                                     const PropertyId &property);
 
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
-      utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property) {
-    for (const auto &vertex : vertices) {
-      if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
-        return violation;
-      }
-    }
-    return std::nullopt;
-  }
+      utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
+      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
+
+  static std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation> GetCreationFunction(
+      const std::optional<durability::ParallelizedSchemaCreationInfo> &);
 
   bool ConstraintExists(LabelId label, PropertyId property) const;
 
@@ -54,9 +65,6 @@ class ExistenceConstraints {
   std::vector<std::pair<LabelId, PropertyId>> ListConstraints() const;
 
   void LoadExistenceConstraints(const std::vector<std::string> &keys);
-
- private:
-  std::vector<std::pair<LabelId, PropertyId>> constraints_;
 };
 
 }  // namespace memgraph::storage

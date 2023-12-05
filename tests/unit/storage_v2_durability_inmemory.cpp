@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <gmock/gmock-generated-matchers.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
@@ -19,13 +20,18 @@
 #include <algorithm>
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <filesystem>
 #include <iostream>
 #include <thread>
+#include <type_traits>
 
 #include "dbms/database.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/constraints/existence_constraints.hpp"
+#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -34,10 +40,13 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/timer.hpp"
+#include "utils/uuid.hpp"
 
 using testing::Contains;
 using testing::UnorderedElementsAre;
@@ -2702,4 +2711,114 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
+  // Create snapshot.
+  {
+    memgraph::storage::Config config{
+        .items = {.properties_on_edges = GetParam()},
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true, .items_per_batch = 13}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
+    CreateExtendedDataset(db.storage());
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Recover snapshot.
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory,
+                                                  .recover_on_startup = true,
+                                                  .snapshot_on_exit = false,
+                                                  .items_per_batch = 13,
+                                                  .allow_parallel_index_creation = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+  {
+    auto acc = db.storage()->Access();
+    auto vertex = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(edge.HasValue());
+    ASSERT_FALSE(acc->Commit().HasError());
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
+  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory,
+                                                  .recover_on_startup = true,
+                                                  .snapshot_on_exit = false,
+                                                  .items_per_batch = 13,
+                                                  .allow_parallel_schema_creation = true}};
+  // Create snapshot.
+  {
+    config.durability.recover_on_startup = false;
+    config.durability.snapshot_on_exit = true;
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
+    CreateExtendedDataset(db.storage());
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  config.durability.recover_on_startup = true;
+  config.durability.snapshot_on_exit = false;
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::SkipList<memgraph::storage::Vertex> vertices;
+  memgraph::utils::SkipList<memgraph::storage::Edge> edges;
+  std::unique_ptr<memgraph::storage::NameIdMapper> name_id_mapper = std::make_unique<memgraph::storage::NameIdMapper>();
+  std::atomic<uint64_t> edge_count{0};
+  uint64_t wal_seq_num{0};
+  std::string uuid{memgraph::utils::GenerateUUID()};
+  memgraph::storage::Indices indices{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+  memgraph::storage::Constraints constraints{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+  memgraph::storage::ReplicationStorageState repl_storage_state;
+
+  memgraph::storage::durability::Recovery recovery{
+      config.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory,
+      config.durability.storage_directory / memgraph::storage::durability::kWalDirectory};
+
+  // Recover snapshot.
+  const auto info = recovery.RecoverData(&uuid, repl_storage_state, &vertices, &edges, &edge_count,
+                                         name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num);
+
+  MG_ASSERT(info.has_value(), "Info doesn't have value present");
+  const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);
+
+  MG_ASSERT(par_exec_info.has_value(), "Parallel exec info should have value present");
+
+  // Unique constraint choose function
+  auto *mem_unique_constraints =
+      static_cast<memgraph::storage::InMemoryUniqueConstraints *>(constraints.unique_constraints_.get());
+  auto variant_unique_constraint_creation_func = mem_unique_constraints->GetCreationFunction(par_exec_info);
+
+  const auto *pval = std::get_if<memgraph::storage::InMemoryUniqueConstraints::MultipleThreadsConstraintValidation>(
+      &variant_unique_constraint_creation_func);
+  MG_ASSERT(pval, "Chose wrong function for recovery of data");
+
+  // Existence constraint choose function
+  auto *mem_existence_constraint =
+      static_cast<memgraph::storage::ExistenceConstraints *>(constraints.existence_constraints_.get());
+  auto variant_existence_constraint_creation_func = mem_existence_constraint->GetCreationFunction(par_exec_info);
+
+  const auto *pval_existence =
+      std::get_if<memgraph::storage::ExistenceConstraints::MultipleThreadsConstraintValidation>(
+          &variant_existence_constraint_creation_func);
+  MG_ASSERT(pval_existence, "Chose wrong type of function for recovery of existence constraint data");
 }

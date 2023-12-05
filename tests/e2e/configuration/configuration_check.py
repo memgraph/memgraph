@@ -31,7 +31,6 @@ def test_does_default_config_match():
         use the DEFINE_HIDDEN_* macro instead of DEFINE_* to
         prevent SHOW CONFIG from returning it.
     """
-
     assert len(config) == len(default_config.startup_config_dict), define_msg
 
     for flag in config:
@@ -46,7 +45,6 @@ def test_does_default_config_match():
         ]
         if flag_name in machine_dependent_configurations:
             continue
-
         # default_value
         assert default_config.startup_config_dict[flag_name][0] == flag[1]
         # current_value
