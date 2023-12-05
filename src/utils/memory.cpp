@@ -331,7 +331,6 @@ void PoolResource::DoDeallocate(void *p, size_t bytes, size_t alignment) {
     return;
   }
   // Deallocate a regular block, first check if last_dealloc_pool_ is suitable.
-  DMG_ASSERT(last_dealloc_pool_, "Failed deallocation");
   if (last_dealloc_pool_ && last_dealloc_pool_->GetBlockSize() == block_size) return last_dealloc_pool_->Deallocate(p);
   // Find the pool with equal block_size.
   impl::Pool pool(block_size, max_blocks_per_chunk_, GetUpstreamResource());
