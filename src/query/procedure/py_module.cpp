@@ -869,7 +869,7 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 
 void PyCollectGarbage() {
   if (!Py_IsInitialized() || _Py_IsFinalizing()) {
-    // Calling EnsureGIL will crash the program this is true
+    // Calling EnsureGIL will crash the program if this is true.
     return;
   }
 
