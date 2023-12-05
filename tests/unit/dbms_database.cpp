@@ -119,7 +119,7 @@ TEST_F(DBMS_Database, Delete) {
     // Release accessor to storage
     db1.GetValue().reset();
     // Delete from handler
-    ASSERT_TRUE(db_handler.Delete("db1"));
+    ASSERT_TRUE(db_handler.TryDelete("db1"));
     ASSERT_FALSE(db_handler.Get("db1"));
     auto all = db_handler.All();
     std::sort(all.begin(), all.end());
@@ -129,8 +129,8 @@ TEST_F(DBMS_Database, Delete) {
   }
 
   {
-    ASSERT_THROW(db_handler.Delete("db0"), memgraph::utils::BasicException);
-    ASSERT_THROW(db_handler.Delete("db1"), memgraph::utils::BasicException);
+    ASSERT_THROW(db_handler.TryDelete("db0"), memgraph::utils::BasicException);
+    ASSERT_THROW(db_handler.TryDelete("db1"), memgraph::utils::BasicException);
     auto all = db_handler.All();
     std::sort(all.begin(), all.end());
     ASSERT_EQ(all.size(), 2);
@@ -184,9 +184,9 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
   }
 
   // Delete from handler
-  ASSERT_TRUE(db_handler.Delete("db1"));
-  ASSERT_TRUE(db_handler.Delete("db2"));
-  ASSERT_TRUE(db_handler.Delete("db3"));
+  ASSERT_TRUE(db_handler.TryDelete("db1"));
+  ASSERT_TRUE(db_handler.TryDelete("db2"));
+  ASSERT_TRUE(db_handler.TryDelete("db3"));
 
   {
     // Recover graphs (only db3)

@@ -73,7 +73,7 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
         spdlog::warn("{} The rest of the init-file will be run.", e.what());
       }
       if (audit_log) {
-        audit_log->Record("", "", line, {}, memgraph::dbms::kDefaultDB);
+        audit_log->Record("", "", line, {}, std::string{memgraph::dbms::kDefaultDB});
       }
     }
   }

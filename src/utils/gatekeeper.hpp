@@ -85,6 +85,7 @@ struct GKInternals {
 
   std::optional<T> value_;
   uint64_t count_ = 0;
+  std::atomic_bool is_deleting = false;
   std::mutex mutex_;  // TODO change to something cheaper?
   std::condition_variable cv_;
 };
@@ -150,6 +151,14 @@ struct Gatekeeper {
       return *this;
     }
 
+    [[nodiscard]] bool is_deleting() const { return owner_->pimpl_->is_deleting; }
+
+    void prepare_for_deletion() {
+      if (owner_) {
+        owner_->pimpl_->is_deleting = true;
+      }
+    }
+
     ~Accessor() { reset(); }
 
     auto get() -> T * { return std::addressof(*owner_->pimpl_->value_); }
@@ -181,7 +190,10 @@ struct Gatekeeper {
       return true;
     }
 
-    explicit operator bool() const { return owner_ != nullptr; }
+    explicit operator bool() const {
+      return owner_ != nullptr                 // we have access
+             && !owner_->pimpl_->is_deleting;  // AND we are allowed to use it
+    }
 
     void reset() {
       if (owner_) {
@@ -209,6 +221,7 @@ struct Gatekeeper {
   }
 
   ~Gatekeeper() {
+    pimpl_->is_deleting = true;
     // wait for count to drain to 0
     auto lock = std::unique_lock{pimpl_->mutex_};
     pimpl_->cv_.wait(lock, [this] { return pimpl_->count_ == 0; });

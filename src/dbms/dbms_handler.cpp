@@ -63,7 +63,7 @@ struct Durability {
     throw UnknownVersionException();
   };
 
-  static auto GenKey(const std::string &name) { return kDBPrefix + name; };
+  static auto GenKey(std::string_view name) -> std::string { return fmt::format("{}{}", kDBPrefix, name); }
 
   static auto GenVal(std::string_view uuid) {
     nlohmann::json json;
@@ -125,7 +125,7 @@ DbmsHandler::DbmsHandler(
 
   // Generate the default database
   MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
-  std::set<std::string> directories{kDefaultDB};
+  auto directories = std::set{std::string{kDefaultDB}};
 
   // Recover previous databases
   if (recovery_on_startup) {
@@ -199,13 +199,7 @@ DbmsHandler::DbmsHandler(
             "Replica recovery failure!");
 }
 
-DbmsHandler::NewResultT DbmsHandler::New_(const std::string &name, storage::Config &storage_config) {
-  if (defunct_dbs_.contains(name)) {
-    spdlog::warn("Failed to generate database due to the unknown state of the previously defunct database \"{}\".",
-                 name);
-    return NewError::DEFUNCT;
-  }
-
+DbmsHandler::NewResultT DbmsHandler::New_(std::string_view name, storage::Config &storage_config) {
   auto new_db = db_handler_.New(name, storage_config, repl_state_);
 
   if (new_db.HasValue()) {  // Success
@@ -219,7 +213,7 @@ DbmsHandler::NewResultT DbmsHandler::New_(const std::string &name, storage::Conf
   }
   return new_db.GetError();
 }
-DbmsHandler::DeleteResult DbmsHandler::Delete(const std::string &db_name) {
+DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name) {
   std::lock_guard<LockT> wr(lock_);
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
@@ -232,7 +226,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(const std::string &db_name) {
   // Check if db exists
   try {
     // Low level handlers
-    if (!db_handler_.Delete(db_name)) {
+    if (!db_handler_.TryDelete(db_name)) {
       return DeleteError::USING;
     }
   } catch (utils::BasicException &) {
@@ -240,22 +234,58 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(const std::string &db_name) {
   }
 
   // Remove from durability list
-  if (durability_) durability_->Delete(kDBPrefix + db_name);
+  if (durability_) durability_->Delete(Durability::GenKey(db_name));
 
   // Delete disk storage
   std::error_code ec;
   (void)std::filesystem::remove_all(*storage_path, ec);
   if (ec) {
-    spdlog::error("Failed to clean disk while deleting database \"{}\".", db_name);
-    defunct_dbs_.emplace(db_name);
-    return DeleteError::DISK_FAIL;
+    spdlog::error("Failed to clean disk while deleting database \"{}\" stored in \"{}\".", db_name, *storage_path);
+  }
+  return {};  // Success
+}
+
+DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name) {
+  auto wr = std::lock_guard(lock_);
+  if (db_name == kDefaultDB) {
+    // MSG cannot delete the default db
+    return DeleteError::DEFAULT_DB;
   }
 
-  // Delete from defunct_dbs_ (in case a second delete call was successful)
-  defunct_dbs_.erase(db_name);
+  const auto storage_path = StorageDir_(db_name);
+  if (!storage_path) return DeleteError::NON_EXISTENT;
+
+  {
+    auto db = db_handler_.Get(db_name);
+    if (!db) return DeleteError::NON_EXISTENT;
+    // TODO: ATM we assume REPLICA won't have streams,
+    //       this is a best effort approach just in case they do
+    //       there is still subtle data race we stream manipulation
+    //       can occur while we are dropping the database
+    db->prepare_for_deletion();
+    auto &database = *db->get();
+    database.streams()->StopAll();
+    database.streams()->DropAll();
+    database.thread_pool()->Shutdown();
+  }
+
+  // Remove from durability list
+  if (durability_) durability_->Delete(Durability::GenKey(db_name));
+
+  // Check if db exists
+  // Low level handlers
+  db_handler_.DeferDelete(db_name, [storage_path = *storage_path, db_name]() {
+    // Delete disk storage
+    std::error_code ec;
+    (void)std::filesystem::remove_all(storage_path, ec);
+    if (ec) {
+      spdlog::error("Failed to clean disk while deleting database \"{}\" stored in \"{}\".", db_name, storage_path);
+    }
+  });
 
   return {};  // Success
 }
+
 }  // namespace memgraph::dbms
 
 #endif

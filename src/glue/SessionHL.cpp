@@ -112,7 +112,7 @@ std::string SessionHL::GetDefaultDB() {
   if (user_.has_value()) {
     return user_->db_access().GetDefault();
   }
-  return memgraph::dbms::kDefaultDB;
+  return std::string{memgraph::dbms::kDefaultDB};
 }
 #endif
 

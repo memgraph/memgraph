@@ -163,12 +163,20 @@ class DbmsHandler {
 
 #ifdef MG_ENTERPRISE
   /**
-   * @brief Delete database.
+   * @brief Attempt to delete database.
    *
    * @param db_name database name
    * @return DeleteResult error on failure
    */
-  DeleteResult Delete(const std::string &db_name);
+  DeleteResult TryDelete(std::string_view db_name);
+
+  /**
+   * @brief Delete or defer deletion of database.
+   *
+   * @param db_name database name
+   * @return DeleteResult error on failure
+   */
+  DeleteResult Delete(std::string_view db_name);
 #endif
 
   /**
@@ -360,7 +368,7 @@ class DbmsHandler {
    * @param name Database name
    * @return std::optional<std::filesystem::path>
    */
-  std::optional<std::filesystem::path> StorageDir_(const std::string &name) {
+  std::optional<std::filesystem::path> StorageDir_(std::string_view name) {
     const auto conf = db_handler_.GetConfig(name);
     if (conf) {
       return conf->durability.storage_directory;
@@ -376,7 +384,7 @@ class DbmsHandler {
    * @param storage_subdir undelying RocksDB directory
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(const std::string &name, std::filesystem::path storage_subdir) {
+  NewResultT New_(std::string_view name, std::filesystem::path storage_subdir) {
     auto config_copy = default_config_;
     storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / storage_subdir);
     return New_(name, config_copy);
@@ -389,7 +397,7 @@ class DbmsHandler {
    * @param storage_config storage configuration
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(const std::string &name, storage::Config &storage_config);
+  NewResultT New_(std::string_view name, storage::Config &storage_config);
 
   /**
    * @brief Create a new Database associated with the default database
@@ -489,7 +497,6 @@ class DbmsHandler {
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;       //!< list of active dbs (pointer so we can postpone its creation)
-  std::set<std::string> defunct_dbs_;  //!< Databases that are in an unknown state due to various failures
 #endif
   replication::ReplicationState repl_state_;  //!< Global replication state
 #ifndef MG_ENTERPRISE

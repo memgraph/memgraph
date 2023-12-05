@@ -246,7 +246,7 @@ bool operator==(const Role &first, const Role &second);
 #ifdef MG_ENTERPRISE
 class Databases final {
  public:
-  Databases() : grants_dbs_({dbms::kDefaultDB}), allow_all_(false), default_db_(dbms::kDefaultDB) {}
+  Databases() : grants_dbs_{std::string{dbms::kDefaultDB}}, allow_all_(false), default_db_(dbms::kDefaultDB) {}
 
   Databases(const Databases &) = default;
   Databases &operator=(const Databases &) = default;
@@ -259,7 +259,7 @@ class Databases final {
    *
    * @param db name of the database to grant access to
    */
-  void Add(const std::string &db);
+  void Add(std::string_view db);
 
   /**
    * @brief Remove database to the list of granted access.
@@ -291,7 +291,7 @@ class Databases final {
   /**
    * @brief Set the default database.
    */
-  bool SetDefault(const std::string &db);
+  bool SetDefault(std::string_view db);
 
   /**
    * @brief Checks if access is grated to the database.
@@ -299,7 +299,7 @@ class Databases final {
    * @param db name of the database
    * @return true if allow_all and not denied or granted
    */
-  bool Contains(const std::string &db) const;
+  bool Contains(std::string_view db) const;
 
   bool GetAllowAll() const { return allow_all_; }
   const std::set<std::string, std::less<>> &GetGrants() const { return grants_dbs_; }
@@ -312,7 +312,7 @@ class Databases final {
 
  private:
   Databases(bool allow_all, std::set<std::string, std::less<>> grant, std::set<std::string, std::less<>> deny,
-            std::string default_db = dbms::kDefaultDB)
+            std::string default_db = std::string{dbms::kDefaultDB})
       : grants_dbs_(std::move(grant)),
         denies_dbs_(std::move(deny)),
         allow_all_(allow_all),

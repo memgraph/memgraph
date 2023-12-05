@@ -179,16 +179,16 @@ TEST(DBMS_Handler, Delete) {
   auto db1_acc = dbms.Get("db1");  // Holds access to database
 
   {
-    auto del = dbms.Delete(memgraph::dbms::kDefaultDB);
+    auto del = dbms.TryDelete(memgraph::dbms::kDefaultDB);
     ASSERT_TRUE(del.HasError() && del.GetError() == memgraph::dbms::DeleteError::DEFAULT_DB);
   }
   {
-    auto del = dbms.Delete("non-existent");
+    auto del = dbms.TryDelete("non-existent");
     ASSERT_TRUE(del.HasError() && del.GetError() == memgraph::dbms::DeleteError::NON_EXISTENT);
   }
   {
     // db1_acc is using db1
-    auto del = dbms.Delete("db1");
+    auto del = dbms.TryDelete("db1");
     ASSERT_TRUE(del.HasError());
     ASSERT_TRUE(del.GetError() == memgraph::dbms::DeleteError::USING);
   }
@@ -196,14 +196,14 @@ TEST(DBMS_Handler, Delete) {
     // Reset db1_acc (releases access) so delete will succeed
     db1_acc.reset();
     ASSERT_FALSE(db1_acc);
-    auto del = dbms.Delete("db1");
+    auto del = dbms.TryDelete("db1");
     ASSERT_FALSE(del.HasError()) << (int)del.GetError();
-    auto del2 = dbms.Delete("db1");
+    auto del2 = dbms.TryDelete("db1");
     ASSERT_TRUE(del2.HasError() && del2.GetError() == memgraph::dbms::DeleteError::NON_EXISTENT);
   }
   {
     const auto dirs = GetDirs(db_dir);
-    auto del = dbms.Delete("db3");
+    auto del = dbms.TryDelete("db3");
     ASSERT_FALSE(del.HasError());
     const auto dirs_wo_db3 = GetDirs(db_dir);
     ASSERT_EQ(dirs_wo_db3.size(), dirs.size() - 1);

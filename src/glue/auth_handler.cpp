@@ -294,7 +294,7 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
       );
 #ifdef MG_ENTERPRISE
       GrantDatabaseToUser(auth::kAllDatabases, username);
-      SetMainDatabase(username, dbms::kDefaultDB);
+      SetMainDatabase(dbms::kDefaultDB, username);
 #endif
     }
 
@@ -393,7 +393,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatab
   }
 }
 
-bool AuthQueryHandler::SetMainDatabase(const std::string &db, const std::string &username) {
+bool AuthQueryHandler::SetMainDatabase(std::string_view db, const std::string &username) {
   if (!std::regex_match(username, name_regex_)) {
     throw memgraph::query::QueryRuntimeException("Invalid user name.");
   }

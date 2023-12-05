@@ -82,23 +82,8 @@ class Handler {
    * @return true on success
    * @throw BasicException
    */
-  bool Delete(const std::string &name) {
+  bool TryDelete(std::string_view name) {
     if (auto itr = items_.find(name); itr != items_.end()) {
-      // auto db_acc = itr->second.access();
-      // if (db_acc) {
-      //   if (db_acc->try_delete()) {
-      //     // Delete the database now
-      //     db_acc->reset();
-      //   } else {
-      //     // Defer deletion
-      //     std::thread([gk = std::move(itr->second)]() { gk.~Gatekeeper<T>(); }).detach();
-      //   }
-      //   // In any case remove from handled map
-      //   items_.erase(itr);
-      //   return true;
-      // }
-      // return false;
-
       auto db_acc = itr->second.access();
       if (db_acc && db_acc->try_delete()) {
         db_acc->reset();
@@ -108,6 +93,36 @@ class Handler {
       return false;
     }
     throw utils::BasicException("Unknown item \"{}\".", name);
+  }
+
+  /**
+   * @brief Delete or defunct the context associated with the name.
+   *
+   * @param name Name associated with the context to delete
+   * @param post_delete_func What to do after deletion has happened
+   */
+  template <typename Func>
+  void DeferDelete(std::string_view name, Func &&post_delete_func) {
+    auto itr = items_.find(name);
+    if (itr == items_.end()) return;
+
+    auto db_acc = itr->second.access();
+    if (!db_acc) return;
+
+    if (db_acc->try_delete()) {
+      // Delete the database now
+      db_acc->reset();
+      post_delete_func();
+    } else {
+      // Defer deletion
+      db_acc->reset();
+      std::thread([gk = std::move(itr->second), post_delete_func = std::forward<Func>(post_delete_func)] {
+        gk.~Gatekeeper<T>();
+        post_delete_func();
+      }).detach();
+    }
+    // In any case remove from handled map
+    items_.erase(itr);
   }
 
   /**
