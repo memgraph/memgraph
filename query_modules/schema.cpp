@@ -113,7 +113,7 @@ struct Property {
   mgp::Value value;
 };
 
-struct SetHash {
+struct LabelsHash {
   std::size_t operator()(const std::set<std::string> &set) const {
     std::size_t seed = set.size();
     for (const auto &i : set) {
@@ -123,7 +123,7 @@ struct SetHash {
   }
 };
 
-struct SetComparator {
+struct LabelsComparator {
   bool operator()(const std::set<std::string> &lhs, const std::set<std::string> &rhs) const { return lhs == rhs; }
 };
 
@@ -136,8 +136,10 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    std::unordered_map<std::set<std::string>, std::set<Property, PropertyComparator>, SetHash, SetComparator>
-        node_types_properties;  // key is set of labels, value is set of properties
+    std::unordered_map<std::set<std::string>, std::pair<std::set<Property, PropertyComparator>, bool>, LabelsHash,
+                       LabelsComparator>
+        node_types_properties;  // key is set of labels, value is pair of set of properties and bool (if there is only
+                                // one property in set of properties)
 
     for (auto node : mgp::Graph(memgraph_graph).Nodes()) {
       std::set<std::string> labels_set = {};
@@ -146,17 +148,21 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
       }
 
       if (node_types_properties.find(labels_set) == node_types_properties.end()) {
-        node_types_properties[labels_set] = std::set<Property, PropertyComparator>();
+        node_types_properties[labels_set] = std::make_pair(std::set<Property, PropertyComparator>(), true);
       }
 
       if (node.Properties().empty()) {
+        node_types_properties[labels_set].second = false;  // if there is node with no property, it is not mandatory
         continue;
       }
 
       for (auto &[key, prop] : node.Properties()) {
-        auto &property = node_types_properties.at(labels_set);
+        auto &properties = node_types_properties.at(labels_set);
         Property p = {key, prop};
-        property.insert(p);
+        properties.first.insert(p);
+        if (properties.second) {
+          properties.second = properties.first.size() == 1;  // if there is only one property, it is mandatory
+        }
       }
     }
 
@@ -167,13 +173,12 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
         label_type += ":`" + std::string(label) + "`";
         labels_list.AppendExtend(mgp::Value(label));
       }
-      for (auto const &prop : props) {
+      for (auto const &prop : props.first) {
         auto record = record_factory.NewRecord();
-        bool mandatory = props.size() == 1;  // if there is only one property, it is mandatory
         ProcessPropertiesNode<std::string>(record, label_type, labels_list, prop.name, TypeOf(prop.value.Type()),
-                                           mandatory);
+                                           props.second);
       }
-      if (props.empty()) {
+      if (props.first.empty()) {
         auto record = record_factory.NewRecord();
         ProcessPropertiesNode<std::string>(record, label_type, labels_list, "", "", false);
       }
@@ -188,34 +193,40 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
 void Schema::RelTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
 
-  std::unordered_map<std::string, std::set<Property, PropertyComparator>> rel_types_properties;
+  std::unordered_map<std::string, std::pair<std::set<Property, PropertyComparator>, bool>>
+      rel_types_properties;  // key is rel type, value is pair of set of properties and bool (if there is only one
+                             // property in set of properties)
   const auto record_factory = mgp::RecordFactory(result);
   try {
     const mgp::Graph graph = mgp::Graph(memgraph_graph);
     for (auto rel : graph.Relationships()) {
-      if (rel_types_properties.find(rel.Type()) == rel_types_properties.end()) {
-        rel_types_properties[rel.Type()] = std::set<Property, PropertyComparator>();
+      std::string rel_type = std::string(rel.Type());
+      if (rel_types_properties.find(rel_type) == rel_types_properties.end()) {
+        rel_types_properties[rel_type] = std::make_pair(std::set<Property, PropertyComparator>(), true);
       }
 
       if (rel.Properties().empty()) {
+        rel_types_properties[rel_type].second = false;  // if there is rel with no property, it is not mandatory
         continue;
       }
 
       for (auto &[key, prop] : rel.Properties()) {
-        auto &property = rel_types_properties.at(rel.Type());
+        auto &property = rel_types_properties.at(rel_type);
         Property p = {key, prop};
-        property.insert(p);
+        property.first.insert(p);
+        if (property.second) {
+          property.second = property.first.size() == 1;  // if there is only one property, it is mandatory
+        }
       }
     }
 
     for (auto &[type, props] : rel_types_properties) {
       std::string type_str = ":`" + std::string(type) + "`";
-      for (auto const &prop : props) {
+      for (auto const &prop : props.first) {
         auto record = record_factory.NewRecord();
-        bool mandatory = props.size() == 1;  // if there is only one property, it is mandatory
-        ProcessPropertiesRel<std::string>(record, type_str, prop.name, TypeOf(prop.value.Type()), mandatory);
+        ProcessPropertiesRel<std::string>(record, type_str, prop.name, TypeOf(prop.value.Type()), props.second);
       }
-      if (props.empty()) {
+      if (props.first.empty()) {
         auto record = record_factory.NewRecord();
         ProcessPropertiesRel<std::string>(record, type_str, "", "", false);
       }
