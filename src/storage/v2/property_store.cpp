@@ -499,6 +499,27 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader) {
   return TemporalData{static_cast<TemporalType>(*type_value), *microseconds_value};
 }
 
+std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
+  uint64_t temporal_data_size = 0;
+
+  auto metadata = reader.ReadMetadata();
+  if (!metadata || metadata->type != Type::TEMPORAL_DATA) return std::nullopt;
+
+  temporal_data_size += 1;
+
+  auto type_value = reader.ReadUint(metadata->id_size);
+  if (!type_value) return std::nullopt;
+
+  temporal_data_size += SizeToUint(metadata->id_size);
+
+  auto microseconds_value = reader.ReadInt(metadata->payload_size);
+  if (!microseconds_value) return std::nullopt;
+
+  temporal_data_size += SizeToUint(metadata->payload_size);
+
+  return temporal_data_size;
+}
+
 }  // namespace
 
 // Function used to decode a PropertyValue from a byte stream.
@@ -597,10 +618,12 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader) {
       return true;
     }
     case Type::INT: {
+      reader->ReadInt(payload_size);
       property_size += SizeToUint(payload_size);
       return true;
     }
     case Type::DOUBLE: {
+      reader->ReadDouble(payload_size);
       property_size += SizeToUint(payload_size);
       return true;
     }
@@ -608,56 +631,64 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader) {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
       property_size += SizeToUint(payload_size);
+
+      std::string str_v(*size, '\0');
+      if (!reader->ReadBytes(str_v.data(), *size)) return false;
       property_size += *size;
+
       return true;
     }
     case Type::LIST: {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
 
-      uint64_t temporary_size = SizeToUint(payload_size);
+      uint64_t list_property_size = SizeToUint(payload_size);
 
       for (uint64_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
 
-        temporary_size += 1;
-        if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, temporary_size)) return false;
+        list_property_size += 1;
+        if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, list_property_size)) return false;
       }
 
-      property_size += temporary_size;
+      property_size += list_property_size;
       return true;
     }
     case Type::MAP: {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
 
-      uint64_t temporary_size = 0;
+      uint64_t map_property_size = SizeToUint(payload_size);
 
       for (uint64_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
 
-        temporary_size += 1;
+        map_property_size += 1;
 
         auto key_size = reader->ReadUint(metadata->id_size);
         if (!key_size) return false;
 
+        map_property_size += SizeToUint(metadata->id_size);
+
         std::string key(*key_size, '\0');
         if (!reader->ReadBytes(key.data(), *key_size)) return false;
 
-        temporary_size += *key_size;
+        map_property_size += *key_size;
 
-        if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, temporary_size)) return false;
+        if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, map_property_size)) return false;
       }
 
-      property_size += temporary_size;
+      property_size += map_property_size;
       return true;
     }
 
     case Type::TEMPORAL_DATA: {
-      const auto maybe_temporal_data = DecodeTemporalData(*reader);
-      if (!maybe_temporal_data) return false;
+      const auto maybe_temporal_data_size = DecodeTemporalDataSize(*reader);
+      if (!maybe_temporal_data_size) return false;
+
+      property_size += *maybe_temporal_data_size;
       return true;
     }
   }
@@ -888,7 +919,8 @@ enum class ExpectedPropertyStatus {
   if (!property_id) return ExpectedPropertyStatus::MISSING_DATA;
 
   if (*property_id == expected_property.AsUint()) {
-    size += 1;
+    // Add one byte for reading metadata + add the number of bytes for the property key
+    size += (1 + SizeToUint(metadata->id_size));
     if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, size))
       return ExpectedPropertyStatus::MISSING_DATA;
     return ExpectedPropertyStatus::EQUAL;
