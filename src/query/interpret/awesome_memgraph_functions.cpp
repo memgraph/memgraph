@@ -454,15 +454,18 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
     return TypedValue(0, ctx.memory);
   }
 
-  if (graph_entity.IsNull()) {
-    return TypedValue(0, ctx.memory);
-  } else if (graph_entity.IsVertex()) {
+  if (graph_entity.IsVertex()) {
     uint64_t property_size = graph_entity.ValueVertex().GetPropertySize(*maybe_property_id).GetValue();
     return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
-  } else {
+  }
+
+  if (graph_entity.IsEdge()) {
     uint64_t property_size = graph_entity.ValueEdge().GetPropertySize(*maybe_property_id).GetValue();
     return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
   }
+
+  // Graph entity is null
+  return TypedValue(0, ctx.memory);
 }
 
 TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
