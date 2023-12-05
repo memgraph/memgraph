@@ -187,15 +187,14 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
 
 void Schema::RelTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
-  std::map<std::string, std::tuple<std::set<std::string>, std::string>> rel_types;
-  std::unordered_map<std::string, mgp::Value> properties;
+
+  std::unordered_map<std::string, std::set<Property, PropertyComparator>> rel_types_properties;
   const auto record_factory = mgp::RecordFactory(result);
   try {
     const mgp::Graph graph = mgp::Graph(memgraph_graph);
     for (auto rel : graph.Relationships()) {
-      std::string type = ":`" + std::string(rel.Type()) + "`";
-      if (rel_types.find(type) == rel_types.end()) {
-        rel_types[type] = std::make_tuple(std::set<std::string>({""}), type);
+      if (rel_types_properties.find(rel.Type()) == rel_types_properties.end()) {
+        rel_types_properties[rel.Type()] = std::set<Property, PropertyComparator>();
       }
 
       if (rel.Properties().empty()) {
@@ -203,24 +202,22 @@ void Schema::RelTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, m
       }
 
       for (auto &[key, prop] : rel.Properties()) {
-        auto tuple = rel_types.at(type);
-        std::get<0>(tuple).insert(key);
-        std::get<0>(tuple).erase("");
-        rel_types[type] = tuple;
-        properties[key] = prop;
+        auto &property = rel_types_properties.at(rel.Type());
+        Property p = {key, prop};
+        property.insert(p);
       }
     }
 
-    for (auto &[type, props] : rel_types) {
-      for (auto const &prop : std::get<0>(props)) {
+    for (auto &[type, props] : rel_types_properties) {
+      std::string type_str = ":`" + std::string(type) + "`";
+      for (auto const &prop : props) {
         auto record = record_factory.NewRecord();
-        if (prop == "") {
-          ProcessPropertiesRel<std::string>(record, std::get<1>(props), "", "", false);
-          continue;
-        }
-        auto property_type = mgp::List();
-        property_type.AppendExtend(mgp::Value(TypeOf(properties[prop].Type())));
-        ProcessPropertiesRel<mgp::List>(record, std::get<1>(props), prop, property_type, true);
+        bool mandatory = props.size() == 1;  // if there is only one property, it is mandatory
+        ProcessPropertiesRel<std::string>(record, type_str, prop.name, TypeOf(prop.value.Type()), mandatory);
+      }
+      if (props.empty()) {
+        auto record = record_factory.NewRecord();
+        ProcessPropertiesRel<std::string>(record, type_str, "", "", false);
       }
     }
 
