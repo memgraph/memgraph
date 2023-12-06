@@ -47,9 +47,13 @@ indexInfo : INDEX INFO ;
 
 constraintInfo : CONSTRAINT INFO ;
 
+edgetypeInfo : EDGE_TYPES INFO ;
+
+nodelabelInfo : NODE_LABELS INFO ;
+
 buildInfo : BUILD INFO ;
 
-databaseInfoQuery : SHOW ( indexInfo | constraintInfo ) ;
+databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo ) ;
 
 systemInfoQuery : SHOW ( storageInfo | buildInfo ) ;
 

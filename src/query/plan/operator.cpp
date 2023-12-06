@@ -4949,6 +4949,12 @@ class CallProcedureCursor : public Cursor {
 
     AbortCheck(context);
 
+    auto skip_rows_with_deleted_values = [this]() {
+      while (result_row_it_ != result_->rows.end() && result_row_it_->has_deleted_values) {
+        ++result_row_it_;
+      }
+    };
+
     // We need to fetch new procedure results after pulling from input.
     // TODO: Look into openCypher's distinction between procedures returning an
     // empty result set vs procedures which return `void`. We currently don't
@@ -4958,7 +4964,7 @@ class CallProcedureCursor : public Cursor {
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
-      // inside the same execution thread. Also, our RWLock is setup so that
+      // inside the same execution thread. Also, our RWLock is set up so that
       // it's not possible for a single thread to request multiple read locks.
       // Builtin module registration in query/procedure/module.cpp depends on
       // this locking scheme.
@@ -5006,6 +5012,7 @@ class CallProcedureCursor : public Cursor {
                                     graph_view);
 
       result_->signature = &proc->results;
+      result_->is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
 
       // Use special memory as invoking procedure is complex
       // TODO: This will probably need to be changed when we add support for
@@ -5030,6 +5037,9 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_->error_msg);
       }
       result_row_it_ = result_->rows.begin();
+      if (!result_->is_transactional) {
+        skip_rows_with_deleted_values();
+      }
 
       stream_exhausted = result_row_it_ == result_->rows.end();
     }
@@ -5059,6 +5069,9 @@ class CallProcedureCursor : public Cursor {
       }
     }
     ++result_row_it_;
+    if (!result_->is_transactional) {
+      skip_rows_with_deleted_values();
+    }
 
     return true;
   }

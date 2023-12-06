@@ -61,6 +61,7 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANT
                       | HEADER
                       | IDENTIFIED
+                      | NODE_LABELS
                       | NULLIF
                       | IMPORT
                       | INACTIVE

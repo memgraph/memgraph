@@ -3123,6 +3123,46 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       };
       break;
     }
+    case DatabaseInfoQuery::InfoType::EDGE_TYPES: {
+      header = {"edge types"};
+      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
+        if (!storage->config_.items.enable_schema_metadata) {
+          throw QueryRuntimeException(
+              "The metadata collection for edge-types is disabled. To enable it, restart your instance and set the "
+              "storage-enable-schema-metadata flag to True.");
+        }
+        auto edge_types = dba->ListAllPossiblyPresentEdgeTypes();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(edge_types.size());
+        for (auto &edge_type : edge_types) {
+          results.push_back({TypedValue(storage->EdgeTypeToName(edge_type))});
+        }
+
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
+
+      break;
+    }
+    case DatabaseInfoQuery::InfoType::NODE_LABELS: {
+      header = {"node labels"};
+      handler = [storage = current_db.db_acc_->get()->storage(), dba] {
+        if (!storage->config_.items.enable_schema_metadata) {
+          throw QueryRuntimeException(
+              "The metadata collection for node-labels is disabled. To enable it, restart your instance and set the "
+              "storage-enable-schema-metadata flag to True.");
+        }
+        auto node_labels = dba->ListAllPossiblyPresentVertexLabels();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(node_labels.size());
+        for (auto &node_label : node_labels) {
+          results.push_back({TypedValue(storage->LabelToName(node_label))});
+        }
+
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
+
+      break;
+    }
   }
 
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),

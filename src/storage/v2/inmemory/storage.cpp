@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include <algorithm>
 #include <functional>
+#include <optional>
 #include "dbms/constants.hpp"
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -66,9 +67,9 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     : Storage(config, storage_mode),
-      snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
+      recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
+                config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
-      wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
       uuid_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
@@ -79,9 +80,9 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     // permission errors. This is done early to crash the database on startup
     // instead of crashing the database for the first time during runtime (which
     // could be an unpleasant surprise).
-    utils::EnsureDirOrDie(snapshot_directory_);
+    utils::EnsureDirOrDie(recovery_.snapshot_directory_);
     // Same reasoning as above.
-    utils::EnsureDirOrDie(wal_directory_);
+    utils::EnsureDirOrDie(recovery_.wal_directory_);
 
     // Verify that the user that started the process is the same user that is
     // the owner of the storage directory.
@@ -99,9 +100,8 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
               config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
-    auto info =
-        durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, repl_storage_state_, &vertices_, &edges_,
-                                &edge_count_, name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
+    auto info = recovery_.RecoverData(&uuid_, repl_storage_state_, &vertices_, &edges_, &edge_count_,
+                                      name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -115,8 +115,8 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     bool files_moved = false;
     auto backup_root = config_.durability.storage_directory / durability::kBackupDirectory;
     for (const auto &[path, dirname, what] :
-         {std::make_tuple(snapshot_directory_, durability::kSnapshotDirectory, "snapshot"),
-          std::make_tuple(wal_directory_, durability::kWalDirectory, "WAL")}) {
+         {std::make_tuple(recovery_.snapshot_directory_, durability::kSnapshotDirectory, "snapshot"),
+          std::make_tuple(recovery_.wal_directory_, durability::kWalDirectory, "WAL")}) {
       if (!utils::DirExists(path)) continue;
       auto backup_curr = backup_root / dirname;
       std::error_code error_code;
@@ -322,6 +322,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
+  if (storage_->config_.items.enable_schema_metadata) {
+    storage_->stored_edge_types_.try_insert(edge_type);
+  }
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
@@ -402,6 +405,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   if (to_vertex != from_vertex) {
     if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
+  }
+
+  if (storage_->config_.items.enable_schema_metadata) {
+    storage_->stored_edge_types_.try_insert(edge_type);
   }
 
   // NOTE: When we update the next `edge_id_` here we perform a RMW
@@ -1224,8 +1231,8 @@ InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, Prop
   if (existence_constraints->ConstraintExists(label, property)) {
     return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
   }
-  if (auto violation =
-          ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property);
+  if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
+                                                                          property, std::nullopt);
       violation.has_value()) {
     return StorageExistenceConstraintDefinitionError{violation.value()};
   }
@@ -1252,7 +1259,7 @@ InMemoryStorage::InMemoryAccessor::CreateUniqueConstraint(LabelId label, const s
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_unique_constraints =
       static_cast<InMemoryUniqueConstraints *>(in_memory->constraints_.unique_constraints_.get());
-  auto ret = mem_unique_constraints->CreateConstraint(label, properties, in_memory->vertices_.access());
+  auto ret = mem_unique_constraints->CreateConstraint(label, properties, in_memory->vertices_.access(), std::nullopt);
   if (ret.HasError()) {
     return StorageUniqueConstraintDefinitionError{ret.GetError()};
   }
@@ -1736,7 +1743,7 @@ bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch 
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-    wal_file_.emplace(wal_directory_, uuid_, epoch.id(), config_.items, name_id_mapper_.get(), wal_seq_num_++,
+    wal_file_.emplace(recovery_.wal_directory_, uuid_, epoch.id(), config_.items, name_id_mapper_.get(), wal_seq_num_++,
                       &file_retainer_);
   }
   return true;
@@ -2046,8 +2053,8 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   auto snapshot_creator = [this, &epoch]() {
     utils::Timer timer;
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
-    durability::CreateSnapshot(this, &transaction, snapshot_directory_, wal_directory_, &vertices_, &edges_, uuid_,
-                               epoch, repl_storage_state_.history, &file_retainer_);
+    durability::CreateSnapshot(this, &transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
+                               &edges_, uuid_, epoch, repl_storage_state_.history, &file_retainer_);
     // Finalize snapshot transaction.
     commit_log_->MarkFinished(transaction.start_timestamp);
 

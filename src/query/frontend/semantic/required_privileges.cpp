@@ -40,6 +40,9 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(DatabaseInfoQuery &info_query) override {
     switch (info_query.info_type_) {
       case DatabaseInfoQuery::InfoType::INDEX:
+      // TODO: Reconsider priviliges, this 4 should have the same.
+      case DatabaseInfoQuery::InfoType::EDGE_TYPES:
+      case DatabaseInfoQuery::InfoType::NODE_LABELS:
         // TODO: This should be INDEX | STATS, but we don't have support for
         // *or* with privileges.
         AddPrivilege(AuthQuery::Privilege::INDEX);

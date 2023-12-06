@@ -124,6 +124,14 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
     info_query->info_type_ = DatabaseInfoQuery::InfoType::CONSTRAINT;
     return info_query;
   }
+  if (ctx->edgetypeInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::EDGE_TYPES;
+    return info_query;
+  }
+  if (ctx->nodelabelInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::NODE_LABELS;
+    return info_query;
+  }
   // Should never get here
   throw utils::NotYetImplemented("Database info query: '{}'", ctx->getText());
 }
