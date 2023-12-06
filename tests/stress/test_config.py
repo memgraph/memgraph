@@ -133,62 +133,22 @@ SMALL_DATASET = [
 # bipartite.py and create_match.py run for approx. 15min
 # long_running runs for 5min x 6 times = 30min
 # long_running runs for 8h
-LARGE_DATASET = (
-    [
-        {
-            DatasetConstants.TEST: "bipartite.py",
-            DatasetConstants.OPTIONS: ["--u-count", "300", "--v-count", "300"],
-            DatasetConstants.TIMEOUT: 30,
-            DatasetConstants.MODE: [get_default_database_mode()],
-        },
-        {
-            DatasetConstants.TEST: "detach_delete.py",
-            DatasetConstants.OPTIONS: ["--worker-count", "4", "--repetition-count", "300"],
-            DatasetConstants.TIMEOUT: 5,
-            DatasetConstants.MODE: [get_default_database_mode()],
-        },
-        {
-            DatasetConstants.TEST: "create_match.py",
-            DatasetConstants.OPTIONS: ["--vertex-count", "500000", "--create-pack-size", "500"],
-            DatasetConstants.TIMEOUT: 30,
-            DatasetConstants.MODE: [get_default_database_mode()],
-        },
-    ]
-    + [
-        {
-            DatasetConstants.TEST: "long_running.cpp",
-            DatasetConstants.OPTIONS: [
-                "--vertex-count",
-                "10000",
-                "--edge-count",
-                "40000",
-                "--max-time",
-                "5",
-                "--verify",
-                "60",
-            ],
-            DatasetConstants.TIMEOUT: 16,
-            DatasetConstants.MODE: [get_default_database_mode()],
-        },
-    ]
-    * 6
-    + [
-        {
-            DatasetConstants.TEST: "long_running.cpp",
-            DatasetConstants.OPTIONS: [
-                "--vertex-count",
-                "200000",
-                "--edge-count",
-                "1000000",
-                "--max-time",
-                "480",
-                "--verify",
-                "300",
-                "--stats-file",
-                STATS_FILE,
-            ],
-            DatasetConstants.TIMEOUT: 500,
-            DatasetConstants.MODE: [get_default_database_mode()],
-        },
-    ]
-)
+LARGE_DATASET = [
+    {
+        DatasetConstants.TEST: "long_running.cpp",
+        DatasetConstants.OPTIONS: [
+            "--vertex-count",
+            "200000",
+            "--edge-count",
+            "1000000",
+            "--max-time",
+            "480",
+            "--verify",
+            "300",
+            "--stats-file",
+            STATS_FILE,
+        ],
+        DatasetConstants.TIMEOUT: 500,
+        DatasetConstants.MODE: [get_default_database_mode()],
+    },
+]
