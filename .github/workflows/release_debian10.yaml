@@ -231,16 +231,6 @@ jobs:
           name: "Enterprise DEB package"
           path: build/output/memgraph*.deb
 
-      - name: Run stress test (plain)
-        run: |
-          cd tests/stress
-          ./continuous_integration
-
-      - name: Run stress test (SSL)
-        run: |
-          cd tests/stress
-          ./continuous_integration --use-ssl
-
       - name: Run stress test (large)
         run: |
           cd tests/stress

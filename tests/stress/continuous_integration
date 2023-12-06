@@ -148,7 +148,7 @@ def run_test(args: Args, test: str, options: List[str], timeout: int, mode: Data
         + options
     )
     start = time.time()
-    ret_test = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout * 60)
+    ret_test = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout * 60, capture_output=True)
 
     if ret_test.returncode != 0:
         raise Exception(
