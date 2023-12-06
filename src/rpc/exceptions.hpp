@@ -19,19 +19,30 @@ namespace memgraph::rpc {
 /// `utils::BasicException` is used for transient errors that should be reported
 /// to the user and `utils::StacktraceException` is used for fatal errors.
 /// This exception always requires explicit handling.
-class RpcFailedException final : public utils::BasicException {
+class RpcFailedException : public utils::BasicException {
  public:
-  RpcFailedException(const io::network::Endpoint &endpoint)
-      : utils::BasicException::BasicException(
-            "Couldn't communicate with the cluster! Please contact your "
-            "database administrator."),
-        endpoint_(endpoint) {}
-
-  /// Returns the endpoint associated with the error.
-  const io::network::Endpoint &endpoint() const { return endpoint_; }
-  SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException)
-
- private:
-  io::network::Endpoint endpoint_;
+  explicit RpcFailedException(std::string_view msg) : utils::BasicException(msg) {}
+  SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException);
 };
+
+class VersionMismatchRpcFailedException : public RpcFailedException {
+ public:
+  VersionMismatchRpcFailedException()
+      : RpcFailedException(
+            "Couldn't communicate with the cluster! There was a version mismatch. "
+            "Please contact your database administrator.") {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(VersionMismatchRpcFailedException);
+};
+
+class GenericRpcFailedException : public RpcFailedException {
+ public:
+  GenericRpcFailedException()
+      : RpcFailedException(
+            "Couldn't communicate with the cluster! Please contact your "
+            "database administrator.") {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(GenericRpcFailedException);
+};
+
 }  // namespace memgraph::rpc

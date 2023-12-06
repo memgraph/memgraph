@@ -35,4 +35,11 @@ std::string GetServerName();
  */
 double GetExecutionTimeout();
 
+/**
+ * @brief Get the cartesian product enabled value
+ *
+ * @return bool
+ */
+bool GetCartesianProductEnabled();
+
 }  // namespace memgraph::flags::run_time

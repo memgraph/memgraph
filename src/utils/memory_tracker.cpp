@@ -89,6 +89,13 @@ void MemoryTracker::TryRaiseHardLimit(const int64_t limit) {
     ;
 }
 
+void MemoryTracker::ResetTrackings() {
+  hard_limit_.store(0, std::memory_order_relaxed);
+  peak_.store(0, std::memory_order_relaxed);
+  amount_.store(0, std::memory_order_relaxed);
+  maximum_hard_limit_ = 0;
+}
+
 void MemoryTracker::SetMaximumHardLimit(const int64_t limit) {
   if (maximum_hard_limit_ < 0) {
     spdlog::warn("Invalid maximum hard limit.");
@@ -104,7 +111,7 @@ void MemoryTracker::Alloc(const int64_t size) {
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
-  if (UNLIKELY(current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow())) {
+  if (current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow()) [[unlikely]] {
     MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
 
     amount_.fetch_sub(size, std::memory_order_relaxed);
@@ -114,7 +121,6 @@ void MemoryTracker::Alloc(const int64_t size) {
                     "use to {}, while the maximum allowed size for allocation is set to {}.",
                     GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(current_hard_limit)));
   }
-
   UpdatePeak(will_be);
 }
 

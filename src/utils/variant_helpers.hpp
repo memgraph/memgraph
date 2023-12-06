@@ -26,7 +26,7 @@ Overloaded(Ts...) -> Overloaded<Ts...>;
 template <typename... Ts>
 struct ChainedOverloaded : Ts... {
   template <typename... Us>
-  ChainedOverloaded(Us &&...ts) : Ts(std::forward<Us>(ts))... {}
+  explicit ChainedOverloaded(Us &&...ts) : Ts(std::forward<Us>(ts))... {}
 
   template <typename... Args>
   auto operator()(Args &&...args) {

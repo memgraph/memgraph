@@ -51,8 +51,6 @@ void Store(Value &&value, VertexInfoCache &caches, Func &&getCache, View view, K
   cache.emplace(key_type{std::forward<Keys>(keys)...}, std::forward<Value>(value));
 }
 
-VertexInfoCache::VertexInfoCache() = default;
-VertexInfoCache::~VertexInfoCache() = default;
 VertexInfoCache::VertexInfoCache(VertexInfoCache &&) noexcept = default;
 VertexInfoCache &VertexInfoCache::operator=(VertexInfoCache &&) noexcept = default;
 

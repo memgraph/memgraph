@@ -49,7 +49,7 @@ class RocksDBStorageTest : public ::testing::TestWithParam<bool> {
     disk_test_utils::RemoveRocksDbDirs(testSuite);
   }
 
-  ~RocksDBStorageTest() override {}
+  ~RocksDBStorageTest() override = default;
 
  protected:
   std::unique_ptr<Storage> storage;

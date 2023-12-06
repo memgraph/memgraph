@@ -23,7 +23,6 @@
 #include <utils/event_counter.hpp>
 #include <utils/event_gauge.hpp>
 #include "storage/v2/storage.hpp"
-#include "utils/event_gauge.hpp"
 #include "utils/event_histogram.hpp"
 
 namespace memgraph::http {
@@ -65,7 +64,7 @@ class MetricsService {
     return MetricsResponse{.vertex_count = info.vertex_count,
                            .edge_count = info.edge_count,
                            .average_degree = info.average_degree,
-                           .memory_usage = info.memory_usage,
+                           .memory_usage = info.memory_res,
                            .disk_usage = info.disk_usage,
                            .event_counters = GetEventCounters(),
                            .event_gauges = GetEventGauges(),

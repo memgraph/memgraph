@@ -9,11 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <cstdint>
 #include "audit/log.hpp"
 #include "communication/metrics.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "dbms/constants.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/MonitoringServerT.hpp"
@@ -23,7 +25,7 @@
 #include "glue/run_id.hpp"
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
-#include "memory/memory_control.hpp"
+#include "memory/global_memory_control.hpp"
 #include "query/config.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter.hpp"
@@ -43,9 +45,11 @@
 #include "query/auth_query_handler.hpp"
 #include "query/interpreter_context.hpp"
 
+namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
+constexpr uint64_t kMgVmMaxMapCount = 262144;
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
@@ -61,10 +65,13 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
   std::string line;
   while (std::getline(file, line)) {
     if (!line.empty()) {
-      auto results = interpreter.Prepare(line, {}, {});
-      memgraph::query::DiscardValueResultStream stream;
-      interpreter.Pull(&stream, {}, results.qid);
-
+      try {
+        auto results = interpreter.Prepare(line, {}, {});
+        memgraph::query::DiscardValueResultStream stream;
+        interpreter.Pull(&stream, {}, results.qid);
+      } catch (const memgraph::query::UserAlreadyExistsException &e) {
+        spdlog::warn("{} The rest of the init-file will be run.", e.what());
+      }
       if (audit_log) {
         audit_log->Record("", "", line, {}, memgraph::dbms::kDefaultDB);
       }
@@ -107,6 +114,7 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
                                                             block_shutdown_signals),
             "Unable to register SIGINT handler!");
 }
+}  // namespace
 
 int main(int argc, char **argv) {
   memgraph::memory::SetHooks();
@@ -204,6 +212,17 @@ int main(int argc, char **argv) {
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
+  const auto vm_max_map_count = memgraph::utils::GetVmMaxMapCount();
+  if (vm_max_map_count.has_value()) {
+    if (vm_max_map_count.value() < kMgVmMaxMapCount) {
+      std::cout << "Max virtual memory areas vm.max_map_count " << vm_max_map_count.value()
+                << " is too low, increase to at least " << kMgVmMaxMapCount << std::endl;
+    }
+  } else {
+    std::cout << "Can't get info on vm.max_map_count, check whether it is too low, vm.max_map_count is at least "
+              << kMgVmMaxMapCount << std::endl;
+  }
+
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
 
   memgraph::utils::EnsureDirOrDie(data_directory);
@@ -275,7 +294,8 @@ int main(int argc, char **argv) {
   memgraph::storage::Config db_config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
-      .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
+      .items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
+                .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
@@ -285,7 +305,9 @@ int main(int argc, char **argv) {
                      .restore_replication_state_on_startup = FLAGS_replication_restore_state_on_startup,
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
-                     .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
+                     // deprecated
+                     .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery,
+                     .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
@@ -352,20 +374,16 @@ int main(int argc, char **argv) {
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   auth_glue(&auth_, auth_handler, auth_checker);
 
+  memgraph::dbms::DbmsHandler dbms_handler(db_config
 #ifdef MG_ENTERPRISE
-  memgraph::dbms::DbmsHandler new_handler(db_config, &auth_, FLAGS_data_recovery_on_startup,
-                                          FLAGS_storage_delete_on_drop);
-  auto db_acc = new_handler.Get(memgraph::dbms::kDefaultDB);
-  memgraph::query::InterpreterContext interpreter_context_(interp_config, &new_handler, auth_handler.get(),
-                                                           auth_checker.get());
-#else
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gatekeeper{db_config};
-  auto db_acc_opt = db_gatekeeper.access();
-  MG_ASSERT(db_acc_opt, "Failed to access the main database");
-  auto &db_acc = *db_acc_opt;
-  memgraph::query::InterpreterContext interpreter_context_(interp_config, &db_gatekeeper, auth_handler.get(),
-                                                           auth_checker.get());
+                                           ,
+                                           &auth_, FLAGS_data_recovery_on_startup, FLAGS_storage_delete_on_drop
 #endif
+  );
+  auto db_acc = dbms_handler.Get();
+
+  memgraph::query::InterpreterContext interpreter_context_(
+      interp_config, &dbms_handler, &dbms_handler.ReplicationState(), auth_handler.get(), auth_checker.get());
   MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
@@ -388,8 +406,8 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
-  new_handler.RestoreTriggers(&interpreter_context_);
-  new_handler.RestoreStreams(&interpreter_context_);
+  dbms_handler.RestoreTriggers(&interpreter_context_);
+  dbms_handler.RestoreStreams(&interpreter_context_);
 #else
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
@@ -432,11 +450,10 @@ int main(int argc, char **argv) {
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
                       service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
+    telemetry->AddStorageCollector(dbms_handler, auth_);
 #ifdef MG_ENTERPRISE
-    telemetry->AddStorageCollector(new_handler, auth_);
-    telemetry->AddDatabaseCollector(new_handler);
+    telemetry->AddDatabaseCollector(dbms_handler);
 #else
-    telemetry->AddStorageCollector(db_gatekeeper, auth_);
     telemetry->AddDatabaseCollector();
 #endif
     telemetry->AddClientCollector();
@@ -496,22 +513,22 @@ int main(int argc, char **argv) {
 
   if (!FLAGS_init_data_file.empty()) {
     spdlog::info("Running init data file.");
+    auto db_acc = dbms_handler.Get();
+    MG_ASSERT(db_acc, "Failed to gain access to the main database");
 #ifdef MG_ENTERPRISE
-    auto db_acc = new_handler.Get(memgraph::dbms::kDefaultDB);
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file, &audit_log);
     } else {
       InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
     }
 #else
-    auto db_acc_2 = db_gatekeeper.access();
-    MG_ASSERT(db_acc_2, "Failed to gain access to the main database");
-    InitFromCypherlFile(interpreter_context_, *db_acc_2, FLAGS_init_data_file);
+    InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
 #endif
   }
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
+  memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     metrics_server.AwaitShutdown();

@@ -13,6 +13,8 @@
 
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
+#include "replication/messages.hpp"
+#include "replication/replication_client.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/id_types.hpp"
@@ -23,12 +25,16 @@
 #include "storage/v2/replication/rpc.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 
 #include <atomic>
+#include <concepts>
+#include <functional>
 #include <optional>
 #include <set>
 #include <string>
+#include <variant>
 
 namespace memgraph::storage {
 
@@ -36,12 +42,12 @@ struct Delta;
 struct Vertex;
 struct Edge;
 class Storage;
-class ReplicationClient;
+class ReplicationStorageClient;
 
 // Handler used for transferring the current transaction.
 class ReplicaStream {
  public:
-  explicit ReplicaStream(ReplicationClient *self, uint64_t previous_commit_timestamp, uint64_t current_seq_num);
+  explicit ReplicaStream(Storage *storage, rpc::Client &rpc_client, uint64_t current_seq_num);
 
   /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
@@ -60,83 +66,84 @@ class ReplicaStream {
   /// @throw rpc::RpcFailedException
   replication::AppendDeltasRes Finalize();
 
+  bool IsDefunct() const { return stream_.IsDefunct(); }
+
  private:
-  ReplicationClient *self_;
+  Storage *storage_;
   rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
 };
 
-class ReplicationClient {
-  friend class CurrentWalHandler;
+template <typename F>
+concept InvocableWithStream = std::invocable<F, ReplicaStream &>;
+
+// TODO Rename to something without the word "client"
+class ReplicationStorageClient {
+  friend class InMemoryCurrentWalHandler;
   friend class ReplicaStream;
+  friend struct ::memgraph::replication::ReplicationClient;
 
  public:
-  ReplicationClient(Storage *storage, const memgraph::replication::ReplicationClientConfig &config,
-                    const memgraph::replication::ReplicationEpoch *epoch);
+  explicit ReplicationStorageClient(::memgraph::replication::ReplicationClient &client);
 
-  ReplicationClient(ReplicationClient const &) = delete;
-  ReplicationClient &operator=(ReplicationClient const &) = delete;
-  ReplicationClient(ReplicationClient &&) noexcept = delete;
-  ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
+  ReplicationStorageClient(ReplicationStorageClient const &) = delete;
+  ReplicationStorageClient &operator=(ReplicationStorageClient const &) = delete;
+  ReplicationStorageClient(ReplicationStorageClient &&) noexcept = delete;
+  ReplicationStorageClient &operator=(ReplicationStorageClient &&) noexcept = delete;
 
-  virtual ~ReplicationClient();
+  ~ReplicationStorageClient() = default;
 
-  auto Mode() const -> memgraph::replication::ReplicationMode { return mode_; }
-  auto Name() const -> std::string const & { return name_; }
-  auto Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
-  auto State() const -> replication::ReplicaState { return replica_state_.load(); }
-  auto GetTimestampInfo() -> TimestampInfo;
+  // TODO Remove the client related functions
+  auto Mode() const -> memgraph::replication::ReplicationMode { return client_.mode_; }
+  auto Name() const -> std::string const & { return client_.name_; }
+  auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
 
-  void Start();
-  void StartTransactionReplication(const uint64_t current_wal_seq_num);
+  auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
+  auto GetTimestampInfo(Storage const *storage) -> TimestampInfo;
+
+  void Start(Storage *storage);
+  void StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage);
+
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
   // we want to send part of transaction and to avoid adding some GC logic this
   // function will run a callback if, after previously callling
   // StartTransactionReplication, stream is created.
-  void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback);
+  template <InvocableWithStream F>
+  void IfStreamingTransaction(F &&callback) {
+    // We can only check the state because it guarantees to be only
+    // valid during a single transaction replication (if the assumption
+    // that this and other transaction replication functions can only be
+    // called from a one thread stands)
+    if (State() != replication::ReplicaState::REPLICATING) {
+      return;
+    }
+    if (replica_stream_->IsDefunct()) return;
+    try {
+      callback(*replica_stream_);  // failure state what if not streaming (std::nullopt)
+    } catch (const rpc::RpcFailedException &) {
+      return replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
+      LogRpcFailure();
+    }
+  }
+
   // Return whether the transaction could be finalized on the replication client or not.
-  [[nodiscard]] bool FinalizeTransactionReplication();
+  [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage);
 
- protected:
-  virtual void RecoverReplica(uint64_t replica_commit) = 0;
+  void TryCheckReplicaStateAsync(Storage *storage);  // TODO Move back to private
+ private:
+  void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage);
 
-  auto GetStorage() -> Storage * { return storage_; }
-  auto LastCommitTimestamp() const -> uint64_t;
-  void InitializeClient();
-  void HandleRpcFailure();
-  void TryInitializeClientAsync();
-  void TryInitializeClientSync();
-  void FrequentCheck();
+  void CheckReplicaState(Storage *storage);
+  void LogRpcFailure();
+  void TryCheckReplicaStateSync(Storage *storage);
+  void FrequentCheck(Storage *storage);
 
-  std::string name_;
-  communication::ClientContext rpc_context_;
-  rpc::Client rpc_client_;
-  std::chrono::seconds replica_check_frequency_;
-
-  std::optional<ReplicaStream> replica_stream_;
-  memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
-
-  utils::SpinLock client_lock_;
-  // This thread pool is used for background tasks so we don't
-  // block the main storage thread
-  // We use only 1 thread for 2 reasons:
-  //  - background tasks ALWAYS contain some kind of RPC communication.
-  //    We can't have multiple RPC communication from a same client
-  //    because that's not logically valid (e.g. you cannot send a snapshot
-  //    and WAL at a same time because WAL will arrive earlier and be applied
-  //    before the snapshot which is not correct)
-  //  - the implementation is simplified as we have a total control of what
-  //    this pool is executing. Also, we can simply queue multiple tasks
-  //    and be sure of the execution order.
-  //    Not having mulitple possible threads in the same client allows us
-  //    to ignore concurrency problems inside the client.
-  utils::ThreadPool thread_pool_{1};
-  std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::INVALID};
-
-  utils::Scheduler replica_checker_;
-  Storage *storage_;
-
-  memgraph::replication::ReplicationEpoch const *repl_epoch_;
+  ::memgraph::replication::ReplicationClient &client_;
+  // TODO Do not store the stream, make is a local variable
+  std::optional<ReplicaStream>
+      replica_stream_;  // Currently active stream (nullopt if not in use), note: a single stream per rpc client
+  mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
+      replication::ReplicaState::MAYBE_BEHIND};
 };
 
 }  // namespace memgraph::storage

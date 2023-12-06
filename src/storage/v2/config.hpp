@@ -17,6 +17,7 @@
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::storage {
 
@@ -34,10 +35,13 @@ struct Config {
 
     Type type{Type::PERIODIC};
     std::chrono::milliseconds interval{std::chrono::milliseconds(1000)};
+    friend bool operator==(const Gc &lrh, const Gc &rhs) = default;
   } gc;
 
   struct Items {
     bool properties_on_edges{true};
+    bool enable_schema_metadata{false};
+    friend bool operator==(const Items &lrh, const Items &rhs) = default;
   } items;
 
   struct Durability {
@@ -61,11 +65,16 @@ struct Config {
     uint64_t items_per_batch{1'000'000};
     uint64_t recovery_thread_count{8};
 
+    // deprecated
     bool allow_parallel_index_creation{false};
+
+    bool allow_parallel_schema_creation{false};
+    friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};
+    friend bool operator==(const Transaction &lrh, const Transaction &rhs) = default;
   } transaction;
 
   struct DiskConfig {
@@ -77,12 +86,25 @@ struct Config {
     std::filesystem::path id_name_mapper_directory{"storage/rocksdb_id_name_mapper"};
     std::filesystem::path durability_directory{"storage/rocksdb_durability"};
     std::filesystem::path wal_directory{"storage/rocksdb_wal"};
+    friend bool operator==(const DiskConfig &lrh, const DiskConfig &rhs) = default;
   } disk;
 
   std::string name;
   bool force_on_disk{false};
   StorageMode storage_mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
+
+  friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };
+
+inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
+  if (!config.durability.restore_replication_state_on_startup) {
+    spdlog::warn(
+        "Replication configuration will NOT be stored. When the server restarts, replication state will be "
+        "forgotten.");
+    return std::nullopt;
+  }
+  return {config.durability.storage_directory};
+}
 
 static inline void UpdatePaths(Config &config, const std::filesystem::path &storage_dir) {
   auto contained = [](const auto &path, const auto &base) -> std::optional<std::filesystem::path> {

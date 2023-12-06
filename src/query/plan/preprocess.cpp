@@ -14,11 +14,13 @@
 #include <stack>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/typeinfo.hpp"
 
@@ -55,33 +57,131 @@ void ForEachPattern(Pattern &pattern, std::function<void(NodeAtom *)> base,
 // want to start expanding.
 std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const std::vector<Pattern *> &patterns) {
   std::vector<Expansion> expansions;
+  ExpansionGroupId unknown_expansion_group_id = ExpansionGroupId::FromInt(-1);
   auto ignore_node = [&](auto *) {};
-  auto collect_expansion = [&](auto *prev_node, auto *edge, auto *current_node) {
-    UsedSymbolsCollector collector(symbol_table);
-    if (edge->IsVariable()) {
-      if (edge->lower_bound_) edge->lower_bound_->Accept(collector);
-      if (edge->upper_bound_) edge->upper_bound_->Accept(collector);
-      if (edge->filter_lambda_.expression) edge->filter_lambda_.expression->Accept(collector);
-      // Remove symbols which are bound by lambda arguments.
-      collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_edge));
-      collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_node));
-      if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
-        collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_edge));
-        collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_node));
-      }
-    }
-    expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false, collector.symbols_, current_node});
-  };
   for (const auto &pattern : patterns) {
     if (pattern->atoms_.size() == 1U) {
       auto *node = utils::Downcast<NodeAtom>(pattern->atoms_[0]);
       DMG_ASSERT(node, "First pattern atom is not a node");
-      expansions.emplace_back(Expansion{node});
+      expansions.emplace_back(Expansion{.node1 = node, .expansion_group_id = unknown_expansion_group_id});
     } else {
+      auto collect_expansion = [&](auto *prev_node, auto *edge, auto *current_node) {
+        UsedSymbolsCollector collector(symbol_table);
+        if (edge->IsVariable()) {
+          if (edge->lower_bound_) edge->lower_bound_->Accept(collector);
+          if (edge->upper_bound_) edge->upper_bound_->Accept(collector);
+          if (edge->filter_lambda_.expression) edge->filter_lambda_.expression->Accept(collector);
+          // Remove symbols which are bound by lambda arguments.
+          collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_edge));
+          collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_node));
+          if (edge->filter_lambda_.accumulated_path) {
+            collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.accumulated_path));
+
+            if (edge->filter_lambda_.accumulated_weight) {
+              collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.accumulated_weight));
+            }
+          }
+          if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
+              edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+            collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_edge));
+            collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_node));
+          }
+        }
+        expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false, collector.symbols_, current_node,
+                                          unknown_expansion_group_id});
+      };
       ForEachPattern(*pattern, ignore_node, collect_expansion);
     }
   }
   return expansions;
+}
+
+void AssignExpansionGroupIds(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  ExpansionGroupId next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_expansion_groups + 1);
+
+  auto assign_expansion_group_id = [&matching, &next_expansion_group_id](Symbol symbol, Expansion &expansion) {
+    ExpansionGroupId expansion_group_id_to_assign = next_expansion_group_id;
+    if (matching.node_symbol_to_expansion_group_id.contains(symbol)) {
+      expansion_group_id_to_assign = matching.node_symbol_to_expansion_group_id[symbol];
+    }
+
+    if (expansion.expansion_group_id.AsInt() == -1 ||
+        expansion_group_id_to_assign.AsInt() < expansion.expansion_group_id.AsInt()) {
+      expansion.expansion_group_id = expansion_group_id_to_assign;
+    }
+
+    matching.node_symbol_to_expansion_group_id[symbol] = expansion.expansion_group_id;
+  };
+
+  for (auto &expansion : expansions) {
+    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
+    assign_expansion_group_id(node1_sym, expansion);
+
+    if (expansion.edge) {
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
+
+      assign_expansion_group_id(edge_sym, expansion);
+      assign_expansion_group_id(node2_sym, expansion);
+    }
+
+    matching.number_of_expansion_groups = matching.number_of_expansion_groups < expansion.expansion_group_id.AsUint()
+                                              ? expansion.expansion_group_id.AsUint()
+                                              : matching.number_of_expansion_groups;
+    next_expansion_group_id = ExpansionGroupId::FromUint(matching.number_of_expansion_groups + 1);
+  }
+
+  // By the time we finished assigning expansions, no expansion should have its expansion group ID unassigned
+  for (const auto &expansion : matching.expansions) {
+    MG_ASSERT(expansion.expansion_group_id.AsInt() != -1, "Expansion group ID is not assigned to the pattern!");
+  }
+}
+
+void CollectEdgeSymbols(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  std::unordered_set<Symbol> edge_symbols;
+  for (auto &expansion : expansions) {
+    if (expansion.edge) {
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      // Fill edge symbols for Cyphermorphism.
+      edge_symbols.insert(edge_sym);
+    }
+  }
+
+  if (!edge_symbols.empty()) {
+    matching.edge_symbols.emplace_back(edge_symbols);
+  }
+}
+
+void CollectExpansionSymbols(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  for (auto &expansion : expansions) {
+    // Map node1 symbol to expansion
+    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
+    matching.expansion_symbols.insert(node1_sym);
+
+    if (expansion.edge) {
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      matching.expansion_symbols.insert(edge_sym);
+
+      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
+      matching.expansion_symbols.insert(node2_sym);
+    }
+  }
+}
+
+void AddExpansionsToMatching(std::vector<Expansion> &expansions, Matching &matching, const SymbolTable &symbol_table) {
+  for (auto &expansion : expansions) {
+    // Matching may already have some expansions, so offset our index.
+    const size_t expansion_ix = matching.expansions.size();
+    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
+    matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
+
+    if (expansion.edge) {
+      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
+      matching.node_symbol_to_expansions[node2_sym].insert(expansion_ix);
+    }
+
+    matching.expansions.push_back(expansion);
+  }
 }
 
 auto SplitExpressionOnAnd(Expression *expression) {
@@ -107,7 +207,7 @@ auto SplitExpressionOnAnd(Expression *expression) {
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                Expression *value, Type type)
-    : symbol_(symbol), property_(property), type_(type), value_(value) {
+    : symbol_(symbol), property_(std::move(property)), type_(type), value_(value) {
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
@@ -117,7 +217,11 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                const std::optional<PropertyFilter::Bound> &lower_bound,
                                const std::optional<PropertyFilter::Bound> &upper_bound)
-    : symbol_(symbol), property_(property), type_(Type::RANGE), lower_bound_(lower_bound), upper_bound_(upper_bound) {
+    : symbol_(symbol),
+      property_(std::move(property)),
+      type_(Type::RANGE),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {
   UsedSymbolsCollector collector(symbol_table);
   if (lower_bound) {
     lower_bound->value()->Accept(collector);
@@ -128,8 +232,8 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
 }
 
-PropertyFilter::PropertyFilter(const Symbol &symbol, PropertyIx property, Type type)
-    : symbol_(symbol), property_(property), type_(type) {
+PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
+    : symbol_(std::move(symbol)), property_(std::move(property)), type_(type) {
   // As this constructor is used for property filters where
   // we don't have to evaluate the filter expression, we set
   // the is_symbol_in_value_ to false, although the filter
@@ -198,6 +302,13 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
           prop_pair.second->Accept(collector);
           collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.inner_node));
           collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.inner_edge));
+          if (atom->filter_lambda_.accumulated_path) {
+            collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.accumulated_path));
+
+            if (atom->filter_lambda_.accumulated_weight) {
+              collector.symbols_.emplace(symbol_table.at(*atom->filter_lambda_.accumulated_weight));
+            }
+          }
           // First handle the inline property filter.
           auto *property_lookup = storage.Create<PropertyLookup>(atom->filter_lambda_.inner_edge, prop_pair.first);
           auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
@@ -487,32 +598,21 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 // were in a Where clause).
 void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table, AstStorage &storage,
                  Matching &matching) {
-  auto expansions = NormalizePatterns(symbol_table, patterns);
-  std::unordered_set<Symbol> edge_symbols;
-  for (const auto &expansion : expansions) {
-    // Matching may already have some expansions, so offset our index.
-    const size_t expansion_ix = matching.expansions.size();
-    // Map node1 symbol to expansion
-    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
-    matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
-    // Add node1 to all symbols.
-    matching.expansion_symbols.insert(node1_sym);
-    if (expansion.edge) {
-      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
-      // Fill edge symbols for Cyphermorphism.
-      edge_symbols.insert(edge_sym);
-      // Map node2 symbol to expansion
-      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
-      matching.node_symbol_to_expansions[node2_sym].insert(expansion_ix);
-      // Add edge and node2 to all symbols
-      matching.expansion_symbols.insert(edge_sym);
-      matching.expansion_symbols.insert(node2_sym);
-    }
-    matching.expansions.push_back(expansion);
-  }
-  if (!edge_symbols.empty()) {
-    matching.edge_symbols.emplace_back(edge_symbols);
-  }
+  std::vector<Expansion> expansions = NormalizePatterns(symbol_table, patterns);
+
+  // At this point, all of the expansions have the expansion group id of -1
+  // By the time the assigning is done, all the expansions should have their expansion group id adjusted
+  AssignExpansionGroupIds(expansions, matching, symbol_table);
+
+  // Add edge symbols for every expansion to ensure edge uniqueness
+  CollectEdgeSymbols(expansions, matching, symbol_table);
+
+  // Add all the symbols found in these expansions
+  CollectExpansionSymbols(expansions, matching, symbol_table);
+
+  // Matching is of reference type and needs to append the expansions
+  AddExpansionsToMatching(expansions, matching, symbol_table);
+
   for (auto *const pattern : patterns) {
     matching.filters.CollectPatternFilters(*pattern, symbol_table, storage);
     if (pattern->identifier_->user_declared_) {

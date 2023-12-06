@@ -31,16 +31,8 @@ namespace memgraph::storage {
 
 class InMemoryStorage;
 
-using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
-
-auto ReplicationStateHelper(Config const &config) -> std::optional<std::filesystem::path> {
-  if (!config.durability.restore_replication_state_on_startup) return std::nullopt;
-  return {config.durability.storage_directory};
-}
-
 Storage::Storage(Config config, StorageMode storage_mode)
-    : repl_state_(ReplicationStateHelper(config)),
-      name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
+    : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
           return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
                                                     config.disk.id_name_mapper_directory);
@@ -57,26 +49,26 @@ Storage::Storage(Config config, StorageMode storage_mode)
 }
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode)
+                            StorageMode storage_mode, bool is_main)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(storage_->main_lock_),
       unique_guard_(storage_->main_lock_, std::defer_lock),
-      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode, is_main)),
       is_transaction_active_(true),
       creation_storage_mode_(storage_mode) {}
 
 Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode)
+                            StorageMode storage_mode, bool is_main)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(storage_->main_lock_, std::defer_lock),
       unique_guard_(storage_->main_lock_),
-      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode, is_main)),
       is_transaction_active_(true),
       creation_storage_mode_(storage_mode) {}
 
@@ -93,19 +85,7 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   other.commit_timestamp_.reset();
 }
 
-/// Main lock is taken by the caller.
-void Storage::SetStorageMode(StorageMode storage_mode) {
-  std::unique_lock main_guard{main_lock_};
-  MG_ASSERT(
-      (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) &&
-      (storage_mode == StorageMode::IN_MEMORY_ANALYTICAL || storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
-  if (storage_mode_ != storage_mode) {
-    storage_mode_ = storage_mode;
-    FreeMemory(std::move(main_guard));
-  }
-}
-
-StorageMode Storage::GetStorageMode() const { return storage_mode_; }
+StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
@@ -115,13 +95,25 @@ utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(I
   return {};
 }
 
-StorageMode Storage::Accessor::GetCreationStorageMode() const { return creation_storage_mode_; }
+StorageMode Storage::Accessor::GetCreationStorageMode() const noexcept { return creation_storage_mode_; }
 
 std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   if (is_transaction_active_) {
     return transaction_.transaction_id;
   }
   return {};
+}
+
+std::vector<LabelId> Storage::Accessor::ListAllPossiblyPresentVertexLabels() const {
+  std::vector<LabelId> vertex_labels;
+  storage_->stored_node_labels_.for_each([&vertex_labels](const auto &label) { vertex_labels.push_back(label); });
+  return vertex_labels;
+}
+
+std::vector<EdgeTypeId> Storage::Accessor::ListAllPossiblyPresentEdgeTypes() const {
+  std::vector<EdgeTypeId> edge_types;
+  storage_->stored_edge_types_.for_each([&edge_types](const auto &type) { edge_types.push_back(type); });
+  return edge_types;
 }
 
 void Storage::Accessor::AdvanceCommand() {

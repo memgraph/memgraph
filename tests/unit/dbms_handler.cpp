@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/auth_query_handler.hpp"
+#include "storage/v2/config.hpp"
 #ifdef MG_ENTERPRISE
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>

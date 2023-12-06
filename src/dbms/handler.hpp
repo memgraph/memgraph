@@ -38,7 +38,7 @@ class Handler {
    * @brief Empty Handler constructor.
    *
    */
-  Handler() {}
+  Handler() = default;
 
   /**
    * @brief Generate a new context and corresponding configuration.
@@ -49,7 +49,7 @@ class Handler {
    * @return NewResult
    */
   template <typename... Args>
-  NewResult New(std::piecewise_construct_t /* marker */, std::string_view name, Args... args) {
+  NewResult New(std::piecewise_construct_t /* marker */, std::string_view name, Args &&...args) {
     // Make sure the emplace will succeed, since we don't want to create temporary objects that could break something
     if (!Has(name)) {
       auto [itr, _] = items_.emplace(std::piecewise_construct, std::forward_as_tuple(name),

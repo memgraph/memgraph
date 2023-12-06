@@ -44,6 +44,8 @@ class EdgeAccessor final {
         transaction_(transaction),
         for_deleted_(for_deleted) {}
 
+  bool IsDeleted() const;
+
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
 
@@ -109,6 +111,9 @@ class EdgeAccessor final {
 };
 
 }  // namespace memgraph::storage
+
+static_assert(std::is_trivially_copyable_v<memgraph::storage::EdgeAccessor>,
+              "storage::EdgeAccessor must be trivially copyable!");
 
 namespace std {
 template <>

@@ -127,6 +127,8 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       return Value(value.ValueLocalDateTime());
     case query::TypedValue::Type::Duration:
       return Value(value.ValueDuration());
+    case query::TypedValue::Type::Function:
+      throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");
     case query::TypedValue::Type::Graph:
       auto maybe_graph = ToBoltGraph(value.ValueGraph(), db, view);
       if (maybe_graph.HasError()) return maybe_graph.GetError();
@@ -202,7 +204,7 @@ storage::Result<std::map<std::string, Value>> ToBoltGraph(const query::Graph &gr
   for (const auto &v : graph.vertices()) {
     auto maybe_vertex = ToBoltVertex(v, db, view);
     if (maybe_vertex.HasError()) return maybe_vertex.GetError();
-    vertices.emplace_back(Value(std::move(*maybe_vertex)));
+    vertices.emplace_back(std::move(*maybe_vertex));
   }
   map.emplace("nodes", Value(vertices));
 
@@ -211,7 +213,7 @@ storage::Result<std::map<std::string, Value>> ToBoltGraph(const query::Graph &gr
   for (const auto &e : graph.edges()) {
     auto maybe_edge = ToBoltEdge(e, db, view);
     if (maybe_edge.HasError()) return maybe_edge.GetError();
-    edges.emplace_back(Value(std::move(*maybe_edge)));
+    edges.emplace_back(std::move(*maybe_edge));
   }
   map.emplace("edges", Value(edges));
 

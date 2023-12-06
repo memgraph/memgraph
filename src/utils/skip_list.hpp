@@ -1091,8 +1091,8 @@ class SkipList final : detail::SkipListNode_base {
     if (lower) {
       layer_found = find_node(lower->value(), preds, succs);
     } else {
-      for (int i = 0; i < kSkipListMaxHeight; ++i) {
-        preds[i] = head_;
+      for (auto &pred : preds) {
+        pred = head_;
       }
       layer_found = kSkipListMaxHeight - 1;
     }

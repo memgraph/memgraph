@@ -17,11 +17,14 @@
 
 #pragma once
 
+#include <utility>
+
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/pretty_print.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
+#include "query/plan/rewrite/join.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -37,13 +40,22 @@ class PostProcessor final {
   Parameters parameters_;
 
  public:
+  IndexHints index_hints_{};
+
   using ProcessedPlan = std::unique_ptr<LogicalOperator>;
 
-  explicit PostProcessor(const Parameters &parameters) : parameters_(parameters) {}
+  explicit PostProcessor(Parameters parameters) : parameters_(std::move(parameters)) {}
+
+  template <class TDbAccessor>
+  PostProcessor(Parameters parameters, std::vector<IndexHint> index_hints, TDbAccessor *db)
+      : parameters_(std::move(parameters)), index_hints_(IndexHints(index_hints, db)) {}
 
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
-    return RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db);
+    auto index_lookup_plan =
+        RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db, index_hints_);
+    return RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage,
+                                   context->db);
   }
 
   template <class TVertexCounts>
@@ -118,7 +130,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
 
 template <class TPlanningContext>
 auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bool use_variable_planner) {
-  PostProcessor post_processor(parameters);
+  PostProcessor post_processor(parameters, context->query->index_hints_, context->db);
   return MakeLogicalPlan(context, &post_processor, use_variable_planner);
 }
 
