@@ -104,13 +104,13 @@ struct Gatekeeper {
     friend Gatekeeper;
 
    private:
-    explicit Accessor(Gatekeeper *owner) : owner_{owner} { ++owner_->pimpl_->count_; }
+    explicit Accessor(Gatekeeper *owner) : owner_{owner->pimpl_.get()} { ++owner_->count_; }
 
    public:
     Accessor(Accessor const &other) : owner_{other.owner_} {
       if (owner_) {
-        auto guard = std::unique_lock{owner_->pimpl_->mutex_};
-        ++owner_->pimpl_->count_;
+        auto guard = std::unique_lock{owner_->mutex_};
+        ++owner_->count_;
       }
     };
     Accessor(Accessor &&other) noexcept : owner_{std::exchange(other.owner_, nullptr)} {};
@@ -122,14 +122,14 @@ struct Gatekeeper {
 
       // gain ownership
       if (other.owner_) {
-        auto guard = std::unique_lock{other.owner_->pimpl_->mutex_};
-        ++other.owner_->pimpl_->count_;
+        auto guard = std::unique_lock{other.owner_->mutex_};
+        ++other.owner_->count_;
       }
 
       // reliquish ownership
       if (owner_) {
-        auto guard = std::unique_lock{owner_->pimpl_->mutex_};
-        --owner_->pimpl_->count_;
+        auto guard = std::unique_lock{owner_->mutex_};
+        --owner_->count_;
       }
 
       // correct owner
@@ -142,8 +142,8 @@ struct Gatekeeper {
 
       // reliquish ownership
       if (owner_) {
-        auto guard = std::unique_lock{owner_->pimpl_->mutex_};
-        --owner_->pimpl_->count_;
+        auto guard = std::unique_lock{owner_->mutex_};
+        --owner_->count_;
       }
 
       // correct owners
@@ -151,57 +151,57 @@ struct Gatekeeper {
       return *this;
     }
 
-    [[nodiscard]] bool is_deleting() const { return owner_->pimpl_->is_deleting; }
+    [[nodiscard]] bool is_deleting() const { return owner_->is_deleting; }
 
     void prepare_for_deletion() {
       if (owner_) {
-        owner_->pimpl_->is_deleting = true;
+        owner_->is_deleting = true;
       }
     }
 
     ~Accessor() { reset(); }
 
-    auto get() -> T * { return std::addressof(*owner_->pimpl_->value_); }
-    auto get() const -> const T * { return std::addressof(*owner_->pimpl_->value_); }
-    T *operator->() { return std::addressof(*owner_->pimpl_->value_); }
-    const T *operator->() const { return std::addressof(*owner_->pimpl_->value_); }
+    auto get() -> T * { return std::addressof(*owner_->value_); }
+    auto get() const -> const T * { return std::addressof(*owner_->value_); }
+    T *operator->() { return std::addressof(*owner_->value_); }
+    const T *operator->() const { return std::addressof(*owner_->value_); }
 
     template <typename Func>
     [[nodiscard]] auto try_exclusively(Func &&func) -> EvalResult<std::invoke_result_t<Func, T &>> {
       // Prevent new access
-      auto guard = std::unique_lock{owner_->pimpl_->mutex_};
+      auto guard = std::unique_lock{owner_->mutex_};
       // Only invoke if we have exclusive access
-      if (owner_->pimpl_->count_ != 1) {
+      if (owner_->count_ != 1) {
         return {not_run_t{}};
       }
       // Invoke and hold result in wrapper type
-      return {run_t{}, std::forward<Func>(func), *owner_->pimpl_->value_};
+      return {run_t{}, std::forward<Func>(func), *owner_->value_};
     }
 
     // Completely invalidated the accessor if return true
     [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100)) {
       // Prevent new access
-      auto guard = std::unique_lock{owner_->pimpl_->mutex_};
-      if (!owner_->pimpl_->cv_.wait_for(guard, timeout, [this] { return owner_->pimpl_->count_ == 1; })) {
+      auto guard = std::unique_lock{owner_->mutex_};
+      if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
         return false;
       }
       // Delete value
-      owner_->pimpl_->value_ = std::nullopt;
+      owner_->value_ = std::nullopt;
       return true;
     }
 
     explicit operator bool() const {
-      return owner_ != nullptr                 // we have access
-             && !owner_->pimpl_->is_deleting;  // AND we are allowed to use it
+      return owner_ != nullptr         // we have access
+             && !owner_->is_deleting;  // AND we are allowed to use it
     }
 
     void reset() {
       if (owner_) {
         {
-          auto guard = std::unique_lock{owner_->pimpl_->mutex_};
-          --owner_->pimpl_->count_;
+          auto guard = std::unique_lock{owner_->mutex_};
+          --owner_->count_;
         }
-        owner_->pimpl_->cv_.notify_all();
+        owner_->cv_.notify_all();  // TODO Under a lock???
       }
       owner_ = nullptr;
     }
@@ -209,7 +209,7 @@ struct Gatekeeper {
     friend bool operator==(Accessor const &lhs, Accessor const &rhs) { return lhs.owner_ == rhs.owner_; }
 
    private:
-    Gatekeeper *owner_ = nullptr;
+    GKInternals<T> *owner_ = nullptr;
   };
 
   std::optional<Accessor> access() {
@@ -221,6 +221,7 @@ struct Gatekeeper {
   }
 
   ~Gatekeeper() {
+    if (!pimpl_) return;  // Moved out, nothing to do
     pimpl_->is_deleting = true;
     // wait for count to drain to 0
     auto lock = std::unique_lock{pimpl_->mutex_};
