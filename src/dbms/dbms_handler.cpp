@@ -240,7 +240,7 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name) {
   std::error_code ec;
   (void)std::filesystem::remove_all(*storage_path, ec);
   if (ec) {
-    spdlog::error("Failed to clean disk while deleting database \"{}\" stored in \"{}\".", db_name, *storage_path);
+    spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, *storage_path);
   }
   return {};  // Success
 }
@@ -279,7 +279,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name) {
     std::error_code ec;
     (void)std::filesystem::remove_all(storage_path, ec);
     if (ec) {
-      spdlog::error("Failed to clean disk while deleting database \"{}\" stored in \"{}\".", db_name, storage_path);
+      spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
     }
   });
 

@@ -3395,14 +3395,13 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
                                         InterpreterContext *interpreter_context,
-                                        std::optional<std::function<void(std::string_view)>> on_change_cb,
-                                        utils::ResourceLockGuard &system_guard) {
+                                        std::optional<std::function<void(std::string_view)>> on_change_cb
+                                        /*,
+                                        utils::ResourceLockGuard &system_guard*/) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
   }
-  // TODO: Remove once replicas support multi-tenant replication
-  if (!current_db.db_acc_) throw DatabaseContextRequiredException("Multi database queries require a defined database.");
 
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
   auto *db_handler = interpreter_context->dbms_handler;
@@ -3513,7 +3512,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
               auto success = db_handler->TryDelete(db_name);
               if (!success.HasError()) {
                 // Remove from auth
-                auth->DeleteDatabase(db_name);
+                if (auth) auth->DeleteDatabase(db_name);
               } else {
                 switch (success.GetError()) {
                   case dbms::DeleteError::DEFAULT_DB:
@@ -3670,17 +3669,6 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
                                                 QueryExtras const &extras) {
-  // TODO: Remove once the interpreter is storage/tx independent and could run without an associated database
-  if (!current_db_.db_acc_) {
-    throw DatabaseContextRequiredException("Database required for the query.");
-  }
-
-  // Best effort attempt to relinquish db_acc proactivly
-  if (current_db_.db_acc_->is_deleting()) {
-    current_db_.db_acc_.reset();
-    throw DatabaseContextRequiredException("Database is being dropped");
-  }
-
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
   const auto trimmed_query = utils::Trim(upper_case_query);
@@ -3766,6 +3754,18 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
     query_execution->summary["cost_estimate"] = 0.0;
+
+    // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
+    // case for use database which overwrites the database)
+    bool non_db_queries =
+        utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<ReplicationQuery>(parsed_query.query) ||
+        utils::Downcast<ShowConfigQuery>(parsed_query.query) || utils::Downcast<SettingQuery>(parsed_query.query) ||
+        utils::Downcast<VersionQuery>(parsed_query.query) ||
+        utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
+        utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
+    if (!non_db_queries && !current_db_.db_acc_) {
+      throw DatabaseContextRequiredException("Database required for the query.");
+    }
 
     // Some queries require an active transaction in order to be prepared.
     // TODO: make a better analysis visitor over the `parsed_query.query`
@@ -3901,9 +3901,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw MultiDatabaseQueryInMulticommandTxException();
       }
       /// SYSTEM (Replication) + INTERPRETER
-      DMG_ASSERT(system_guard);
-      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_,
-                                                 *system_guard);
+      // DMG_ASSERT(system_guard);
+      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_
+                                                 /*, *system_guard*/);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       /// SYSTEM PURE ("SHOW DATABASES")
       /// INTERPRETER (TODO: "SHOW DATABASE")
