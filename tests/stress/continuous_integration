@@ -212,7 +212,6 @@ def run_stress_test_suite(args: Args) -> Optional[Dict[str, float]]:
                 print(f"Failed to execute {test_run} with following exception:", ex)
                 err = True
             finally:
-                stop_memgraph(memgraph_proc)
                 cleanup(memgraph_proc)
             if err:
                 return None

@@ -136,6 +136,25 @@ SMALL_DATASET = [
 LARGE_DATASET = (
     [
         {
+            DatasetConstants.TEST: "long_running.cpp",
+            DatasetConstants.OPTIONS: [
+                "--vertex-count",
+                "200000",
+                "--edge-count",
+                "1000000",
+                "--max-time",
+                "480",
+                "--verify",
+                "300",
+                "--stats-file",
+                STATS_FILE,
+            ],
+            DatasetConstants.TIMEOUT: 500,
+            DatasetConstants.MODE: [get_default_database_mode()],
+        },
+    ]
+    + [
+        {
             DatasetConstants.TEST: "bipartite.py",
             DatasetConstants.OPTIONS: ["--u-count", "300", "--v-count", "300"],
             DatasetConstants.TIMEOUT: 30,
@@ -172,23 +191,4 @@ LARGE_DATASET = (
         },
     ]
     * 6
-    + [
-        {
-            DatasetConstants.TEST: "long_running.cpp",
-            DatasetConstants.OPTIONS: [
-                "--vertex-count",
-                "200000",
-                "--edge-count",
-                "1000000",
-                "--max-time",
-                "480",
-                "--verify",
-                "300",
-                "--stats-file",
-                STATS_FILE,
-            ],
-            DatasetConstants.TIMEOUT: 500,
-            DatasetConstants.MODE: [get_default_database_mode()],
-        },
-    ]
 )
