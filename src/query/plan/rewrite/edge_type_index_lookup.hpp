@@ -27,6 +27,7 @@
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/index_lookup.hpp"
 #include "utils/algorithm.hpp"
 
 namespace memgraph::query::plan {
@@ -34,9 +35,9 @@ namespace memgraph::query::plan {
 namespace impl {
 
 template <class TDbAccessor>
-class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
+class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  JoinRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
+  EdgeTypeIndexRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
       : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -73,21 +74,69 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ScanAll &op) override {
     prev_ops_.push_back(&op);
+
+    if (op.input()->GetTypeInfo() == Once::kType) {
+      const bool is_node_anon = op.output_symbol_.IsSymbolAnonym();
+      once_under_scanall_ = is_node_anon;
+    }
+
     return true;
   }
 
-  bool PostVisit(ScanAll &scan) override {
+  bool PostVisit(ScanAll &op) override {
     prev_ops_.pop_back();
+
+    if (EdgeTypeIndexingPossible()) {
+      SetOnParent(op.input());
+    }
+
     return true;
   }
 
   bool PreVisit(Expand &op) override {
     prev_ops_.push_back(&op);
+
+    if (op.input()->GetTypeInfo() == ScanAll::kType) {
+      // Rethink how to structure this predicates.
+      const bool only_one_edge_type = (op.common_.edge_types.size() == 1U);
+      const bool expansion_is_named = !(op.common_.edge_symbol.IsSymbolAnonym());
+      const bool expdanded_node_not_named = op.common_.node_symbol.IsSymbolAnonym();
+
+      edge_type_index_exist = only_one_edge_type ? db_->EdgeTypeIndexExists(op.common_.edge_types.front()) : false;
+
+      scanall_under_expand_ = only_one_edge_type && expansion_is_named && expdanded_node_not_named;
+    }
+
     return true;
   }
 
-  bool PostVisit(Expand & /*expand*/) override {
+  bool PostVisit(Expand &op) override {
     prev_ops_.pop_back();
+
+    if (EdgeTypeIndexingPossible()) {
+      auto indexed_scan = GenEdgeTypeScan(op);
+      SetOnParent(std::move(indexed_scan));
+    }
+
+    // 0. EdgeTypeIndexing is allowed/exists.
+    // 1. If the previous logical operator is a bare ScanAll with anon nexpr
+    // 2. and this expand has only one named expr and a specified EdgeType,
+    // 2.5.(?) and if the relationships are directionless? -> probably this is not neded
+    // 3. and the destination node of this expand is anon as well,
+    // 4. and if the parent of this Expand is Produce
+    // 5. then remove the bare ScanAll and the Expand and replace them with ScanAllByEdgeType.
+
+    // use TypeInfo to typematch instead?
+    // if(auto *asd = dynamic_cast<ScanAll *>(prev_operator))
+    // {
+    //   asd->output_symbol_;
+    // }
+
+    // if(op.input().get())
+
+    // if we emptied all the expressions from the filter, then we don't need this operator anymore
+    // SetOnParent(op.input());
+
     return true;
   }
 
@@ -134,23 +183,17 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Cartesian &op) override {
     prev_ops_.push_back(&op);
-    RewriteBranch(&op.left_op_);
-    cartesian_symbols_.insert(op.left_symbols_.begin(), op.left_symbols_.end());
-    op.right_op_->Accept(*this);
-    return false;
+    return true;
   }
 
-  bool PostVisit(Cartesian &op) override {
+  bool PostVisit(Cartesian &) override {
     prev_ops_.pop_back();
-    auto hash_join = GenHashJoin(op);
-    if (hash_join) {
-      SetOnParent(std::move(hash_join));
-    }
     return true;
   }
 
   bool PreVisit(IndexedJoin &op) override {
     prev_ops_.push_back(&op);
+    // TODO
     RewriteBranch(&op.main_branch_);
     RewriteBranch(&op.sub_branch_);
     return false;
@@ -163,9 +206,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(HashJoin &op) override {
     prev_ops_.push_back(&op);
-    RewriteBranch(&op.left_op_);
-    RewriteBranch(&op.right_op_);
-    return false;
+    return true;
   }
 
   bool PostVisit(HashJoin &) override {
@@ -248,6 +289,15 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(ScanAllByEdgeType &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByEdgeType &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(ConstructNamedPath &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -259,6 +309,11 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Produce &op) override {
     prev_ops_.push_back(&op);
+
+    if (op.input()->GetTypeInfo() == Expand::kType) {
+      expand_under_produce_ = true;
+    }
+
     return true;
   }
   bool PostVisit(Produce &) override {
@@ -468,7 +523,34 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::vector<LogicalOperator *> prev_ops_;
   std::unordered_set<Symbol> cartesian_symbols_;
 
-  bool DefaultPreVisit() override { throw utils::NotYetImplemented("Operator not yet covered by JoinRewriter"); }
+  // State to confirm EdgeType-indexing
+  bool EdgeTypeIndexingPossible() const {
+    return expand_under_produce_ && scanall_under_expand_ && once_under_scanall_ && edge_type_index_exist;
+  }
+  bool expand_under_produce_ = false;
+  bool scanall_under_expand_ = false;
+  bool once_under_scanall_ = false;
+  bool edge_type_index_exist = false;
+
+  bool DefaultPreVisit() override {
+    throw utils::NotYetImplemented("Operator not yet covered by EdgeTypeIndexRewriter");
+  }
+
+  std::unique_ptr<ScanAllByEdgeType> GenEdgeTypeScan(const Expand &expand) {
+    const auto &input = expand.input();
+    // We have to make a new output symbol? maybe not?
+    // Won't this bee freed? -> Probably not we do the same thing with index_lookup
+    const auto &output_symbol = expand.common_.edge_symbol;
+    const auto &view = expand.view_;
+
+    // Extract edge_type from symbol
+    auto edge_type = expand.common_.edge_types.front();
+    // There can be only one
+
+    // const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::EdgeTypeId label, storage::View
+    // view = storage::View::OLD)
+    return std::make_unique<ScanAllByEdgeType>(input, output_symbol, edge_type, view);
+  }
 
   void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {
     MG_ASSERT(input);
@@ -481,84 +563,86 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    JoinRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_);
+    EdgeTypeIndexRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_);
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
     }
   }
 
-  std::unique_ptr<HashJoin> GenHashJoin(const Cartesian &cartesian) {
-    const auto &left_op = cartesian.left_op_;
-    const auto &left_symbols = cartesian.left_symbols_;
-    const auto &right_op = cartesian.right_op_;
-    const auto &right_symbols = cartesian.right_symbols_;
+  /*
+    std::unique_ptr<HashJoin> GenHashJoin(const Cartesian &cartesian) {
+      const auto &left_op = cartesian.left_op_;
+      const auto &left_symbols = cartesian.left_symbols_;
+      const auto &right_op = cartesian.right_op_;
+      const auto &right_symbols = cartesian.right_symbols_;
 
-    auto modified_symbols = cartesian.ModifiedSymbols(*symbol_table_);
-    modified_symbols.insert(modified_symbols.end(), left_symbols.begin(), left_symbols.end());
+      auto modified_symbols = cartesian.ModifiedSymbols(*symbol_table_);
+      modified_symbols.insert(modified_symbols.end(), left_symbols.begin(), left_symbols.end());
 
-    std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
-    auto are_bound = [&bound_symbols](const auto &used_symbols) {
-      for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
-          return false;
+      std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
+      auto are_bound = [&bound_symbols](const auto &used_symbols) {
+        for (const auto &used_symbol : used_symbols) {
+          if (!utils::Contains(bound_symbols, used_symbol)) {
+            return false;
+          }
         }
+        return true;
+      };
+
+      for (const auto &filter : filters_) {
+        if (filter.type != FilterInfo::Type::Property) {
+          continue;
+        }
+
+        if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
+          continue;
+        }
+
+        if (filter.property_filter->type_ != PropertyFilter::Type::EQUAL) {
+          continue;
+        }
+
+        if (filter.property_filter->value_->GetTypeInfo() != PropertyLookup::kType) {
+          continue;
+        }
+        auto *rhs_lookup = static_cast<PropertyLookup *>(filter.property_filter->value_);
+
+        auto *join_condition = static_cast<EqualOperator *>(filter.expression);
+        auto lhs_symbol = filter.property_filter->symbol_;
+        auto lhs_property = filter.property_filter->property_;
+        auto rhs_symbol = symbol_table_->at(*static_cast<Identifier *>(rhs_lookup->expression_));
+        auto rhs_property = rhs_lookup->property_;
+        filter_exprs_for_removal_.insert(filter.expression);
+        filters_.EraseFilter(filter);
+
+        if (utils::Contains(right_symbols, lhs_symbol) && utils::Contains(left_symbols, rhs_symbol)) {
+          // We need to duplicate this because expressions are shared between plans
+          join_condition = join_condition->Clone(ast_storage_);
+          std::swap(join_condition->expression1_, join_condition->expression2_);
+        }
+
+        return std::make_unique<HashJoin>(left_op, left_symbols, right_op, right_symbols, join_condition);
       }
-      return true;
-    };
 
-    for (const auto &filter : filters_) {
-      if (filter.type != FilterInfo::Type::Property) {
-        continue;
-      }
-
-      if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
-        continue;
-      }
-
-      if (filter.property_filter->type_ != PropertyFilter::Type::EQUAL) {
-        continue;
-      }
-
-      if (filter.property_filter->value_->GetTypeInfo() != PropertyLookup::kType) {
-        continue;
-      }
-      auto *rhs_lookup = static_cast<PropertyLookup *>(filter.property_filter->value_);
-
-      auto *join_condition = static_cast<EqualOperator *>(filter.expression);
-      auto lhs_symbol = filter.property_filter->symbol_;
-      auto lhs_property = filter.property_filter->property_;
-      auto rhs_symbol = symbol_table_->at(*static_cast<Identifier *>(rhs_lookup->expression_));
-      auto rhs_property = rhs_lookup->property_;
-      filter_exprs_for_removal_.insert(filter.expression);
-      filters_.EraseFilter(filter);
-
-      if (utils::Contains(right_symbols, lhs_symbol) && utils::Contains(left_symbols, rhs_symbol)) {
-        // We need to duplicate this because expressions are shared between plans
-        join_condition = join_condition->Clone(ast_storage_);
-        std::swap(join_condition->expression1_, join_condition->expression2_);
-      }
-
-      return std::make_unique<HashJoin>(left_op, left_symbols, right_op, right_symbols, join_condition);
+      return nullptr;
     }
-
-    return nullptr;
-  }
+    */
 };
 
 }  // namespace impl
 
 template <class TDbAccessor>
-std::unique_ptr<LogicalOperator> RewriteWithJoinRewriter(std::unique_ptr<LogicalOperator> root_op,
-                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                         TDbAccessor *db) {
-  impl::JoinRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
+std::unique_ptr<LogicalOperator> RewriteWithEdgeTypeIndexRewriter(std::unique_ptr<LogicalOperator> root_op,
+                                                                  SymbolTable *symbol_table, AstStorage *ast_storage,
+                                                                  TDbAccessor *db) {
+  impl::EdgeTypeIndexRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
     // This shouldn't happen in real use cases because, as JoinRewriter removes Filter operations, they cannot be the
     // root operator. In case we somehow missed this, raise NotYetImplemented instead of a MG_ASSERT crashing the
     // application.
-    throw utils::NotYetImplemented("A Filter operator cannot be JoinRewriter's root");
+    throw utils::NotYetImplemented("A Filter operator cannot be EdgeTypeIndexRewriter's root");
   }
   return root_op;
 }

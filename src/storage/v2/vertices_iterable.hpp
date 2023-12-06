@@ -12,10 +12,13 @@
 #pragma once
 
 #include "storage/v2/all_vertices_iterable.hpp"
+#include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 
 namespace memgraph::storage {
+
+class InMemoryEdgeTypeIndex;
 
 class VerticesIterable final {
   enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY };
@@ -64,6 +67,56 @@ class VerticesIterable final {
     ~Iterator();
 
     VertexAccessor const &operator*() const;
+
+    Iterator &operator++();
+
+    bool operator==(const Iterator &other) const;
+    bool operator!=(const Iterator &other) const { return !(*this == other); }
+  };
+
+  Iterator begin();
+  Iterator end();
+};
+
+class EdgesIterable final {
+  enum class Type { BY_EDGE_TYPE_IN_MEMORY };
+
+  Type type_;
+  union {
+    InMemoryEdgeTypeIndex::Iterable in_memory_edges_by_edge_type_;
+  };
+
+ public:
+  explicit EdgesIterable(InMemoryEdgeTypeIndex::Iterable);
+
+  EdgesIterable(const EdgesIterable &) = delete;
+  EdgesIterable &operator=(const EdgesIterable &) = delete;
+
+  EdgesIterable(EdgesIterable &&) noexcept;
+  EdgesIterable &operator=(EdgesIterable &&) noexcept;
+
+  ~EdgesIterable();
+
+  class Iterator final {
+    Type type_;
+    union {
+      InMemoryEdgeTypeIndex::Iterable::Iterator in_memory_edges_by_edge_type_;
+    };
+
+    void Destroy() noexcept;
+
+   public:
+    explicit Iterator(InMemoryEdgeTypeIndex::Iterable::Iterator);
+
+    Iterator(const Iterator &);
+    Iterator &operator=(const Iterator &);
+
+    Iterator(Iterator &&) noexcept;
+    Iterator &operator=(Iterator &&) noexcept;
+
+    ~Iterator();
+
+    EdgeAccessor const &operator*() const;
 
     Iterator &operator++();
 

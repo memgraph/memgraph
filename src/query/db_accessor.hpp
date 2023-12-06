@@ -357,6 +357,62 @@ class VerticesIterable final {
   }
 };
 
+class EdgesIterable final {
+  std::variant<storage::EdgesIterable, std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
+                                                          utils::Allocator<EdgeAccessor>> *>
+      iterable_;
+
+ public:
+  class Iterator final {
+    std::variant<storage::EdgesIterable::Iterator,
+                 std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
+                                    utils::Allocator<EdgeAccessor>>::iterator>
+        it_;
+
+   public:
+    explicit Iterator(storage::EdgesIterable::Iterator it) : it_(std::move(it)) {}
+    explicit Iterator(std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
+                                         utils::Allocator<EdgeAccessor>>::iterator it)
+        : it_(it) {}
+
+    EdgeAccessor operator*() const {
+      return std::visit([](auto &it_) { return EdgeAccessor(*it_); }, it_);
+    }
+
+    Iterator &operator++() {
+      std::visit([](auto &it_) { ++it_; }, it_);
+      return *this;
+    }
+
+    bool operator==(const Iterator &other) const { return it_ == other.it_; }
+
+    bool operator!=(const Iterator &other) const { return !(other == *this); }
+  };
+
+  explicit EdgesIterable(storage::EdgesIterable iterable) : iterable_(std::move(iterable)) {}
+  explicit EdgesIterable(std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
+                                            utils::Allocator<EdgeAccessor>> *vertices)
+      : iterable_(vertices) {}
+
+  Iterator begin() {
+    return std::visit(
+        memgraph::utils::Overloaded{
+            [](storage::EdgesIterable &iterable_) { return Iterator(iterable_.begin()); },
+            [](std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
+                                  utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->begin()); }},
+        iterable_);
+  }
+
+  Iterator end() {
+    return std::visit(
+        memgraph::utils::Overloaded{
+            [](storage::EdgesIterable &iterable_) { return Iterator(iterable_.end()); },
+            [](std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
+                                  utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->end()); }},
+        iterable_);
+  }
+};
+
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
 
@@ -400,6 +456,15 @@ class DbAccessor final {
                             const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                             const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
+  }
+
+  EdgesIterable Edges(storage::View view, storage::EdgeTypeId label) {
+    auto maybe_edge_iter = accessor_->Edges(label, view);
+    // TODO handle this gracefully.
+    if (!maybe_edge_iter) {
+      throw utils::NotYetImplemented("Edge-type indexing is not implemented for on-disk storage.");
+    }
+    return EdgesIterable(std::move(*maybe_edge_iter));
   }
 
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
@@ -550,6 +615,8 @@ class DbAccessor final {
   bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId prop) const {
     return accessor_->LabelPropertyIndexExists(label, prop);
   }
+
+  bool EdgeTypeIndexExists(storage::EdgeTypeId edge_type) const { return accessor_->EdgeTypeIndexExists(edge_type); }
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);

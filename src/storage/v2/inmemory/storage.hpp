@@ -16,6 +16,7 @@
 #include <memory>
 #include <utility>
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
@@ -53,6 +54,7 @@ class InMemoryStorage final : public Storage {
                                                     const InMemoryStorage *storage);
   friend class InMemoryLabelIndex;
   friend class InMemoryLabelPropertyIndex;
+  friend class InMemoryEdgeTypeIndex;
 
  public:
   enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };
@@ -106,6 +108,8 @@ class InMemoryStorage final : public Storage {
     VerticesIterable Vertices(LabelId label, PropertyId property,
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
+
+    std::optional<EdgesIterable> Edges(EdgeTypeId label, View view) override;
 
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
@@ -206,6 +210,10 @@ class InMemoryStorage final : public Storage {
 
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->IndexExists(label, property);
+    }
+
+    bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_index_->IndexExists(edge_type);
     }
 
     IndicesInfo ListAllIndices() const override;

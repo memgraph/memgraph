@@ -99,6 +99,7 @@ class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
 class ScanAllByLabelProperty;
 class ScanAllById;
+class ScanAllByEdgeType;
 class Expand;
 class ExpandVariable;
 class ConstructNamedPath;
@@ -133,10 +134,10 @@ class HashJoin;
 
 using LogicalOperatorCompositeVisitor =
     utils::CompositeVisitor<Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange,
-                            ScanAllByLabelPropertyValue, ScanAllByLabelProperty, ScanAllById, Expand, ExpandVariable,
-                            ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
-                            RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
-                            OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
+                            ScanAllByLabelPropertyValue, ScanAllByLabelProperty, ScanAllById, ScanAllByEdgeType, Expand,
+                            ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties,
+                            SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip,
+                            Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
                             Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
@@ -583,6 +584,49 @@ class ScanAllByLabel : public memgraph::query::plan::ScanAll {
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByLabel>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->output_symbol_ = output_symbol_;
+    object->view_ = view_;
+    object->label_ = label_;
+    return object;
+  }
+};
+
+class ScanAllByEdgeType : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  // Do we need to care about this?
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanAllByEdgeType() = default;
+  ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::EdgeTypeId label,
+                    storage::View view = storage::View::OLD);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString() const override {
+    return fmt::format("ScanAllByEdgeType ({} :{})", output_symbol_.name(), dba_->EdgeTypeToName(label_));
+  }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  Symbol output_symbol_;
+  /// Controls which graph state is used to produce vertices.
+  ///
+  /// If @c storage::View::OLD, @c ScanAll will produce vertices visible in the
+  /// previous graph state, before modifications done by current transaction &
+  /// command. With @c storage::View::NEW, all vertices will be produced the current
+  /// transaction sees along with their modifications.
+  storage::View view_;
+
+  storage::EdgeTypeId label_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<ScanAllByEdgeType>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->output_symbol_ = output_symbol_;
     object->view_ = view_;

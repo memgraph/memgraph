@@ -105,6 +105,7 @@ extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
 extern const Event ScanAllByIdOperator;
+extern const Event ScanAllByEdgeTypeOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -517,6 +518,89 @@ class ScanAllCursor : public Cursor {
   const char *op_name_;
 };
 
+template <typename TVerticesFun>
+class ScanAllByEdgeTypeCursor : public Cursor {
+ public:
+  explicit ScanAllByEdgeTypeCursor(const ScanAllByEdgeType &self, Symbol output_symbol, UniqueCursorPtr input_cursor,
+                                   storage::View view, TVerticesFun get_edges, const char *op_name)
+      : self_(self),
+        output_symbol_(std::move(output_symbol)),
+        input_cursor_(std::move(input_cursor)),
+        view_(view),
+        get_edges_(std::move(get_edges)),
+        op_name_(op_name) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    AbortCheck(context);
+
+    while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      // We need a getter function, because in case of exhausting a lazy
+      // iterable, we cannot simply reset it by calling begin().
+      auto next_vertices = get_edges_(frame, context);
+      if (!next_vertices) continue;
+      // Since vertices iterator isn't nothrow_move_assignable, we have to use
+      // the roundabout assignment + emplace, instead of simple:
+      // vertices _ = get_vertices_(frame, context);
+      vertices_.emplace(std::move(next_vertices.value()));
+      vertices_it_.emplace(vertices_.value().begin());
+      vertices_end_it_.emplace(vertices_.value().end());
+
+      bool asd1 = !vertices_;
+      bool asd2 = vertices_it_.value() == vertices_end_it_.value();
+
+      auto asd = 2;
+    }
+    // #ifdef MG_ENTERPRISE
+    //     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+    //     !FindNextVertex(context)) {
+    //       return false;
+    //     }
+    // #endif
+
+    // Do we actually put something on the frame?
+    frame[output_symbol_] = *vertices_it_.value();
+    ++vertices_it_.value();
+    return true;
+  }
+
+  // #ifdef MG_ENTERPRISE
+  //   bool FindNextVertex(const ExecutionContext &context) {
+  //     while (vertices_it_.value() != vertices_end_it_.value()) {
+  //       if (context.auth_checker->Has(*vertices_it_.value(), view_,
+  //                                     memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+  //         return true;
+  //       }
+  //       ++vertices_it_.value();
+  //     }
+  //     return false;
+  //   }
+  // #endif
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    vertices_ = std::nullopt;
+    vertices_it_ = std::nullopt;
+    vertices_end_it_ = std::nullopt;
+  }
+
+ private:
+  const ScanAllByEdgeType &self_;
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  storage::View view_;
+  TVerticesFun get_edges_;
+  std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
+  std::optional<decltype(vertices_.value().begin())> vertices_it_;
+  std::optional<decltype(vertices_.value().end())> vertices_end_it_;
+  const char *op_name_;
+};
+
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(std::move(output_symbol)), view_(view) {}
 
@@ -554,6 +638,36 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllByLabel");
+}
+
+ScanAllByEdgeType::ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                     storage::EdgeTypeId label, storage::View view)
+    : input_(input ? input : std::make_shared<Once>()),
+      output_symbol_(std::move(output_symbol)),
+      view_(view),
+      label_(label) {}
+
+ACCEPT_WITH_INPUT(ScanAllByEdgeType)
+
+UniqueCursorPtr ScanAllByEdgeType::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypeOperator);
+
+  auto edges = [this](Frame &, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return std::make_optional(db->Edges(view_, label_));
+  };
+  // TODO
+  // ScanAllByEdgeTypeCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View
+  // view, TVerticesFun get_edges, const char *op_name)
+
+  return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(edges)>>(
+      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(edges), "ScanAllByEdgeType");
+}
+
+std::vector<Symbol> ScanAllByEdgeType::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(output_symbol_);
+  return symbols;
 }
 
 // TODO(buda): Implement ScanAllByLabelProperty operator to iterate over

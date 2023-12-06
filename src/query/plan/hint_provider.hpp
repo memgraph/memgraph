@@ -114,6 +114,9 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllById & /*unused*/) override { return true; }
   bool PostVisit(ScanAllById & /*unused*/) override { return true; }
 
+  bool PreVisit(ScanAllByEdgeType & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByEdgeType & /*unused*/) override { return true; }
+
   bool PreVisit(ConstructNamedPath & /*unused*/) override { return true; }
   bool PostVisit(ConstructNamedPath & /*unused*/) override { return true; }
 

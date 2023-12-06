@@ -1307,6 +1307,11 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
       mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
+std::optional<EdgesIterable> InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId label, View view) {
+  auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(storage_->indices_.edge_type_index_.get());
+  return EdgesIterable(mem_edge_type_index->Edges(label, view, storage_, &transaction_));
+}
+
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and

@@ -159,6 +159,9 @@ class Storage {
                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
+    // For now make this optional to be able "implement" the on-disk side easily, solve this before merge
+    virtual std::optional<EdgesIterable> Edges(EdgeTypeId label, View view) { return {}; }
+
     virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 
     virtual Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
@@ -212,6 +215,8 @@ class Storage {
     virtual bool LabelIndexExists(LabelId label) const = 0;
 
     virtual bool LabelPropertyIndexExists(LabelId label, PropertyId property) const = 0;
+
+    virtual bool EdgeTypeIndexExists(EdgeTypeId /*edge_type*/) const { return false; }
 
     virtual IndicesInfo ListAllIndices() const = 0;
 

@@ -76,6 +76,13 @@ bool PlanPrinter::PreVisit(ScanAllById &op) {
   return true;
 }
 
+bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeType &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
 bool PlanPrinter::PreVisit(query::plan::Expand &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
@@ -453,6 +460,19 @@ bool PlanToJsonVisitor::PreVisit(ScanAllById &op) {
   self["output_symbol"] = ToJson(op.output_symbol_);
   op.input_->Accept(*this);
   self["input"] = PopOutput();
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeType &op) {
+  json self;
+  self["name"] = "ScanAllByEdgeType";
+  self["label"] = ToJson(op.label_, *dba_);
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
   output_ = std::move(self);
   return false;
 }

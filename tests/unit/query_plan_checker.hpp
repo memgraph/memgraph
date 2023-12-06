@@ -573,6 +573,8 @@ class FakeDbAccessor {
     return false;
   }
 
+  bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type) { return false; }
+
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
     return memgraph::storage::LabelPropertyIndexStats{.statistic = 0, .avg_group_size = 1};  // unique id

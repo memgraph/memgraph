@@ -1439,7 +1439,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
       transaction->disk_transaction_->Get(ro, kvstore_->out_edges_chandle, src_vertex_gid, &out_edges_str);
 
   if (!conn_index_res.ok()) {
-    spdlog::trace("rocksdb: Couldn't find out edges of vertex {}.", src_vertex_gid);
+    // spdlog::trace("rocksdb: Couldn't find out edges of vertex {}.", src_vertex_gid);
     return {};
   }
 

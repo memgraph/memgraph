@@ -161,8 +161,10 @@ void InMemoryEdgeTypeIndex::RunGC() {
 
 InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId label, View view, Storage *storage,
                                                              Transaction *transaction) {
+  auto debug_var = index_.size();
   const auto it = index_.find(label);
   MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
+  auto debug_var_two = it->second.access().size();
   return {it->second.access(), label, view, storage, transaction};
 }
 
