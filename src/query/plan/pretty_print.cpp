@@ -337,7 +337,15 @@ json ToJson(const std::vector<std::pair<storage::PropertyId, Expression *>> &pro
 json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(node_info.symbol);
-  self["labels"] = ToJson(node_info.labels, dba);
+  std::vector<storage::LabelId> labels;
+  for (auto label : node_info.labels) {
+    if (const auto *label_node = std::get_if<ParameterLookup *>(&label)) {
+      labels = {};
+      break;
+    }
+    labels.push_back(std::get<storage::LabelId>(label));
+  }
+  self["labels"] = ToJson(labels, dba);
   const auto *props = std::get_if<PropertiesMapList>(&node_info.properties);
   self["properties"] = ToJson(props ? *props : PropertiesMapList{}, dba);
   return self;
