@@ -93,6 +93,8 @@ def start_memgraph(args: Args, memgraph_options: List[str]) -> Popen:
         "--storage-recover-on-startup=false",
         "--query-execution-timeout-sec=1200",
         "--bolt-server-name-for-init=Neo4j/",
+        "--log-level=TRACE",
+        "--also-log-to-stderr",
     ] + memgraph_options
     if not args.verbose:
         cmd += ["--log-level", "WARNING"]
@@ -104,6 +106,7 @@ def start_memgraph(args: Args, memgraph_options: List[str]) -> Popen:
         cmd += ["--bolt-cert-file", CERT_FILE, "--bolt-key-file", KEY_FILE]
     memgraph_proc = subprocess.Popen(cmd, cwd=cwd)
     wait_for_server(7687)
+    print(f"Memgraph started with pid {memgraph_proc.pid}")
 
     assert memgraph_proc.poll() is None, "The database binary died prematurely!"
 
@@ -148,7 +151,11 @@ def run_test(args: Args, test: str, options: List[str], timeout: int, mode: Data
     ret_test = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout * 60)
 
     if ret_test.returncode != 0:
-        raise Exception("Test '{}' binary returned non-zero ({})!".format(test, ret_test.returncode))
+        raise Exception(
+            "Test '{}' binary returned non-zero ({}). Stdout: {}. Stderr: {}!".format(
+                test, ret_test.returncode, ret_test.stdout, ret_test.stderr
+            )
+        )
 
     runtime = time.time() - start
     print("    Done after {:.3f} seconds".format(runtime))
