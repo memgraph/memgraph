@@ -178,7 +178,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Debian10, nightcrawler]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -209,27 +209,6 @@ jobs:
           cd build
           cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
           make -j$THREADS
-
-      - name: Create enterprise DEB package
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          cd build
-
-          # create mgconsole
-          # we use the -B to force the build
-          make -j$THREADS -B mgconsole
-
-          # Create enterprise DEB package.
-          mkdir output && cd output
-          cpack -G DEB --config ../CPackConfig.cmake
-
-      - name: Save enterprise DEB package
-        uses: actions/upload-artifact@v3
-        with:
-          name: "Enterprise DEB package"
-          path: build/output/memgraph*.deb
 
       - name: Run stress test (large)
         run: |
