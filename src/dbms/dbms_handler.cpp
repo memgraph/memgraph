@@ -24,7 +24,7 @@
 #include "utils/uuid.hpp"
 
 namespace {
-constexpr auto kDBPrefix = "database:";  // Key prefix for database durability
+constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
 }  // namespace
 
 namespace memgraph::dbms {
@@ -129,11 +129,11 @@ DbmsHandler::DbmsHandler(
 
   // Recover previous databases
   if (recovery_on_startup) {
-    auto it = durability_->begin(kDBPrefix);
-    auto end = durability_->end(kDBPrefix);
+    auto it = durability_->begin(std::string(kDBPrefix));
+    auto end = durability_->end(std::string(kDBPrefix));
     for (; it != end; ++it) {
       const auto &[key, config_json] = *it;
-      const auto name = key.substr(strlen(kDBPrefix));
+      const auto name = key.substr(kDBPrefix.size());
       if (name == kDefaultDB) continue;  // Already set
       auto json = nlohmann::json::parse(config_json);
       const auto uuid = json.at("uuid").get<std::string>();
@@ -148,7 +148,7 @@ DbmsHandler::DbmsHandler(
     auto end = durability_->end("database");
     for (; it != end; ++it) {
       const auto &[key, _] = *it;
-      const auto name = key.substr(strlen(kDBPrefix));
+      const auto name = key.substr(kDBPrefix.size());
       if (name == kDefaultDB) continue;
       locked_auth->DeleteDatabase(name);
       durability_->Delete(key);

@@ -93,7 +93,7 @@ struct GKInternals {
 template <typename T>
 struct Gatekeeper {
   template <typename... Args>
-  explicit Gatekeeper(Args &&...args) : pimpl_(new GKInternals<T>(std::forward<Args>(args)...)) {}
+  explicit Gatekeeper(Args &&...args) : pimpl_(std::make_unique<GKInternals<T>>(std::forward<Args>(args)...)) {}
 
   Gatekeeper(Gatekeeper const &) = delete;
   Gatekeeper(Gatekeeper &&) noexcept = default;

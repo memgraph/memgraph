@@ -343,12 +343,11 @@ class DbmsHandler {
     std::shared_lock<LockT> rd(lock_);
     for (auto &[_, db_gk] : db_handler_) {
       auto db_acc = db_gk.access();
-      if (db_acc) {  // This isn't an error, just a defunct db
-        if constexpr (std::is_invocable_v<decltype(f), DatabaseAccess>) {
-          if (f(*db_acc)) break;  // Run until the first successful one
-        } else if constexpr (std::is_invocable_v<decltype(f), Database *>) {
-          if (f(db_acc->get())) break;  // Run until the first successful one
-        }
+      if (!db_acc) continue;  // This isn't an error, just a defunct db
+      if constexpr (std::is_invocable_v<decltype(f), DatabaseAccess>) {
+        if (f(*db_acc)) break;  // Run until the first successful one
+      } else if constexpr (std::is_invocable_v<decltype(f), Database *>) {
+        if (f(db_acc->get())) break;  // Run until the first successful one
       }
     }
 #else
