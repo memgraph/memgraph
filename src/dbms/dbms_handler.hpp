@@ -133,7 +133,7 @@ class DbmsHandler {
    */
   NewResultT New(const std::string &name) {
     std::lock_guard<LockT> wr(lock_);
-    const auto uuid = utils::GenerateUUID();
+    const auto uuid = utils::UUID{};
     return New_(name, uuid);
   }
 
@@ -380,13 +380,15 @@ class DbmsHandler {
    * @brief Create a new Database associated with the "name" database
    *
    * @param name name of the database
-   * @param storage_subdir undelying RocksDB directory
+   * @param uuid undelying RocksDB directory
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(std::string_view name, std::filesystem::path storage_subdir) {
+  NewResultT New_(std::string_view name, utils::UUID uuid) {
     auto config_copy = default_config_;
-    storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / storage_subdir);
-    return New_(name, config_copy);
+    config_copy.name = name;
+    config_copy.uuid = uuid;
+    storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / std::string{uuid});
+    return New_(std::move(config_copy));
   }
 
   /**
@@ -396,16 +398,22 @@ class DbmsHandler {
    * @param storage_config storage configuration
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(std::string_view name, storage::Config &storage_config);
+  NewResultT New_(storage::Config &&storage_config);
 
   /**
    * @brief Create a new Database associated with the default database
    *
    * @return NewResultT context on success, error on failure
    */
-  NewResultT NewDefault_() {
+  NewResultT NewDefault_(utils::UUID uuid = {}) {
+    auto default_config = default_config_;
+    default_config.name = kDefaultDB;
+    default_config.uuid = uuid;
     // Create the default DB in the root (this is how it was done pre multi-tenancy)
-    auto res = New_(kDefaultDB, "..");
+    // TODO: default_config_ shouldn't already be multitenancy paths
+    storage::UpdatePaths(default_config, default_config.durability.storage_directory / "..");
+    auto res = New_(std::move(default_config));
+
     if (res.HasValue()) {
       // For back-compatibility...
       // Recreate the dbms layout for the default db and symlink to the root

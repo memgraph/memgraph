@@ -65,12 +65,12 @@ struct Durability {
 
   static auto GenKey(std::string_view name) -> std::string { return fmt::format("{}{}", kDBPrefix, name); }
 
-  static auto GenVal(std::string_view uuid) {
+  static auto GenVal(utils::UUID uuid) {
     nlohmann::json json;
     json["uuid"] = uuid;
     // TODO: Serialize the configuration
     return json.dump();
-  };
+  }
 
   static void Migrate(kvstore::KVStore *durability, const std::filesystem::path &storage_dir) {
     const auto ver_val = durability->Get("version");
@@ -87,9 +87,9 @@ struct Durability {
         // Generate a UUID
         // move directory to new UUID dir
         // generate json and update value
-        const auto uuid = utils::GenerateUUID();
+        auto const uuid = utils::UUID();
         std::filesystem::path old_dir(storage_dir / key);
-        std::filesystem::rename(old_dir, storage_dir / uuid);
+        std::filesystem::rename(old_dir, storage_dir / std::string{uuid});
         auto new_key = GenKey(key);
         auto new_data = GenVal(uuid);
         to_put.emplace(std::move(new_key), std::move(new_data));
@@ -124,7 +124,18 @@ DbmsHandler::DbmsHandler(
   Durability::Migrate(durability_.get(), default_config_.durability.storage_directory);
 
   // Generate the default database
-  MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
+
+  auto default_config_json = durability_->Get(Durability::GenKey(kDefaultDB));
+  if (!default_config_json) {
+    // Nothing to restore, use new uuid
+    MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
+  } else {
+    // Restore with correct uuid
+    auto json = nlohmann::json::parse(*default_config_json);
+    const auto uuid = json.at("uuid").get<utils::UUID>();
+    MG_ASSERT(!NewDefault_(uuid).HasError(), "Failed while creating the default DB.");
+  }
+
   auto directories = std::set{std::string{kDefaultDB}};
 
   // Recover previous databases
@@ -136,8 +147,8 @@ DbmsHandler::DbmsHandler(
       const auto name = key.substr(kDBPrefix.size());
       if (name == kDefaultDB) continue;  // Already set
       auto json = nlohmann::json::parse(config_json);
-      const auto uuid = json.at("uuid").get<std::string>();
-      spdlog::info("Restoring database {} at {}.", name, uuid);
+      const auto uuid = json.at("uuid").get<utils::UUID>();
+      spdlog::info("Restoring database {} at {}.", name, std::string{uuid});
       MG_ASSERT(!New_(name, uuid).HasError(), "Failed while creating database {}.", name);
       directories.emplace(uuid);
       spdlog::info("Database {} restored.", name);
@@ -181,6 +192,7 @@ DbmsHandler::DbmsHandler(
   auto replica = [this](replication::RoleReplicaData const &data) {
     // Register handlers
     InMemoryReplicationHandlers::Register(this, *data.server);
+    // TODO: Add more handlers -> system
     if (!data.server->Start()) {
       spdlog::error("Unable to start the replication server.");
       return false;
@@ -199,15 +211,19 @@ DbmsHandler::DbmsHandler(
             "Replica recovery failure!");
 }
 
-DbmsHandler::NewResultT DbmsHandler::New_(std::string_view name, storage::Config &storage_config) {
-  auto new_db = db_handler_.New(name, storage_config, repl_state_);
+DbmsHandler::NewResultT DbmsHandler::New_(storage::Config &&storage_config) {
+  auto new_db = db_handler_.New(storage_config, repl_state_);
 
   if (new_db.HasValue()) {  // Success
     // Recover replication (if durable)
+    if (storage_config.name != kDefaultDB) {
+      // ReplicateTheNewDatabase(storage_config); //TODO: have to strip MAIN relevent info out, REPLICA will add its
+      // path prefix
+    }
     RecoverReplication(new_db.GetValue());
     // Save database in a list of active databases
-    const auto &key = Durability::GenKey(name);
-    const auto &val = Durability::GenVal(storage_config.durability.storage_directory.filename().string());
+    const auto &key = Durability::GenKey(storage_config.name);
+    const auto &val = Durability::GenVal(storage_config.uuid);
     if (durability_) durability_->Put(key, val);
     return new_db.GetValue();
   }
