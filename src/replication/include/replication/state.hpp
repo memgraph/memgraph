@@ -45,7 +45,7 @@ struct RoleMainData {
   RoleMainData &operator=(RoleMainData &&) = default;
 
   ReplicationEpoch epoch_;
-  std::list<ReplicationClient> registered_replicas_{};
+  std::list<ReplicationClient> registered_replicas_{};  // TODO: data race issues
 };
 
 struct RoleReplicaData {

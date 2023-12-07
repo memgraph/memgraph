@@ -391,6 +391,7 @@ class DbmsHandler {
     return New_(std::move(config_copy));
   }
 
+  void EnsureReplicaHasDatabase(const storage::Config &config);
   /**
    * @brief Create a new Database associated with the "name" database
    *
