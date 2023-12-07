@@ -112,7 +112,7 @@ struct Property {
   std::string name;
   mgp::Value value;
 
-  Property(const std::string &name, const mgp::Value &value) : name(name), value(value) {}
+  Property(const std::string &name, mgp::Value &&value) : name(name), value(std::move(value)) {}
 };
 
 struct LabelsHash {
@@ -138,26 +138,6 @@ struct PropertyInfo {
   bool mandatory;
 };
 
-/*
-template <typename T, typename U, typename V>
-void UpdateProperties(T &container, const U &key, const V &graph_property) {
-  if (container.find(key) == container.end()) {
-    container[key] = PropertyInfo{std::set<Property, PropertyComparator>(), true};
-  }
-  if (graph_property.Properties.empty()){
-    container[key].mandatory = false;
-    return;
-  }
-  auto &properties_info = container[key];
-  for (auto &[key, prop] : graph_property.Properties) {
-    properties_info.properties.emplace(key, std::move(prop));
-    if (properties_info.mandatory) {
-      properties_info.mandatory = properties_info.properties.size() == 1;
-    }
-  }
-}
-*/
-
 void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result,
                                 mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
@@ -182,7 +162,7 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
 
       auto &property_info = node_types_properties.at(labels_set);
       for (auto &[key, prop] : node.Properties()) {
-        property_info.properties.emplace(key, prop);
+        property_info.properties.emplace(key, std::move(prop));
         if (property_info.mandatory) {
           property_info.mandatory =
               property_info.properties.size() == 1;  // if there is only one property, it is mandatory
