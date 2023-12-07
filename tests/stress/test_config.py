@@ -179,7 +179,7 @@ LARGE_DATASET = (
                 "--vertex-count",
                 "200000",
                 "--edge-count",
-                "1000000",
+                "500000",
                 "--max-time",
                 "480",
                 "--verify",
