@@ -234,11 +234,55 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
     throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
-void SessionHL::RollbackTransaction() { interpreter_.RollbackTransaction(); }
-void SessionHL::CommitTransaction() { interpreter_.CommitTransaction(); }
-void SessionHL::BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
-  interpreter_.BeginTransaction(ToQueryExtras(extra));
+
+void SessionHL::RollbackTransaction() {
+  try {
+    interpreter_.RollbackTransaction();
+  } catch (const memgraph::query::QueryException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    // Wrap QueryException into ClientError, because we want to allow the
+    // client to fix their query.
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::query::ReplicationException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  }
 }
+
+void SessionHL::CommitTransaction() {
+  try {
+    interpreter_.CommitTransaction();
+  } catch (const memgraph::query::QueryException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    // Wrap QueryException into ClientError, because we want to allow the
+    // client to fix their query.
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::query::ReplicationException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  }
+}
+
+void SessionHL::BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
+  try {
+    interpreter_.BeginTransaction(ToQueryExtras(extra));
+  } catch (const memgraph::query::QueryException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    // Wrap QueryException into ClientError, because we want to allow the
+    // client to fix their query.
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::query::ReplicationException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  }
+}
+
 void SessionHL::Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) {
 #ifdef MG_ENTERPRISE
   std::string db;
