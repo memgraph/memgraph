@@ -387,7 +387,7 @@ class DbmsHandler {
     auto config_copy = default_config_;
     config_copy.name = name;
     config_copy.uuid = uuid;
-    storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / std::string{uuid});
+    storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / "databases" / std::string{uuid});
     return New_(std::move(config_copy));
   }
 
@@ -412,7 +412,7 @@ class DbmsHandler {
     default_config.uuid = uuid;
     // Create the default DB in the root (this is how it was done pre multi-tenancy)
     // TODO: default_config_ shouldn't already be multitenancy paths
-    storage::UpdatePaths(default_config, default_config.durability.storage_directory / "..");
+    storage::UpdatePaths(default_config, default_config.durability.storage_directory);
     auto res = New_(std::move(default_config));
 
     if (res.HasValue()) {
