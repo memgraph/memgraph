@@ -27,9 +27,7 @@ namespace {
 constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
 }  // namespace
 
-namespace memgraph::dbms {
-
-namespace replication {
+namespace memgraph::replication {
 
 struct CreateDatabaseReq {
   static const utils::TypeInfo kType;
@@ -60,7 +58,9 @@ constexpr utils::TypeInfo CreateDatabaseRes::kType{utils::TypeId::REP_CREATEDATA
 
 using CreateDatabaseRpc = rpc::RequestResponse<CreateDatabaseReq, CreateDatabaseRes>;
 
-}  // namespace replication
+}  // namespace memgraph::replication
+
+namespace memgraph::dbms {
 
 struct Durability {
   enum class DurabilityVersion : uint8_t {
@@ -146,15 +146,15 @@ DbmsHandler::DbmsHandler(
     : default_config_{std::move(config)}, repl_state_{ReplicationStateRootPath(default_config_)} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
-  storage::UpdatePaths(default_config_, default_config_.durability.storage_directory / "databases");
-  const auto &db_dir = default_config_.durability.storage_directory;
+  storage::UpdatePaths(default_config_, default_config_.durability.storage_directory);
+  const auto &db_dir = default_config_.durability.storage_directory / "databases";
   const auto durability_dir = db_dir / ".durability";
   utils::EnsureDirOrDie(db_dir);
   utils::EnsureDirOrDie(durability_dir);
   durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
 
   // Migrate durability
-  Durability::Migrate(durability_.get(), default_config_.durability.storage_directory);
+  Durability::Migrate(durability_.get(), db_dir);
 
   // Generate the default database
 
@@ -200,7 +200,7 @@ DbmsHandler::DbmsHandler(
   }
 
   // Clean the unused directories
-  for (const auto &entry : std::filesystem::directory_iterator(default_config_.durability.storage_directory)) {
+  for (const auto &entry : std::filesystem::directory_iterator(db_dir)) {
     const auto &name = entry.path().filename().string();
     if (entry.is_directory() && !name.empty() && name.front() != '.') {
       auto itr = directories.find(name);
@@ -244,57 +244,57 @@ DbmsHandler::DbmsHandler(
             "Replica recovery failure!");
 }
 
-void DbmsHandler::EnsureReplicaHasDatabase(const storage::Config &config) {
-  // Only on MAIN -> make replica have it
-  // Restore on MAIN -> replica also has it (noop)
-  // TODO: have to strip MAIN relevent info out, REPLICA will add its
-  //  path prefix
+// void DbmsHandler::EnsureReplicaHasDatabase(const storage::Config &config) {
+//   // Only on MAIN -> make replica have it
+//   // Restore on MAIN -> replica also has it (noop)
+//   // TODO: have to strip MAIN relevent info out, REPLICA will add its
+//   //  path prefix
 
-  auto main_handler = [](memgraph::replication::RoleMainData &main_data) {
-    // TODO: datarace issue? registered_replicas_ access not protected
-    for (memgraph::replication::ReplicationClient &client : main_data.registered_replicas_) {
-      try {
-        auto stream = client.rpc_client_.Stream<replication::CreateDatabaseRpc>(
-            main_data.epoch_,
-            0,  // current_group_clock,//TODO: make actual clock
-            config);
+//   auto main_handler = [](memgraph::replication::RoleMainData &main_data) {
+//     // TODO: datarace issue? registered_replicas_ access not protected
+//     for (memgraph::replication::ReplicationClient &client : main_data.registered_replicas_) {
+//       try {
+//         auto stream = client.rpc_client_.Stream<replication::CreateDatabaseRpc>(
+//             main_data.epoch_,
+//             0,  // current_group_clock,//TODO: make actual clock
+//             config);
 
-        auto stream = client.rpc_client_.Stream<replication::CreateDatabaseRpc>();
+//         auto stream = client.rpc_client_.Stream<replication::CreateDatabaseRpc>();
 
-        // already uptodate -- storage recovery
-        // done
-        // failure
+//         // already uptodate -- storage recovery
+//         // done
+//         // failure
 
-        const auto response = stream.AwaitResponse();
-        if (!response.success) {
-          // This replica needs SYSTEM recovery
-          continue;
-        }
+//         const auto response = stream.AwaitResponse();
+//         if (!response.success) {
+//           // This replica needs SYSTEM recovery
+//           continue;
+//         }
 
-        // TODO: more thinking....about error handling (out of sync)
-        //  + response.epoch_id; also
+//         // TODO: more thinking....about error handling (out of sync)
+//         //  + response.epoch_id; also
 
-        // CHECK: if this is memgraph recovery, MAIN and REPLICA will have same group_clock
-        //        hence no need to ensure database with `config` exists on REPLICA (because it already does)
-        if (response.group_timestamp == current_group_clock) continue;
+//         // CHECK: if this is memgraph recovery, MAIN and REPLICA will have same group_clock
+//         //        hence no need to ensure database with `config` exists on REPLICA (because it already does)
+//         if (response.group_timestamp == current_group_clock) continue;
 
-        // CHECK: this should be the next group_clock event
-        if (response.group_timestamp != current_group_clock - 1) {
-          // This replica needs SYSTEM recovery,
-          continue;
-        }
+//         // CHECK: this should be the next group_clock event
+//         if (response.group_timestamp != current_group_clock - 1) {
+//           // This replica needs SYSTEM recovery,
+//           continue;
+//         }
 
-      } catch (memgraph::rpc::GenericRpcFailedException const &e) {
-        // This replica needs SYSTEM recovery
-      }
-      auto stream = client.rpc_client_.Stream<replication::CreateDatabase>(config);
-      const auto response2 = stream.AwaitResponse();
-    }
-  };
-  auto replica_handler = [](memgraph::replication::RoleReplicaData &) {};
+//       } catch (memgraph::rpc::GenericRpcFailedException const &e) {
+//         // This replica needs SYSTEM recovery
+//       }
+//       auto stream = client.rpc_client_.Stream<replication::CreateDatabase>(config);
+//       const auto response2 = stream.AwaitResponse();
+//     }
+//   };
+//   auto replica_handler = [](memgraph::replication::RoleReplicaData &) {};
 
-  std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-}
+//   std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
+// }
 
 DbmsHandler::NewResultT DbmsHandler::New_(storage::Config &&storage_config) {
   auto new_db = db_handler_.New(storage_config, repl_state_);
@@ -302,7 +302,7 @@ DbmsHandler::NewResultT DbmsHandler::New_(storage::Config &&storage_config) {
   if (new_db.HasValue()) {  // Success
     // Recover replication (if durable)
     if (storage_config.name != kDefaultDB) {
-      EnsureReplicaHasDatabase(storage_config);
+      // EnsureReplicaHasDatabase(storage_config);
 
     } else {
       // TODO:
