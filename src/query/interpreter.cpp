@@ -4163,7 +4163,7 @@ void Interpreter::Commit() {
 
     std::visit(
         [&execution_db_accessor = current_db_.execution_db_accessor_,
-         &commit_confirmed_by_all_sync_replicas]<typename T>(T &&arg) {
+         &commit_confirmed_by_all_sync_replicas]<typename T>(const T &arg) {
           using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
             commit_confirmed_by_all_sync_replicas = false;
