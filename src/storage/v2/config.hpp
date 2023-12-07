@@ -14,10 +14,12 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::storage {
 
@@ -90,6 +92,7 @@ struct Config {
   } disk;
 
   std::string name;
+  utils::UUID uuid;
   bool force_on_disk{false};
   StorageMode storage_mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
 

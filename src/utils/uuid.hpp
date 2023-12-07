@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <uuid/uuid.h>
+#include <array>
+#include <json/json.hpp>
 #include <string>
 
 namespace memgraph::utils {
@@ -19,5 +22,35 @@ namespace memgraph::utils {
  * This function generates an UUID and returns it.
  */
 std::string GenerateUUID();
+
+struct UUID {
+  using arr_t = std::array<unsigned char, 16>;
+
+  UUID() { uuid_generate(uuid.data()); }
+  explicit operator std::string() const {
+    auto decoded = std::array<char, UUID_STR_LEN>{};
+    uuid_unparse(uuid.data(), decoded.data());
+    return std::string{decoded.data(), UUID_STR_LEN - 1};
+  }
+
+  explicit operator arr_t() const { return uuid; }
+
+  friend bool operator==(UUID const &, UUID const &) = default;
+
+ private:
+  friend void to_json(nlohmann::json &j, const UUID &uuid);
+  friend void from_json(const nlohmann::json &j, UUID &uuid);
+  explicit UUID(arr_t const &arr) : uuid(arr) {}
+
+  arr_t uuid;
+};
+
+inline void to_json(nlohmann::json &j, const UUID &uuid) { j = nlohmann::json(uuid.uuid); }
+
+inline void from_json(const nlohmann::json &j, UUID &uuid) {
+  auto arr = UUID::arr_t{};
+  j.get_to(arr);
+  uuid = UUID(arr);
+}
 
 }  // namespace memgraph::utils
