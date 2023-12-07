@@ -96,14 +96,15 @@ def start_memgraph(args: Args, memgraph_options: List[str]) -> Popen:
         "--log-level=TRACE",
         "--also-log-to-stderr",
     ] + memgraph_options
-    if not args.verbose:
-        cmd += ["--log-level", "WARNING"]
+    # if not args.verbose:
+    #     cmd += ["--log-level", "WARNING"]
     if args.log_file:
         cmd += ["--log-file", args.log_file]
     if args.data_directory:
         cmd += ["--data-directory", args.data_directory]
     if args.use_ssl:
         cmd += ["--bolt-cert-file", CERT_FILE, "--bolt-key-file", KEY_FILE]
+    print(f"CMD: {cmd}")
     memgraph_proc = subprocess.Popen(cmd, cwd=cwd)
     wait_for_server(7687)
     print(f"Memgraph started with pid {memgraph_proc.pid}")
@@ -116,8 +117,8 @@ def start_memgraph(args: Args, memgraph_options: List[str]) -> Popen:
 def stop_memgraph(proc_mg: Popen) -> None:
     proc_mg.terminate()
     ret_mg = proc_mg.wait()
-    # if ret_mg != 0:
-    #     raise Exception("Memgraph binary returned non-zero ({})!".format(ret_mg))
+    if ret_mg != 0:
+        raise Exception("Memgraph binary returned non-zero ({})!".format(ret_mg))
 
 
 def run_test(args: Args, test: str, options: List[str], timeout: int, mode: DatabaseMode) -> float:
