@@ -13,6 +13,7 @@
 #include "license/license.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
+
 #ifdef MG_ENTERPRISE
 
 #include "dbms/dbms_handler.hpp"
@@ -98,14 +99,15 @@ struct Durability {
 
   static auto GenKey(std::string_view name) -> std::string { return fmt::format("{}{}", kDBPrefix, name); }
 
-  static auto GenVal(utils::UUID uuid) {
+  static auto GenVal(utils::UUID uuid, std::filesystem::path rel_dir) {
     nlohmann::json json;
     json["uuid"] = uuid;
+    json["rel_dir"] = rel_dir;
     // TODO: Serialize the configuration
     return json.dump();
   }
 
-  static void Migrate(kvstore::KVStore *durability, const std::filesystem::path &storage_dir) {
+  static void Migrate(kvstore::KVStore *durability, const std::filesystem::path &root) {
     const auto ver_val = durability->Get("version");
     const auto ver = VersionCheck(ver_val);
 
@@ -115,16 +117,20 @@ struct Durability {
     // Update from V0 to V1
     if (ver == DurabilityVersion::V0) {
       for (const auto &[key, val] : *durability) {
-        if (key == "version") continue;   // Reserved key
-        if (key == kDefaultDB) continue;  // Already set
+        if (key == "version") continue;  // Reserved key
         // Generate a UUID
-        // move directory to new UUID dir
-        // generate json and update value
         auto const uuid = utils::UUID();
-        std::filesystem::path old_dir(storage_dir / key);
-        std::filesystem::rename(old_dir, storage_dir / std::string{uuid});
+        // New json values
         auto new_key = GenKey(key);
-        auto new_data = GenVal(uuid);
+        auto path = root;
+        if (key != kDefaultDB) {  // Special case for non-default DBs
+          // Move directory to new UUID dir
+          path = root / "databases" / std::string{uuid};
+          std::filesystem::path old_dir(root / "databases" / key);
+          std::filesystem::rename(old_dir, path);
+        }
+        // Generate json and update value
+        auto new_data = GenVal(uuid, std::filesystem::relative(path, root));
         to_put.emplace(std::move(new_key), std::move(new_data));
         to_delete.emplace_back(key);
       }
@@ -146,7 +152,8 @@ DbmsHandler::DbmsHandler(
     : default_config_{std::move(config)}, repl_state_{ReplicationStateRootPath(default_config_)} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
-  storage::UpdatePaths(default_config_, default_config_.durability.storage_directory);
+  const auto &root = default_config_.durability.storage_directory;
+  storage::UpdatePaths(default_config_, root);
   const auto &db_dir = default_config_.durability.storage_directory / "databases";
   const auto durability_dir = db_dir / ".durability";
   utils::EnsureDirOrDie(db_dir);
@@ -154,20 +161,7 @@ DbmsHandler::DbmsHandler(
   durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
 
   // Migrate durability
-  Durability::Migrate(durability_.get(), db_dir);
-
-  // Generate the default database
-
-  auto default_config_json = durability_->Get(Durability::GenKey(kDefaultDB));
-  if (!default_config_json) {
-    // Nothing to restore, use new uuid
-    MG_ASSERT(!NewDefault_().HasError(), "Failed while creating the default DB.");
-  } else {
-    // Restore with correct uuid
-    auto json = nlohmann::json::parse(*default_config_json);
-    const auto uuid = json.at("uuid").get<utils::UUID>();
-    MG_ASSERT(!NewDefault_(uuid).HasError(), "Failed while creating the default DB.");
-  }
+  Durability::Migrate(durability_.get(), root);
 
   auto directories = std::set{std::string{kDefaultDB}};
 
@@ -178,12 +172,12 @@ DbmsHandler::DbmsHandler(
     for (; it != end; ++it) {
       const auto &[key, config_json] = *it;
       const auto name = key.substr(kDBPrefix.size());
-      if (name == kDefaultDB) continue;  // Already set
       auto json = nlohmann::json::parse(config_json);
       const auto uuid = json.at("uuid").get<utils::UUID>();
-      spdlog::info("Restoring database {} at {}.", name, std::string{uuid});
-      MG_ASSERT(!New_(name, uuid).HasError(), "Failed while creating database {}.", name);
-      directories.emplace(uuid);
+      const auto rel_dir = json.at("rel_dir").get<std::filesystem::path>();
+      spdlog::info("Restoring database {} at {}.", name, rel_dir);
+      MG_ASSERT(!New_(name, uuid, rel_dir).HasError(), "Failed while creating database {}.", name);
+      directories.emplace(rel_dir.filename());
       spdlog::info("Database {} restored.", name);
     }
   } else {  // Clear databases from the durability list and auth
@@ -212,6 +206,10 @@ DbmsHandler::DbmsHandler(
     }
   }
 
+  // Setup the default DB
+  SetupDefault_();
+
+  // Warning
   if (default_config_.durability.snapshot_wal_mode == storage::Config::Durability::SnapshotWalMode::DISABLED &&
       repl_state_.IsMain()) {
     spdlog::warn(
@@ -311,7 +309,9 @@ DbmsHandler::NewResultT DbmsHandler::New_(storage::Config &&storage_config) {
     RecoverReplication(new_db.GetValue());
     // Save database in a list of active databases
     const auto &key = Durability::GenKey(storage_config.name);
-    const auto &val = Durability::GenVal(storage_config.uuid);
+    const auto rel_dir = std::filesystem::relative(storage_config.durability.storage_directory,
+                                                   default_config_.durability.storage_directory);
+    const auto &val = Durability::GenVal(storage_config.uuid, rel_dir);
     if (durability_) durability_->Put(key, val);
     return new_db.GetValue();
   }
