@@ -142,3 +142,96 @@ static inline void UpdatePaths(Config &config, const std::filesystem::path &stor
 }
 
 }  // namespace memgraph::storage
+
+inline void to_json(nlohmann::json &data, memgraph::storage::Config &&config) {
+  data = nlohmann::json{{"gc",  // Gc
+                         {{"type", config.gc.type}, {"interval_ms", config.gc.interval.count()}}},
+                        {"items",  // Items
+                         {{"properties_on_edges", config.items.properties_on_edges},
+                          {"enable_schema_metadata", config.items.enable_schema_metadata}}},
+                        {"transaction",  // Transaction
+                         {{"isolation_level", config.transaction.isolation_level}}},
+                        {"disk",  // Disk
+                         {{"main_storage_directory", config.disk.main_storage_directory},
+                          {"label_index_directory", config.disk.label_index_directory},
+                          {"label_property_index_directory", config.disk.label_property_index_directory},
+                          {"unique_constraints_directory", config.disk.unique_constraints_directory},
+                          {"name_id_mapper_directory", config.disk.name_id_mapper_directory},
+                          {"id_name_mapper_directory", config.disk.id_name_mapper_directory},
+                          {"durability_directory", config.disk.durability_directory},
+                          {"wal_directory", config.disk.wal_directory}}},
+                        {"name", config.name},
+                        {"uuid", config.uuid},
+                        {"force_on_disk", config.force_on_disk},
+                        {"storage_mode", config.storage_mode}};
+
+  // Too many elements for an initialization list
+  auto &durability = data["durability"];
+  durability["storage_directory"] = config.durability.storage_directory;
+  durability["recover_on_startup"] = config.durability.recover_on_startup;
+  durability["snapshot_wal_mode"] = config.durability.snapshot_wal_mode;
+  durability["snapshot_interval_min"] = config.durability.snapshot_interval.count();
+  durability["snapshot_retention_count"] = config.durability.snapshot_retention_count;
+  durability["wal_file_size_kibibytes"] = config.durability.wal_file_size_kibibytes;
+  durability["wal_file_flush_every_n_tx"] = config.durability.wal_file_flush_every_n_tx;
+  durability["snapshot_on_exit"] = config.durability.snapshot_on_exit;
+  durability["restore_replication_state_on_startup"] = config.durability.restore_replication_state_on_startup;
+  durability["items_per_batch"] = config.durability.items_per_batch;
+  durability["recovery_thread_count"] = config.durability.recovery_thread_count;
+  durability["allow_parallel_index_creation"] = config.durability.allow_parallel_index_creation;
+  durability["allow_parallel_schema_creation"] = config.durability.allow_parallel_schema_creation;
+}
+
+inline void from_json(const nlohmann::json &data, memgraph::storage::Config &config) {
+  // GC
+  auto &gc = config.gc;
+  const auto &gc_json = data["gc"];
+  gc_json.at("type").get_to(gc.type);
+  gc.interval = std::chrono::milliseconds(gc_json.at("interval_ms").get<long>());
+
+  // Items
+  auto &items = config.items;
+  const auto &items_json = data["items"];
+  items_json.at("properties_on_edges").get_to(items.properties_on_edges);        // Has to be the same
+  items_json.at("enable_schema_metadata").get_to(items.enable_schema_metadata);  // ????
+
+  // Transaction
+  auto &tx = config.transaction;
+  const auto &tx_json = data["transaction"];
+  tx_json.at("isolation_level").get_to(tx.isolation_level);  // No?
+
+  // Disk
+  auto &disk = config.disk;
+  const auto &disk_json = data["disk"];
+  disk_json.at("main_storage_directory").get_to(disk.main_storage_directory);
+  disk_json.at("label_index_directory").get_to(disk.label_index_directory);
+  disk_json.at("label_property_index_directory").get_to(disk.label_property_index_directory);
+  disk_json.at("unique_constraints_directory").get_to(disk.unique_constraints_directory);
+  disk_json.at("name_id_mapper_directory").get_to(disk.name_id_mapper_directory);
+  disk_json.at("id_name_mapper_directory").get_to(disk.id_name_mapper_directory);
+  disk_json.at("durability_directory").get_to(disk.durability_directory);
+  disk_json.at("wal_directory").get_to(disk.wal_directory);
+
+  // Durability
+  auto &durability = config.durability;
+  const auto &durability_json = data["durability"];
+  durability_json.at("storage_directory").get_to(durability.storage_directory);
+  durability_json.at("recover_on_startup").get_to(durability.recover_on_startup);
+  durability_json.at("snapshot_wal_mode").get_to(durability.snapshot_wal_mode);
+  durability.snapshot_interval = std::chrono::minutes(durability_json.at("snapshot_interval_min").get<long>());
+  durability_json.at("snapshot_retention_count").get_to(durability.snapshot_retention_count);
+  durability_json.at("wal_file_size_kibibytes").get_to(durability.wal_file_size_kibibytes);
+  durability_json.at("wal_file_flush_every_n_tx").get_to(durability.wal_file_flush_every_n_tx);
+  durability_json.at("snapshot_on_exit").get_to(durability.snapshot_on_exit);
+  durability_json.at("restore_replication_state_on_startup").get_to(durability.restore_replication_state_on_startup);
+  durability_json.at("items_per_batch").get_to(durability.items_per_batch);
+  durability_json.at("recovery_thread_count").get_to(durability.recovery_thread_count);
+  durability_json.at("allow_parallel_index_creation").get_to(durability.allow_parallel_index_creation);
+  durability_json.at("allow_parallel_schema_creation").get_to(durability.allow_parallel_schema_creation);
+
+  // Other
+  data.at("name").get_to(config.name);
+  data.at("uuid").get_to(config.uuid);
+  data.at("force_on_disk").get_to(config.force_on_disk);
+  data.at("storage_mode").get_to(config.storage_mode);
+}

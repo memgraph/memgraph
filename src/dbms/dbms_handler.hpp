@@ -383,11 +383,15 @@ class DbmsHandler {
    * @param uuid undelying RocksDB directory
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(std::string_view name, utils::UUID uuid) {
+  NewResultT New_(std::string_view name, utils::UUID uuid, std::optional<std::filesystem::path> rel_dir = {}) {
     auto config_copy = default_config_;
     config_copy.name = name;
     config_copy.uuid = uuid;
-    storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / "databases" / std::string{uuid});
+    if (rel_dir) {
+      storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / *rel_dir);
+    } else {
+      storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / "databases" / std::string{uuid});
+    }
     return New_(std::move(config_copy));
   }
 
@@ -406,66 +410,62 @@ class DbmsHandler {
    *
    * @return NewResultT context on success, error on failure
    */
-  NewResultT NewDefault_(utils::UUID uuid = {}) {
-    auto default_config = default_config_;
-    default_config.name = kDefaultDB;
-    default_config.uuid = uuid;
-    // Create the default DB in the root (this is how it was done pre multi-tenancy)
-    // TODO: default_config_ shouldn't already be multitenancy paths
-    storage::UpdatePaths(default_config, default_config.durability.storage_directory);
-    auto res = New_(std::move(default_config));
+  void SetupDefault_() {
+    try {
+      Get(kDefaultDB);
+    } catch (const UnknownDatabaseException &) {
+      // No default DB restored, create it
+      MG_ASSERT(New_(kDefaultDB, {/* random UUID */}, ".").HasValue(), "Failed while creating the default database");
+    }
 
-    if (res.HasValue()) {
-      // For back-compatibility...
-      // Recreate the dbms layout for the default db and symlink to the root
-      const auto dir = StorageDir_(kDefaultDB);
-      MG_ASSERT(dir, "Failed to find storage path.");
-      const auto main_dir = *dir / "databases" / kDefaultDB;
+    // For back-compatibility...
+    // Recreate the dbms layout for the default db and symlink to the root
+    const auto dir = StorageDir_(kDefaultDB);
+    MG_ASSERT(dir, "Failed to find storage path.");
+    const auto main_dir = *dir / "databases" / kDefaultDB;
 
-      if (!std::filesystem::exists(main_dir)) {
-        std::filesystem::create_directory(main_dir);
-      }
+    if (!std::filesystem::exists(main_dir)) {
+      std::filesystem::create_directory(main_dir);
+    }
 
-      // Force link on-disk directories
-      const auto conf = db_handler_.GetConfig(kDefaultDB);
-      MG_ASSERT(conf, "No configuration for the default database.");
-      const auto &tmp_conf = conf->disk;
-      std::vector<std::filesystem::path> to_link{
-          tmp_conf.main_storage_directory,         tmp_conf.label_index_directory,
-          tmp_conf.label_property_index_directory, tmp_conf.unique_constraints_directory,
-          tmp_conf.name_id_mapper_directory,       tmp_conf.id_name_mapper_directory,
-          tmp_conf.durability_directory,           tmp_conf.wal_directory,
-      };
+    // Force link on-disk directories
+    const auto conf = db_handler_.GetConfig(kDefaultDB);
+    MG_ASSERT(conf, "No configuration for the default database.");
+    const auto &tmp_conf = conf->disk;
+    std::vector<std::filesystem::path> to_link{
+        tmp_conf.main_storage_directory,         tmp_conf.label_index_directory,
+        tmp_conf.label_property_index_directory, tmp_conf.unique_constraints_directory,
+        tmp_conf.name_id_mapper_directory,       tmp_conf.id_name_mapper_directory,
+        tmp_conf.durability_directory,           tmp_conf.wal_directory,
+    };
 
-      // Add in-memory paths
-      // Some directories are redundant (skip those)
-      const std::vector<std::string> skip{".lock", "audit_log", "auth", "databases", "internal_modules", "settings"};
-      for (auto const &item : std::filesystem::directory_iterator{*dir}) {
-        const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
-        if (std::find(skip.begin(), skip.end(), dir_name) != skip.end()) continue;
-        to_link.push_back(item.path());
-      }
+    // Add in-memory paths
+    // Some directories are redundant (skip those)
+    const std::vector<std::string> skip{".lock", "audit_log", "auth", "databases", "internal_modules", "settings"};
+    for (auto const &item : std::filesystem::directory_iterator{*dir}) {
+      const auto dir_name = std::filesystem::relative(item.path(), item.path().parent_path());
+      if (std::find(skip.begin(), skip.end(), dir_name) != skip.end()) continue;
+      to_link.push_back(item.path());
+    }
 
-      // Symlink to root dir
-      for (auto const &item : to_link) {
-        const auto dir_name = std::filesystem::relative(item, item.parent_path());
-        const auto link = main_dir / dir_name;
-        const auto to = std::filesystem::relative(item, main_dir);
-        if (!std::filesystem::is_symlink(link) && !std::filesystem::exists(link)) {
-          std::filesystem::create_directory_symlink(to, link);
-        } else {  // Check existing link
-          std::error_code ec;
-          const auto test_link = std::filesystem::read_symlink(link, ec);
-          if (ec || test_link != to) {
-            MG_ASSERT(false,
-                      "Memgraph storage directory incompatible with new version.\n"
-                      "Please use a clean directory or remove \"{}\" and try again.",
-                      link.string());
-          }
+    // Symlink to root dir
+    for (auto const &item : to_link) {
+      const auto dir_name = std::filesystem::relative(item, item.parent_path());
+      const auto link = main_dir / dir_name;
+      const auto to = std::filesystem::relative(item, main_dir);
+      if (!std::filesystem::is_symlink(link) && !std::filesystem::exists(link)) {
+        std::filesystem::create_directory_symlink(to, link);
+      } else {  // Check existing link
+        std::error_code ec;
+        const auto test_link = std::filesystem::read_symlink(link, ec);
+        if (ec || test_link != to) {
+          MG_ASSERT(false,
+                    "Memgraph storage directory incompatible with new version.\n"
+                    "Please use a clean directory or remove \"{}\" and try again.",
+                    link.string());
         }
       }
     }
-    return res;
   }
 
   /**

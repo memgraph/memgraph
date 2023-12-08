@@ -26,11 +26,11 @@ std::filesystem::path storage_directory{std::filesystem::temp_directory_path() /
 
 memgraph::replication::ReplicationState generic_repl_state{std::nullopt};
 memgraph::storage::Config default_conf(std::string name = "") {
-  return {.name = name.empty() ? std::string{"memgraph"} : name,
-          .durability = {.storage_directory = storage_directory / name,
+  return {.durability = {.storage_directory = storage_directory / name,
                          .snapshot_wal_mode =
                              memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
-          .disk = {.main_storage_directory = storage_directory / name / "disk"}};
+          .disk = {.main_storage_directory = storage_directory / name / "disk"},
+          .name = name.empty() ? std::string{"memgraph"} : name};
 }
 
 class DBMS_Database : public ::testing::Test {
@@ -53,11 +53,11 @@ TEST_F(DBMS_Database, New) {
   { ASSERT_FALSE(db_handler.GetConfig("db1")); }
   {  // With custom config
     memgraph::storage::Config db_config{
-        .name = "db2",
         .durability = {.storage_directory = storage_directory / "db2",
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
-        .disk = {.main_storage_directory = storage_directory / "disk"}};
+        .disk = {.main_storage_directory = storage_directory / "disk"},
+        .name = "db2"};
     auto db2 = db_handler.New(db_config, generic_repl_state);
     ASSERT_TRUE(db2.HasValue() && db2.GetValue());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "db2"));
@@ -150,12 +150,12 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
     auto db2 = db_handler.New(default_conf("db2"), generic_repl_state);
 
     memgraph::storage::Config conf_w_snap{
-        .name = "db3",
         .durability = {.storage_directory = storage_directory / "db3",
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_on_exit = true},
-        .disk = {.main_storage_directory = storage_directory / "db3" / "disk"}};
+        .disk = {.main_storage_directory = storage_directory / "db3" / "disk"},
+        .name = "db3"};
 
     auto db3 = db_handler.New(conf_w_snap, generic_repl_state);
 
@@ -197,12 +197,12 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
     auto db2 = db_handler.New(default_conf("db2"), generic_repl_state);
 
     memgraph::storage::Config conf_w_rec{
-        .name = "db3",
         .durability = {.storage_directory = storage_directory / "db3",
                        .recover_on_startup = true,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
-        .disk = {.main_storage_directory = storage_directory / "db3" / "disk"}};
+        .disk = {.main_storage_directory = storage_directory / "db3" / "disk"},
+        .name = "db3"};
 
     auto db3 = db_handler.New(conf_w_rec, generic_repl_state);
 
