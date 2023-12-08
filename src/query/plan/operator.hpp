@@ -916,11 +916,11 @@ struct ExpansionLambda {
   /// Currently expanded node symbol.
   Symbol inner_node_symbol;
   /// Expression used in lambda during expansion.
-  Expression *expression;
+  Expression *expression = nullptr;
   /// Currently expanded accumulated path symbol.
-  std::optional<Symbol> accumulated_path_symbol;
+  std::optional<Symbol> accumulated_path_symbol = std::nullopt;
   /// Currently expanded accumulated weight symbol.
-  std::optional<Symbol> accumulated_weight_symbol;
+  std::optional<Symbol> accumulated_weight_symbol = std::nullopt;
 
   ExpansionLambda Clone(AstStorage *storage) const {
     ExpansionLambda object;

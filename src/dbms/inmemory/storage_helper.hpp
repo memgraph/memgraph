@@ -24,7 +24,7 @@ namespace memgraph::dbms {
 
 inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(storage::Config config,
                                                                ::memgraph::replication::ReplicationState &repl_state) {
-  const auto name = config.name;
+  const auto name = config.salient.name;
   auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config));
 
   // Connect replication state and storage

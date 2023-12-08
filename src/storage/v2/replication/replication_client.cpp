@@ -302,7 +302,7 @@ ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const ui
 
 void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeDelta(&encoder, storage_->name_id_mapper_.get(), storage_->config_.items, delta, vertex,
+  EncodeDelta(&encoder, storage_->name_id_mapper_.get(), storage_->config_.salient.items, delta, vertex,
               final_commit_timestamp);
 }
 

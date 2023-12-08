@@ -177,7 +177,8 @@ InMemoryStorage::~InMemoryStorage() {
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                                                     StorageMode storage_mode,
                                                     memgraph::replication::ReplicationRole replication_role)
-    : Accessor(tag, storage, isolation_level, storage_mode, replication_role), config_(storage->config_.items) {}
+    : Accessor(tag, storage, isolation_level, storage_mode, replication_role),
+      config_(storage->config_.salient.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -319,7 +320,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
-  if (storage_->config_.items.enable_schema_metadata) {
+  if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);
   }
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -408,7 +409,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
-  if (storage_->config_.items.enable_schema_metadata) {
+  if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);
   }
 
@@ -1702,8 +1703,8 @@ bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch 
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-    wal_file_.emplace(recovery_.wal_directory_, uuid_, epoch.id(), config_.items, name_id_mapper_.get(), wal_seq_num_++,
-                      &file_retainer_);
+    wal_file_.emplace(recovery_.wal_directory_, uuid_, epoch.id(), config_.salient.items, name_id_mapper_.get(),
+                      wal_seq_num_++, &file_retainer_);
   }
   return true;
 }

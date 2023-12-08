@@ -298,8 +298,7 @@ int main(int argc, char **argv) {
   memgraph::storage::Config db_config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
-      .items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
-                .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
+
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
@@ -321,7 +320,9 @@ int main(int argc, char **argv) {
                .id_name_mapper_directory = FLAGS_data_directory + "/rocksdb_id_name_mapper",
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
-      .storage_mode = memgraph::flags::ParseStorageMode()};
+      .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
+                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
+      .salient.storage_mode = memgraph::flags::ParseStorageMode()};
 
   memgraph::utils::Scheduler jemalloc_purge_scheduler;
   jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),

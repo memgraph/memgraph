@@ -505,7 +505,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
       case WalDeltaData::Type::EDGE_SET_PROPERTY: {
         spdlog::trace("       Edge {} set property {} to {}", delta.vertex_edge_set_property.gid.AsUint(),
                       delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
-        if (!storage->config_.items.properties_on_edges)
+        if (!storage->config_.salient.items.properties_on_edges)
           throw utils::BasicException(
               "Can't set properties on edges because properties on edges "
               "are disabled!");

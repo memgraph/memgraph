@@ -61,7 +61,7 @@ class DatabaseHandler : public Handler<Database> {
       spdlog::info("Tried to generate new storage using a claimed directory.");
       return NewError::EXISTS;
     }
-    return HandlerT::New(std::piecewise_construct, config.name, config, repl_state);
+    return HandlerT::New(std::piecewise_construct, config.salient.name, config, repl_state);
   }
 
   /**

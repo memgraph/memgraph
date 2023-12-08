@@ -318,7 +318,7 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
     const auto &[edge_type, opposing_vertex, edge] = item;
     if (!vertices.contains(opposing_vertex)) {
       partial_delete_vertices.insert(opposing_vertex);
-      auto const edge_gid = storage_->config_.items.properties_on_edges ? edge.ptr->gid : edge.gid;
+      auto const edge_gid = storage_->config_.salient.items.properties_on_edges ? edge.ptr->gid : edge.gid;
       edge_ids.insert(edge_gid);
     }
   };
@@ -380,7 +380,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
 
       /// TODO: (andi) Again here, no need to lock the edge if using on disk storage.
       std::unique_lock<utils::RWSpinLock> guard;
-      if (storage_->config_.items.properties_on_edges) {
+      if (storage_->config_.salient.items.properties_on_edges) {
         auto edge_ptr = edge_ref.ptr;
         guard = std::unique_lock{edge_ptr->lock};
 
@@ -397,12 +397,12 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
                                                     edge_type = edge_type, opposing_vertex = opposing_vertex,
                                                     edge_ref = edge_ref, this]() {
         attached_edges_to_vertex->pop_back();
-        if (this->storage_->config_.items.properties_on_edges) {
+        if (this->storage_->config_.salient.items.properties_on_edges) {
           auto *edge_ptr = edge_ref.ptr;
           MarkEdgeAsDeleted(edge_ptr);
         }
 
-        auto const edge_gid = storage_->config_.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+        auto const edge_gid = storage_->config_.salient.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
         auto const [_, was_inserted] = deleted_edge_ids.insert(edge_gid);
         bool const edge_cleared_from_both_directions = !was_inserted;
         if (edge_cleared_from_both_directions) {
@@ -452,7 +452,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
     auto mid = std::partition(
         edges_attached_to_vertex->begin(), edges_attached_to_vertex->end(), [this, &set_for_erasure](auto &edge) {
           auto const &[edge_type, opposing_vertex, edge_ref] = edge;
-          auto const edge_gid = storage_->config_.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+          auto const edge_gid = storage_->config_.salient.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
           return !set_for_erasure.contains(edge_gid);
         });
 
@@ -464,7 +464,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
       for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
         auto const &[edge_type, opposing_vertex, edge_ref] = *it;
         std::unique_lock<utils::RWSpinLock> guard;
-        if (storage_->config_.items.properties_on_edges) {
+        if (storage_->config_.salient.items.properties_on_edges) {
           auto edge_ptr = edge_ref.ptr;
           guard = std::unique_lock{edge_ptr->lock};
           // this can happen only if we marked edges for deletion with no nodes,
@@ -474,7 +474,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
 
         CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
 
-        auto const edge_gid = storage_->config_.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+        auto const edge_gid = storage_->config_.salient.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
         auto const [_, was_inserted] = partially_detached_edge_ids.insert(edge_gid);
         bool const edge_cleared_from_both_directions = !was_inserted;
         if (edge_cleared_from_both_directions) {
@@ -487,7 +487,6 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
     }};
 
     std::invoke(atomic_memory_block);
-
     return std::make_optional<ReturnType>();
   };
 

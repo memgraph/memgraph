@@ -385,8 +385,8 @@ class DbmsHandler {
    */
   NewResultT New_(std::string_view name, utils::UUID uuid, std::optional<std::filesystem::path> rel_dir = {}) {
     auto config_copy = default_config_;
-    config_copy.name = name;
-    config_copy.uuid = uuid;
+    config_copy.salient.name = name;
+    config_copy.salient.uuid = uuid;
     if (rel_dir) {
       storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / *rel_dir);
     } else {

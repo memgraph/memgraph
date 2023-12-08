@@ -3055,7 +3055,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     case DatabaseInfoQuery::InfoType::EDGE_TYPES: {
       header = {"edge types"};
       handler = [storage = current_db.db_acc_->get()->storage(), dba] {
-        if (!storage->config_.items.enable_schema_metadata) {
+        if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
               "The metadata collection for edge-types is disabled. To enable it, restart your instance and set the "
               "storage-enable-schema-metadata flag to True.");
@@ -3075,7 +3075,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     case DatabaseInfoQuery::InfoType::NODE_LABELS: {
       header = {"node labels"};
       handler = [storage = current_db.db_acc_->get()->storage(), dba] {
-        if (!storage->config_.items.enable_schema_metadata) {
+        if (!storage->config_.salient.items.enable_schema_metadata) {
           throw QueryRuntimeException(
               "The metadata collection for node-labels is disabled. To enable it, restart your instance and set the "
               "storage-enable-schema-metadata flag to True.");
