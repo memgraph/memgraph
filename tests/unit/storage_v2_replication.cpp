@@ -64,26 +64,35 @@ class ReplicationTest : public ::testing::Test {
   void TearDown() override { Clear(); }
 
   Config main_conf = [&] {
-    Config config{.items = {.properties_on_edges = true},
-                  .durability = {
-                      .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                  }};
+    Config config{
+        .durability =
+            {
+                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            },
+        .salient.items = {.properties_on_edges = true},
+    };
     UpdatePaths(config, storage_directory);
     return config;
   }();
   Config repl_conf = [&] {
-    Config config{.items = {.properties_on_edges = true},
-                  .durability = {
-                      .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                  }};
+    Config config{
+        .durability =
+            {
+                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            },
+        .salient.items = {.properties_on_edges = true},
+    };
     UpdatePaths(config, repl_storage_directory);
     return config;
   }();
   Config repl2_conf = [&] {
-    Config config{.items = {.properties_on_edges = true},
-                  .durability = {
-                      .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                  }};
+    Config config{
+        .durability =
+            {
+                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            },
+        .salient.items = {.properties_on_edges = true},
+    };
     UpdatePaths(config, repl2_storage_directory);
     return config;
   }();

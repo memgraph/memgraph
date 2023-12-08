@@ -708,7 +708,7 @@ int main(int argc, char *argv[]) {
   std::unordered_map<NodeId, memgraph::storage::Gid> node_id_map;
   memgraph::storage::Config config{
 
-      .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
+      .salient = {.items = {.properties_on_edges = FLAGS_storage_properties_on_edges}},
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = false,
                      .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED,

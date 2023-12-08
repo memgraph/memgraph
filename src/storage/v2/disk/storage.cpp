@@ -951,7 +951,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   EdgeRef edge(gid);
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
-  if (storage_->config_.items.properties_on_edges) {
+  if (storage_->config_.salient.items.properties_on_edges) {
     auto acc = edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges()
                                        : transaction_.edges_->access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
@@ -975,7 +975,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
   transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-  if (storage_->config_.items.enable_schema_metadata) {
+  if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);
   }
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
@@ -1283,7 +1283,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     const auto src_vertex_gid = modified_edge.second.src_vertex_gid.ToString();
     const auto dst_vertex_gid = modified_edge.second.dest_vertex_gid.ToString();
 
-    if (!config_.items.properties_on_edges) {
+    if (!config_.salient.items.properties_on_edges) {
       /// If the object was created then flush it, otherwise since properties on edges are false
       /// edge wasn't modified for sure.
       if (root_action == Delta::Action::DELETE_OBJECT &&
@@ -1400,7 +1400,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
   }
 
   EdgeRef edge(gid);
-  if (config_.items.properties_on_edges) {
+  if (config_.salient.items.properties_on_edges) {
     auto acc = edge_import_mode_active ? edge_import_mode_cache_->AccessToEdges() : transaction->edges_->access();
     auto *delta = CreateDeleteDeserializedObjectDelta(transaction, old_disk_key, std::move(read_ts));
     auto [it, inserted] = acc.insert(Edge(gid, delta));
@@ -1458,7 +1458,8 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
     if (!edge_types.empty() && !utils::Contains(edge_types, edge_type_id)) continue;
 
     auto edge_gid = Gid::FromString(edge_gid_str);
-    auto properties_str = config_.items.properties_on_edges ? utils::GetPropertiesFromEdgeValue(edge_val_str) : "";
+    auto properties_str =
+        config_.salient.items.properties_on_edges ? utils::GetPropertiesFromEdgeValue(edge_val_str) : "";
 
     const auto edge = std::invoke([this, destination, &edge_val_str, transaction, view, src_vertex, edge_type_id,
                                    edge_gid, &properties_str, &edge_gid_str]() {

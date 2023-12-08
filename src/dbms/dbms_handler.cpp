@@ -299,7 +299,7 @@ DbmsHandler::NewResultT DbmsHandler::New_(storage::Config &&storage_config) {
 
   if (new_db.HasValue()) {  // Success
     // Recover replication (if durable)
-    if (storage_config.name != kDefaultDB) {
+    if (storage_config.salient.name != kDefaultDB) {
       // EnsureReplicaHasDatabase(storage_config);
 
     } else {
@@ -308,10 +308,10 @@ DbmsHandler::NewResultT DbmsHandler::New_(storage::Config &&storage_config) {
     }
     RecoverReplication(new_db.GetValue());
     // Save database in a list of active databases
-    const auto &key = Durability::GenKey(storage_config.name);
+    const auto &key = Durability::GenKey(storage_config.salient.name);
     const auto rel_dir = std::filesystem::relative(storage_config.durability.storage_directory,
                                                    default_config_.durability.storage_directory);
-    const auto &val = Durability::GenVal(storage_config.uuid, rel_dir);
+    const auto &val = Durability::GenVal(storage_config.salient.uuid, rel_dir);
     if (durability_) durability_->Put(key, val);
     return new_db.GetValue();
   }

@@ -137,7 +137,7 @@ class Storage {
 
   virtual ~Storage() = default;
 
-  const std::string &name() const { return config_.name; }
+  const std::string &name() const { return config_.salient.name; }
 
   class Accessor {
    public:

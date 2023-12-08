@@ -300,7 +300,7 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
-    Config::Items config_;
+    SalientConfig::Items config_;
   };
 
   class ReplicationAccessor final : public InMemoryAccessor {
