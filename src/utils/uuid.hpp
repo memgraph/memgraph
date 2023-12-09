@@ -17,6 +17,17 @@
 #include <string>
 
 namespace memgraph::utils {
+struct UUID;
+}
+
+namespace memgraph::slk {
+class Reader;
+class Builder;
+void Save(const ::memgraph::utils::UUID &self, Builder *builder);
+void Load(::memgraph::utils::UUID *self, Reader *reader);
+}  // namespace memgraph::slk
+
+namespace memgraph::utils {
 
 /**
  * This function generates an UUID and returns it.
@@ -40,6 +51,7 @@ struct UUID {
  private:
   friend void to_json(nlohmann::json &j, const UUID &uuid);
   friend void from_json(const nlohmann::json &j, UUID &uuid);
+  friend void ::memgraph::slk::Load(UUID *self, slk::Reader *reader);
   explicit UUID(arr_t const &arr) : uuid(arr) {}
 
   arr_t uuid;

@@ -12,6 +12,7 @@
 #include <iterator>
 #include "license/license.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/replication/rpc.hpp"
 #include "utils/exceptions.hpp"
 
 #ifdef MG_ENTERPRISE
@@ -27,40 +28,6 @@
 namespace {
 constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
 }  // namespace
-
-namespace memgraph::replication {
-
-struct CreateDatabaseReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(CreateDatabaseReq *self, memgraph::slk::Reader *reader);
-  static void Save(const CreateDatabaseReq &self, memgraph::slk::Builder *builder);
-  CreateDatabaseReq() = default;
-  // ABCReq() {}
-};
-
-constexpr utils::TypeInfo CreateDatabaseReq::kType{utils::TypeId::REP_CREATEDATABASE_REQ, "CreateDatabaseReq", nullptr};
-
-struct CreateDatabaseRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(CreateDatabaseRes *self, memgraph::slk::Reader *reader);
-  static void Save(const CreateDatabaseRes &self, memgraph::slk::Builder *builder);
-  CreateDatabaseRes() = default;
-  CreateDatabaseRes(bool success) : success(success) {}
-
-  bool success;
-  std::string epoch_id;      // Indicates history around who was the replication group's MAIN
-  uint64_t group_timestamp;  // System event in group governed by group_clock
-};
-constexpr utils::TypeInfo CreateDatabaseRes::kType{utils::TypeId::REP_CREATEDATABASE_RES, "CreateDatabaseRes", nullptr};
-
-using CreateDatabaseRpc = rpc::RequestResponse<CreateDatabaseReq, CreateDatabaseRes>;
-
-}  // namespace memgraph::replication
-
 namespace memgraph::dbms {
 
 struct Durability {
@@ -223,6 +190,11 @@ DbmsHandler::DbmsHandler(
   auto replica = [this](replication::RoleReplicaData const &data) {
     // Register handlers
     InMemoryReplicationHandlers::Register(this, *data.server);
+    data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
+        [dbms_handler = this](auto *req_reader, auto *res_builder) {
+          spdlog::debug("Received CreateDatabaseRpc");
+          CreateDatabaseHandler(dbms_handler, req_reader, res_builder);
+        });
     // TODO: Add more handlers -> system
     if (!data.server->Start()) {
       spdlog::error("Unable to start the replication server.");
@@ -242,66 +214,51 @@ DbmsHandler::DbmsHandler(
             "Replica recovery failure!");
 }
 
-// void DbmsHandler::EnsureReplicaHasDatabase(const storage::Config &config) {
-//   // Only on MAIN -> make replica have it
-//   // Restore on MAIN -> replica also has it (noop)
-//   // TODO: have to strip MAIN relevent info out, REPLICA will add its
-//   //  path prefix
+void DbmsHandler::EnsureReplicaHasDatabase(const storage::SalientConfig &config) {
+  // Only on MAIN -> make replica have it
+  // Restore on MAIN -> replica also has it (noop)
+  // TODO: have to strip MAIN relevent info out, REPLICA will add its
+  //  path prefix
 
-//   auto main_handler = [](memgraph::replication::RoleMainData &main_data) {
-//     // TODO: datarace issue? registered_replicas_ access not protected
-//     for (memgraph::replication::ReplicationClient &client : main_data.registered_replicas_) {
-//       try {
-//         auto stream = client.rpc_client_.Stream<replication::CreateDatabaseRpc>(
-//             main_data.epoch_,
-//             0,  // current_group_clock,//TODO: make actual clock
-//             config);
+  auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
+    // TODO: data race issue? registered_replicas_ access not protected
+    for (memgraph::replication::ReplicationClient &client : main_data.registered_replicas_) {
+      try {
+        auto stream = client.rpc_client_.Stream<storage::replication::CreateDatabaseRpc>(
+            std::string(main_data.epoch_.id()),
+            0,  // current_group_clock,//TODO: make actual clock
+            config);
 
-//         auto stream = client.rpc_client_.Stream<replication::CreateDatabaseRpc>();
+        const auto response = stream.AwaitResponse();
+        switch (response.result) {
+          using enum storage::replication::CreateDatabaseRes::Result;
+          case SUCCESS:
+            break;
+          case NO_NEED:
+            break;
+          case FAILURE:
+            // RECOVERY?
+            throw 1;
+            break;
+        }
 
-//         // already uptodate -- storage recovery
-//         // done
-//         // failure
+      } catch (memgraph::rpc::GenericRpcFailedException const &e) {
+        // This replica needs SYSTEM recovery
+      }
+    }
+  };
+  auto replica_handler = [](memgraph::replication::RoleReplicaData &) {};
 
-//         const auto response = stream.AwaitResponse();
-//         if (!response.success) {
-//           // This replica needs SYSTEM recovery
-//           continue;
-//         }
+  std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
+}
 
-//         // TODO: more thinking....about error handling (out of sync)
-//         //  + response.epoch_id; also
-
-//         // CHECK: if this is memgraph recovery, MAIN and REPLICA will have same group_clock
-//         //        hence no need to ensure database with `config` exists on REPLICA (because it already does)
-//         if (response.group_timestamp == current_group_clock) continue;
-
-//         // CHECK: this should be the next group_clock event
-//         if (response.group_timestamp != current_group_clock - 1) {
-//           // This replica needs SYSTEM recovery,
-//           continue;
-//         }
-
-//       } catch (memgraph::rpc::GenericRpcFailedException const &e) {
-//         // This replica needs SYSTEM recovery
-//       }
-//       auto stream = client.rpc_client_.Stream<replication::CreateDatabase>(config);
-//       const auto response2 = stream.AwaitResponse();
-//     }
-//   };
-//   auto replica_handler = [](memgraph::replication::RoleReplicaData &) {};
-
-//   std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-// }
-
-DbmsHandler::NewResultT DbmsHandler::New_(storage::Config &&storage_config) {
+DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config) {
   auto new_db = db_handler_.New(storage_config, repl_state_);
 
   if (new_db.HasValue()) {  // Success
     // Recover replication (if durable)
     if (storage_config.salient.name != kDefaultDB) {
-      // EnsureReplicaHasDatabase(storage_config);
-
+      EnsureReplicaHasDatabase(storage_config.salient);
     } else {
       // TODO:
       // set REPLICA kDefaultDB uuid / config

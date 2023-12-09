@@ -11,6 +11,7 @@
 
 #include "utils/uuid.hpp"
 #include <uuid/uuid.h>
+#include "slk/serialization.hpp"
 
 namespace memgraph::utils {
 
@@ -23,3 +24,13 @@ std::string GenerateUUID() {
 }
 
 }  // namespace memgraph::utils
+
+// Serialize UUID
+namespace memgraph::slk {
+void Save(const memgraph::utils::UUID &self, memgraph::slk::Builder *builder) {
+  const auto &arr = static_cast<utils::UUID::arr_t>(self);
+  memgraph::slk::Save(arr, builder);
+}
+
+void Load(memgraph::utils::UUID *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->uuid, reader); }
+}  // namespace memgraph::slk

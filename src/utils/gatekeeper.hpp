@@ -179,13 +179,18 @@ struct Gatekeeper {
     }
 
     // Completely invalidated the accessor if return true
-    [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100)) {
+    template <typename Func = decltype([](T &) { return true; })>
+    [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100),
+                                  Func &&predicate = {}) {
       // Prevent new access
       auto guard = std::unique_lock{owner_->mutex_};
       if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
         return false;
       }
-      // Delete value
+      // Already deleted
+      if (owner_->value_ == std::nullopt) return true;
+      // Delete value if ok
+      if (!predicate(*owner_->value_)) return false;
       owner_->value_ = std::nullopt;
       return true;
     }

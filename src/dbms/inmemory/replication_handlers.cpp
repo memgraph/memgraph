@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "dbms/inmemory/replication_handlers.hpp"
+#include <chrono>
 #include <optional>
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
@@ -77,6 +78,37 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
 }
 }  // namespace
 
+void CreateDatabaseHandler(DbmsHandler *dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
+  memgraph::storage::replication::CreateDatabaseReq req;
+  memgraph::slk::Load(&req, req_reader);
+
+  // Check epoch
+  // Check ts
+
+  // Create new
+  auto new_db = dbms_handler->New(req.config);
+
+  // Check result
+  using namespace memgraph::storage::replication;
+  CreateDatabaseRes res(CreateDatabaseRes::Result::FAILURE);
+  if (new_db.HasValue()) {
+    // Successfully create db
+    res = CreateDatabaseRes(CreateDatabaseRes::Result::SUCCESS);
+  } else {
+    switch (new_db.GetError()) {
+      using enum memgraph::dbms::NewError;
+      case EXISTS:
+      case NO_CONFIGS:
+      case DEFUNCT:
+      case GENERIC:
+        // Breaking errors
+        break;
+    }
+  }
+
+  memgraph::slk::Save(res, res_builder);
+}
+
 void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::ReplicationServer &server) {
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received HeartbeatRpc");
@@ -125,7 +157,11 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   storage::replication::AppendDeltasReq req;
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
-  if (!db_acc) return;
+  if (!db_acc) {
+    storage::replication::AppendDeltasRes res{req.db_name, false, -1};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   storage::replication::Decoder decoder(req_reader);
 
