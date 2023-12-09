@@ -22,6 +22,9 @@ namespace memgraph::dbms {
 
 class DbmsHandler;
 
+// System handlers
+void CreateDatabaseHandler(DbmsHandler *dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
+
 class InMemoryReplicationHandlers {
  public:
   static void Register(dbms::DbmsHandler *dbms_handler, replication::ReplicationServer &server);

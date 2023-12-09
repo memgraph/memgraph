@@ -136,6 +136,35 @@ class DbmsHandler {
     const auto uuid = utils::UUID{};
     return New_(name, uuid);
   }
+  /**
+   * @brief Create a new Database using the passed configuration
+   *
+   * @param config configuration to be used
+   * @return NewResultT context on success, error on failure
+   */
+  NewResultT New(const storage::SalientConfig &config) {
+    std::lock_guard<LockT> wr(lock_);
+    auto config_copy = default_config_;
+    config_copy.salient = config;  // name, uuid, mode, etc
+    UpdatePaths(config_copy, config_copy.durability.storage_directory / "database" / std::string{config.uuid});
+    auto new_db = New_(config_copy);
+
+    // If database exists, check to see if it is clean and if so, update the UUID
+    if (new_db.HasError() && new_db.GetError() == NewError::EXISTS) {
+      auto db = Get_(config.name);
+      const auto &conf = db->config();
+      if (conf.salient.uuid != config.uuid) {
+        if (db.try_delete(std::chrono::milliseconds(100), [](auto &db) -> bool {
+              return db.storage()->timestamp_ == memgraph::storage::kTimestampInitialId;
+            })) {
+          // Second attempt
+          return New_(std::move(config_copy));
+        }
+      }
+    }
+
+    return new_db;
+  }
 
   /**
    * @brief Get the context associated with the "name" database
@@ -395,15 +424,14 @@ class DbmsHandler {
     return New_(std::move(config_copy));
   }
 
-  void EnsureReplicaHasDatabase(const storage::Config &config);
+  void EnsureReplicaHasDatabase(const storage::SalientConfig &config);
   /**
    * @brief Create a new Database associated with the "name" database
    *
-   * @param name name of the database
    * @param storage_config storage configuration
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(storage::Config &&storage_config);
+  NewResultT New_(storage::Config storage_config);
 
   /**
    * @brief Create a new Database associated with the default database
@@ -485,18 +513,15 @@ class DbmsHandler {
 #endif
 
   void RecoverReplication(DatabaseAccess db_acc) {
-    // Recovery needs to be done after the database has been added, so we can pass an accessor that protects the db
-    if (repl_state_.HasDurability()) {
-      if (allow_mt_repl || db_acc->name() == dbms::kDefaultDB) {
-        // Handle global replication state
-        spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-        // RECOVER REPLICA CONNECTIONS
-        memgraph::dbms::RestoreReplication(repl_state_, std::move(db_acc));
-      } else if (const ::memgraph::replication::RoleMainData *data =
-                     std::get_if<::memgraph::replication::RoleMainData>(&repl_state_.ReplicationData());
-                 data && !data->registered_replicas_.empty()) {
-        spdlog::warn("Multi-tenant replication is currently not supported!");
-      }
+    if (allow_mt_repl || db_acc->name() == dbms::kDefaultDB) {
+      // Handle global replication state
+      spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
+      // RECOVER REPLICA CONNECTIONS
+      memgraph::dbms::RestoreReplication(repl_state_, std::move(db_acc));
+    } else if (const ::memgraph::replication::RoleMainData *data =
+                   std::get_if<::memgraph::replication::RoleMainData>(&repl_state_.ReplicationData());
+               data && !data->registered_replicas_.empty()) {
+      spdlog::warn("Multi-tenant replication is currently not supported!");
     }
   }
 

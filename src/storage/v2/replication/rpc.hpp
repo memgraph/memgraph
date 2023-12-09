@@ -19,6 +19,7 @@
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
+#include "storage/v2/config.hpp"
 
 namespace memgraph::storage::replication {
 
@@ -206,6 +207,38 @@ struct TimestampRes {
 };
 
 using TimestampRpc = rpc::RequestResponse<TimestampReq, TimestampRes>;
+
+struct CreateDatabaseReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(CreateDatabaseReq *self, memgraph::slk::Reader *reader);
+  static void Save(const CreateDatabaseReq &self, memgraph::slk::Builder *builder);
+  CreateDatabaseReq() = default;
+  CreateDatabaseReq(std::string epoch_id, uint64_t group_timestamp, storage::SalientConfig config)
+      : epoch_id(std::move(epoch_id)), group_timestamp(group_timestamp), config(std::move(config)) {}
+
+  std::string epoch_id;
+  uint64_t group_timestamp;
+  storage::SalientConfig config;
+};
+
+struct CreateDatabaseRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE };
+
+  static void Load(CreateDatabaseRes *self, memgraph::slk::Reader *reader);
+  static void Save(const CreateDatabaseRes &self, memgraph::slk::Builder *builder);
+  CreateDatabaseRes() = default;
+  explicit CreateDatabaseRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using CreateDatabaseRpc = rpc::RequestResponse<CreateDatabaseReq, CreateDatabaseRes>;
+
 }  // namespace memgraph::storage::replication
 
 // SLK serialization declarations
@@ -258,5 +291,13 @@ void Load(memgraph::storage::replication::AppendDeltasRes *self, memgraph::slk::
 void Save(const memgraph::storage::replication::AppendDeltasReq &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::CreateDatabaseReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::CreateDatabaseReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::CreateDatabaseRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::CreateDatabaseRes *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk

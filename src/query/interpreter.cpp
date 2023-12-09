@@ -272,12 +272,22 @@ inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode
   return replication::ReplicationMode::ASYNC;
 }
 
-class ReplQueryHandler final : public query::ReplicationQueryHandler {
+class ReplQueryHandler {
  public:
+  struct Replica {
+    std::string name;
+    std::string socket_address;
+    ReplicationQuery::SyncMode sync_mode;
+    std::optional<double> timeout;
+    uint64_t current_timestamp_of_replica;
+    uint64_t current_number_of_timestamp_behind_master;
+    ReplicationQuery::ReplicaState state;
+  };
+
   explicit ReplQueryHandler(dbms::DbmsHandler *dbms_handler) : dbms_handler_(dbms_handler), handler_{*dbms_handler} {}
 
   /// @throw QueryRuntimeException if an error ocurred.
-  void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
+  void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) {
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
       if (!handler_.SetReplicationRoleMain()) {
         throw QueryRuntimeException("Couldn't set role to main!");
@@ -299,7 +309,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   }
 
   /// @throw QueryRuntimeException if an error ocurred.
-  ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
+  ReplicationQuery::ReplicationRole ShowReplicationRole() const {
     switch (handler_.GetRole()) {
       case memgraph::replication::ReplicationRole::MAIN:
         return ReplicationQuery::ReplicationRole::MAIN;
@@ -311,8 +321,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void RegisterReplica(const std::string &name, const std::string &socket_address,
-                       const ReplicationQuery::SyncMode sync_mode,
-                       const std::chrono::seconds replica_check_frequency) override {
+                       const ReplicationQuery::SyncMode sync_mode, const std::chrono::seconds replica_check_frequency) {
     if (handler_.IsReplica()) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
@@ -340,7 +349,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   }
 
   /// @throw QueryRuntimeException if an error occurred.
-  void DropReplica(std::string_view replica_name) override {
+  void DropReplica(std::string_view replica_name) {
     auto const result = handler_.UnregisterReplica(replica_name);
     switch (result) {
       using enum memgraph::dbms::UnregisterReplicaResult;
@@ -355,8 +364,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     }
   }
 
-  using Replica = ReplicationQueryHandler::Replica;
-  std::vector<Replica> ShowReplicas() const override {
+  std::vector<Replica> ShowReplicas(const dbms::Database &db) const {
     if (handler_.IsReplica()) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
@@ -364,15 +372,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
     // TODO: Combine results? Have a single place with clients???
     //       Also authentication checks (replica + database visibility)
-    std::vector<storage::ReplicaInfo> repl_infos{};
-    dbms_handler_->ForOne([&repl_infos](dbms::Database *db) -> bool {
-      auto infos = db->storage()->ReplicasInfo();
-      if (!infos.empty()) {
-        repl_infos = std::move(infos);
-        return true;
-      }
-      return false;
-    });
+    const auto repl_infos = db.storage()->ReplicasInfo();
     std::vector<Replica> replicas;
     replicas.reserve(repl_infos.size());
 
@@ -711,8 +711,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 }  // namespace
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
-                                dbms::DbmsHandler *dbms_handler, const query::InterpreterConfig &config,
-                                std::vector<Notification> *notifications) {
+                                dbms::DbmsHandler *dbms_handler, CurrentDB &current_db,
+                                const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
@@ -786,8 +786,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       callback.header = {
           "name", "socket_address", "sync_mode", "current_timestamp_of_replica", "number_of_timestamp_behind_master",
           "state"};
-      callback.fn = [handler = ReplQueryHandler{dbms_handler}, replica_nfields = callback.header.size()] {
-        const auto &replicas = handler.ShowReplicas();
+      callback.fn = [handler = ReplQueryHandler{dbms_handler}, replica_nfields = callback.header.size(),
+                     db_acc = current_db.db_acc_] {
+        const auto &replicas = handler.ShowReplicas(*db_acc->get());
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
         for (const auto &replica : replicas) {
@@ -2268,14 +2269,14 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                       std::vector<Notification> *notifications, dbms::DbmsHandler &dbms_handler,
-                                      const InterpreterConfig &config) {
+                                      CurrentDB &current_db, const InterpreterConfig &config) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback =
-      HandleReplicationQuery(replication_query, parsed_query.parameters, &dbms_handler, config, notifications);
+  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, &dbms_handler, current_db, config,
+                                         notifications);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -3758,7 +3759,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
     // case for use database which overwrites the database)
     bool non_db_queries =
-        utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<ReplicationQuery>(parsed_query.query) ||
+        utils::Downcast<AuthQuery>(parsed_query.query) || /*utils::Downcast<ReplicationQuery>(parsed_query.query) ||
+                                                             TODO Split show replica and other replication queries*/
         utils::Downcast<ShowConfigQuery>(parsed_query.query) || utils::Downcast<SettingQuery>(parsed_query.query) ||
         utils::Downcast<VersionQuery>(parsed_query.query) ||
         utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
@@ -3859,7 +3861,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       /// TODO: make replication DB agnostic
       prepared_query =
           PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                                  *interpreter_context_->dbms_handler, interpreter_context_->config);
+                                  *interpreter_context_->dbms_handler, current_db_, interpreter_context_->config);
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
