@@ -108,6 +108,8 @@ class ReplicationStorageClient {
    */
   void Start(Storage *storage, std::any gk);
 
+  bool PingReplica(Storage *storage, std::any /*gk*/);
+
   /**
    * @brief Start a new transaction replication (open up a stream)
    *
@@ -175,7 +177,7 @@ class ReplicationStorageClient {
    * @param storage pointer to the storage associated with the client
    * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void CheckReplicaState(Storage *storage, std::any gk);
+  void UpdateReplicaState(Storage *storage, std::any gk);
 
   void LogRpcFailure();
 

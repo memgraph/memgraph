@@ -18,4 +18,6 @@ namespace memgraph::dbms {
 
 void StartReplicaClient(DbmsHandler &dbms_handler, replication::ReplicationClient &client);
 
+void EnsureReplicaHasDatabase(const storage::SalientConfig &config, replication::ReplicationState &repl_state);
+
 }  // namespace memgraph::dbms

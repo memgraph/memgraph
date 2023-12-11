@@ -116,7 +116,7 @@ class DbmsHandler {
   DbmsHandler(storage::Config config)
       : repl_state_{ReplicationStateRootPath(config)},
         db_gatekeeper_{[&] {
-                         config.name = kDefaultDB;
+                         config.salient.name = kDefaultDB;
                          return std::move(config);
                        }(),
                        repl_state_} {
@@ -424,7 +424,6 @@ class DbmsHandler {
     return New_(std::move(config_copy));
   }
 
-  void EnsureReplicaHasDatabase(const storage::SalientConfig &config);
   /**
    * @brief Create a new Database associated with the "name" database
    *

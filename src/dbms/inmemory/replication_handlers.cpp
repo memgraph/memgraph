@@ -78,36 +78,37 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
 }
 }  // namespace
 
+#ifdef MG_ENTERPRISE
 void CreateDatabaseHandler(DbmsHandler *dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
   memgraph::storage::replication::CreateDatabaseReq req;
   memgraph::slk::Load(&req, req_reader);
 
+  // TODO
   // Check epoch
   // Check ts
 
-  // Create new
-  auto new_db = dbms_handler->New(req.config);
+  namespace sr = memgraph::storage::replication;
+  sr::CreateDatabaseRes res(sr::CreateDatabaseRes::Result::FAILURE);
 
-  // Check result
-  using namespace memgraph::storage::replication;
-  CreateDatabaseRes res(CreateDatabaseRes::Result::FAILURE);
-  if (new_db.HasValue()) {
-    // Successfully create db
-    res = CreateDatabaseRes(CreateDatabaseRes::Result::SUCCESS);
-  } else {
-    switch (new_db.GetError()) {
-      using enum memgraph::dbms::NewError;
-      case EXISTS:
-      case NO_CONFIGS:
-      case DEFUNCT:
-      case GENERIC:
-        // Breaking errors
-        break;
+  // NOTE Simple way to force replica to follow main: defer drop database and create
+  // TODO Is this okay?
+
+  try {
+    // Defer drop
+    (void)dbms_handler->Delete(req.config.name);
+    // Create new
+    auto new_db = dbms_handler->New(req.config);
+    if (new_db.HasValue()) {
+      // Successfully create db
+      res = sr::CreateDatabaseRes(sr::CreateDatabaseRes::Result::SUCCESS);
     }
+  } catch (...) {
+    // Failure
   }
 
   memgraph::slk::Save(res, res_builder);
 }
+#endif
 
 void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::ReplicationServer &server) {
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
@@ -142,7 +143,11 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   storage::replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
-  if (!db_acc) return;
+  if (!db_acc) {
+    storage::replication::HeartbeatRes res{req.db_name, false, 0, ""};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();
@@ -158,7 +163,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
   if (!db_acc) {
-    storage::replication::AppendDeltasRes res{req.db_name, false, -1};
+    storage::replication::AppendDeltasRes res{req.db_name, false, 0};
     slk::Save(res, res_builder);
     return;
   }
@@ -220,7 +225,11 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   storage::replication::SnapshotReq req;
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
-  if (!db_acc) return;
+  if (!db_acc) {
+    storage::replication::SnapshotRes res{req.db_name, false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   storage::replication::Decoder decoder(req_reader);
 
@@ -300,7 +309,11 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   storage::replication::WalFilesReq req;
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
-  if (!db_acc) return;
+  if (!db_acc) {
+    storage::replication::WalFilesRes res{req.db_name, false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   const auto wal_file_number = req.file_number;
   spdlog::debug("Received WAL files: {}", wal_file_number);
@@ -325,7 +338,11 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   storage::replication::CurrentWalReq req;
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
-  if (!db_acc) return;
+  if (!db_acc) {
+    storage::replication::CurrentWalRes res{req.db_name, false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   storage::replication::Decoder decoder(req_reader);
 
@@ -392,7 +409,11 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
   storage::replication::TimestampReq req;
   slk::Load(&req, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
-  if (!db_acc) return;
+  if (!db_acc) {
+    storage::replication::TimestampRes res{req.db_name, false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();

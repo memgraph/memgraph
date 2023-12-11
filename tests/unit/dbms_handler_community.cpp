@@ -92,7 +92,7 @@ TEST(DBMS_Handler, Get) {
   ASSERT_TRUE(default_db->thread_pool() != nullptr);
   ASSERT_EQ(default_db->storage()->name(), memgraph::dbms::kDefaultDB);
   auto conf = storage_conf;
-  conf.name = memgraph::dbms::kDefaultDB;
+  conf.salient.name = memgraph::dbms::kDefaultDB;
   ASSERT_EQ(default_db->storage()->config_, conf);
 }
 
