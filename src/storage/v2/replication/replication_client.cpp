@@ -14,6 +14,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/variant_helpers.hpp"
 
 #include <algorithm>
@@ -29,7 +30,17 @@ namespace memgraph::storage {
 ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::ReplicationClient &client)
     : client_{client} {}
 
-void ReplicationStorageClient::CheckReplicaState(Storage *storage, std::any gk) {
+// Can throw
+bool ReplicationStorageClient::PingReplica(Storage *storage, std::any /*gk*/) {
+  auto &replStorageState = storage->repl_storage_state_;
+  auto stream{client_.rpc_client_.Stream<replication::HeartbeatRpc>(
+      storage->name(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()})};
+
+  const auto replica = stream.AwaitResponse();
+  return replica.success;
+}
+
+void ReplicationStorageClient::UpdateReplicaState(Storage *storage, std::any gk) {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
   auto &replStorageState = storage->repl_storage_state_;
@@ -114,7 +125,7 @@ void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *storage, std::
 
 void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *storage, std::any gk) {
   try {
-    CheckReplicaState(storage, std::move(gk));
+    UpdateReplicaState(storage, std::move(gk));
   } catch (const rpc::VersionMismatchRpcFailedException &) {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
     spdlog::error(
@@ -250,11 +261,11 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
                          std::unique_lock transaction_guard(mem_storage->engine_lock_);
                          if (mem_storage->wal_file_ &&
                              mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
+                           utils::OnScopeExit on_exit([mem_storage]() { mem_storage->wal_file_->EnableFlushing(); });
                            mem_storage->wal_file_->DisableFlushing();
                            transaction_guard.unlock();
                            spdlog::debug("Sending current wal file");
                            replica_commit = ReplicateCurrentWal(mem_storage, rpcClient, *mem_storage->wal_file_);
-                           mem_storage->wal_file_->EnableFlushing();
                          } else {
                            spdlog::debug("Cannot recover using current wal file");
                          }

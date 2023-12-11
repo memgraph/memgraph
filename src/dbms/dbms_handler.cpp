@@ -9,12 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <iterator>
-#include "license/license.hpp"
-#include "spdlog/spdlog.h"
-#include "storage/v2/replication/rpc.hpp"
-#include "utils/exceptions.hpp"
-
 #ifdef MG_ENTERPRISE
 
 #include "dbms/dbms_handler.hpp"
@@ -23,6 +17,9 @@
 #include <filesystem>
 
 #include "dbms/constants.hpp"
+#include "spdlog/spdlog.h"
+#include "storage/v2/replication/rpc.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/uuid.hpp"
 
 namespace {
@@ -214,51 +211,13 @@ DbmsHandler::DbmsHandler(
             "Replica recovery failure!");
 }
 
-void DbmsHandler::EnsureReplicaHasDatabase(const storage::SalientConfig &config) {
-  // Only on MAIN -> make replica have it
-  // Restore on MAIN -> replica also has it (noop)
-  // TODO: have to strip MAIN relevent info out, REPLICA will add its
-  //  path prefix
-
-  auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-    // TODO: data race issue? registered_replicas_ access not protected
-    for (memgraph::replication::ReplicationClient &client : main_data.registered_replicas_) {
-      try {
-        auto stream = client.rpc_client_.Stream<storage::replication::CreateDatabaseRpc>(
-            std::string(main_data.epoch_.id()),
-            0,  // current_group_clock,//TODO: make actual clock
-            config);
-
-        const auto response = stream.AwaitResponse();
-        switch (response.result) {
-          using enum storage::replication::CreateDatabaseRes::Result;
-          case SUCCESS:
-            break;
-          case NO_NEED:
-            break;
-          case FAILURE:
-            // RECOVERY?
-            throw 1;
-            break;
-        }
-
-      } catch (memgraph::rpc::GenericRpcFailedException const &e) {
-        // This replica needs SYSTEM recovery
-      }
-    }
-  };
-  auto replica_handler = [](memgraph::replication::RoleReplicaData &) {};
-
-  std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-}
-
 DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config) {
   auto new_db = db_handler_.New(storage_config, repl_state_);
 
   if (new_db.HasValue()) {  // Success
     // Recover replication (if durable)
     if (storage_config.salient.name != kDefaultDB) {
-      EnsureReplicaHasDatabase(storage_config.salient);
+      EnsureReplicaHasDatabase(storage_config.salient, repl_state_);
     } else {
       // TODO:
       // set REPLICA kDefaultDB uuid / config

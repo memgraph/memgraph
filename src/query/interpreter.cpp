@@ -284,7 +284,7 @@ class ReplQueryHandler {
     ReplicationQuery::ReplicaState state;
   };
 
-  explicit ReplQueryHandler(dbms::DbmsHandler *dbms_handler) : dbms_handler_(dbms_handler), handler_{*dbms_handler} {}
+  explicit ReplQueryHandler(dbms::DbmsHandler *dbms_handler) : handler_{*dbms_handler} {}
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) {
@@ -416,7 +416,6 @@ class ReplQueryHandler {
   }
 
  private:
-  dbms::DbmsHandler *dbms_handler_;
   dbms::ReplicationHandler handler_;
 };
 
@@ -3757,15 +3756,15 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["cost_estimate"] = 0.0;
 
     // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
-    // case for use database which overwrites the database)
-    bool non_db_queries =
+    // case for use database which overwrites the current database)
+    bool system_queries =
         utils::Downcast<AuthQuery>(parsed_query.query) || /*utils::Downcast<ReplicationQuery>(parsed_query.query) ||
                                                              TODO Split show replica and other replication queries*/
         utils::Downcast<ShowConfigQuery>(parsed_query.query) || utils::Downcast<SettingQuery>(parsed_query.query) ||
         utils::Downcast<VersionQuery>(parsed_query.query) ||
         utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
         utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
-    if (!non_db_queries && !current_db_.db_acc_) {
+    if (!system_queries && !current_db_.db_acc_) {
       throw DatabaseContextRequiredException("Database required for the query.");
     }
 
