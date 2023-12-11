@@ -806,9 +806,19 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
   }
 }
 
+EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId edge_type, View view) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
 uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return disk_storage->vertex_count_.load(std::memory_order_acquire);
+}
+
+uint64_t DiskStorage::DiskAccessor::ApproximateEdgeCount(EdgeTypeId edge_type) const {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
 uint64_t DiskStorage::GetDiskSpaceUsage() const {
@@ -1915,6 +1925,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   return {};
 }
 
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(EdgeTypeId edge_type) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
@@ -1941,6 +1956,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId edge_type) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
@@ -2048,6 +2068,12 @@ std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<Isola
   return std::unique_ptr<DiskAccessor>(
       new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});
 }
+
+bool DiskStorage::DiskAccessor::EdgeTypeIndexExists(EdgeTypeId edge_type) const {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());

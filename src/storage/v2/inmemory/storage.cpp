@@ -1314,7 +1314,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
       mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
-std::optional<EdgesIterable> InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(storage_->indices_.edge_type_index_.get());
   return EdgesIterable(mem_edge_type_index->Edges(edge_type, view, storage_, &transaction_));
 }

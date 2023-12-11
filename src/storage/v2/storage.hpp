@@ -160,8 +160,7 @@ class Storage {
                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
-    // For now make this optional to be able "implement" the on-disk side easily, solve this before merge
-    virtual std::optional<EdgesIterable> Edges(EdgeTypeId edge_type, View view) { return {}; }
+    virtual EdgesIterable Edges(EdgeTypeId edge_type, View view) = 0;
 
     virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 
@@ -183,7 +182,7 @@ class Storage {
                                             const std::optional<utils::Bound<PropertyValue>> &lower,
                                             const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
-    virtual uint64_t ApproximateEdgeCount(EdgeTypeId id) const { return 0; }
+    virtual uint64_t ApproximateEdgeCount(EdgeTypeId id) const = 0;
 
     virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
 
@@ -217,7 +216,7 @@ class Storage {
 
     virtual bool LabelPropertyIndexExists(LabelId label, PropertyId property) const = 0;
 
-    virtual bool EdgeTypeIndexExists(EdgeTypeId /*edge_type*/) const { return false; }
+    virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
 
     virtual IndicesInfo ListAllIndices() const = 0;
 
@@ -259,13 +258,13 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId /*edge_type*/) { return {}; }
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId /*edge_type*/) { return {}; }
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;

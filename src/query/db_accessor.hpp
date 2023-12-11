@@ -461,12 +461,7 @@ class DbAccessor final {
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
-    auto maybe_edge_iter = accessor_->Edges(edge_type, view);
-    // TODO handle this gracefully.
-    if (!maybe_edge_iter) {
-      throw utils::NotYetImplemented("Edge-type indexing is not implemented for on-disk storage.");
-    }
-    return EdgesIterable(std::move(*maybe_edge_iter));
+    return EdgesIterable(accessor_->Edges(edge_type, view));
   }
 
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }

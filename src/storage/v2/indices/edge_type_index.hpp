@@ -28,20 +28,18 @@ class EdgeTypeIndex {
 
   virtual ~EdgeTypeIndex() = default;
 
+  // Are these needed?
   virtual void UpdateOnAddLabel(EdgeTypeId added_label, Edge *edge_after_update, const Transaction &tx) {}
-
   // Not used for in-memory
   virtual void UpdateOnRemoveLabel(EdgeTypeId removed_label, const Transaction &tx) {}
 
-  virtual bool DropIndex(EdgeTypeId label) { return false; }
+  virtual bool DropIndex(EdgeTypeId edge_type) = 0;
 
-  virtual bool IndexExists(EdgeTypeId label) const { return false; }
+  virtual bool IndexExists(EdgeTypeId edge_type) const = 0;
 
-  virtual std::vector<EdgeTypeId> ListIndices() const { return std::vector<EdgeTypeId>{}; }
+  virtual std::vector<EdgeTypeId> ListIndices() const = 0;
 
-  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const { return 0; }
-
-  virtual uint64_t ApproximateVertexCount(EdgeTypeId label) const { return 0; }
+  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const = 0;
 };
 
 }  // namespace memgraph::storage
