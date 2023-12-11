@@ -1149,7 +1149,9 @@ class Filter : public memgraph::query::plan::LogicalOperator {
       if (single_filter.expression->GetTypeInfo() != LabelsTest::kType) {
         LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
       }
-      auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+      // auto filter_expression = static_cast<LabelsTest *>(single_filter.expression);
+      //  we need to think of a solution for printing label query parameters
+      /*
       std::set<std::string, std::less<>> label_names;
       for (const auto &label : filter_expression->labels_) {
         label_names.insert(label.name);
@@ -1162,6 +1164,8 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 
       return fmt::format("({} :{})", identifier_expression->name_,
                          utils::IterableToString(label_names, ":", [](const auto &name) { return name; }));
+                         */
+      return "";
     } else if (single_filter.type == Type::Pattern) {
       return "Pattern";
     } else if (single_filter.type == Type::Property) {

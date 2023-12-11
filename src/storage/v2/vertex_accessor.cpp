@@ -148,7 +148,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   return true;
 }
 
-Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
+Result<bool> VertexAccessor::HasLabel(std::variant<std::string, LabelId> label, View view) const {
   bool exists = true;
   bool deleted = false;
   bool has_label = false;
@@ -156,7 +156,14 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    has_label = std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end();
+    if (std::holds_alternative<LabelId>(label)) {
+      has_label =
+          std::find(vertex_->labels.begin(), vertex_->labels.end(), std::get<LabelId>(label)) != vertex_->labels.end();
+    } else {
+      auto label_name = std::get<std::string>(label);
+      auto label_id = storage->NameToLabel(label_name);
+      has_label = std::find(vertex_->labels.begin(), vertex_->labels.end(), label_id) != vertex_->labels.end();
+    }
     delta = vertex_->delta;
   }
 

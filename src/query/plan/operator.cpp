@@ -289,7 +289,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   std::vector<storage::LabelId> labels;
-  for (auto label : self_.node_info_.labels) {
+  for (auto &label : self_.node_info_.labels) {
     if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
       labels.emplace_back(*label_atom);
     } else {

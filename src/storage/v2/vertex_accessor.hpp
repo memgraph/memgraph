@@ -54,7 +54,7 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<bool> RemoveLabel(LabelId label);
 
-  Result<bool> HasLabel(LabelId label, View view) const;
+  Result<bool> HasLabel(std::variant<std::string, LabelId> label, View view) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds

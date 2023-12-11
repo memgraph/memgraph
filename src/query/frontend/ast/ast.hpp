@@ -1247,6 +1247,35 @@ class AllPropertiesLookup : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
+class ParameterLookup : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ParameterLookup() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  /// This field contains token position of *literal* used to create ParameterLookup object. If ParameterLookup object
+  /// is not created from a literal leave this value at -1.
+  int32_t token_position_{-1};
+
+  ParameterLookup *Clone(AstStorage *storage) const override {
+    ParameterLookup *object = storage->Create<ParameterLookup>();
+    object->token_position_ = token_position_;
+    return object;
+  }
+
+ protected:
+  explicit ParameterLookup(int token_position) : token_position_(token_position) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class LabelsTest : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
@@ -1265,20 +1294,30 @@ class LabelsTest : public memgraph::query::Expression {
   }
 
   memgraph::query::Expression *expression_{nullptr};
-  std::vector<memgraph::query::LabelIx> labels_;
+  std::vector<std::variant<memgraph::query::LabelIx, memgraph::query::ParameterLookup *>> labels_;
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->labels_.resize(labels_.size());
     for (auto i = 0; i < object->labels_.size(); ++i) {
-      object->labels_[i] = storage->GetLabelIx(labels_[i].name);
+      if (const auto *label = std::get_if<LabelIx>(&labels_[i])) {
+        object->labels_[i] = storage->GetLabelIx(label->name);
+      } else {
+        object->labels_[i] = std::get<ParameterLookup *>(labels_[i])->Clone(storage);
+      }
     }
     return object;
   }
 
  protected:
-  LabelsTest(Expression *expression, const std::vector<LabelIx> &labels) : expression_(expression), labels_(labels) {}
+  LabelsTest(Expression *expression, const std::vector<std::variant<LabelIx, ParameterLookup *>> &labels)
+      : expression_(expression), labels_(labels) {}
+  LabelsTest(Expression *expression, std::vector<LabelIx> &labels) : expression_(expression) {
+    for (auto &label : labels) {
+      labels_.emplace_back(std::move(label));
+    }
+  }
 
  private:
   friend class AstStorage;
@@ -1602,35 +1641,6 @@ class None : public memgraph::query::Expression {
  protected:
   None(Identifier *identifier, Expression *list_expression, Where *where)
       : identifier_(identifier), list_expression_(list_expression), where_(where) {}
-
- private:
-  friend class AstStorage;
-};
-
-class ParameterLookup : public memgraph::query::Expression {
- public:
-  static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  ParameterLookup() = default;
-
-  DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
-  DEFVISITABLE(ExpressionVisitor<void>);
-  DEFVISITABLE(HierarchicalTreeVisitor);
-
-  /// This field contains token position of *literal* used to create ParameterLookup object. If ParameterLookup object
-  /// is not created from a literal leave this value at -1.
-  int32_t token_position_{-1};
-
-  ParameterLookup *Clone(AstStorage *storage) const override {
-    ParameterLookup *object = storage->Create<ParameterLookup>();
-    object->token_position_ = token_position_;
-    return object;
-  }
-
- protected:
-  explicit ParameterLookup(int token_position) : token_position_(token_position) {}
 
  private:
   friend class AstStorage;
