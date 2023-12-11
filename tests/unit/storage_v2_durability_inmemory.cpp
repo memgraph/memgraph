@@ -1724,7 +1724,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     auto indices = [&] {
       auto acc = db.Access();
       auto res = acc->ListAllIndices();
-      acc->Commit();
+      (void)acc->Commit();
       return res;
     }();  // iile
     for (const auto &index : indices.label) {
@@ -1740,7 +1740,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     auto constraints = [&] {
       auto acc = db.Access();
       auto res = acc->ListAllConstraints();
-      acc->Commit();
+      (void)acc->Commit();
       return res;
     }();  // iile
     for (const auto &constraint : constraints.existence) {

@@ -16,6 +16,7 @@
 #include <gflags/gflags.h>
 
 #include "dbms/database.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -242,10 +243,29 @@ class Interpreter final {
 
   void SetUser(std::string_view username);
 
+  struct SystemTransaction {
+    explicit SystemTransaction(uint64_t timestamp, std::unique_lock<utils::ResourceLock> guard,
+                               dbms::DbmsHandler &dbms_handler)
+        : system_guard_(std::move(guard)), dbms_handler_{&dbms_handler} {
+      dbms_handler_->SetupSystemTransaction(timestamp);
+    }
+
+    ~SystemTransaction() { dbms_handler_->ResetSystemTransaction(); }
+
+    void Commit() { dbms_handler_->Commit(); }
+
+   private:
+    std::unique_lock<utils::ResourceLock> system_guard_;
+    dbms::DbmsHandler *dbms_handler_;
+  };
+
+  std::optional<SystemTransaction> system_transaction{};
+
  private:
   void ResetInterpreter() {
     query_executions_.clear();
     system_guard.reset();
+    system_transaction.reset();
     transaction_queries_->clear();
     if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
       current_db_.db_acc_.reset();

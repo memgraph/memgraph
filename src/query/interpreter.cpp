@@ -3755,16 +3755,33 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // field with an improved estimate.
     query_execution->summary["cost_estimate"] = 0.0;
 
+    // System queries require strict ordering; since there is no MVCC-like thing, we allow single queries
+    bool system_queries =
+        utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
+    if (system_queries) {
+      // Start a system transaction
+      auto system_unique = std::unique_lock{interpreter_context_->system_lock, std::defer_lock};
+      if (!system_unique.try_lock()) {
+        throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
+      }
+      const auto timestamp = interpreter_context_->system_ts++;
+      // never gonna get here -> MG_ASSERT(!system_transaction, "Previous system transaction has not completed!");
+      system_transaction.emplace(timestamp, std::move(system_unique), *interpreter_context_->dbms_handler);
+      // auto expected = TransactionStatus::IDLE;
+      // if (!transaction_status_.compare_exchange_strong(expected, TransactionStatus::SYSTEM)) {
+      //   std::cout << "\n\n\nHERE\n\n\n" << static_cast<int>(expected) << std::endl;
+      //   throw ConcurrentSystemQueriesException("Concurrent system queries are not supported.");
+      // }
+    }
+
     // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
     // case for use database which overwrites the current database)
-    bool system_queries =
-        utils::Downcast<AuthQuery>(parsed_query.query) || /*utils::Downcast<ReplicationQuery>(parsed_query.query) ||
-                                                             TODO Split show replica and other replication queries*/
+    bool no_db_required =
+        system_queries || /*utils::Downcast<ReplicationQuery>(parsed_query.query) ||
+                  TODO Split show replica and other replication queries*/
         utils::Downcast<ShowConfigQuery>(parsed_query.query) || utils::Downcast<SettingQuery>(parsed_query.query) ||
-        utils::Downcast<VersionQuery>(parsed_query.query) ||
-        utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
-        utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
-    if (!system_queries && !current_db_.db_acc_) {
+        utils::Downcast<VersionQuery>(parsed_query.query) || utils::Downcast<TransactionQueueQuery>(parsed_query.query);
+    if (!no_db_required && !current_db_.db_acc_) {
       throw DatabaseContextRequiredException("Database required for the query.");
     }
 
@@ -4082,10 +4099,22 @@ void Interpreter::Commit() {
   // We should document clearly that all results should be pulled to complete
   // a query.
   current_transaction_.reset();
-  if (!current_db_.db_transactional_accessor_) return;
+  if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
+    // No database nor db transaction; check for system transaction
+    if (!system_transaction) return;
+    // auto expected = TransactionStatus::SYSTEM;
+    auto expected = TransactionStatus::ACTIVE;
+    if (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_COMMITTING))
+      return;  // NOT SYSTEM
+    // Clean transaction status on exit
+    utils::OnScopeExit clean_status([this]() {
+      system_transaction.reset();
+      transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+    });
 
-  // TODO: Better (or removed) check
-  if (!current_db_.db_acc_) return;
+    system_transaction->Commit();
+    return;
+  }
   auto *db = current_db_.db_acc_->get();
 
   /*

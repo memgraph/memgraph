@@ -39,7 +39,7 @@ void EnsureReplicaHasDatabase(const storage::SalientConfig &config, replication:
 
   auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
     // TODO: data race issue? registered_replicas_ access not protected
-    for (memgraph::replication::ReplicationClient &client : main_data.registered_replicas_) {
+    for (auto &client : main_data.registered_replicas_) {
       try {
         auto stream = client.rpc_client_.Stream<storage::replication::CreateDatabaseRpc>(
             std::string(main_data.epoch_.id()),
