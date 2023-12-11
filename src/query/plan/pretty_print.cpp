@@ -467,7 +467,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllById &op) {
 bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeType &op) {
   json self;
   self["name"] = "ScanAllByEdgeType";
-  self["label"] = ToJson(op.label_, *dba_);
+  self["edge_type"] = ToJson(op.edge_type_, *dba_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);

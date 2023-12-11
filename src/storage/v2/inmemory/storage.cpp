@@ -1174,7 +1174,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   // TODO (gvolfing check these)
-  // transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
+  // transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, edge_type);
   // We don't care if there is a replication error because on main node the change will go through
   // memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
   return {};
@@ -1314,9 +1314,9 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
       mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
-std::optional<EdgesIterable> InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId label, View view) {
+std::optional<EdgesIterable> InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(storage_->indices_.edge_type_index_.get());
-  return EdgesIterable(mem_edge_type_index->Edges(label, view, storage_, &transaction_));
+  return EdgesIterable(mem_edge_type_index->Edges(edge_type, view, storage_, &transaction_));
 }
 
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) {

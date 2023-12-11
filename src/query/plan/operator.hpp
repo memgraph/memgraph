@@ -598,7 +598,7 @@ class ScanAllByEdgeType : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ScanAllByEdgeType() = default;
-  ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::EdgeTypeId label,
+  ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::EdgeTypeId edge_type,
                     storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -609,21 +609,21 @@ class ScanAllByEdgeType : public memgraph::query::plan::LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::string ToString() const override {
-    return fmt::format("ScanAllByEdgeType ({} :{})", output_symbol_.name(), dba_->EdgeTypeToName(label_));
+    return fmt::format("ScanAllByEdgeType ({} :{})", output_symbol_.name(), dba_->EdgeTypeToName(edge_type_));
   }
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Symbol output_symbol_;
   storage::View view_;
 
-  storage::EdgeTypeId label_;
+  storage::EdgeTypeId edge_type_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeType>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->output_symbol_ = output_symbol_;
     object->view_ = view_;
-    object->label_ = label_;
+    object->edge_type_ = edge_type_;
     return object;
   }
 };

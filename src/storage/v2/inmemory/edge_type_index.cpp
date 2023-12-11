@@ -49,9 +49,9 @@ bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Ve
   return true;
 }
 
-bool InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId label) { return index_.erase(label) > 0; }
+bool InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type) { return index_.erase(edge_type) > 0; }
 
-bool InMemoryEdgeTypeIndex::IndexExists(EdgeTypeId label) const { return index_.find(label) != index_.end(); }
+bool InMemoryEdgeTypeIndex::IndexExists(EdgeTypeId edge_type) const { return index_.find(edge_type) != index_.end(); }
 
 std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ListIndices() const {
   std::vector<EdgeTypeId> ret;
@@ -93,10 +93,10 @@ uint64_t InMemoryEdgeTypeIndex::ApproximateEdgeCount(EdgeTypeId edge_type) const
   return 0;
 }
 
-InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId label, View view,
-                                          Storage *storage, Transaction *transaction)
+InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type,
+                                          View view, Storage *storage, Transaction *transaction)
     : index_accessor_(std::move(index_accessor)),
-      label_(label),
+      edge_type_(edge_type),
       view_(view),
       storage_(storage),
       transaction_(transaction) {}
@@ -159,24 +159,24 @@ void InMemoryEdgeTypeIndex::RunGC() {
   //   }
 }
 
-InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId label, View view, Storage *storage,
+InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_type, View view, Storage *storage,
                                                              Transaction *transaction) {
   auto debug_var = index_.size();
-  const auto it = index_.find(label);
-  MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
+  const auto it = index_.find(edge_type);
+  MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", edge_type.AsUint());
   auto debug_var_two = it->second.access().size();
-  return {it->second.access(), label, view, storage, transaction};
+  return {it->second.access(), edge_type, view, storage, transaction};
 }
 
 // TODO Implement indexstat metadata handling functions.
-// void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
+// void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &edge_type, const storage::LabelIndexStats &stats) {
 //   auto locked_stats = stats_.Lock();
-//   locked_stats->insert_or_assign(label, stats);
+//   locked_stats->insert_or_assign(edge_type, stats);
 // }
 
-// std::optional<LabelIndexStats> InMemoryLabelIndex::GetIndexStats(const storage::LabelId &label) const {
+// std::optional<LabelIndexStats> InMemoryLabelIndex::GetIndexStats(const storage::LabelId &edge_type) const {
 //   auto locked_stats = stats_.ReadLock();
-//   if (auto it = locked_stats->find(label); it != locked_stats->end()) {
+//   if (auto it = locked_stats->find(edge_type); it != locked_stats->end()) {
 //     return it->second;
 //   }
 //   return {};
@@ -193,10 +193,10 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId label, V
 // }
 
 // // stats_ is a map with label as the key, so only one can exist at a time
-// bool InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &label) {
+// bool InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &edge_type) {
 //   auto locked_stats = stats_.Lock();
 //   for (auto it = locked_stats->cbegin(); it != locked_stats->cend(); ++it) {
-//     if (it->first == label) {
+//     if (it->first == edge_type) {
 //       locked_stats->erase(it);
 //       return true;
 //     }

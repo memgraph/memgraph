@@ -2234,17 +2234,17 @@ class EdgeIndexQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::EdgeIndexQuery::Action action_;
-  memgraph::query::EdgeTypeIx label_;
+  memgraph::query::EdgeTypeIx edge_type_;
 
   EdgeIndexQuery *Clone(AstStorage *storage) const override {
     EdgeIndexQuery *object = storage->Create<EdgeIndexQuery>();
     object->action_ = action_;
-    object->label_ = storage->GetEdgeTypeIx(label_.name);
+    object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
     return object;
   }
 
  protected:
-  EdgeIndexQuery(Action action, EdgeTypeIx label) : action_(action), label_(label) {}
+  EdgeIndexQuery(Action action, EdgeTypeIx edge_type) : action_(action), edge_type_(edge_type) {}
 
  private:
   friend class AstStorage;

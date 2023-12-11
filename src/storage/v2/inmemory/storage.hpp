@@ -109,7 +109,7 @@ class InMemoryStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
-    std::optional<EdgesIterable> Edges(EdgeTypeId label, View view) override;
+    std::optional<EdgesIterable> Edges(EdgeTypeId edge_type, View view) override;
 
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.

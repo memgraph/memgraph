@@ -54,9 +54,9 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   bool CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices);
 
   /// Returns false if there was no index to drop
-  bool DropIndex(EdgeTypeId label) override;
+  bool DropIndex(EdgeTypeId edge_type) override;
 
-  bool IndexExists(EdgeTypeId label) const override;
+  bool IndexExists(EdgeTypeId edge_type) const override;
 
   std::vector<EdgeTypeId> ListIndices() const override;
 
@@ -66,7 +66,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId label, View view, Storage *storage,
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type, View view, Storage *storage,
              Transaction *transaction);
 
     class Iterator {
@@ -95,7 +95,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
    private:
     utils::SkipList<Entry>::Accessor index_accessor_;
-    EdgeTypeId label_;
+    EdgeTypeId edge_type_;
     View view_;
     Storage *storage_;
     Transaction *transaction_;
@@ -103,13 +103,13 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   void RunGC();
 
-  Iterable Edges(EdgeTypeId label, View view, Storage *storage, Transaction *transaction);
+  Iterable Edges(EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction);
 
   // TODO(gvolfing) - check this.
-  // void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats);
-  // std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const;
+  // void SetIndexStats(const storage::LabelId &edge_type, const storage::LabelIndexStats &stats);
+  // std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &edge_type) const;
   // std::vector<LabelId> ClearIndexStats();
-  // bool DeleteIndexStats(const storage::LabelId &label);
+  // bool DeleteIndexStats(const storage::LabelId &edge_type);
 
  private:
   // std::map<LabelId, utils::SkipList<Entry>> index_;

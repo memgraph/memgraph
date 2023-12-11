@@ -460,8 +460,8 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
-  EdgesIterable Edges(storage::View view, storage::EdgeTypeId label) {
-    auto maybe_edge_iter = accessor_->Edges(label, view);
+  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
+    auto maybe_edge_iter = accessor_->Edges(edge_type, view);
     // TODO handle this gracefully.
     if (!maybe_edge_iter) {
       throw utils::NotYetImplemented("Edge-type indexing is not implemented for on-disk storage.");

@@ -161,7 +161,7 @@ class Storage {
                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
     // For now make this optional to be able "implement" the on-disk side easily, solve this before merge
-    virtual std::optional<EdgesIterable> Edges(EdgeTypeId label, View view) { return {}; }
+    virtual std::optional<EdgesIterable> Edges(EdgeTypeId edge_type, View view) { return {}; }
 
     virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 

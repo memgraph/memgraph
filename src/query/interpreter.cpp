@@ -2246,15 +2246,15 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   };
 
   auto *storage = db_acc->storage();
-  auto edge_type = storage->NameToEdgeType(index_query->label_.name);
+  auto edge_type = storage->NameToEdgeType(index_query->edge_type_.name);
 
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case EdgeIndexQuery::Action::CREATE: {
       index_notification.code = NotificationCode::CREATE_INDEX;
-      index_notification.title = fmt::format("Created index on edge-type {}.", index_query->label_.name);
+      index_notification.title = fmt::format("Created index on edge-type {}.", index_query->edge_type_.name);
 
-      handler = [dba, edge_type, label_name = index_query->label_.name,
+      handler = [dba, edge_type, label_name = index_query->edge_type_.name,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         auto maybe_index_error = dba->CreateIndex(edge_type);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
@@ -2268,8 +2268,8 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     }
     case EdgeIndexQuery::Action::DROP: {
       index_notification.code = NotificationCode::DROP_INDEX;
-      index_notification.title = fmt::format("Dropped index on edge-type {}.", index_query->label_.name);
-      handler = [dba, edge_type, label_name = index_query->label_.name,
+      index_notification.title = fmt::format("Dropped index on edge-type {}.", index_query->edge_type_.name);
+      handler = [dba, edge_type, label_name = index_query->edge_type_.name,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         auto maybe_index_error = dba->DropIndex(edge_type);
         utils::OnScopeExit invalidator(invalidate_plan_cache);

@@ -641,11 +641,11 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
 }
 
 ScanAllByEdgeType::ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                                     storage::EdgeTypeId label, storage::View view)
+                                     storage::EdgeTypeId edge_type, storage::View view)
     : input_(input ? input : std::make_shared<Once>()),
       output_symbol_(std::move(output_symbol)),
       view_(view),
-      label_(label) {}
+      edge_type_(edge_type) {}
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeType)
 
@@ -654,7 +654,7 @@ UniqueCursorPtr ScanAllByEdgeType::MakeCursor(utils::MemoryResource *mem) const 
 
   auto edges = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    return std::make_optional(db->Edges(view_, label_));
+    return std::make_optional(db->Edges(view_, edge_type_));
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(edges)>>(
