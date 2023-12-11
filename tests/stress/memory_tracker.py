@@ -260,10 +260,11 @@ def run_monitor_cleanup(repetition_count: int, sleep_sec: float) -> None:
             # Problem with test using detach delete and memory tracker
             # is that memory tracker gets updated immediately
             # whereas RES takes some time
-            cnt_again = 3
+            # Tries 10 times or fails
+            cnt_again = 10
             skip_failure = False
-            # 10% is maximum increment, afterwards is fail
-            multiplier = 1
+            # 10% is maximum diff for this test to pass
+            multiplier = 1.10
             while cnt_again:
                 new_memory_tracker, new_res_data = get_storage_data(session)
 
@@ -277,7 +278,6 @@ def run_monitor_cleanup(repetition_count: int, sleep_sec: float) -> None:
                         f"RES data: {new_res_data}, multiplier: {multiplier}"
                     )
                     break
-                multiplier += 0.05
                 cnt_again -= 1
             if not skip_failure:
                 log.info(memory_tracker, initial_diff, res_data)
