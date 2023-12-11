@@ -65,6 +65,8 @@ struct Indices {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                            const Transaction &tx) const;
 
+  void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeTypeId edge_type, const Transaction &tx) const;
+
   std::unique_ptr<LabelIndex> label_index_;
   std::unique_ptr<LabelPropertyIndex> label_property_index_;
   std::unique_ptr<EdgeTypeIndex> edge_type_index_;

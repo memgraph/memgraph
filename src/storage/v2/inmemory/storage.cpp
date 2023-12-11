@@ -349,6 +349,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
   transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
+  // Update indices if they exist.
+  storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge_type, transaction_);
+
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 

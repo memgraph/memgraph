@@ -40,4 +40,10 @@ uint64_t DiskEdgeTypeIndex::ApproximateEdgeCount(EdgeTypeId /*edge_type*/) const
       "Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
+void DiskEdgeTypeIndex::UpdateOnEdgeCreation(Vertex * /*from*/, Vertex * /*to*/, EdgeTypeId /*edge_type*/,
+                                             const Transaction & /*tx*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
 }  // namespace memgraph::storage

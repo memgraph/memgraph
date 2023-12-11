@@ -29,6 +29,8 @@ class DiskEdgeTypeIndex : public storage::EdgeTypeIndex {
   std::vector<EdgeTypeId> ListIndices() const override;
 
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override;
+
+  void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeTypeId edge_type, const Transaction &tx) override;
 };
 
 }  // namespace memgraph::storage

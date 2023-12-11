@@ -64,6 +64,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override;
 
+  void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeTypeId edge_type, const Transaction &tx) override;
+
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type, View view, Storage *storage,

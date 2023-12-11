@@ -93,6 +93,16 @@ uint64_t InMemoryEdgeTypeIndex::ApproximateEdgeCount(EdgeTypeId edge_type) const
   return 0;
 }
 
+void InMemoryEdgeTypeIndex::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeTypeId edge_type,
+                                                 const Transaction &tx) {
+  auto it = index_.find(edge_type);
+  if (it == index_.end()) {
+    return;
+  }
+  auto acc = it->second.access();
+  acc.insert(Entry{from, to, tx.start_timestamp});
+}
+
 InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type,
                                           View view, Storage *storage, Transaction *transaction)
     : index_accessor_(std::move(index_accessor)),

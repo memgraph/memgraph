@@ -55,6 +55,10 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &valu
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
 }
 
+void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeTypeId edge_type, const Transaction &tx) const {
+  edge_type_index_->UpdateOnEdgeCreation(from, to, edge_type, tx);
+}
+
 Indices::Indices(const Config &config, StorageMode storage_mode) {
   std::invoke([this, config, storage_mode]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {

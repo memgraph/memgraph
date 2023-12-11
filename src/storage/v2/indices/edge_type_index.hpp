@@ -40,6 +40,8 @@ class EdgeTypeIndex {
   virtual std::vector<EdgeTypeId> ListIndices() const = 0;
 
   virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const = 0;
+
+  virtual void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeTypeId edge_type, const Transaction &tx) = 0;
 };
 
 }  // namespace memgraph::storage
