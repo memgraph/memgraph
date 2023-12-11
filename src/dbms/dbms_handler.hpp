@@ -32,6 +32,7 @@
 #include "dbms/database_handler.hpp"
 #endif
 #include "dbms/replication_client.hpp"
+#include "dbms/transaction.hpp"
 #include "global.hpp"
 #include "query/config.hpp"
 #include "query/interpreter_context.hpp"
@@ -388,6 +389,55 @@ class DbmsHandler {
 #endif
   }
 
+  void RecoverReplication(std::string_view name) {
+#ifdef MG_ENTERPRISE
+    RecoverReplication(Get_(name));
+#else
+    // RecoverReplication(Get_());
+#endif
+  }
+
+  void SetupSystemTransaction(uint64_t timestamp) {
+    DMG_ASSERT(!system_transaction_, "Already running a system transaction");
+    system_transaction_.emplace(timestamp);
+  }
+
+  void ResetSystemTransaction() { system_transaction_.reset(); }
+
+  void Commit() {
+    MG_ASSERT(system_transaction_, "No SYSTEM transaction to commit.");
+    if (system_transaction_->delta == std::nullopt) return;  // No delta to apply
+    const auto &delta = *system_transaction_->delta;
+    // TODO Create a system client that can handle all of this automatically
+    switch (delta.action) {
+      using enum SystemTransaction::Delta::Action;
+      case CREATE_DATABASE: {
+        // TODO On disk durability
+        auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
+          // TODO: data race issue? registered_replicas_ access not protected
+          // Replication
+          for (auto &client : main_data.registered_replicas_) {
+            try {
+              auto stream = client.rpc_client_.Stream<storage::replication::CreateDatabaseRpc>(
+                  std::string(main_data.epoch_.id()), system_transaction_->system_timestamp, delta.config);
+
+              const auto response = stream.AwaitResponse();
+              if (response.result == storage::replication::CreateDatabaseRes::Result::FAILURE) {
+                // TODO This replica needs SYSTEM recovery
+              }
+            } catch (memgraph::rpc::GenericRpcFailedException const &e) {
+              // TODO This replica needs SYSTEM recovery
+            }
+          }
+          // Sync database with REPLICAs
+          RecoverReplication(delta.config.name);
+        };
+        auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
+        std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
+      } break;
+    }
+  }
+
  private:
 #ifdef MG_ENTERPRISE
   /**
@@ -530,6 +580,7 @@ class DbmsHandler {
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;       //!< list of active dbs (pointer so we can postpone its creation)
 #endif
+  std::optional<SystemTransaction> system_transaction_;
   replication::ReplicationState repl_state_;  //!< Global replication state
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper

@@ -33,6 +33,7 @@ enum class TransactionStatus {
   TERMINATED,
   STARTED_COMMITTING,
   STARTED_ROLLBACK,
+  SYSTEM,
 };
 
 struct EvaluationContext {

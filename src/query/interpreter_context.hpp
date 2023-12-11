@@ -22,6 +22,8 @@
 #include "query/cypher_query_interpreter.hpp"
 #include "query/typed_value.hpp"
 #include "replication/state.hpp"
+#include "storage/v2/config.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
@@ -58,6 +60,8 @@ struct InterpreterContext {
   // GLOBAL
   memgraph::replication::ReplicationState *repl_state;
   utils::ResourceLock system_lock{};
+  uint64_t system_ts{storage::kTimestampInitialId};
+
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;
 

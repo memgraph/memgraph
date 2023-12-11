@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "dbms/database.hpp"
+#include "dbms/transaction.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "dbms/dbms_handler.hpp"
@@ -116,6 +118,10 @@ DbmsHandler::DbmsHandler(
     : default_config_{std::move(config)}, repl_state_{ReplicationStateRootPath(default_config_)} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
+
+  /*
+   * FILESYSTEM MANIPULATION
+   */
   const auto &root = default_config_.durability.storage_directory;
   storage::UpdatePaths(default_config_, root);
   const auto &db_dir = default_config_.durability.storage_directory / "databases";
@@ -124,9 +130,11 @@ DbmsHandler::DbmsHandler(
   utils::EnsureDirOrDie(durability_dir);
   durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
 
+  /*
+   * DURABILITY
+   */
   // Migrate durability
   Durability::Migrate(durability_.get(), root);
-
   auto directories = std::set{std::string{kDefaultDB}};
 
   // Recover previous databases
@@ -140,7 +148,8 @@ DbmsHandler::DbmsHandler(
       const auto uuid = json.at("uuid").get<utils::UUID>();
       const auto rel_dir = json.at("rel_dir").get<std::filesystem::path>();
       spdlog::info("Restoring database {} at {}.", name, rel_dir);
-      MG_ASSERT(!New_(name, uuid, rel_dir).HasError(), "Failed while creating database {}.", name);
+      auto new_db = New_(name, uuid, rel_dir);
+      MG_ASSERT(!new_db.HasError(), "Failed while creating database {}.", name);
       directories.emplace(rel_dir.filename());
       spdlog::info("Database {} restored.", name);
     }
@@ -157,6 +166,9 @@ DbmsHandler::DbmsHandler(
     }
   }
 
+  /*
+   * DATABASES CLEAN UP
+   */
   // Clean the unused directories
   for (const auto &entry : std::filesystem::directory_iterator(db_dir)) {
     const auto &name = entry.path().filename().string();
@@ -170,19 +182,15 @@ DbmsHandler::DbmsHandler(
     }
   }
 
+  /*
+   * DEFAULT DB SETUP
+   */
   // Setup the default DB
   SetupDefault_();
 
-  // Warning
-  if (default_config_.durability.snapshot_wal_mode == storage::Config::Durability::SnapshotWalMode::DISABLED &&
-      repl_state_.IsMain()) {
-    spdlog::warn(
-        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please "
-        "consider "
-        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-        "without write-ahead logs this instance is not replicating any data.");
-  }
-
+  /*
+   * REPLICATION RECOVERY AND STARTUP
+   */
   // Startup replication state (if recovered at startup)
   auto replica = [this](replication::RoleReplicaData const &data) {
     // Register handlers
@@ -199,8 +207,17 @@ DbmsHandler::DbmsHandler(
     }
     return true;
   };
-  // Replication frequent check start
+  // Replication recovery and frequent check start
   auto main = [this](replication::RoleMainData &data) {
+    ForEach([this](DatabaseAccess db) {
+      if (db->name() != kDefaultDB) {
+        EnsureReplicaHasDatabase(db->config().salient, repl_state_);
+      } else {
+        // TODO:
+        // set REPLICA kDefaultDB uuid / config
+      }
+      RecoverReplication(db);
+    });
     for (auto &client : data.registered_replicas_) {
       StartReplicaClient(*this, client);
     }
@@ -209,20 +226,26 @@ DbmsHandler::DbmsHandler(
   // Startup proccess for main/replica
   MG_ASSERT(std::visit(memgraph::utils::Overloaded{replica, main}, repl_state_.ReplicationData()),
             "Replica recovery failure!");
+
+  // Warning
+  if (default_config_.durability.snapshot_wal_mode == storage::Config::Durability::SnapshotWalMode::DISABLED &&
+      repl_state_.IsMain()) {
+    spdlog::warn(
+        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please "
+        "consider "
+        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
+        "without write-ahead logs this instance is not replicating any data.");
+  }
 }
 
 DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config) {
   auto new_db = db_handler_.New(storage_config, repl_state_);
 
   if (new_db.HasValue()) {  // Success
-    // Recover replication (if durable)
-    if (storage_config.salient.name != kDefaultDB) {
-      EnsureReplicaHasDatabase(storage_config.salient, repl_state_);
-    } else {
-      // TODO:
-      // set REPLICA kDefaultDB uuid / config
+                            // Save delta
+    if (system_transaction_) {
+      system_transaction_->delta.emplace(SystemTransaction::Delta::create_database, storage_config.salient);
     }
-    RecoverReplication(new_db.GetValue());
     // Save database in a list of active databases
     const auto &key = Durability::GenKey(storage_config.salient.name);
     const auto rel_dir = std::filesystem::relative(storage_config.durability.storage_directory,
