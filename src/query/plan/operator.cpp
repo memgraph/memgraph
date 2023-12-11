@@ -656,9 +656,6 @@ UniqueCursorPtr ScanAllByEdgeType::MakeCursor(utils::MemoryResource *mem) const 
     auto *db = context.db_accessor;
     return std::make_optional(db->Edges(view_, label_));
   };
-  // TODO
-  // ScanAllByEdgeTypeCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View
-  // view, TVerticesFun get_edges, const char *op_name)
 
   return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(edges)>>(
       mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(edges), "ScanAllByEdgeType");

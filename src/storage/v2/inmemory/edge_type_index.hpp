@@ -26,13 +26,6 @@ namespace memgraph::storage {
 
 class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
  private:
-  // Here we have two options,
-  // 1. store the from- and to- vertices only, and figure out the
-  //    rest of the needed information runtime.
-  // 2. store the from-, the to- vertices and the EdgeRef itself.
-  //    if two is the case we might be wasting memory because if
-  //    properties are enabled on edges then we are storing the
-  //    same information twice.
   struct Entry {
     Vertex *from_vertex;
     Vertex *to_vertex;

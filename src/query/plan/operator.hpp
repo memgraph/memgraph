@@ -595,7 +595,6 @@ class ScanAllByLabel : public memgraph::query::plan::ScanAll {
 class ScanAllByEdgeType : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
-  // Do we need to care about this?
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ScanAllByEdgeType() = default;
@@ -615,12 +614,6 @@ class ScanAllByEdgeType : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Symbol output_symbol_;
-  /// Controls which graph state is used to produce vertices.
-  ///
-  /// If @c storage::View::OLD, @c ScanAll will produce vertices visible in the
-  /// previous graph state, before modifications done by current transaction &
-  /// command. With @c storage::View::NEW, all vertices will be produced the current
-  /// transaction sees along with their modifications.
   storage::View view_;
 
   storage::EdgeTypeId label_;

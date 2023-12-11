@@ -2235,14 +2235,12 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   auto *index_query = utils::Downcast<EdgeIndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
-  // TODO: we will need transaction for replication
   MG_ASSERT(current_db.db_acc_, "Index query expects a current DB");
   auto &db_acc = *current_db.db_acc_;
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-  // Creating an index influences computed plan costs.
   auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
     plan_cache->WithLock([&](auto &cache) { cache.reset(); });
   };
@@ -2256,17 +2254,14 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       index_notification.code = NotificationCode::CREATE_INDEX;
       index_notification.title = fmt::format("Created index on edge-type {}.", index_query->label_.name);
 
-      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, edge_type, label_name = index_query->label_.name,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        // TODO(gvolfing) - switch this edgeindex creation
         auto maybe_index_error = dba->CreateIndex(edge_type);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
           index_notification.title = fmt::format("Index on edge-type {} already exists.", label_name);
-          // ABORT?
         }
       };
       break;
@@ -2274,10 +2269,8 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     case EdgeIndexQuery::Action::DROP: {
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on edge-type {}.", index_query->label_.name);
-      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, edge_type, label_name = index_query->label_.name,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        // TODO(gvolfing) - switch this edgeindex creation
         auto maybe_index_error = dba->DropIndex(edge_type);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
@@ -2297,7 +2290,7 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
           AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
         handler(index_notification);
         notifications->push_back(index_notification);
-        return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
+        return QueryHandlerResult::COMMIT;
       },
       RWType::W};
 }

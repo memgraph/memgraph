@@ -10,9 +10,9 @@
 // licenses/APL.txt.
 
 /// @file
-/// This file provides a plan rewriter which replaces `Filter` and `ScanAll`
-/// operations with `ScanAllBy<Index>` if possible. The public entrypoint is
-/// `RewriteWithIndexLookup`.
+/// This file provides a plan rewriter which replaces `ScanAll` and `Expand`
+/// operations with `ScanAllByEdgeType` if possible. The public entrypoint is
+/// `RewriteWithEdgeTypeIndexRewriter`.
 
 #pragma once
 
