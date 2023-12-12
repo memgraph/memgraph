@@ -11,6 +11,7 @@
 
 #include "dbms/database.hpp"
 #include "dbms/transaction.hpp"
+#include "utils/string.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "dbms/dbms_handler.hpp"
@@ -125,10 +126,14 @@ DbmsHandler::DbmsHandler(
   const auto &root = default_config_.durability.storage_directory;
   storage::UpdatePaths(default_config_, root);
   const auto &db_dir = default_config_.durability.storage_directory / "databases";
+  // TODO: Unify durability and wal
   const auto durability_dir = db_dir / ".durability";
+  const auto wal_dir = db_dir / ".wal";
   utils::EnsureDirOrDie(db_dir);
   utils::EnsureDirOrDie(durability_dir);
+  utils::EnsureDirOrDie(wal_dir);
   durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
+  system_wal_ = std::make_unique<WAL>(wal_dir);
 
   /*
    * DURABILITY
@@ -152,6 +157,15 @@ DbmsHandler::DbmsHandler(
       MG_ASSERT(!new_db.HasError(), "Failed while creating database {}.", name);
       directories.emplace(rel_dir.filename());
       spdlog::info("Database {} restored.", name);
+    }
+    // Read the last timestamp
+    auto wal_it = system_wal_->begin("delta:");
+    auto wal_end = system_wal_->end("delta:");
+    for (; wal_it != wal_end; ++wal_it) {
+      if (!wal_it.IsValid()) continue;
+      std::vector<std::string> out;
+      utils::Split(&out, wal_it->first, ":", 2);
+      system_timestamp_ = std::max(system_timestamp_, std::stoul(out[1]));
     }
   } else {  // Clear databases from the durability list and auth
     auto locked_auth = auth->Lock();

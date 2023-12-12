@@ -28,6 +28,7 @@
 #include "dbms/database.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_handler.hpp"
+#include "storage/v2/transaction.hpp"
 #ifdef MG_ENTERPRISE
 #include "dbms/database_handler.hpp"
 #endif
@@ -397,22 +398,28 @@ class DbmsHandler {
 #endif
   }
 
-  void SetupSystemTransaction(uint64_t timestamp) {
+  void NewSystemTransaction() {
     DMG_ASSERT(!system_transaction_, "Already running a system transaction");
-    system_transaction_.emplace(timestamp);
+    system_transaction_.emplace(system_timestamp_++);
   }
 
   void ResetSystemTransaction() { system_transaction_.reset(); }
 
   void Commit() {
-    MG_ASSERT(system_transaction_, "No SYSTEM transaction to commit.");
-    if (system_transaction_->delta == std::nullopt) return;  // No delta to apply
+    if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt) return;  // Nothing to commit
     const auto &delta = *system_transaction_->delta;
+    const auto &wal_key = system_wal_->GenKey(*system_transaction_);
+
     // TODO Create a system client that can handle all of this automatically
     switch (delta.action) {
       using enum SystemTransaction::Delta::Action;
       case CREATE_DATABASE: {
-        // TODO On disk durability
+        // WAL
+        const auto &wal_val =
+            system_wal_->GenVal(SystemTransaction::Delta::create_database, *system_transaction_->delta);
+        system_wal_->Put(wal_key, wal_val);
+
+        // Replication
         auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
           // TODO: data race issue? registered_replicas_ access not protected
           // Replication
@@ -436,6 +443,8 @@ class DbmsHandler {
         std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
       } break;
     }
+
+    ResetSystemTransaction();
   }
 
  private:
@@ -580,8 +589,10 @@ class DbmsHandler {
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;       //!< list of active dbs (pointer so we can postpone its creation)
 #endif
-  std::optional<SystemTransaction> system_transaction_;
-  replication::ReplicationState repl_state_;  //!< Global replication state
+  std::optional<SystemTransaction> system_transaction_;      //!< Current system transaction (only one at a time)
+  uint64_t system_timestamp_{storage::kTimestampInitialId};  //!< System timestamp
+  std::unique_ptr<WAL> system_wal_;                          //!< System WAL
+  replication::ReplicationState repl_state_;                 //!< Global replication state
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
 #endif
