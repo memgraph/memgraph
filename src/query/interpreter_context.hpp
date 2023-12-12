@@ -60,7 +60,6 @@ struct InterpreterContext {
   // GLOBAL
   memgraph::replication::ReplicationState *repl_state;
   utils::ResourceLock system_lock{};
-  uint64_t system_ts{storage::kTimestampInitialId};
 
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;

@@ -3764,9 +3764,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       if (!system_unique.try_lock()) {
         throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
       }
-      const auto timestamp = interpreter_context_->system_ts++;
       // never gonna get here -> MG_ASSERT(!system_transaction, "Previous system transaction has not completed!");
-      system_transaction.emplace(timestamp, std::move(system_unique), *interpreter_context_->dbms_handler);
+      system_transaction.emplace(std::move(system_unique), *interpreter_context_->dbms_handler);
       // auto expected = TransactionStatus::IDLE;
       // if (!transaction_status_.compare_exchange_strong(expected, TransactionStatus::SYSTEM)) {
       //   std::cout << "\n\n\nHERE\n\n\n" << static_cast<int>(expected) << std::endl;

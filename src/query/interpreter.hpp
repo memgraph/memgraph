@@ -244,10 +244,9 @@ class Interpreter final {
   void SetUser(std::string_view username);
 
   struct SystemTransaction {
-    explicit SystemTransaction(uint64_t timestamp, std::unique_lock<utils::ResourceLock> guard,
-                               dbms::DbmsHandler &dbms_handler)
+    explicit SystemTransaction(std::unique_lock<utils::ResourceLock> guard, dbms::DbmsHandler &dbms_handler)
         : system_guard_(std::move(guard)), dbms_handler_{&dbms_handler} {
-      dbms_handler_->SetupSystemTransaction(timestamp);
+      dbms_handler_->NewSystemTransaction();
     }
 
     ~SystemTransaction() { dbms_handler_->ResetSystemTransaction(); }
