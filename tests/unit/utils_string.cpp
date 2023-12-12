@@ -171,3 +171,14 @@ TEST(String, Substr) {
   EXPECT_EQ(Substr(string, string.size() - 1, 1), string.substr(string.size() - 1, 1));
   EXPECT_EQ(Substr(string, string.size() - 1, 2), string.substr(string.size() - 1, 2));
 }
+
+TEST(String, DoubleToString) {
+  EXPECT_EQ(DoubleToString(0.5), "0.5");
+  EXPECT_EQ(DoubleToString(1.0), "1");
+  EXPECT_EQ(DoubleToString(1.01234000), "1.01234");
+  EXPECT_EQ(DoubleToString(1.01234567890123456789), "1.012345678901234");
+  EXPECT_EQ(DoubleToString(1234567.01234567891234567), "1234567.012345678");
+  EXPECT_EQ(DoubleToString(0.00001), "0.00001");
+  EXPECT_EQ(DoubleToString(0.000000000000001), "0.000000000000001");
+  EXPECT_EQ(DoubleToString(0.0000000000000001), "0");
+}

@@ -459,4 +459,30 @@ inline std::string_view Substr(const std::string_view string, size_t pos = 0, si
   return string.substr(pos, len);
 }
 
+/**
+ * Convert a double value to a string representation.
+ * Precision of converted value is 16.
+ * Function also removes trailing zeros after the dot.
+ *
+ * @param value The double value to be converted.
+ *
+ * @return The string representation of the double value.
+ *
+ * @throws None
+ */
+inline std::string DoubleToString(const double value) {
+  static const int PRECISION = 16;
+  static const int STR_LENGTH = PRECISION + 1;  // 1 for dot
+
+  char buf[32];
+  std::sprintf(buf, "%.16f", value);
+  std::string res(buf, STR_LENGTH);
+
+  res.erase(res.find_last_not_of('0') + 1);
+  if (res.back() == '.') {
+    res.pop_back();
+  }
+  return res;
+}
+
 }  // namespace memgraph::utils
