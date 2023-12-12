@@ -475,7 +475,7 @@ inline std::string DoubleToString(const double value) {
   static const int STR_LENGTH = PRECISION + 1;  // 1 for dot
 
   char buf[32];
-  std::sprintf(buf, "%.16f", value);
+  std::sprintf(buf, "%.*f", PRECISION, value);
   std::string res(buf, STR_LENGTH);
 
   res.erase(res.find_last_not_of('0') + 1);
