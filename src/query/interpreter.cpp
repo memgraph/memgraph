@@ -3756,30 +3756,25 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["cost_estimate"] = 0.0;
 
     // System queries require strict ordering; since there is no MVCC-like thing, we allow single queries
-    bool system_queries =
-        utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
+    bool system_queries = utils::Downcast<AuthQuery>(parsed_query.query) ||
+                          utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
+                          utils::Downcast<ReplicationQuery>(parsed_query.query);
+    // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
     if (system_queries) {
       // Start a system transaction
       auto system_unique = std::unique_lock{interpreter_context_->system_lock, std::defer_lock};
       if (!system_unique.try_lock()) {
         throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
       }
-      // never gonna get here -> MG_ASSERT(!system_transaction, "Previous system transaction has not completed!");
       system_transaction.emplace(std::move(system_unique), *interpreter_context_->dbms_handler);
-      // auto expected = TransactionStatus::IDLE;
-      // if (!transaction_status_.compare_exchange_strong(expected, TransactionStatus::SYSTEM)) {
-      //   std::cout << "\n\n\nHERE\n\n\n" << static_cast<int>(expected) << std::endl;
-      //   throw ConcurrentSystemQueriesException("Concurrent system queries are not supported.");
-      // }
     }
 
     // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
     // case for use database which overwrites the current database)
-    bool no_db_required =
-        system_queries || /*utils::Downcast<ReplicationQuery>(parsed_query.query) ||
-                  TODO Split show replica and other replication queries*/
-        utils::Downcast<ShowConfigQuery>(parsed_query.query) || utils::Downcast<SettingQuery>(parsed_query.query) ||
-        utils::Downcast<VersionQuery>(parsed_query.query) || utils::Downcast<TransactionQueueQuery>(parsed_query.query);
+    bool no_db_required = system_queries || utils::Downcast<ShowConfigQuery>(parsed_query.query) ||
+                          utils::Downcast<SettingQuery>(parsed_query.query) ||
+                          utils::Downcast<VersionQuery>(parsed_query.query) ||
+                          utils::Downcast<TransactionQueueQuery>(parsed_query.query);
     if (!no_db_required && !current_db_.db_acc_) {
       throw DatabaseContextRequiredException("Database required for the query.");
     }

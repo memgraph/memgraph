@@ -9,9 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "dbms/database.hpp"
-#include "dbms/transaction.hpp"
-#include "utils/string.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "dbms/dbms_handler.hpp"
@@ -223,15 +220,7 @@ DbmsHandler::DbmsHandler(
   };
   // Replication recovery and frequent check start
   auto main = [this](replication::RoleMainData &data) {
-    ForEach([this](DatabaseAccess db) {
-      if (db->name() != kDefaultDB) {
-        EnsureReplicaHasDatabase(db->config().salient, repl_state_);
-      } else {
-        // TODO:
-        // set REPLICA kDefaultDB uuid / config
-      }
-      RecoverReplication(db);
-    });
+    ForEach([this](DatabaseAccess db) { RecoverReplication(db); });
     for (auto &client : data.registered_replicas_) {
       StartReplicaClient(*this, client);
     }
@@ -260,12 +249,7 @@ DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config) {
     if (system_transaction_) {
       system_transaction_->delta.emplace(SystemTransaction::Delta::create_database, storage_config.salient);
     }
-    // Save database in a list of active databases
-    const auto &key = Durability::GenKey(storage_config.salient.name);
-    const auto rel_dir = std::filesystem::relative(storage_config.durability.storage_directory,
-                                                   default_config_.durability.storage_directory);
-    const auto &val = Durability::GenVal(storage_config.salient.uuid, rel_dir);
-    if (durability_) durability_->Put(key, val);
+    UpdateDurability(storage_config);
     return new_db.GetValue();
   }
   return new_db.GetError();
@@ -304,6 +288,10 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name) {
 
 DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name) {
   auto wr = std::lock_guard(lock_);
+  return Delete_(db_name);
+}
+
+DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
     return DeleteError::DEFAULT_DB;
@@ -342,7 +330,16 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name) {
 
   return {};  // Success
 }
-
+void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir) {
+  if (!durability_) return;
+  // Save database in a list of active databases
+  const auto &key = Durability::GenKey(config.salient.name);
+  if (rel_dir == std::nullopt)
+    rel_dir =
+        std::filesystem::relative(config.durability.storage_directory, default_config_.durability.storage_directory);
+  const auto &val = Durability::GenVal(config.salient.uuid, *rel_dir);
+  durability_->Put(key, val);
+}
 }  // namespace memgraph::dbms
 
 #endif

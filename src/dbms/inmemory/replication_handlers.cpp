@@ -90,12 +90,7 @@ void CreateDatabaseHandler(DbmsHandler *dbms_handler, slk::Reader *req_reader, s
   namespace sr = memgraph::storage::replication;
   sr::CreateDatabaseRes res(sr::CreateDatabaseRes::Result::FAILURE);
 
-  // NOTE Simple way to force replica to follow main: defer drop database and create
-  // TODO Is this okay?
-
   try {
-    // Defer drop
-    (void)dbms_handler->Delete(req.config.name);
     // Create new
     auto new_db = dbms_handler->New(req.config);
     if (new_db.HasValue()) {
@@ -151,7 +146,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
 
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();
-  storage::replication::HeartbeatRes res{storage->name(), true,
+  storage::replication::HeartbeatRes res{std::string{storage->config_.salient.uuid}, true,
                                          storage->repl_storage_state_.last_commit_timestamp_.load(),
                                          std::string{storage->repl_storage_state_.epoch_.id()}};
   slk::Save(res, res_builder);
@@ -206,7 +201,8 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
           storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
     }
 
-    storage::replication::AppendDeltasRes res{storage->name(), false, repl_storage_state.last_commit_timestamp_.load()};
+    storage::replication::AppendDeltasRes res{std::string{storage->config_.salient.uuid}, false,
+                                              repl_storage_state.last_commit_timestamp_.load()};
     slk::Save(res, res_builder);
     return;
   }
@@ -215,7 +211,8 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
       storage, &decoder,
       storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
 
-  storage::replication::AppendDeltasRes res{storage->name(), true, repl_storage_state.last_commit_timestamp_.load()};
+  storage::replication::AppendDeltasRes res{std::string{storage->config_.salient.uuid}, true,
+                                            repl_storage_state.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
@@ -277,7 +274,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   }
   storage_guard.unlock();
 
-  storage::replication::SnapshotRes res{storage->name(), true,
+  storage::replication::SnapshotRes res{std::string{storage->config_.salient.uuid}, true,
                                         storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 
@@ -327,7 +324,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
     LoadWal(storage, &decoder);
   }
 
-  storage::replication::WalFilesRes res{storage->name(), true,
+  storage::replication::WalFilesRes res{std::string{storage->config_.salient.uuid}, true,
                                         storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
@@ -351,7 +348,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   LoadWal(storage, &decoder);
 
-  storage::replication::CurrentWalRes res{storage->name(), true,
+  storage::replication::CurrentWalRes res{std::string{storage->config_.salient.uuid}, true,
                                           storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
@@ -417,7 +414,7 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
 
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();
-  storage::replication::TimestampRes res{storage->name(), true,
+  storage::replication::TimestampRes res{std::string{storage->config_.salient.uuid}, true,
                                          storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 }

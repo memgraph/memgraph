@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "dbms/replication_client.hpp"
+#include "replication/replication_client.hpp"
 
 namespace memgraph::dbms {
 
@@ -29,35 +30,6 @@ void StartReplicaClient(DbmsHandler &dbms_handler, replication::ReplicationClien
       });
     });
   });
-}
-
-void EnsureReplicaHasDatabase(const storage::SalientConfig &config, replication::ReplicationState &repl_state) {
-  // Only on MAIN -> make replica have it
-  // Restore on MAIN -> replica also has it (noop)
-  // TODO: have to strip MAIN relevent info out, REPLICA will add its
-  //  path prefix
-
-  auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-    // TODO: data race issue? registered_replicas_ access not protected
-    for (auto &client : main_data.registered_replicas_) {
-      try {
-        auto stream = client.rpc_client_.Stream<storage::replication::CreateDatabaseRpc>(
-            std::string(main_data.epoch_.id()),
-            0,  // current_group_clock,//TODO: make actual clock
-            config);
-
-        const auto response = stream.AwaitResponse();
-        if (response.result == storage::replication::CreateDatabaseRes::Result::FAILURE) {
-          // This replica needs SYSTEM recovery
-        }
-      } catch (memgraph::rpc::GenericRpcFailedException const &e) {
-        // This replica needs SYSTEM recovery
-      }
-    }
-  };
-  auto replica_handler = [](memgraph::replication::RoleReplicaData &) {};
-
-  std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state.ReplicationData());
 }
 
 }  // namespace memgraph::dbms

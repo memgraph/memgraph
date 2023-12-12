@@ -83,7 +83,7 @@ struct HeartbeatRes {
         current_commit_timestamp(current_commit_timestamp),
         epoch_id(std::move(epoch_id)) {}
 
-  std::string db_name;
+  std::string db_name;  // TODO: I will change this to be the UUID. Is that okay?
   bool success;
   uint64_t current_commit_timestamp;
   std::string epoch_id;

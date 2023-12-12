@@ -165,7 +165,8 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
         execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
     except mgclient.DatabaseError:
         failed = True
-    assert failed
+    assert not failed
+    # Update the tests, since the consensus was that this shouldn't fail, instead the replica should follow main at any cost.
 
 
 def test_manual_databases_create_multitenancy_replication_dirty_replica(connection):
@@ -207,7 +208,8 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
         execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
     except mgclient.DatabaseError:
         failed = True
-    assert failed
+    assert not failed
+    # Update the tests, since the consensus was that this shouldn't fail, instead the replica should follow main at any cost.
 
 
 def test_manual_databases_create_multitenancy_replication_main_behind(connection):

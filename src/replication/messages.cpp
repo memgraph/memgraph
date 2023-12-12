@@ -31,6 +31,22 @@ void Load(memgraph::replication::FrequentHeartbeatReq * /*self*/, memgraph::slk:
   /* Nothing to serialize */
 }
 
+// Serialize code for SystemHeartbeatRes
+void Save(const memgraph::replication::SystemHeartbeatRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.system_timestamp, builder);
+}
+void Load(memgraph::replication::SystemHeartbeatRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->system_timestamp, reader);
+}
+
+// Serialize code for SystemHeartbeatReq
+void Save(const memgraph::replication::SystemHeartbeatReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
+  /* Nothing to serialize */
+}
+void Load(memgraph::replication::SystemHeartbeatReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
+  /* Nothing to serialize */
+}
+
 }  // namespace memgraph::slk
 
 namespace memgraph::replication {
@@ -40,6 +56,12 @@ constexpr utils::TypeInfo FrequentHeartbeatReq::kType{utils::TypeId::REP_FREQUEN
 
 constexpr utils::TypeInfo FrequentHeartbeatRes::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_RES, "FrequentHeartbeatRes",
                                                       nullptr};
+
+constexpr utils::TypeInfo SystemHeartbeatReq::kType{utils::TypeId::REP_SYSTEM_HEARTBEAT_REQ, "SystemHeartbeatReq",
+                                                    nullptr};
+
+constexpr utils::TypeInfo SystemHeartbeatRes::kType{utils::TypeId::REP_SYSTEM_HEARTBEAT_RES, "SystemHeartbeatRes",
+                                                    nullptr};
 
 void FrequentHeartbeatReq::Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -51,6 +73,19 @@ void FrequentHeartbeatRes::Save(const FrequentHeartbeatRes &self, memgraph::slk:
   memgraph::slk::Save(self, builder);
 }
 void FrequentHeartbeatRes::Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void SystemHeartbeatReq::Save(const SystemHeartbeatReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+void SystemHeartbeatReq::Load(SystemHeartbeatReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+void SystemHeartbeatRes::Save(const SystemHeartbeatRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+void SystemHeartbeatRes::Load(SystemHeartbeatRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 

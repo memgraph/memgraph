@@ -30,24 +30,43 @@ namespace memgraph::storage {
 ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::ReplicationClient &client)
     : client_{client} {}
 
-// Can throw
-bool ReplicationStorageClient::PingReplica(Storage *storage, std::any /*gk*/) {
-  auto &replStorageState = storage->repl_storage_state_;
-  auto stream{client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-      storage->name(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()})};
-
-  const auto replica = stream.AwaitResponse();
-  return replica.success;
-}
-
 void ReplicationStorageClient::UpdateReplicaState(Storage *storage, std::any gk) {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
   auto &replStorageState = storage->repl_storage_state_;
-  auto stream{client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-      storage->name(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()})};
+  replication::HeartbeatRes replica;
 
-  const auto replica = stream.AwaitResponse();
+  std::optional<rpc::Client::StreamHandler<replication::HeartbeatRpc>> hb_stream{};
+
+  hb_stream.emplace(client_.rpc_client_.Stream<replication::HeartbeatRpc>(
+      storage->name(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()}));
+  replica = hb_stream->AwaitResponse();
+
+#ifdef MG_ENTERPRISE  // Multi-tenancy is only supported in enterprise
+  // TODO This should be recovery
+  auto uuid = std::string{storage->config_.salient.uuid};
+  bool db_exists = replica.success && replica.db_name == uuid;
+  if (!db_exists) {     // Replica is missing the current database
+    hb_stream.reset();  // Shutdown the current stream, update and restart the stream
+    {
+      auto stream{client_.rpc_client_.Stream<storage::replication::CreateDatabaseRpc>(
+          "",  // epoch id
+          0,   // current_group_clock,//TODO: make actual clock
+          storage->config_.salient)};
+      const auto response = stream.AwaitResponse();
+      if (response.result == storage::replication::CreateDatabaseRes::Result::FAILURE) {
+        // TODO: This replica needs SYSTEM recovery
+        spdlog::debug("{}", replica.db_name);
+        spdlog::debug("Replica '{}' missing database '{}' - '{}'", client_.name_, storage->name(), uuid);
+        return;
+      }
+    }
+    hb_stream.emplace(client_.rpc_client_.Stream<replication::HeartbeatRpc>(
+        storage->name(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()}));
+    replica = hb_stream->AwaitResponse();
+  }
+#endif
+
   std::optional<uint64_t> branching_point;
   if (replica.epoch_id != replStorageState.epoch_.id() && replica.current_commit_timestamp != kTimestampInitialId) {
     auto const &history = replStorageState.history;
