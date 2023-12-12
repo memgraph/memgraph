@@ -29,6 +29,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_handler.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/string.hpp"
 #ifdef MG_ENTERPRISE
 #include "dbms/database_handler.hpp"
 #endif
@@ -151,14 +152,27 @@ class DbmsHandler {
     UpdatePaths(config_copy, config_copy.durability.storage_directory / "database" / std::string{config.uuid});
     auto new_db = New_(config_copy);
 
-    // If database exists, check to see if it is clean and if so, update the UUID
-    if (new_db.HasError() && new_db.GetError() == NewError::EXISTS) {
-      auto db = Get_(config.name);
-      const auto &conf = db->config();
-      if (conf.salient.uuid != config.uuid) {
-        if (db.try_delete(std::chrono::milliseconds(100), [](auto &db) -> bool {
-              return db.storage()->timestamp_ == memgraph::storage::kTimestampInitialId;
-            })) {
+    if (repl_state_.IsReplica()) {
+      // If database exists, update the UUID
+      if (new_db.HasError() && new_db.GetError() == NewError::EXISTS) {
+        spdlog::debug("Trying to create db '{}' on replica which already exists.", config.name);
+        auto db = Get_(config.name);
+        const auto &conf = db->config();
+        if (conf.salient.uuid != config.uuid) {
+          spdlog::debug("Different UUIDs");
+
+          // TODO: Fix this hack
+          if (config.name == kDefaultDB) {
+            spdlog::debug("Update default db's UUID");
+            // Default db cannot be deleted and remade, have to just update the UUID
+            db->storage()->config_.salient.uuid = config.uuid;
+            UpdateDurability(db->storage()->config_, ".");
+            return db;
+          }
+
+          spdlog::debug("Drop database and recreate with the correct UUID");
+          // Defer drop
+          (void)Delete_(db->name());
           // Second attempt
           return New_(std::move(config_copy));
         }
@@ -167,6 +181,8 @@ class DbmsHandler {
 
     return new_db;
   }
+
+  void UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir = {});
 
   /**
    * @brief Get the context associated with the "name" database
@@ -390,14 +406,6 @@ class DbmsHandler {
 #endif
   }
 
-  void RecoverReplication(std::string_view name) {
-#ifdef MG_ENTERPRISE
-    RecoverReplication(Get_(name));
-#else
-    // RecoverReplication(Get_());
-#endif
-  }
-
   void NewSystemTransaction() {
     DMG_ASSERT(!system_transaction_, "Already running a system transaction");
     system_transaction_.emplace(system_timestamp_++);
@@ -408,12 +416,13 @@ class DbmsHandler {
   void Commit() {
     if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt) return;  // Nothing to commit
     const auto &delta = *system_transaction_->delta;
-    const auto &wal_key = system_wal_->GenKey(*system_transaction_);
 
     // TODO Create a system client that can handle all of this automatically
     switch (delta.action) {
       using enum SystemTransaction::Delta::Action;
       case CREATE_DATABASE: {
+#ifdef MG_ENTERPRISE
+        const auto &wal_key = system_wal_->GenKey(*system_transaction_);
         // WAL
         const auto &wal_val =
             system_wal_->GenVal(SystemTransaction::Delta::create_database, *system_transaction_->delta);
@@ -427,7 +436,6 @@ class DbmsHandler {
             try {
               auto stream = client.rpc_client_.Stream<storage::replication::CreateDatabaseRpc>(
                   std::string(main_data.epoch_.id()), system_transaction_->system_timestamp, delta.config);
-
               const auto response = stream.AwaitResponse();
               if (response.result == storage::replication::CreateDatabaseRes::Result::FAILURE) {
                 // TODO This replica needs SYSTEM recovery
@@ -437,10 +445,11 @@ class DbmsHandler {
             }
           }
           // Sync database with REPLICAs
-          RecoverReplication(delta.config.name);
+          RecoverReplication(Get_(delta.config.name));
         };
         auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
         std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
+#endif
       } break;
     }
 
@@ -475,6 +484,7 @@ class DbmsHandler {
     auto config_copy = default_config_;
     config_copy.salient.name = name;
     config_copy.salient.uuid = uuid;
+    spdlog::debug("Creating database '{}' - '{}'", name, std::string{uuid});
     if (rel_dir) {
       storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / *rel_dir);
     } else {
@@ -490,6 +500,8 @@ class DbmsHandler {
    * @return NewResultT context on success, error on failure
    */
   NewResultT New_(storage::Config storage_config);
+
+  DeleteResult Delete_(std::string_view db_name);
 
   /**
    * @brief Create a new Database associated with the default database

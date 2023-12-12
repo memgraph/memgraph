@@ -39,6 +39,29 @@ struct FrequentHeartbeatRes {
 
 using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;
 
+struct SystemHeartbeatReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(SystemHeartbeatReq *self, memgraph::slk::Reader *reader);
+  static void Save(const SystemHeartbeatReq &self, memgraph::slk::Builder *builder);
+  SystemHeartbeatReq() = default;
+};
+
+struct SystemHeartbeatRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(SystemHeartbeatRes *self, memgraph::slk::Reader *reader);
+  static void Save(const SystemHeartbeatRes &self, memgraph::slk::Builder *builder);
+  SystemHeartbeatRes() = default;
+  explicit SystemHeartbeatRes(uint64_t system_timestamp) : system_timestamp(system_timestamp) {}
+
+  uint64_t system_timestamp;
+};
+
+using SystemHeartbeatRpc = rpc::RequestResponse<SystemHeartbeatReq, SystemHeartbeatRes>;
+
 void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
 
 }  // namespace memgraph::replication

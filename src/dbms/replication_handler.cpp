@@ -161,24 +161,13 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
     if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
     all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
-        [storage, &instance_client, db_acc = std::move(db_acc), this](auto &storage_clients) mutable {
+        [storage, &instance_client, db_acc = std::move(db_acc)](auto &storage_clients) mutable {  // NOLINT
           auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client.GetValue());
-
-          // TODO Better handling
-          try {
-            if (!client->PingReplica(storage, db_acc)) {  // Replica is missing the current database
-              EnsureReplicaHasDatabase(storage->config_.salient, dbms_handler_.ReplicationState());
-            }
-          } catch (const rpc::RpcFailedException &) {
-            // Failed to communicate/create db
-            return false;
-          }
-
           // All good, start replica client
           client->Start(storage, std::move(db_acc));
           // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
           // MAYBE_BEHIND isn't a statement of the current state, this is the default value
-          // Failed to start due to branching of MAIN and REPLICA
+          // Failed to start due an error like branching of MAIN and REPLICA
           if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
             return false;
           }
@@ -237,7 +226,7 @@ void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAcces
   spdlog::info("Restoring replication role.");
 
   /// MAIN
-  auto const recover_main = [db_acc = std::move(db_acc)](RoleMainData &mainData) mutable {
+  auto const recover_main = [db_acc = std::move(db_acc)](RoleMainData &mainData) mutable {  // NOLINT
     // Each individual client has already been restored and started. Here we just go through each database and start its
     // client
     for (auto &instance_client : mainData.registered_replicas_) {
