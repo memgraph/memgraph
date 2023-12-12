@@ -44,12 +44,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
  public:
   InMemoryEdgeTypeIndex() = default;
 
-  // I don't think these are relevant since the edgetype is assigned at creation and can't be changed.
-  // /// @throw std::bad_alloc
-  // void UpdateOnAddLabel(EdgeTypeId added_label, Edge *edge_after_update, const Transaction &tx) override;
-
-  // void UpdateOnRemoveLabel(EdgeTypeId removed_label, const Transaction &tx) override {}
-
   /// @throw std::bad_alloc
   bool CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices);
 
@@ -114,7 +108,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   // bool DeleteIndexStats(const storage::LabelId &edge_type);
 
  private:
-  // std::map<LabelId, utils::SkipList<Entry>> index_;
   std::map<EdgeTypeId, utils::SkipList<Entry>> index_;
   // utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };

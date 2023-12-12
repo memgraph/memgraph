@@ -17,11 +17,6 @@ namespace memgraph::storage {
 
 class DiskEdgeTypeIndex : public storage::EdgeTypeIndex {
  public:
-  //   // Are these needed?
-  //   virtual void UpdateOnAddLabel(EdgeTypeId added_label, Edge *edge_after_update, const Transaction &tx) {}
-  //   // Not used for in-memory
-  //   virtual void UpdateOnRemoveLabel(EdgeTypeId removed_label, const Transaction &tx) {}
-
   bool DropIndex(EdgeTypeId edge_type) override;
 
   bool IndexExists(EdgeTypeId edge_type) const override;

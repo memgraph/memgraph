@@ -15,11 +15,6 @@
 
 namespace memgraph::storage {
 
-//   // Are these needed?
-//   virtual void UpdateOnAddLabel(EdgeTypeId added_label, Edge *edge_after_update, const Transaction &tx) {}
-//   // Not used for in-memory
-//   virtual void UpdateOnRemoveLabel(EdgeTypeId removed_label, const Transaction &tx) {}
-
 bool DiskEdgeTypeIndex::DropIndex(EdgeTypeId /*edge_type*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode.");

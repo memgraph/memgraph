@@ -28,11 +28,6 @@ class EdgeTypeIndex {
 
   virtual ~EdgeTypeIndex() = default;
 
-  // Are these needed?
-  virtual void UpdateOnAddLabel(EdgeTypeId added_label, Edge *edge_after_update, const Transaction &tx) {}
-  // Not used for in-memory
-  virtual void UpdateOnRemoveLabel(EdgeTypeId removed_label, const Transaction &tx) {}
-
   virtual bool DropIndex(EdgeTypeId edge_type) = 0;
 
   virtual bool IndexExists(EdgeTypeId edge_type) const = 0;
