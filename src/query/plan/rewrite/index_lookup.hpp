@@ -687,6 +687,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
           continue;
         }
+        LabelIx label_ix;
+        if (std::holds_alternative<LabelIx>(label)) {
+          label_ix = std::get<LabelIx>(label);
+        } else {
+          // TODO
+        }
         candidate_indices.emplace_back(
             IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY, .label_ = label, .property_ = property},
             filter);

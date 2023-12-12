@@ -153,17 +153,16 @@ Result<bool> VertexAccessor::HasLabel(std::variant<std::string, LabelId> label, 
   bool deleted = false;
   bool has_label = false;
   Delta *delta = nullptr;
+  LabelId label_id;
+  if (std::holds_alternative<LabelId>(label)) {
+    label_id = std::get<LabelId>(label);
+  } else {
+    label_id = storage_->NameToLabel(std::get<std::string>(label));
+  }
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    if (std::holds_alternative<LabelId>(label)) {
-      has_label =
-          std::find(vertex_->labels.begin(), vertex_->labels.end(), std::get<LabelId>(label)) != vertex_->labels.end();
-    } else {
-      auto label_name = std::get<std::string>(label);
-      auto label_id = storage->NameToLabel(label_name);
-      has_label = std::find(vertex_->labels.begin(), vertex_->labels.end(), label_id) != vertex_->labels.end();
-    }
+    has_label = std::find(vertex_->labels.begin(), vertex_->labels.end(), label_id) != vertex_->labels.end();
     delta = vertex_->delta;
   }
 
@@ -176,7 +175,7 @@ Result<bool> VertexAccessor::HasLabel(std::variant<std::string, LabelId> label, 
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
-      if (auto resLabel = cache.GetHasLabel(view, vertex_, label); resLabel) return {resLabel.value()};
+      if (auto resLabel = cache.GetHasLabel(view, vertex_, label_id); resLabel) return {resLabel.value()};
     }
 
     auto const n_processed = ApplyDeltasForRead(transaction_, delta, view, [&, label](const Delta &delta) {
@@ -184,7 +183,7 @@ Result<bool> VertexAccessor::HasLabel(std::variant<std::string, LabelId> label, 
       DeltaDispatch(delta, utils::ChainedOverloaded{
         Deleted_ActionMethod(deleted),
         Exists_ActionMethod(exists),
-        HasLabel_ActionMethod(has_label, label)
+        HasLabel_ActionMethod(has_label, label_id)
       });
       // clang-format on
     });
@@ -193,7 +192,7 @@ Result<bool> VertexAccessor::HasLabel(std::variant<std::string, LabelId> label, 
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
-      cache.StoreHasLabel(view, vertex_, label, has_label);
+      cache.StoreHasLabel(view, vertex_, label_id, has_label);
     }
   }
 

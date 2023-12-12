@@ -303,7 +303,7 @@ struct FilterInfo {
   /// Set of used symbols by the filter @c expression.
   std::unordered_set<Symbol> used_symbols{};
   /// Labels for Type::Label filtering.
-  std::vector<LabelIx> labels{};
+  std::vector<std::variant<LabelIx, ParameterLookup *>> labels{};
   /// Property information for Type::Property filtering.
   std::optional<PropertyFilter> property_filter{};
   /// Information for Type::Id filtering.
@@ -336,7 +336,7 @@ class Filters final {
   void SetFilters(std::vector<FilterInfo> &&all_filters) { all_filters_ = std::move(all_filters); }
 
   auto FilteredLabels(const Symbol &symbol) const {
-    std::unordered_set<LabelIx> labels;
+    std::unordered_set<std::variant<LabelIx, ParameterLookup *>> labels;
     for (const auto &filter : all_filters_) {
       if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
         MG_ASSERT(filter.used_symbols.size() == 1U, "Expected a single used symbol for label filter");

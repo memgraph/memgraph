@@ -2092,13 +2092,17 @@ struct IndexHint {
   enum class IndexType { LABEL, LABEL_PROPERTY };
 
   memgraph::query::IndexHint::IndexType index_type_;
-  memgraph::query::LabelIx label_;
+  std::variant<memgraph::query::LabelIx, memgraph::query::ParameterLookup *> label_;
   std::optional<memgraph::query::PropertyIx> property_{std::nullopt};
 
   IndexHint Clone(AstStorage *storage) const {
     IndexHint object;
     object.index_type_ = index_type_;
-    object.label_ = storage->GetLabelIx(label_.name);
+    if (std::holds_alternative<LabelIx>(label_)) {
+      object.label_ = storage->GetLabelIx(std::get<LabelIx>(label_).name);
+    } else {
+      object.label_ = std::get<ParameterLookup *>(label_)->Clone(storage);
+    }
     if (property_) {
       object.property_ = storage->GetPropertyIx(property_->name);
     }

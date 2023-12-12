@@ -724,6 +724,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
   }
 
+  TypedValue Visit(ParameterLookup &param_lookup) override {
+    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
+  }
+
   TypedValue Visit(LabelsTest &labels_test) override {
     auto expression_result = labels_test.expression_->Accept(*this);
     switch (expression_result.type()) {
@@ -733,11 +737,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         const auto &vertex = expression_result.ValueVertex();
         for (auto &label_variant : labels_test.labels_) {
           std::variant<std::string, LabelIx> label;
-          if (const auto *label_ix = std::get_if<LabelIx>(label_variant)) {
+          if (const auto *label_ix = std::get_if<LabelIx>(&label_variant)) {
             label = *label_ix;
           } else {
             // return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
-            auto key = Visit(*std::get<ParameterLookup *>(label)) auto name = key.ValueString();
+            auto key = Visit(*std::get<ParameterLookup *>(label));
+            auto name = key.ValueString();
             label = name;
           }
           Result<bool> has_label;
@@ -1077,10 +1082,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     } else {
       return TypedValue(true, ctx_->memory);
     }
-  }
-
-  TypedValue Visit(ParameterLookup &param_lookup) override {
-    return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
   }
 
   TypedValue Visit(RegexMatch &regex_match) override {
