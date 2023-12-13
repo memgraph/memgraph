@@ -165,7 +165,7 @@ def get_tracker_data(session) -> Optional[float]:
         return parse_data(memory_tracker_data)
 
     except Exception as ex:
-        log.info(f"Get storage info failed with error", ex)
+        print(f"Get storage info failed with error", ex)
         return None
 
 
@@ -177,26 +177,36 @@ def run_writer(repetition_count: int, sleep_sec: float, worker_id: int) -> int:
 
     session = SessionCache.argument_session(args)
 
-    def create() -> bool:
+    def try_create() -> bool:
         """
         Returns True if done, False if needs to continue
         """
         memory_tracker_data_before_start = get_tracker_data(session)
-        should_fail = memory_tracker_data_before_start >= 2048
-        failed = False
+        should_fail = False
+        if memory_tracker_data_before_start is not None:
+            should_fail = memory_tracker_data_before_start >= 2048
+
+        has_failed = False
         try:
             try_execute(
                 session,
                 f"FOREACH (i in range(1,10000) | CREATE (:Node {{prop:'big string or something like that'}}))",
             )
         except Exception as ex:
-            failed = True
+            has_failed = True
             output = str(ex)
-            log.info("Exception in create", output)
+            log.info(
+                "Exception in create",
+                output,
+                f"Worker {worker_id} started iteration {curr_repetition}, should fail: {should_fail}",
+            )
             assert "Memory limit exceeded!" in output
+            memory_tracker_data_after_start = get_tracker_data(session)
+            if memory_tracker_data_after_start:
+                should_fail = memory_tracker_data_after_start >= 2048
 
         if should_fail:
-            assert failed, "Query should have failed"
+            assert has_failed, "Query should have failed"
             return False
         return True
 
@@ -205,15 +215,16 @@ def run_writer(repetition_count: int, sleep_sec: float, worker_id: int) -> int:
     while curr_repetition < repetition_count:
         log.info(f"Worker {worker_id} started iteration {curr_repetition}")
 
-        should_continue = create()
+        is_working = try_create()
 
-        if not should_continue:
+        if not is_working:
             return True
 
         time.sleep(sleep_sec)
         log.info(f"Worker {worker_id} created chain in iteration {curr_repetition}")
 
         curr_repetition += 1
+    return False
 
 
 def execute_function(worker: Worker) -> Worker:
