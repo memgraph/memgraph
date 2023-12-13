@@ -47,6 +47,8 @@ def run(args):
     workloads = load_workloads(args.workloads_root_directory)
     for workload in workloads:
         workload_name = workload["name"]
+        if "stream" not in workload_name:
+            continue
         if args.workload_name is not None and args.workload_name != workload_name:
             continue
         log.info("%s STARTED.", workload_name)
