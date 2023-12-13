@@ -60,7 +60,7 @@ def kafka_topics():
 
 @pytest.fixture(scope="function")
 def kafka_producer():
-    yield KafkaProducer(bootstrap_servers="localhost:9092", api_version=(0, 10, 1))
+    yield KafkaProducer(bootstrap_servers="kafka:9092", api_version=(0, 10, 1))
 
 
 @pytest.fixture(scope="function")
