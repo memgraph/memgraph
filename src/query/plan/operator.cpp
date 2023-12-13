@@ -538,47 +538,18 @@ class ScanAllByEdgeTypeCursor : public Cursor {
 
     while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
       if (!input_cursor_->Pull(frame, context)) return false;
-      // We need a getter function, because in case of exhausting a lazy
-      // iterable, we cannot simply reset it by calling begin().
       auto next_vertices = get_edges_(frame, context);
       if (!next_vertices) continue;
-      // Since vertices iterator isn't nothrow_move_assignable, we have to use
-      // the roundabout assignment + emplace, instead of simple:
-      // vertices _ = get_vertices_(frame, context);
+
       vertices_.emplace(std::move(next_vertices.value()));
       vertices_it_.emplace(vertices_.value().begin());
       vertices_end_it_.emplace(vertices_.value().end());
-
-      bool asd1 = !vertices_;
-      bool asd2 = vertices_it_.value() == vertices_end_it_.value();
-
-      auto asd = 2;
     }
-    // #ifdef MG_ENTERPRISE
-    //     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-    //     !FindNextVertex(context)) {
-    //       return false;
-    //     }
-    // #endif
 
-    // Do we actually put something on the frame?
     frame[output_symbol_] = *vertices_it_.value();
     ++vertices_it_.value();
     return true;
   }
-
-  // #ifdef MG_ENTERPRISE
-  //   bool FindNextVertex(const ExecutionContext &context) {
-  //     while (vertices_it_.value() != vertices_end_it_.value()) {
-  //       if (context.auth_checker->Has(*vertices_it_.value(), view_,
-  //                                     memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-  //         return true;
-  //       }
-  //       ++vertices_it_.value();
-  //     }
-  //     return false;
-  //   }
-  // #endif
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
