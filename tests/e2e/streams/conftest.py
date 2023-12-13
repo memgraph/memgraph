@@ -60,7 +60,7 @@ def kafka_topics():
 
 @pytest.fixture(scope="function")
 def kafka_producer():
-    yield KafkaProducer(bootstrap_servers="kafka:9092", api_version=(0, 10, 1))
+    yield KafkaProducer(bootstrap_servers="localhost:29092", api_version=(0, 10))
 
 
 @pytest.fixture(scope="function")
@@ -72,5 +72,5 @@ def pulsar_client():
 def pulsar_topics():
     topics = get_topics(3)
     for topic in topics:
-        requests.delete(f"http://127.0.0.1:6652/admin/v2/persistent/public/default/{topic}?force=true")
+        requests.delete(f"http://localhost:6652/admin/v2/persistent/public/default/{topic}?force=true")
     yield topics
