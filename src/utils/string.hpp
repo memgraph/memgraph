@@ -17,6 +17,7 @@
 #include <charconv>
 #include <cstdint>
 #include <cstring>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <random>
@@ -474,9 +475,9 @@ inline std::string DoubleToString(const double value) {
   static const int PRECISION = 16;
   static const int STR_LENGTH = PRECISION + 1;  // 1 for dot
 
-  char buf[32];
-  std::sprintf(buf, "%.*f", PRECISION, value);
-  std::string res(buf, STR_LENGTH);
+  std::stringstream ss;
+  ss << std::setprecision(PRECISION) << std::fixed << value;
+  std::string res(ss.view(), 0, STR_LENGTH);
 
   res.erase(res.find_last_not_of('0') + 1);
   if (res.back() == '.') {
