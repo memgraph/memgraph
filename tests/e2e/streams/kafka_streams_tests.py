@@ -12,12 +12,13 @@
 # licenses/APL.txt.
 
 import sys
-import pytest
-import mgclient
 import time
-from mg_utils import mg_sleep_and_assert
-from multiprocessing import Process, Value
+from multiprocessing import Process
+
 import common
+import mgclient
+import pytest
+from mg_utils import mg_sleep_and_assert
 
 TRANSFORMATIONS_TO_CHECK_C = ["c_transformations.empty_transformation"]
 
@@ -82,7 +83,7 @@ def test_start_from_last_committed_offset(kafka_producer, kafka_topics, connecti
         f"CREATE KAFKA STREAM test TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple",
     )
     common.start_stream(cursor, "test")
-    time.sleep(1)
+    time.sleep(5)
 
     kafka_producer.send(kafka_topics[0], common.SIMPLE_MSG).get(timeout=60)
 
@@ -124,7 +125,7 @@ def test_check_stream(kafka_producer, kafka_topics, connection, transformation):
         f"CREATE KAFKA STREAM test TOPICS {kafka_topics[0]} TRANSFORM {transformation} BATCH_SIZE {BATCH_SIZE}",
     )
     common.start_stream(cursor, "test")
-    time.sleep(1)
+    time.sleep(5)
 
     kafka_producer.send(kafka_topics[0], common.SIMPLE_MSG).get(timeout=60)
     common.stop_stream(cursor, "test")
@@ -176,7 +177,7 @@ def test_show_streams(kafka_producer, kafka_topics, connection):
     cursor = connection.cursor()
     common.execute_and_fetch_all(
         cursor,
-        f"CREATE KAFKA STREAM default_values TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BOOTSTRAP_SERVERS 'localhost:9092'",
+        f"CREATE KAFKA STREAM default_values TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BOOTSTRAP_SERVERS 'localhost:29092'",
     )
 
     consumer_group = "my_special_consumer_group"
@@ -260,7 +261,7 @@ def test_restart_after_error(kafka_producer, kafka_topics, connection):
     )
 
     common.start_stream(cursor, "test_stream")
-    time.sleep(1)
+    time.sleep(5)
 
     kafka_producer.send(kafka_topics[0], common.SIMPLE_MSG).get(timeout=60)
     assert common.timed_wait(lambda: not common.get_is_running(cursor, "test_stream"))
@@ -275,7 +276,7 @@ def test_restart_after_error(kafka_producer, kafka_topics, connection):
 def test_bootstrap_server(kafka_producer, kafka_topics, connection, transformation):
     assert len(kafka_topics) > 0
     cursor = connection.cursor()
-    LOCAL = "localhost:9092"
+    LOCAL = "localhost:29092"
     common.execute_and_fetch_all(
         cursor,
         f"CREATE KAFKA STREAM test TOPICS {','.join(kafka_topics)} TRANSFORM {transformation} BOOTSTRAP_SERVERS '{LOCAL}'",
@@ -363,7 +364,7 @@ def test_info_procedure(kafka_topics, connection):
     cursor = connection.cursor()
     STREAM_NAME = "test_stream"
     CONFIGS = {"sasl.username": "michael.scott"}
-    LOCAL = "localhost:9092"
+    LOCAL = "localhost:29092"
     CREDENTIALS = {"sasl.password": "S3cr3tP4ssw0rd"}
     CONSUMER_GROUP = "ConsumerGr"
     common.execute_and_fetch_all(

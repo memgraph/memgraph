@@ -41,7 +41,7 @@ def get_topics(num):
 
 @pytest.fixture(scope="function")
 def kafka_topics():
-    admin_client = KafkaAdminClient(bootstrap_servers="localhost:9092", client_id="test")
+    admin_client = KafkaAdminClient(bootstrap_servers="localhost:29092", client_id="test")
     # The issue arises if we remove default kafka topics, e.g.
     # "__consumer_offsets"
     previous_topics = [topic for topic in admin_client.list_topics() if topic != "__consumer_offsets"]
@@ -60,7 +60,7 @@ def kafka_topics():
 
 @pytest.fixture(scope="function")
 def kafka_producer():
-    yield KafkaProducer(bootstrap_servers=["localhost:29092"], api_version=(0, 9))
+    yield KafkaProducer(bootstrap_servers=["localhost:29092"])
 
 
 @pytest.fixture(scope="function")

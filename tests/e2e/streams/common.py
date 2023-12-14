@@ -9,12 +9,12 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import time
+from multiprocessing import Manager, Process, Value
+
 import mgclient
 import pytest
-import time
-
 from mg_utils import mg_sleep_and_assert
-from multiprocessing import Manager, Process, Value
 
 # These are the indices of the different values in the result of SHOW STREAM
 # query
@@ -227,7 +227,7 @@ def test_start_and_stop_during_check(
     try:
         check_stream_proc.start()
 
-        time.sleep(0.5)
+        time.sleep(3)
 
         assert timed_wait(lambda: check_counter.value == CHECK_BEFORE_EXECUTE)
         assert timed_wait(lambda: get_is_running(cursor, "test_stream"))

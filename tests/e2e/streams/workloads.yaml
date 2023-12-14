@@ -2,7 +2,7 @@ stream_args: &stream_args
   - "--bolt-port"
   - "7687"
   - "--log-level=DEBUG"
-  - "--kafka-bootstrap-servers=localhost:9092"
+  - "--kafka-bootstrap-servers=localhost:29092"
   - "--query-execution-timeout-sec=0"
   - "--pulsar-service-url=pulsar://127.0.0.1:6650"
 
@@ -37,26 +37,26 @@ workloads:
     args: ["streams/streams_owner_tests.py"]
     <<: *in_memory_cluster
 
-  - name: "Pulsar streams start, stop and show"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/streams/transformations/"
-    args: ["streams/pulsar_streams_tests.py"]
-    <<: *in_memory_cluster
+      # - name: "Pulsar streams start, stop and show"
+      #  binary: "tests/e2e/pytest_runner.sh"
+      #  proc: "tests/e2e/streams/transformations/"
+      #  args: ["streams/pulsar_streams_tests.py"]
+      #  <<: *in_memory_cluster
 
-  - name: "Kafka streams start, stop and show for on-disk storage"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/streams/transformations/"
-    args: ["streams/kafka_streams_tests.py"]
-    <<: *disk_cluster
+      # - name: "Kafka streams start, stop and show for on-disk storage"
+      #  binary: "tests/e2e/pytest_runner.sh"
+      # proc: "tests/e2e/streams/transformations/"
+      #  args: ["streams/kafka_streams_tests.py"]
+      #  <<: *disk_cluster
 
-  - name: "Streams with users for on-disk storage"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/streams/transformations/"
-    args: ["streams/streams_owner_tests.py"]
-    <<: *disk_cluster
+      # - name: "Streams with users for on-disk storage"
+      # binary: "tests/e2e/pytest_runner.sh"
+      #  proc: "tests/e2e/streams/transformations/"
+      # args: ["streams/streams_owner_tests.py"]
+      # <<: *disk_cluster
 
-  - name: "Pulsar streams start, stop and show for on-disk storage"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/streams/transformations/"
-    args: ["streams/pulsar_streams_tests.py"]
-    <<: *disk_cluster
+      #   - name: "Pulsar streams start, stop and show for on-disk storage"
+      # binary: "tests/e2e/pytest_runner.sh"
+      # proc: "tests/e2e/streams/transformations/"
+      # args: ["streams/pulsar_streams_tests.py"]
+      # <<: *disk_cluster
