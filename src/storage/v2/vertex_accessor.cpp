@@ -106,9 +106,12 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
-
-  CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
-  vertex_->labels.push_back(label);
+  {
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+    CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
+    vertex_->labels.push_back(label);
+  }
+  utils::total_memory_tracker.Alloc(0);
 
   if (storage_->config_.items.enable_schema_metadata) {
     storage_->stored_node_labels_.try_insert(label);
@@ -287,18 +290,21 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
-
-  if (!vertex_->properties.InitProperties(properties)) return false;
-  for (const auto &[property, value] : properties) {
-    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
-    storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_);
-    transaction_->manyDeltasCache.Invalidate(vertex_, property);
-    if (!value.IsNull()) {
-      transaction_->constraint_verification_info.AddedProperty(vertex_);
-    } else {
-      transaction_->constraint_verification_info.RemovedProperty(vertex_);
+  {
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+    if (!vertex_->properties.InitProperties(properties)) return false;
+    for (const auto &[property, value] : properties) {
+      CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
+      storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_);
+      transaction_->manyDeltasCache.Invalidate(vertex_, property);
+      if (!value.IsNull()) {
+        transaction_->constraint_verification_info.AddedProperty(vertex_);
+      } else {
+        transaction_->constraint_verification_info.RemovedProperty(vertex_);
+      }
     }
   }
+  utils::total_memory_tracker.Alloc(0);
 
   return true;
 }

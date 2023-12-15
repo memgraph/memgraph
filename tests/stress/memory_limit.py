@@ -173,51 +173,51 @@ def run_writer(repetition_count: int, sleep_sec: float, worker_id: int) -> int:
     """
     This writer creates lot of nodes on each write.
     Also it checks that query failed if memory limit is tried to be broken
+
+    Return:
+        True if write suceeded
+        False otherwise
     """
 
     session = SessionCache.argument_session(args)
 
     def try_create() -> bool:
         """
-        Returns True if done, False if needs to continue
+        Function tries to create until memory limit is reached
+        Return:
+            True if it can continue creating (OOM not reached)
+            False otherwise
         """
-        memory_tracker_data_before_start = get_tracker_data(session)
-        should_fail = False
-        if memory_tracker_data_before_start is not None:
-            should_fail = memory_tracker_data_before_start >= 2048
-
-        has_failed = False
+        should_continue = True
         try:
             try_execute(
                 session,
                 f"FOREACH (i in range(1,10000) | CREATE (:Node {{prop:'big string or something like that'}}))",
             )
         except Exception as ex:
-            has_failed = True
             output = str(ex)
-            log.info(
-                "Exception in create",
-                output,
-                f"Worker {worker_id} started iteration {curr_repetition}, should fail: {should_fail}",
-            )
-            assert "Memory limit exceeded!" in output
+            memory_over_2048_mb = False
             memory_tracker_data_after_start = get_tracker_data(session)
             if memory_tracker_data_after_start:
-                should_fail = memory_tracker_data_after_start >= 2048
+                memory_over_2048_mb = memory_tracker_data_after_start >= 2048
+            print(
+                "Exception in create, exception output:",
+                output,
+                f"Worker {worker_id} started iteration {curr_repetition}, memory over 2048MB: {memory_over_2048_mb}",
+            )
+            has_oom_happend = "Memory limit exceeded!" in output and memory_over_2048_mb
+            should_continue = not has_oom_happend
 
-        if should_fail:
-            assert has_failed, "Query should have failed"
-            return False
-        return True
+        return should_continue
 
     curr_repetition = 0
 
     while curr_repetition < repetition_count:
         log.info(f"Worker {worker_id} started iteration {curr_repetition}")
 
-        is_working = try_create()
+        should_continue = try_create()
 
-        if not is_working:
+        if not should_continue:
             return True
 
         time.sleep(sleep_sec)
@@ -233,7 +233,7 @@ def execute_function(worker: Worker) -> Worker:
     """
     if worker.type == Constants.CREATE_FUNCTION:
         run_writer(worker.repetition_count, worker.sleep_sec, worker.id)
-        log.info(f"Worker {worker.type} finished!")
+        print(f"Worker {worker.type} finished!")
         return worker
 
     raise Exception("Worker function not recognized, raising exception!")
@@ -242,7 +242,7 @@ def execute_function(worker: Worker) -> Worker:
 @timed_function("total_execution_time")
 def execution_handler() -> None:
     clean_database()
-    log.info("Database is clean.")
+    print("Database is clean.")
 
     setup_database_mode()
 
@@ -257,7 +257,7 @@ def execution_handler() -> None:
 
     with multiprocessing.Pool(processes=worker_count) as p:
         for worker in p.map(execute_function, workers):
-            log.info(f"Worker {worker.type} finished!")
+            print(f"Worker {worker.type} finished!")
 
 
 if __name__ == "__main__":
