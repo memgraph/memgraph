@@ -472,7 +472,7 @@ inline std::string_view Substr(const std::string_view string, size_t pos = 0, si
  * @throws None
  */
 inline std::string DoubleToString(const double value) {
-  static const int PRECISION = 16;
+  static const int PRECISION = 15;
   static const int STR_LENGTH = PRECISION + 1;  // 1 for dot
 
   std::stringstream ss;
