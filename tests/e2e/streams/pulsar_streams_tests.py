@@ -12,11 +12,12 @@
 # licenses/APL.txt.
 
 import sys
-import pytest
-import mgclient
 import time
 from multiprocessing import Process, Value
+
 import common
+import mgclient
+import pytest
 
 TRANSFORMATIONS_TO_CHECK = ["pulsar_transform.simple", "pulsar_transform.with_parameters"]
 
@@ -253,8 +254,9 @@ def test_show_streams(pulsar_client, pulsar_topics, connection):
 def test_start_and_stop_during_check(pulsar_client, pulsar_topics, connection, operation):
     assert len(pulsar_topics) > 1
     BATCH_SIZE = 1
+    stream_name = "test_stream_and_stop_during_check_" + operation
 
-    def stream_creator(stream_name):
+    def stream_creator():
         return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE {BATCH_SIZE}"
 
     producer = pulsar_client.create_producer(
@@ -267,6 +269,7 @@ def test_start_and_stop_during_check(pulsar_client, pulsar_topics, connection, o
     common.test_start_and_stop_during_check(
         operation,
         connection,
+        stream_name,
         stream_creator,
         message_sender,
         "Pulsar consumer test_stream is already stopped",
@@ -338,19 +341,20 @@ def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
 
 def test_start_stream_with_batch_limit(pulsar_client, pulsar_topics, connection):
     assert len(pulsar_topics) > 1
+    STREAM_NAME = "test_start_stream_with_batch_limit"
 
-    def stream_creator(stream_name):
-        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+    def stream_creator():
+        return f"CREATE PULSAR STREAM {STREAM_NAME} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
 
     producer = pulsar_client.create_producer(
         common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
     )
 
     def messages_sender(nof_messages):
-        for x in range(nof_messages):
+        for _ in range(nof_messages):
             producer.send(common.SIMPLE_MSG)
 
-    common.test_start_stream_with_batch_limit(connection, stream_creator, messages_sender)
+    common.test_start_stream_with_batch_limit(connection, STREAM_NAME, stream_creator, messages_sender)
 
 
 def test_start_stream_with_batch_limit_timeout(pulsar_client, pulsar_topics, connection):
