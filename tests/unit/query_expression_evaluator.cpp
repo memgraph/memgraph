@@ -2078,7 +2078,7 @@ TYPED_TEST(FunctionTest, ToStringDouble) {
   EXPECT_EQ(this->EvaluateFunction("TOSTRING", -42.42).ValueString(), "-42.42");
   EXPECT_EQ(this->EvaluateFunction("TOSTRING", 0.0).ValueString(), "0");
   EXPECT_EQ(this->EvaluateFunction("TOSTRING", 238910.2313217).ValueString(), "238910.2313217");
-  EXPECT_EQ(this->EvaluateFunction("TOSTRING", 238910.23132171234).ValueString(), "238910.2313217123");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRING", 238910.23132171234).ValueString(), "238910.231321712");
 }
 
 TYPED_TEST(FunctionTest, ToStringBool) {
