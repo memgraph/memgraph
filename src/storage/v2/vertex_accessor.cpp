@@ -28,6 +28,7 @@
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/oom_blocker_block.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
@@ -106,12 +107,12 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
-  {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-    CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
-    vertex_->labels.push_back(label);
-  }
-  utils::total_memory_tracker.Alloc(0);
+
+  utils::OOMBlockerBlock oom_blocker_block{[transaction = transaction_, vertex = vertex_, &label]() {
+    CreateAndLinkDelta(transaction, vertex, Delta::RemoveLabelTag(), label);
+    vertex->labels.push_back(label);
+  }};
+  std::invoke(oom_blocker_block);
 
   if (storage_->config_.items.enable_schema_metadata) {
     storage_->stored_node_labels_.try_insert(label);
@@ -290,23 +291,28 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
-  {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-    if (!vertex_->properties.InitProperties(properties)) return false;
-    for (const auto &[property, value] : properties) {
-      CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
-      storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_);
-      transaction_->manyDeltasCache.Invalidate(vertex_, property);
-      if (!value.IsNull()) {
-        transaction_->constraint_verification_info.AddedProperty(vertex_);
-      } else {
-        transaction_->constraint_verification_info.RemovedProperty(vertex_);
-      }
-    }
-  }
-  utils::total_memory_tracker.Alloc(0);
+  bool result{false};
+  utils::OOMBlockerBlock oom_blocker_block{
+      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_]() {
+        if (!vertex->properties.InitProperties(properties)) {
+          result = false;
+          return;
+        }
+        for (const auto &[property, value] : properties) {
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+          storage->indices_.UpdateOnSetProperty(property, value, vertex, *transaction);
+          transaction->manyDeltasCache.Invalidate(vertex, property);
+          if (!value.IsNull()) {
+            transaction->constraint_verification_info.AddedProperty(vertex);
+          } else {
+            transaction->constraint_verification_info.RemovedProperty(vertex);
+          }
+        }
+        result = true;
+      }};
+  std::invoke(oom_blocker_block);
 
-  return true;
+  return result;
 }
 
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> VertexAccessor::UpdateProperties(
