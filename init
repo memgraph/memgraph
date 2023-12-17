@@ -77,7 +77,6 @@ fi
 
 # Fix for centos 7 during release
 if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "debian-11" ] || [ "${DISTRO}" = "amzn-2" ]; then
-  echo "----------Installing virtualenv for python3---------"
   if python3 -m pip show virtualenv >/dev/null 2>/dev/null; then
     python3 -m pip uninstall -y virtualenv
   fi
