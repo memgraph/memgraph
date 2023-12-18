@@ -18,6 +18,7 @@
 #include <map>
 #include <optional>
 #include <regex>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -28,8 +29,10 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
@@ -186,6 +189,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   using ExpressionVisitor<TypedValue>::Visit;
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
+
+  void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
 
   TypedValue Visit(NamedExpression &named_expression) override {
     const auto &symbol = symbol_table_->at(named_expression);
@@ -837,6 +842,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(Function &function) override {
     FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_};
+    bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
+    TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       TypedValue arguments[8] = {TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
@@ -845,19 +852,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       for (size_t i = 0; i < function.arguments_.size(); ++i) {
         arguments[i] = function.arguments_[i]->Accept(*this);
       }
-      auto res = function.function_(arguments, function.arguments_.size(), function_ctx);
-      MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
-      return res;
+      res = function.function_(arguments, function.arguments_.size(), function_ctx);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      auto res = function.function_(arguments.data(), arguments.size(), function_ctx);
-      MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
-      return res;
+      res = function.function_(arguments.data(), arguments.size(), function_ctx);
     }
+    MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
+    if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
+      return TypedValue(ctx_->memory);
+    }
+    return res;
   }
 
   TypedValue Visit(Reduce &reduce) override {
@@ -903,7 +911,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(std::move(result), ctx_->memory);
   }
 
-  TypedValue Visit(Exists &exists) override { return TypedValue{frame_->at(symbol_table_->at(exists)), ctx_->memory}; }
+  TypedValue Visit(Exists &exists) override {
+    TypedValue &frame_exists_value = frame_->at(symbol_table_->at(exists));
+    if (!frame_exists_value.IsFunction()) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
+          frame_exists_value.type());
+    }
+    TypedValue result{ctx_->memory};
+    frame_exists_value.ValueFunction()(&result);
+    return result;
+  }
 
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);

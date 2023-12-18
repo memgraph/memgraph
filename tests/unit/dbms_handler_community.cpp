@@ -52,18 +52,16 @@ class TestEnvironment : public ::testing::Environment {
     auth =
         std::make_unique<memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>>(
             storage_directory / "auth");
-    repl_state_.emplace(memgraph::storage::ReplicationStateRootPath(storage_conf));
-    ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, *repl_state_);
+    ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf);
   }
 
   void TearDown() override {
     ptr_.reset();
     auth.reset();
-    repl_state_.reset();
+    std::filesystem::remove_all(storage_directory);
   }
 
   static std::unique_ptr<memgraph::dbms::DbmsHandler> ptr_;
-  std::optional<memgraph::replication::ReplicationState> repl_state_;
 };
 
 std::unique_ptr<memgraph::dbms::DbmsHandler> TestEnvironment::ptr_ = nullptr;
