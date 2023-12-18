@@ -135,12 +135,13 @@ def create_stream(
     execute_and_fetch_all(cursor, query_str)
 
 
-def start_stream(cursor, stream_name):
+def start_stream(cursor, stream_name, sleep=True):
     # Sleep is needed because although is_running returns True,
     # the stream cannot accept messages yet
     execute_and_fetch_all(cursor, f"START STREAM {stream_name}")
     assert get_is_running(cursor, stream_name)
-    time.sleep(5)
+    if sleep:
+        time.sleep(5)
 
 
 def start_streams(cursor, stream_names):

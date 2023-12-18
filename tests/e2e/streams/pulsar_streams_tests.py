@@ -133,7 +133,9 @@ def test_start_from_latest_messages(pulsar_client, pulsar_topics, connection):
         producer.send(message)
         assert_message_not_consumed(message)
 
-    common.start_stream(cursor, "test")
+    common.start_stream(cursor, "test", sleep=False)
+
+    assert_message_not_consumed(LOST_MESSAGE)
 
     for message in VALID_MESSAGES:
         check_vertex_exists_with_topic_and_payload(cursor, pulsar_topics[0], message)
