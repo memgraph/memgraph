@@ -55,8 +55,8 @@ def run(args):
 
         # Setup.
         @atexit.register
-        def cleanup():
-            interactive_mg_runner.stop_all()
+        def cleanup(keep_directories=True):
+            interactive_mg_runner.stop_all(keep_directories)
 
         if "pre_set_workload" in workload:
             binary = os.path.join(BUILD_DIR, workload["pre_set_workload"])
@@ -94,7 +94,7 @@ def run(args):
                     data = mg_instance.query(validation["query"], conn)[0][0]
                     assert data == validation["expected"]
                 conn.close()
-        cleanup()
+        cleanup(keep_directories=False)
         log.info("%s PASSED.", workload_name)
 
 

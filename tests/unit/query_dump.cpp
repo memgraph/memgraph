@@ -700,6 +700,11 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s1").disk;
     config.force_on_disk = true;
   }
+  auto on_exit_s1 = memgraph::utils::OnScopeExit{[&]() {
+    if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+      disk_test_utils::RemoveRocksDbDirs("query-dump-s1");
+    }
+  }};
   memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(config));
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config, repl_state);
@@ -814,7 +819,11 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s2").disk;
     config.force_on_disk = true;
   }
-
+  auto on_exit_s2 = memgraph::utils::OnScopeExit{[&]() {
+    if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+      disk_test_utils::RemoveRocksDbDirs("query-dump-s2");
+    }
+  }};
   memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   auto db_acc_opt = db_gk.access();
