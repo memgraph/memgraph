@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <chrono>
 #include <cstdint>
 #include "audit/log.hpp"
 #include "communication/metrics.hpp"
