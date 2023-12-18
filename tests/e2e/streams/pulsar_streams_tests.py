@@ -254,9 +254,8 @@ def test_show_streams(pulsar_client, pulsar_topics, connection):
 def test_start_and_stop_during_check(pulsar_client, pulsar_topics, connection, operation):
     assert len(pulsar_topics) > 1
     BATCH_SIZE = 1
-    stream_name = "test_stream_and_stop_during_check_" + operation
 
-    def stream_creator():
+    def stream_creator(stream_name):
         return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE {BATCH_SIZE}"
 
     producer = pulsar_client.create_producer(
@@ -269,7 +268,6 @@ def test_start_and_stop_during_check(pulsar_client, pulsar_topics, connection, o
     common.test_start_and_stop_during_check(
         operation,
         connection,
-        stream_name,
         stream_creator,
         message_sender,
         "Pulsar consumer test_stream is already stopped",
