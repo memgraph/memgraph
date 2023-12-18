@@ -811,7 +811,7 @@ class MemgraphDocker(BaseRunner):
                 "-it",
                 "-p",
                 self._bolt_port + ":" + self._bolt_port,
-                "memgraph/memgraph:2.7.0",
+                "memgraph/memgraph:2.13.0", # TODO(gitbuda): parametrize & fallback to the latest version.
                 "--storage_wal_enabled=false",
                 "--storage_recover_on_startup=true",
                 "--storage_snapshot_interval_sec",
