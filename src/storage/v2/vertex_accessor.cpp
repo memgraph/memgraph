@@ -26,9 +26,9 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
+#include "utils/atomic_memory_block.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/oom_blocker_block.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
@@ -108,11 +108,11 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
-  utils::OOMBlockerBlock oom_blocker_block{[transaction = transaction_, vertex = vertex_, &label]() {
+  utils::AtomicMemoryBlock atomic_memory_block{[transaction = transaction_, vertex = vertex_, &label]() {
     CreateAndLinkDelta(transaction, vertex, Delta::RemoveLabelTag(), label);
     vertex->labels.push_back(label);
   }};
-  std::invoke(oom_blocker_block);
+  std::invoke(atomic_memory_block);
 
   if (storage_->config_.items.enable_schema_metadata) {
     storage_->stored_node_labels_.try_insert(label);
@@ -140,9 +140,12 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
   if (it == vertex_->labels.end()) return false;
 
-  CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
-  *it = vertex_->labels.back();
-  vertex_->labels.pop_back();
+  utils::AtomicMemoryBlock atomic_memory_block{[transaction = transaction_, vertex = vertex_, &label, &it]() {
+    CreateAndLinkDelta(transaction, vertex, Delta::AddLabelTag(), label);
+    *it = vertex->labels.back();
+    vertex->labels.pop_back();
+  }};
+  std::invoke(atomic_memory_block);
 
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
@@ -266,8 +269,12 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
 
-  CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
-  vertex_->properties.SetProperty(property, value);
+  utils::AtomicMemoryBlock atomic_memory_block{
+      [transaction = transaction_, vertex = vertex_, &value, &property, &current_value]() {
+        CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
+        vertex->properties.SetProperty(property, value);
+      }};
+  std::invoke(atomic_memory_block);
 
   if (!value.IsNull()) {
     transaction_->constraint_verification_info.AddedProperty(vertex_);
@@ -292,7 +299,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   bool result{false};
-  utils::OOMBlockerBlock oom_blocker_block{
+  utils::AtomicMemoryBlock atomic_memory_block{
       [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_]() {
         if (!vertex->properties.InitProperties(properties)) {
           result = false;
@@ -310,7 +317,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
         }
         result = true;
       }};
-  std::invoke(oom_blocker_block);
+  std::invoke(atomic_memory_block);
 
   return result;
 }
@@ -328,20 +335,28 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  auto id_old_new_change = vertex_->properties.UpdateProperties(properties);
+  using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
+  std::optional<ReturnType> id_old_new_change;
+  utils::AtomicMemoryBlock atomic_memory_block{
+      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &id_old_new_change]() {
+        id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
+        if (!id_old_new_change.has_value()) {
+          return;
+        }
+        for (auto &[id, old_value, new_value] : *id_old_new_change) {
+          storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, std::move(old_value));
+          transaction->manyDeltasCache.Invalidate(vertex, id);
+          if (!new_value.IsNull()) {
+            transaction->constraint_verification_info.AddedProperty(vertex);
+          } else {
+            transaction->constraint_verification_info.RemovedProperty(vertex);
+          }
+        }
+      }};
+  std::invoke(atomic_memory_block);
 
-  for (auto &[id, old_value, new_value] : id_old_new_change) {
-    storage_->indices_.UpdateOnSetProperty(id, new_value, vertex_, *transaction_);
-    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), id, std::move(old_value));
-    transaction_->manyDeltasCache.Invalidate(vertex_, id);
-    if (!new_value.IsNull()) {
-      transaction_->constraint_verification_info.AddedProperty(vertex_);
-    } else {
-      transaction_->constraint_verification_info.RemovedProperty(vertex_);
-    }
-  }
-
-  return id_old_new_change;
+  return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
@@ -354,17 +369,25 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  auto properties = vertex_->properties.Properties();
-  for (const auto &[property, value] : properties) {
-    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, value);
-    storage_->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex_, *transaction_);
-    transaction_->constraint_verification_info.RemovedProperty(vertex_);
-    transaction_->manyDeltasCache.Invalidate(vertex_, property);
-  }
+  using ReturnType = decltype(vertex_->properties.Properties());
+  std::optional<ReturnType> properties;
+  utils::AtomicMemoryBlock atomic_memory_block{
+      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties]() {
+        properties.emplace(vertex->properties.Properties());
+        if (!properties.has_value()) {
+          return;
+        }
+        for (const auto &[property, value] : *properties) {
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, value);
+          storage->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex, *transaction);
+          transaction->constraint_verification_info.RemovedProperty(vertex);
+          transaction->manyDeltasCache.Invalidate(vertex, property);
+        }
+        vertex->properties.ClearProperties();
+      }};
+  std::invoke(atomic_memory_block);
 
-  vertex_->properties.ClearProperties();
-
-  return std::move(properties);
+  return properties.has_value() ? std::move(properties.value()) : ReturnType{};
 }
 
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {

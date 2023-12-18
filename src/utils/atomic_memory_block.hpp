@@ -16,16 +16,18 @@
 
 namespace memgraph::utils {
 
-// Calls a function with out of memory exception blocker, checks memory allocation after block execution
+// Calls a function with out of memory exception blocker, checks memory allocation after block execution.
+// Use it in case you need block which will be executed atomically considering memory execution
+// but will check after block is executed if OOM exceptions needs to be thrown
 template <typename Callable>
-class [[nodiscard]] OOMBlockerBlock {
+class [[nodiscard]] AtomicMemoryBlock {
  public:
-  explicit OOMBlockerBlock(Callable &&function) : function_{std::forward<Callable>(function)} {}
-  OOMBlockerBlock(OOMBlockerBlock const &) = delete;
-  OOMBlockerBlock(OOMBlockerBlock &&) = delete;
-  OOMBlockerBlock &operator=(OOMBlockerBlock const &) = delete;
-  OOMBlockerBlock &operator=(OOMBlockerBlock &&) = delete;
-  ~OOMBlockerBlock() = default;
+  explicit AtomicMemoryBlock(Callable &&function) : function_{std::forward<Callable>(function)} {}
+  AtomicMemoryBlock(AtomicMemoryBlock const &) = delete;
+  AtomicMemoryBlock(AtomicMemoryBlock &&) = delete;
+  AtomicMemoryBlock &operator=(AtomicMemoryBlock const &) = delete;
+  AtomicMemoryBlock &operator=(AtomicMemoryBlock &&) = delete;
+  ~AtomicMemoryBlock() = default;
 
   void operator()() {
     {
@@ -38,7 +40,5 @@ class [[nodiscard]] OOMBlockerBlock {
  private:
   std::function<void()> function_;
 };
-template <typename Callable>
-OOMBlockerBlock(Callable &&) -> OOMBlockerBlock<Callable>;
 
 }  // namespace memgraph::utils
