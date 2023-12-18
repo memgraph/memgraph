@@ -75,6 +75,8 @@ class StorageModeMultiTxTest : public ::testing::Test {
     return tmp;
   }();  // iile
 
+  void TearDown() override { std::filesystem::remove_all(data_directory); }
+
   memgraph::storage::Config config{.durability.storage_directory = data_directory,
                                    .disk.main_storage_directory = data_directory / "disk"};
 
