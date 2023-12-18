@@ -132,7 +132,8 @@ void MemoryTracker::DoCheck() {
     throw OutOfMemoryException(
         fmt::format("Memory limit exceeded! Current "
                     "use is {}, while the maximum allowed size for allocation is set to {}.",
-                    GetReadableSize(current_amount), GetReadableSize(current_hard_limit)));
+                    GetReadableSize(static_cast<double>(current_amount)),
+                    GetReadableSize(static_cast<double>(current_hard_limit))));
   }
 }
 

@@ -165,7 +165,7 @@ def get_tracker_data(session) -> Optional[float]:
         return parse_data(memory_tracker_data)
 
     except Exception as ex:
-        print(f"Get storage info failed with error", ex)
+        log.info(f"Get storage info failed with error", ex)
         return None
 
 
@@ -200,7 +200,7 @@ def run_writer(repetition_count: int, sleep_sec: float, worker_id: int) -> int:
             memory_tracker_data_after_start = get_tracker_data(session)
             if memory_tracker_data_after_start:
                 memory_over_2048_mb = memory_tracker_data_after_start >= 2048
-            print(
+            log.info(
                 "Exception in create, exception output:",
                 output,
                 f"Worker {worker_id} started iteration {curr_repetition}, memory over 2048MB: {memory_over_2048_mb}",
@@ -233,7 +233,7 @@ def execute_function(worker: Worker) -> Worker:
     """
     if worker.type == Constants.CREATE_FUNCTION:
         run_writer(worker.repetition_count, worker.sleep_sec, worker.id)
-        print(f"Worker {worker.type} finished!")
+        log.info(f"Worker {worker.type} finished!")
         return worker
 
     raise Exception("Worker function not recognized, raising exception!")
@@ -242,7 +242,7 @@ def execute_function(worker: Worker) -> Worker:
 @timed_function("total_execution_time")
 def execution_handler() -> None:
     clean_database()
-    print("Database is clean.")
+    log.info("Database is clean.")
 
     setup_database_mode()
 
@@ -257,7 +257,7 @@ def execution_handler() -> None:
 
     with multiprocessing.Pool(processes=worker_count) as p:
         for worker in p.map(execute_function, workers):
-            print(f"Worker {worker.type} finished!")
+            log.info(f"Worker {worker.type} finished!")
 
 
 if __name__ == "__main__":
