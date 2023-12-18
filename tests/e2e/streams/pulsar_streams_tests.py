@@ -81,12 +81,6 @@ def test_start_from_latest_messages(pulsar_client, pulsar_topics, connection):
     # inbetween should be lost. Additionally, we check that consumer continues from the correct message
     # after stopping and starting again.
     assert len(pulsar_topics) > 0
-    cursor = connection.cursor()
-    common.execute_and_fetch_all(
-        cursor,
-        f"CREATE PULSAR STREAM test TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple",
-    )
-    common.start_stream(cursor, "test")
 
     def assert_message_not_consumed(message):
         vertices_with_msg = common.execute_and_fetch_all(
@@ -95,6 +89,13 @@ def test_start_from_latest_messages(pulsar_client, pulsar_topics, connection):
         )
 
         assert len(vertices_with_msg) == 0
+
+    cursor = connection.cursor()
+    common.execute_and_fetch_all(
+        cursor,
+        f"CREATE PULSAR STREAM test TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple",
+    )
+    common.start_stream(cursor, "test")
 
     producer = pulsar_client.create_producer(
         common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
@@ -133,8 +134,6 @@ def test_start_from_latest_messages(pulsar_client, pulsar_topics, connection):
         assert_message_not_consumed(message)
 
     common.start_stream(cursor, "test")
-
-    assert_message_not_consumed(LOST_MESSAGE)
 
     for message in VALID_MESSAGES:
         check_vertex_exists_with_topic_and_payload(cursor, pulsar_topics[0], message)

@@ -345,7 +345,6 @@ def test_check_stream_same_number_of_queries_than_messages(connection, stream_cr
     # #            {parameters: {"value": "Parameter: 04"}, query: "Message: 04"}]
     # # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
     # #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
-    assert test_results.value is not None
     assert len(test_results.value) == BATCH_LIMIT
 
     expected_queries_and_raw_messages_1 = (
