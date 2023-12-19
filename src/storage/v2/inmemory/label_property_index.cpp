@@ -12,6 +12,8 @@
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/storage.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::storage {
 
@@ -33,9 +35,9 @@ bool InMemoryLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) cons
 
 bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
-bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
-                                             utils::SkipList<Vertex>::Accessor vertices,
-                                             const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info) {
+bool InMemoryLabelPropertyIndex::CreateIndex(
+    LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
   auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
                                  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
@@ -52,7 +54,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
   auto create_index_par =
       [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
              std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
-             const ParallelizedIndexCreationInfo &parallel_exec_info) {
+             const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
         using IndexAccessor = decltype(label_property_it->second.access());
 
         CreateIndexOnMultipleThreads(
@@ -101,11 +103,12 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
     return;
   }
 
-  if (!indices_by_property_.contains(property)) {
+  auto index = indices_by_property_.find(property);
+  if (index == indices_by_property_.end()) {
     return;
   }
 
-  for (const auto &[_, storage] : indices_by_property_.at(property)) {
+  for (const auto &[_, storage] : index->second) {
     auto acc = storage->access();
     acc.insert(Entry{value, vertex, tx.start_timestamp});
   }
@@ -220,12 +223,14 @@ const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyV
 const PropertyValue kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 
-InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label,
+InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
+                                               utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
                                                PropertyId property,
                                                const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                                Storage *storage, Transaction *transaction)
-    : index_accessor_(std::move(index_accessor)),
+    : pin_accessor_(std::move(vertices_accessor)),
+      index_accessor_(std::move(index_accessor)),
       label_(label),
       property_(property),
       lower_bound_(lower_bound),
@@ -428,9 +433,57 @@ InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
+  DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
+                 storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
+             "PropertyLabel index trying to access InMemory vertices from OnDisk!");
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  return {it->second.access(), label, property, lower_bound, upper_bound, view, storage, transaction};
+  return {it->second.access(), std::move(vertices_acc), label, property, lower_bound, upper_bound, view, storage,
+          transaction};
 }
 
+InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
+    LabelId label, PropertyId property,
+    memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
+    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    Transaction *transaction) {
+  auto it = index_.find({label, property});
+  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+  return {it->second.access(), std::move(vertices_acc), label, property, lower_bound, upper_bound, view, storage,
+          transaction};
+}
+
+void InMemoryLabelPropertyIndex::AbortEntries(PropertyId property,
+                                              std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                                              uint64_t exact_start_timestamp) {
+  auto const it = indices_by_property_.find(property);
+  if (it == indices_by_property_.end()) return;
+
+  auto &indices = it->second;
+  for (const auto &[_, index] : indices) {
+    auto index_acc = index->access();
+    for (auto const &[value, vertex] : vertices) {
+      index_acc.remove(Entry{value, vertex, exact_start_timestamp});
+    }
+  }
+}
+
+void InMemoryLabelPropertyIndex::AbortEntries(LabelId label,
+                                              std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                                              uint64_t exact_start_timestamp) {
+  for (auto &[label_prop, storage] : index_) {
+    if (label_prop.first != label) {
+      continue;
+    }
+
+    auto index_acc = storage.access();
+    for (const auto &[property, vertex] : vertices) {
+      if (!property.IsNull()) {
+        index_acc.remove(Entry{property, vertex, exact_start_timestamp});
+      }
+    }
+  }
+}
 }  // namespace memgraph::storage

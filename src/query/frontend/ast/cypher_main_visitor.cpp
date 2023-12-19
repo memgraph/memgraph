@@ -124,6 +124,14 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
     info_query->info_type_ = DatabaseInfoQuery::InfoType::CONSTRAINT;
     return info_query;
   }
+  if (ctx->edgetypeInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::EDGE_TYPES;
+    return info_query;
+  }
+  if (ctx->nodelabelInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::NODE_LABELS;
+    return info_query;
+  }
   // Should never get here
   throw utils::NotYetImplemented("Database info query: '{}'", ctx->getText());
 }
@@ -1216,10 +1224,6 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
       call_proc->memory_limit_ = memory_limit_info->first;
       call_proc->memory_scale_ = memory_limit_info->second;
     }
-  } else {
-    // Default to 100 MB
-    call_proc->memory_limit_ = storage_->Create<PrimitiveLiteral>(TypedValue(100));
-    call_proc->memory_scale_ = 1024U * 1024U;
   }
 
   const auto &maybe_found =
@@ -1240,11 +1244,13 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
       throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
     }
   }
-  call_proc->is_write_ = maybe_found->second->info.is_write;
+  if (maybe_found) {
+    call_proc->is_write_ = maybe_found->second->info.is_write;
+  }
 
   auto *yield_ctx = ctx->yieldProcedureResults();
   if (!yield_ctx) {
-    if (!maybe_found->second->results.empty() && !call_proc->void_procedure_) {
+    if ((maybe_found && !maybe_found->second->results.empty()) && !call_proc->void_procedure_) {
       throw SemanticException(
           "CALL without YIELD may only be used on procedures which do not "
           "return any result fields.");
@@ -1270,28 +1276,59 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
       call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(result_alias));
     }
   } else {
-    const auto &maybe_found =
-        procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
-    if (!maybe_found) {
-      throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
+    call_proc->is_write_ = maybe_found->second->info.is_write;
+
+    auto *yield_ctx = ctx->yieldProcedureResults();
+    if (!yield_ctx) {
+      if (!maybe_found->second->results.empty() && !call_proc->void_procedure_) {
+        throw SemanticException(
+            "CALL without YIELD may only be used on procedures which do not "
+            "return any result fields.");
+      }
+      // When we return, we will release the lock on modules. This means that
+      // someone may reload the procedure and change the result signature. But to
+      // keep the implementation simple, we ignore the case as the rest of the
+      // code doesn't really care whether we yield or not, so it should not break.
+      return call_proc;
     }
-    const auto &[module, proc] = *maybe_found;
-    call_proc->result_fields_.reserve(proc->results.size());
-    call_proc->result_identifiers_.reserve(proc->results.size());
-    for (const auto &[result_name, desc] : proc->results) {
-      bool is_deprecated = desc.second;
-      if (is_deprecated) continue;
-      call_proc->result_fields_.emplace_back(result_name);
-      call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(std::string(result_name)));
+    if (yield_ctx->getTokens(MemgraphCypher::ASTERISK).empty()) {
+      call_proc->result_fields_.reserve(yield_ctx->procedureResult().size());
+      call_proc->result_identifiers_.reserve(yield_ctx->procedureResult().size());
+      for (auto *result : yield_ctx->procedureResult()) {
+        MG_ASSERT(result->variable().size() == 1 || result->variable().size() == 2);
+        call_proc->result_fields_.push_back(std::any_cast<std::string>(result->variable()[0]->accept(this)));
+        std::string result_alias;
+        if (result->variable().size() == 2) {
+          result_alias = std::any_cast<std::string>(result->variable()[1]->accept(this));
+        } else {
+          result_alias = std::any_cast<std::string>(result->variable()[0]->accept(this));
+        }
+        call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(result_alias));
+      }
+    } else {
+      const auto &maybe_found =
+          procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
+      if (!maybe_found) {
+        throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
+      }
+      const auto &[module, proc] = *maybe_found;
+      call_proc->result_fields_.reserve(proc->results.size());
+      call_proc->result_identifiers_.reserve(proc->results.size());
+      for (const auto &[result_name, desc] : proc->results) {
+        bool is_deprecated = desc.second;
+        if (is_deprecated) continue;
+        call_proc->result_fields_.emplace_back(result_name);
+        call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(std::string(result_name)));
+      }
+      // When we leave the scope, we will release the lock on modules. This means
+      // that someone may reload the procedure and change its result signature. We
+      // are fine with this, because if new result fields were added then we yield
+      // the subset of those and that will appear to a user as if they used the
+      // procedure before reload. Any subsequent `CALL ... YIELD *` will fetch the
+      // new fields as well. In case the result signature has had some result
+      // fields removed, then the query execution will report an error that we are
+      // yielding missing fields. The user can then just retry the query.
     }
-    // When we leave the scope, we will release the lock on modules. This means
-    // that someone may reload the procedure and change its result signature. We
-    // are fine with this, because if new result fields were added then we yield
-    // the subset of those and that will appear to a user as if they used the
-    // procedure before reload. Any subsequent `CALL ... YIELD *` will fetch the
-    // new fields as well. In case the result signature has had some result
-    // fields removed, then the query execution will report an error that we are
-    // yielding missing fields. The user can then just retry the query.
   }
 
   return call_proc;
@@ -1980,6 +2017,15 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
       edge_lambda.inner_edge = storage_->Create<Identifier>(traversed_edge_variable);
       auto traversed_node_variable = std::any_cast<std::string>(lambda->traversed_node->accept(this));
       edge_lambda.inner_node = storage_->Create<Identifier>(traversed_node_variable);
+      if (lambda->accumulated_path) {
+        auto accumulated_path_variable = std::any_cast<std::string>(lambda->accumulated_path->accept(this));
+        edge_lambda.accumulated_path = storage_->Create<Identifier>(accumulated_path_variable);
+
+        if (lambda->accumulated_weight) {
+          auto accumulated_weight_variable = std::any_cast<std::string>(lambda->accumulated_weight->accept(this));
+          edge_lambda.accumulated_weight = storage_->Create<Identifier>(accumulated_weight_variable);
+        }
+      }
       edge_lambda.expression = std::any_cast<Expression *>(lambda->expression()->accept(this));
       return edge_lambda;
     };
@@ -2004,6 +2050,15 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         // In variable expansion inner variables are mandatory.
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
+
+        // TODO: In what use case do we need accumulated path and weight here?
+        if (edge->filter_lambda_.accumulated_path) {
+          anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_path);
+
+          if (edge->filter_lambda_.accumulated_weight) {
+            anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_weight);
+          }
+        }
         break;
       case 1:
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
@@ -2015,9 +2070,21 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
           // Add mandatory inner variables for filter lambda.
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
+          if (edge->filter_lambda_.accumulated_path) {
+            anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_path);
+
+            if (edge->filter_lambda_.accumulated_weight) {
+              anonymous_identifiers.push_back(&edge->filter_lambda_.accumulated_weight);
+            }
+          }
         } else {
           // Other variable expands only have the filter lambda.
           edge->filter_lambda_ = visit_lambda(relationshipLambdas[0]);
+          if (edge->filter_lambda_.accumulated_weight) {
+            throw SemanticException(
+                "Accumulated weight in filter lambda can be used only with "
+                "shortest paths expansion.");
+          }
         }
         break;
       case 2:

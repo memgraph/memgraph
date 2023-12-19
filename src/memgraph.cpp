@@ -65,10 +65,13 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
   std::string line;
   while (std::getline(file, line)) {
     if (!line.empty()) {
-      auto results = interpreter.Prepare(line, {}, {});
-      memgraph::query::DiscardValueResultStream stream;
-      interpreter.Pull(&stream, {}, results.qid);
-
+      try {
+        auto results = interpreter.Prepare(line, {}, {});
+        memgraph::query::DiscardValueResultStream stream;
+        interpreter.Pull(&stream, {}, results.qid);
+      } catch (const memgraph::query::UserAlreadyExistsException &e) {
+        spdlog::warn("{} The rest of the init-file will be run.", e.what());
+      }
       if (audit_log) {
         audit_log->Record("", "", line, {}, memgraph::dbms::kDefaultDB);
       }
@@ -291,7 +294,8 @@ int main(int argc, char **argv) {
   memgraph::storage::Config db_config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
-      .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
+      .items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
+                .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
@@ -301,7 +305,9 @@ int main(int argc, char **argv) {
                      .restore_replication_state_on_startup = FLAGS_replication_restore_state_on_startup,
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
-                     .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
+                     // deprecated
+                     .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery,
+                     .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
@@ -368,34 +374,17 @@ int main(int argc, char **argv) {
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   auth_glue(&auth_, auth_handler, auth_checker);
 
-  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(db_config));
-
-  memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
+  memgraph::dbms::DbmsHandler dbms_handler(db_config
 #ifdef MG_ENTERPRISE
                                            ,
                                            &auth_, FLAGS_data_recovery_on_startup, FLAGS_storage_delete_on_drop
 #endif
   );
   auto db_acc = dbms_handler.Get();
-  memgraph::query::InterpreterContext interpreter_context_(interp_config, &dbms_handler, &repl_state,
-                                                           auth_handler.get(), auth_checker.get());
-  MG_ASSERT(db_acc, "Failed to access the main database");
 
-  // TODO: Move it somewhere better
-  // Startup replication state (if recovered at startup)
-  MG_ASSERT(std::visit(memgraph::utils::Overloaded{[](memgraph::replication::RoleMainData const &) { return true; },
-                                                   [&](memgraph::replication::RoleReplicaData const &data) {
-                                                     // Register handlers
-                                                     memgraph::dbms::InMemoryReplicationHandlers::Register(
-                                                         &dbms_handler, *data.server);
-                                                     if (!data.server->Start()) {
-                                                       spdlog::error("Unable to start the replication server.");
-                                                       return false;
-                                                     }
-                                                     return true;
-                                                   }},
-                       repl_state.ReplicationData()),
-            "Replica recovery failure!");
+  memgraph::query::InterpreterContext interpreter_context_(
+      interp_config, &dbms_handler, &dbms_handler.ReplicationState(), auth_handler.get(), auth_checker.get());
+  MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
                                                                   FLAGS_data_directory);

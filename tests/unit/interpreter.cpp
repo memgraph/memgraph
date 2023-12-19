@@ -64,7 +64,7 @@ class InterpreterTest : public ::testing::Test {
   const std::string testSuiteCsv = "interpreter_csv";
   std::filesystem::path data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
 
-  InterpreterTest() {}
+  InterpreterTest() = default;
 
   memgraph::storage::Config config{
       [&]() {
@@ -101,6 +101,8 @@ class InterpreterTest : public ::testing::Test {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
       disk_test_utils::RemoveRocksDbDirs(testSuiteCsv);
     }
+
+    std::filesystem::remove_all(data_directory);
   }
 
   InterpreterFaker default_interpreter{&interpreter_context, db};
@@ -334,7 +336,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
   auto kNumUnreachableNodes = 1000;
   auto kNumUnreachableEdges = 100000;
   auto kResCoeff = 5;
-  const auto kReachable = "reachable";
+  const auto *const kReachable = "reachable";
   const auto kId = "id";
 
   if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {

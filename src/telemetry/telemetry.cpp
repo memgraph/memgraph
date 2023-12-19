@@ -12,6 +12,7 @@
 #include "telemetry/telemetry.hpp"
 
 #include <filesystem>
+#include <utility>
 
 #include <fmt/format.h>
 
@@ -36,8 +37,8 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
                      bool ssl, std::filesystem::path root_directory, std::chrono::duration<int64_t> refresh_interval,
                      const uint64_t send_every_n)
     : url_(std::move(url)),
-      uuid_(uuid),
-      machine_id_(machine_id),
+      uuid_(std::move(uuid)),
+      machine_id_(std::move(machine_id)),
       ssl_(ssl),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
@@ -109,7 +110,13 @@ void Telemetry::CollectData(const std::string &event) {
   {
     std::lock_guard<std::mutex> guard(lock_);
     for (auto &collector : collectors_) {
-      data[collector.first] = collector.second();
+      try {
+        data[collector.first] = collector.second();
+      } catch (std::exception &e) {
+        spdlog::warn(fmt::format(
+            "Unknwon exception occured on in telemetry server {}, please contact support on https://memgr.ph/unknown ",
+            e.what()));
+      }
     }
   }
   if (event == "") {

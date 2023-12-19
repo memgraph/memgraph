@@ -429,6 +429,9 @@ enum mgp_error mgp_list_copy(struct mgp_list *list, struct mgp_memory *memory, s
 /// Free the memory used by the given mgp_list and contained elements.
 void mgp_list_destroy(struct mgp_list *list);
 
+/// Return whether the given mgp_list contains any deleted values.
+enum mgp_error mgp_list_contains_deleted(struct mgp_list *list, int *result);
+
 /// Append a copy of mgp_value to mgp_list if capacity allows.
 /// The list copies the given value and therefore does not take ownership of the
 /// original value. You still need to call mgp_value_destroy to free the
@@ -468,6 +471,9 @@ enum mgp_error mgp_map_copy(struct mgp_map *map, struct mgp_memory *memory, stru
 
 /// Free the memory used by the given mgp_map and contained items.
 void mgp_map_destroy(struct mgp_map *map);
+
+/// Return whether the given mgp_map contains any deleted values.
+enum mgp_error mgp_map_contains_deleted(struct mgp_map *map, int *result);
 
 /// Insert a new mapping from a NULL terminated character string to a value.
 /// If a mapping with the same key already exists, it is *not* replaced.
@@ -551,6 +557,9 @@ enum mgp_error mgp_path_copy(struct mgp_path *path, struct mgp_memory *memory, s
 
 /// Free the memory used by the given mgp_path and contained vertices and edges.
 void mgp_path_destroy(struct mgp_path *path);
+
+/// Return whether the given mgp_path contains any deleted values.
+enum mgp_error mgp_path_contains_deleted(struct mgp_path *path, int *result);
 
 /// Append an edge continuing from the last vertex on the path.
 /// The edge is copied into the path. Therefore, the path does not take
@@ -725,6 +734,9 @@ enum mgp_error mgp_vertex_copy(struct mgp_vertex *v, struct mgp_memory *memory, 
 /// Free the memory used by a mgp_vertex.
 void mgp_vertex_destroy(struct mgp_vertex *v);
 
+/// Return whether the given mgp_vertex is deleted.
+enum mgp_error mgp_vertex_is_deleted(struct mgp_vertex *v, int *result);
+
 /// Result is non-zero if given vertices are equal, otherwise 0.
 enum mgp_error mgp_vertex_equal(struct mgp_vertex *v1, struct mgp_vertex *v2, int *result);
 
@@ -819,6 +831,9 @@ enum mgp_error mgp_edge_copy(struct mgp_edge *e, struct mgp_memory *memory, stru
 /// Free the memory used by a mgp_edge.
 void mgp_edge_destroy(struct mgp_edge *e);
 
+/// Return whether the given mgp_edge is deleted.
+enum mgp_error mgp_edge_is_deleted(struct mgp_edge *e, int *result);
+
 /// Result is non-zero if given edges are equal, otherwise 0.
 enum mgp_error mgp_edge_equal(struct mgp_edge *e1, struct mgp_edge *e2, int *result);
 
@@ -876,11 +891,76 @@ enum mgp_error mgp_edge_iter_properties(struct mgp_edge *e, struct mgp_memory *m
 enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex_id id, struct mgp_memory *memory,
                                           struct mgp_vertex **result);
 
+/// Creates label index for given label.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if label index already exists, result will be 0, otherwise 1.
+enum mgp_error mgp_create_label_index(struct mgp_graph *graph, const char *label, int *result);
+
+/// Drop label index.
+enum mgp_error mgp_drop_label_index(struct mgp_graph *graph, const char *label, int *result);
+
+/// List all label indices.
+enum mgp_error mgp_list_all_label_indices(struct mgp_graph *graph, struct mgp_memory *memory, struct mgp_list **result);
+
+/// Creates label-property index for given label and propery.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if label property index already exists, result will be 0, otherwise 1.
+enum mgp_error mgp_create_label_property_index(struct mgp_graph *graph, const char *label, const char *property,
+                                               int *result);
+
+/// Drops label-property index for given label and propery.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if dropping label property index failed, result will be 0, otherwise 1.
+enum mgp_error mgp_drop_label_property_index(struct mgp_graph *graph, const char *label, const char *property,
+                                             int *result);
+
+/// List all label+property indices.
+enum mgp_error mgp_list_all_label_property_indices(struct mgp_graph *graph, struct mgp_memory *memory,
+                                                   struct mgp_list **result);
+
+/// Creates existence constraint for given label and property.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if creating existence constraint failed, result will be 0, otherwise 1.
+enum mgp_error mgp_create_existence_constraint(struct mgp_graph *graph, const char *label, const char *property,
+                                               int *result);
+
+/// Drops existence constraint for given label and property.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if dropping existence constraint failed, result will be 0, otherwise 1.
+enum mgp_error mgp_drop_existence_constraint(struct mgp_graph *graph, const char *label, const char *property,
+                                             int *result);
+
+/// List all existence constraints.
+enum mgp_error mgp_list_all_existence_constraints(struct mgp_graph *graph, struct mgp_memory *memory,
+                                                  struct mgp_list **result);
+
+/// Creates unique constraint for given label and properties.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if creating unique constraint failed, result will be 0, otherwise 1.
+enum mgp_error mgp_create_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
+                                            int *result);
+
+/// Drops unique constraint for given label and properties.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if dropping unique constraint failed, result will be 0, otherwise 1.
+enum mgp_error mgp_drop_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
+                                          int *result);
+
+/// List all unique constraints
+enum mgp_error mgp_list_all_unique_constraints(struct mgp_graph *graph, struct mgp_memory *memory,
+                                               struct mgp_list **result);
+
 /// Result is non-zero if the graph can be modified.
 /// If a graph is immutable, then vertices cannot be created or deleted, and all of the returned vertices will be
 /// immutable also. The same applies for edges.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_graph_is_mutable(struct mgp_graph *graph, int *result);
+
+/// Result is non-zero if the graph is in transactional storage mode.
+/// If a graph is not in transactional mode (i.e. analytical mode), then vertices and edges can be missing
+/// because changes from other transactions are visible.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_graph_is_transactional(struct mgp_graph *graph, int *result);
 
 /// Add a new vertex to the graph.
 /// Resulting vertex must be freed using mgp_vertex_destroy.

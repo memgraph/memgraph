@@ -86,7 +86,7 @@ class GraphSession {
   std::set<uint64_t> edges_;
 
   std::string indexed_label_;
-  std::set<std::string> labels_;
+  std::set<std::string, std::less<>> labels_;
 
   std::map<std::string, std::set<uint64_t>> labels_vertices_;
 
@@ -109,7 +109,7 @@ class GraphSession {
     return *it;
   }
 
-  std::string RandomElement(std::set<std::string> &data) {
+  std::string RandomElement(std::set<std::string, std::less<>> &data) {
     uint64_t pos = std::floor(GetRandom() * data.size());
     auto it = data.begin();
     std::advance(it, pos);

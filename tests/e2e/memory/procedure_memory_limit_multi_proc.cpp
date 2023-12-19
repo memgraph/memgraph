@@ -14,6 +14,7 @@
 #include <exception>
 #include <ios>
 #include <iostream>
+#include <mgclient-value.hpp>
 #include <mgclient.hpp>
 
 #include "utils/logging.hpp"
@@ -53,11 +54,9 @@ int main(int argc, char **argv) {
         "CALL libproc_memory_limit.alloc_32_mib() PROCEDURE MEMORY LIMIT 10MB YIELD allocated AS allocated_2 RETURN "
         "allocated_1, allocated_2");
     auto result_rows = client->FetchAll();
-    if (result_rows) {
-      auto row = *result_rows->begin();
-      test_passed = row[0].ValueBool() == true && row[0].ValueBool() == false;
+    if (result_rows && result_rows->empty()) {
+      test_passed = true;
     }
-
   } catch (const std::exception &e) {
     test_passed = true;
   }

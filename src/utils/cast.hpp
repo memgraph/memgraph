@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,8 +18,8 @@
 namespace memgraph::utils {
 
 template <typename T>
-constexpr typename std::underlying_type<T>::type UnderlyingCast(T e) {
-  return static_cast<typename std::underlying_type<T>::type>(e);
+constexpr std::underlying_type_t<T> UnderlyingCast(T e) {
+  return static_cast<std::underlying_type_t<T>>(e);
 }
 
 /**
@@ -36,8 +36,8 @@ template <typename TDest, typename TSrc>
 TDest MemcpyCast(TSrc src) {
   TDest dest;
   static_assert(sizeof(dest) == sizeof(src), "MemcpyCast expects source and destination to be of same size");
-  static_assert(std::is_arithmetic<TSrc>::value, "MemcpyCast expects source is an arithmetic type");
-  static_assert(std::is_arithmetic<TDest>::value, "MemcypCast expects destination is an arithmetic type");
+  static_assert(std::is_arithmetic_v<TSrc>, "MemcpyCast expects source is an arithmetic type");
+  static_assert(std::is_arithmetic_v<TDest>, "MemcypCast expects destination is an arithmetic type");
   std::memcpy(&dest, &src, sizeof(src));
   return dest;
 }

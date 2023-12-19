@@ -121,3 +121,95 @@ Feature: Bfs
       Then the result should be:
          | p                                                              |
          | <(:Node {id: 2})-[:LINK {date: '2023-03'}]->(:Node {id: 3})>   |
+
+    Scenario: Test BFS variable expand with filter by last edge type of accumulated path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3});
+          """
+      When executing query:
+          """
+          MATCH pth=(:label1)-[*BFS (e,n,p | type(relationships(p)[-1]) = 'type1')]->(:label3) return pth;
+          """
+      Then the result should be:
+          | pth                                        |
+          | <(:label1{id:1})-[:type1{id:1}]->(:label2{id:2})-[:type1{id:2}]->(:label3{id:3})> |
+
+    Scenario: Test BFS variable expand with restict filter by last edge type of accumulated path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3});
+          """
+      When executing query:
+          """
+          MATCH pth=(:label1)-[*BFS (e,n,p | type(relationships(p)[-1]) = 'type2')]->(:label2) return pth;
+          """
+    Then the result should be empty
+
+    Scenario: Test BFS variable expand with filter by size of accumulated path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3});
+          """
+      When executing query:
+          """
+          MATCH pth=(:label1)-[*BFS (e,n,p | size(p) < 3)]->(:label3) return pth;
+          """
+      Then the result should be:
+          | pth                                        |
+          | <(:label1{id:1})-[:type1{id:1}]->(:label2{id:2})-[:type1{id:2}]->(:label3{id:3})> |
+
+    Scenario: Test BFS variable expand with restict filter by size of accumulated path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3});
+          """
+      When executing query:
+          """
+          MATCH pth=(:label1)-[*BFS (e,n,p | size(p) < 2)]->(:label3) return pth;
+          """
+    Then the result should be empty
+
+    Scenario: Test BFS variable expand with filter by order of ids in accumulated path when target vertex is indexed
+        Given graph "graph_index"
+        When executing query:
+            """
+            MATCH pth=(:label1)-[*BFS (e,n,p | (nodes(p)[-1]).id > (nodes(p)[-2]).id)]->(:label4) return pth;
+            """
+        Then the result should be:
+            | pth                                        |
+            | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})-[:type1 {id: 3}]->(:label4 {id: 4})> |
+
+    Scenario: Test BFS variable expand with filter by order of ids in accumulated path when target vertex is NOT indexed
+        Given graph "graph_index"
+        When executing query:
+            """
+            MATCH pth=(:label1)-[*BFS (e,n,p | (nodes(p)[-1]).id > (nodes(p)[-2]).id)]->(:label3) return pth;
+            """
+        Then the result should be:
+            | pth                                        |
+            | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |
+
+    Scenario: Test BFS variable expand with filter by edge type1
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label1)-[*BFS (e, n, p | NOT(type(e)='type1' AND type(last(relationships(p))) = 'type1'))]->(:label3) RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | <(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> |
+
+    Scenario: Test BFS variable expand with filter by edge type2
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label1)-[*BFS (e, n, p | NOT(type(e)='type2' AND type(last(relationships(p))) = 'type2'))]->(:label3) RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |
