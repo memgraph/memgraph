@@ -1,9 +1,11 @@
 ARG TOOLCHAIN_VERSION=v4
-ARG THREADS=8
-ARG BUILD_TYPE=Release
 ARG OS=debian-10
 
 FROM memgraph/memgraph-builder:${TOOLCHAIN_VERSION}_${OS}
+
+ARG OS=debian-10
+ARG BUILD_TYPE=Release
+ARG THREADS=8
 
 COPY . memgraph/
 
