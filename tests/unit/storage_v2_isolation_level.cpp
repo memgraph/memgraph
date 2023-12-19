@@ -15,6 +15,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace {
 int64_t VerticesCount(memgraph::storage::Storage::Accessor *accessor) {
@@ -113,6 +114,7 @@ TEST_P(StorageIsolationLevelTest, VisibilityOnDiskStorage) {
 
   for (const auto override_isolation_level : isolation_levels) {
     std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::DiskStorage(config));
+    auto on_exit = memgraph::utils::OnScopeExit{[&]() { disk_test_utils::RemoveRocksDbDirs(testSuite); }};
     try {
       this->TestVisibility(storage, default_isolation_level, override_isolation_level);
     } catch (memgraph::utils::NotYetImplemented &) {
@@ -120,10 +122,8 @@ TEST_P(StorageIsolationLevelTest, VisibilityOnDiskStorage) {
           override_isolation_level != memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION) {
         continue;
       }
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
       throw;
     }
-    disk_test_utils::RemoveRocksDbDirs(testSuite);
   }
 }
 

@@ -58,6 +58,7 @@ class TestEnvironment : public ::testing::Environment {
   void TearDown() override {
     ptr_.reset();
     auth.reset();
+    std::filesystem::remove_all(storage_directory);
   }
 
   static std::unique_ptr<memgraph::dbms::DbmsHandler> ptr_;
