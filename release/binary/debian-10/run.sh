@@ -1,4 +1,4 @@
-#!/bin/bash -eo
+#!/usr/bin/env bash -eo
 
 MG_BUILD_TYPE=${MG_BUILD_TYPE:-RelWithDebInfo}
 MG_THREADS=${MG_THREADS:-24}
