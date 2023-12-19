@@ -5,6 +5,8 @@ set -eo
 MG_BUILD_TYPE=${MG_BUILD_TYPE:-RelWithDebInfo}
 MG_THREADS=${MG_THREADS:-24}
 
+git config --global --add safe.directory /memgraph
+
 echo -e "\n-----BUILD_TYPE=$MG_BUILD_TYPE-----\n"
 echo -e "\n-----THREADS=$MG_THREADS-----\n"
 
