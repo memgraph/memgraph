@@ -427,8 +427,6 @@ class InMemoryStorage final : public Storage {
   std::optional<CommitLog> commit_log_;
 
   utils::Scheduler gc_runner_;
-  utils::Scheduler gc_python_runner_;
-  utils::Scheduler gc_jemalloc_runner_;
   std::mutex gc_lock_;
 
   using BondPmrLd = Bond<utils::pmr::list<Delta>>;
