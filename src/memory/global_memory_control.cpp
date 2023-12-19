@@ -119,7 +119,7 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
 
   memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
   if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
-    GetQueriesMemoryControl().TrackFreeOnCurrentThread(size);
+    GetQueriesMemoryControl().TrackAllocOnCurrentThread(size);
   }
 
   return false;
