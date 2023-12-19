@@ -320,7 +320,7 @@ def test_check_stream_same_number_of_queries_than_messages(connection, stream_cr
     STREAM_NAME = "test_stream"
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator(STREAM_NAME, BATCH_SIZE))
-    time.sleep(3)
+    time.sleep(2)
 
     test_results = Manager().Namespace()
 
@@ -331,7 +331,7 @@ def test_check_stream_same_number_of_queries_than_messages(connection, stream_cr
 
     check_stream_proc = Process(target=check_stream, args=(STREAM_NAME, BATCH_LIMIT))
     check_stream_proc.start()
-    time.sleep(3)
+    time.sleep(2)
 
     MESSAGES = [b"01", b"02", b"03", b"04", b"05", b"06"]
     for message in MESSAGES:

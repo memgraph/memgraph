@@ -419,6 +419,26 @@ def test_start_stream_with_batch_limit(kafka_producer, kafka_topics, connection)
     common.test_start_stream_with_batch_limit(connection, STREAM_NAME, stream_creator, messages_sender)
 
 
+def test_start_stream_with_batch_limit_timeout(kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    def stream_creator(stream_name):
+        return (
+            f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BATCH_SIZE 1"
+        )
+
+    common.test_start_stream_with_batch_limit_timeout(connection, stream_creator)
+
+
+def test_start_stream_with_batch_limit_reaching_timeout(kafka_topics, connection):
+    assert len(kafka_topics) > 0
+
+    def stream_creator(stream_name, batch_size):
+        return f"CREATE KAFKA STREAM {stream_name} TOPICS {kafka_topics[0]} TRANSFORM kafka_transform.simple BATCH_SIZE {batch_size}"
+
+    common.test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creator)
+
+
 def test_start_stream_with_batch_limit_while_check_running(kafka_producer, kafka_topics, connection):
     assert len(kafka_topics) > 0
 
