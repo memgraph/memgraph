@@ -15,4 +15,4 @@ ENV MG_THREADS ${THREADS}
 ENV MG_BUILD_TYPE ${BUILD_TYPE}
 ENV OS ${OS}
 
-ENTRYPOINT ["./memgraph/release/binary//run.sh", "&&", "sleep", "3600"]
+ENTRYPOINT ["./memgraph/release/binary/$OS/run.sh", "&&", "sleep", "3600"]
