@@ -7,7 +7,7 @@ FROM memgraph/memgraph-builder:${TOOLCHAIN_VERSION}_${OS}
 
 COPY . memgraph/
 
-RUN ./memgraph/environment/os/${OS}.sh install TOOLCHAIN_RUN_DEPS && ./memgraph/environment/os/${OS}.sh install MEMGRAPH_BUILD_DEPS && 
+RUN ./memgraph/environment/os/${OS}.sh install TOOLCHAIN_RUN_DEPS && ./memgraph/environment/os/${OS}.sh install MEMGRAPH_BUILD_DEPS 
 
 ENV MG_THREADS  ${THREADS}
 ENV MG_BUILD_TYPE  ${BUILD_TYPE}
