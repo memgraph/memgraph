@@ -259,7 +259,7 @@ repo_clone_try_double "${primary_urls[absl]}" "${secondary_urls[absl]}" "absl" "
 
 # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
 JEMALLOC_COMMIT_VERSION="5.2.1"
-repo_clone_try_double "${secondary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$JEMALLOC_COMMIT_VERSION"
+repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$JEMALLOC_COMMIT_VERSION"
 
 # this is hack for cmake in libs to set path, and for FindJemalloc to use Jemalloc_INCLUDE_DIR
 pushd jemalloc
