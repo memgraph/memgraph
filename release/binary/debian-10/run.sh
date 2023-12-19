@@ -13,3 +13,4 @@ cd build
 cmake -DCMAKE_BUILD_TYPE=$MG_BUILD_TYPE -DMG_ENTERPRISE=OFF ..
 make -j$MG_THREADS
 
+sleep eternity
