@@ -12,7 +12,9 @@
 #include "query/cypher_query_interpreter.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "utils/synchronized.hpp"
+#include "query/frontend/semantic/required_privileges.hpp"
+#include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/plan/vertex_count_cache.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");

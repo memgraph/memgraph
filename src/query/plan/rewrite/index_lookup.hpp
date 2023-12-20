@@ -26,8 +26,10 @@
 
 #include <gflags/gflags.h>
 
+#include "query/interpret/eval.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "storage/v2/id_types.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
@@ -41,19 +43,19 @@ struct IndexHints {
   IndexHints(std::vector<IndexHint> index_hints, TDbAccessor *db) {
     for (const auto &index_hint : index_hints) {
       const auto index_type = index_hint.index_type_;
-      const auto label_name = index_hint.label_.name;
+      // const auto label_name = index_hint.label_.name;
       if (index_type == IndexHint::IndexType::LABEL) {
-        if (!db->LabelIndexExists(db->NameToLabel(label_name))) {
-          spdlog::debug("Index for label {} doesn't exist", label_name);
-          continue;
-        }
+        // if (!db->LabelIndexExists(db->NameToLabel(label_name))) {
+        //   spdlog::debug("Index for label {} doesn't exist", label_name);
+        //   continue;
+        // }
         label_index_hints_.emplace_back(index_hint);
       } else if (index_type == IndexHint::IndexType::LABEL_PROPERTY) {
         auto property_name = index_hint.property_->name;
-        if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), db->NameToProperty(property_name))) {
-          spdlog::debug("Index for label {} and property {} doesn't exist", label_name, property_name);
-          continue;
-        }
+        // if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), db->NameToProperty(property_name))) {
+        //   spdlog::debug("Index for label {} and property {} doesn't exist", label_name, property_name);
+        //   continue;
+        // }
         label_property_index_hints_.emplace_back(index_hint);
       }
     }
@@ -84,8 +86,13 @@ struct HashPair {
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), index_hints_(std::move(index_hints)) {}
+  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, IndexHints index_hints,
+                      Parameters *parameters)
+      : symbol_table_(symbol_table),
+        ast_storage_(ast_storage),
+        db_(db),
+        index_hints_(std::move(index_hints)),
+        parameters_(parameters) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -584,6 +591,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
   IndexHints index_hints_;
+  Parameters *parameters_;
 
   // additional symbols that are present from other non-main branches but have influence on indexing
   std::unordered_set<Symbol> additional_bound_symbols_;
@@ -635,18 +643,29 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   storage::PropertyId GetProperty(PropertyIx prop) { return db_->NameToProperty(prop.name); }
 
-  std::optional<LabelIx> FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
+  std::optional<storage::LabelId> FindBestLabelIndex(const std::unordered_set<storage::LabelId> &labels) {
     MG_ASSERT(!labels.empty(), "Trying to find the best label without any labels.");
 
+    EvaluationContext evaluation_context;
+    evaluation_context.parameters = *parameters_;
+    auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
     for (const auto &[index_type, label, _] : index_hints_.label_index_hints_) {
-      if (labels.contains(label)) {
-        return label;
+      storage::LabelId label_id;
+      if (std::holds_alternative<ParameterLookup *>(label)) {
+        auto key = evaluator.Visit(*std::get<ParameterLookup *>(label));
+        label_id = db_->NameToLabel(key.ValueString());
+      } else {
+        label_id = db_->NameToLabel(std::get<LabelIx>(label).name);
+      }
+      if (labels.contains(label_id)) {
+        return label_id;
       }
     }
 
-    std::optional<LabelIx> best_label;
+    std::optional<storage::LabelId> best_label;
     for (const auto &label : labels) {
-      if (!db_->LabelIndexExists(GetLabel(label))) continue;
+      if (!db_->LabelIndexExists(label)) continue;
       if (!best_label) {
         best_label = label;
         continue;
@@ -670,6 +689,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       return true;
     };
+    EvaluationContext evaluation_context;
+    evaluation_context.parameters = *parameters_;
+    auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+    std::unordered_set<storage::LabelId> label_ids;
 
     std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices{};
     std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup{};
@@ -682,21 +705,24 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           // cannot scan `n` by property index.
           continue;
         }
+        LabelIx label_ix;
+        if (std::holds_alternative<ParameterLookup *>(label)) {
+          auto key = evaluator.Visit(*std::get<ParameterLookup *>(label));
+          auto label_id = db_->NameToLabel(key.ValueString());
+          auto label_name = db_->LabelToName(label_id);
+          label_ix = ast_storage_->GetLabelIx(label_name);
+        } else {
+          label_ix = std::get<LabelIx>(label);
+        }
 
         const auto &property = filter.property_filter->property_;
-        if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
+        if (!db_->LabelPropertyIndexExists(GetLabel(label_ix), GetProperty(property))) {
           continue;
         }
-        LabelIx label_ix;
-        if (std::holds_alternative<LabelIx>(label)) {
-          label_ix = std::get<LabelIx>(label);
-        } else {
-          // TODO
-        }
         candidate_indices.emplace_back(
-            IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY, .label_ = label, .property_ = property},
+            IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY, .label_ = label_ix, .property_ = property},
             filter);
-        candidate_index_lookup.insert({std::make_pair(label, property), filter});
+        candidate_index_lookup.insert({std::make_pair(label_ix, property), filter});
       }
     }
 
@@ -829,6 +855,19 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // Without labels, we cannot generate any indexed ScanAll.
       return nullptr;
     }
+    EvaluationContext evaluation_context;
+    evaluation_context.parameters = *parameters_;
+    auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+    std::unordered_set<storage::LabelId> label_ids;
+    for (const auto &label : labels) {
+      if (std::holds_alternative<ParameterLookup *>(label)) {
+        auto key = evaluator.Visit(*std::get<ParameterLookup *>(label));
+        auto label_id = db_->NameToLabel(key.ValueString());
+        label_ids.insert(label_id);
+      } else {
+        label_ids.insert(db_->NameToLabel(std::get<LabelIx>(label).name));
+      }
+    }
     auto found_index = FindBestLabelPropertyIndex(node_symbol, bound_symbols);
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.
@@ -877,18 +916,20 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                              prop_filter.property_.name, prop_filter.value_, view);
       }
     }
-    auto maybe_label = FindBestLabelIndex(labels);
+    auto maybe_label = FindBestLabelIndex(label_ids);
     if (!maybe_label) return nullptr;
     const auto &label = *maybe_label;
-    if (max_vertex_count && db_->VerticesCount(GetLabel(label)) > *max_vertex_count) {
+    if (max_vertex_count && db_->VerticesCount(label) > *max_vertex_count) {
       // Don't create an indexed lookup, since we have more labeled vertices
       // than the allowed count.
       return nullptr;
     }
     std::vector<Expression *> removed_expressions;
-    filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
+    auto label_name = db_->LabelToName(label);
+    auto label_ix = ast_storage_->GetLabelIx(label_name);
+    filters_.EraseLabelFilter(node_symbol, label_ix, &removed_expressions);
     filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-    return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
+    return std::make_unique<ScanAllByLabel>(input, node_symbol, label, view);
   }
 };
 
@@ -897,8 +938,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                        TDbAccessor *db, IndexHints index_hints) {
-  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints);
+                                                        TDbAccessor *db, IndexHints index_hints,
+                                                        Parameters *parameters) {
+  impl::IndexLookupRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db, index_hints, parameters);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
     // This shouldn't happen in real use case, because IndexLookupRewriter

@@ -14,7 +14,6 @@
 #include <memory>
 #include <type_traits>
 
-#include "query/common.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"

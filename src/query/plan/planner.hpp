@@ -27,7 +27,6 @@
 #include "query/plan/rewrite/join.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
-#include "query/plan/vertex_count_cache.hpp"
 
 namespace memgraph::query {
 
@@ -52,8 +51,8 @@ class PostProcessor final {
 
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
-    auto index_lookup_plan =
-        RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db, index_hints_);
+    auto index_lookup_plan = RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage,
+                                                    context->db, index_hints_, &parameters_);
     return RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage,
                                    context->db);
   }

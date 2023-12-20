@@ -14,14 +14,12 @@
 #include <utility>
 
 #include "query/config.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
-#include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/cypher_query_utils.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/plan/planner.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/lru_cache.hpp"
 #include "utils/synchronized.hpp"
-#include "utils/timer.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(query_cost_planner);
@@ -29,70 +27,6 @@ DECLARE_bool(query_cost_planner);
 DECLARE_int32(query_plan_cache_max_size);
 
 namespace memgraph::query {
-
-// TODO: Maybe this should move to query/plan/planner.
-/// Interface for accessing the root operator of a logical plan.
-class LogicalPlan {
- public:
-  explicit LogicalPlan() = default;
-
-  virtual ~LogicalPlan() = default;
-
-  LogicalPlan(const LogicalPlan &) = default;
-  LogicalPlan &operator=(const LogicalPlan &) = default;
-  LogicalPlan(LogicalPlan &&) = default;
-  LogicalPlan &operator=(LogicalPlan &&) = default;
-
-  virtual const plan::LogicalOperator &GetRoot() const = 0;
-  virtual double GetCost() const = 0;
-  virtual const SymbolTable &GetSymbolTable() const = 0;
-  virtual const AstStorage &GetAstStorage() const = 0;
-};
-
-class PlanWrapper {
- public:
-  explicit PlanWrapper(std::unique_ptr<LogicalPlan> plan);
-
-  const auto &plan() const { return plan_->GetRoot(); }
-  double cost() const { return plan_->GetCost(); }
-  const auto &symbol_table() const { return plan_->GetSymbolTable(); }
-  const auto &ast_storage() const { return plan_->GetAstStorage(); }
-
- private:
-  std::unique_ptr<LogicalPlan> plan_;
-};
-
-struct CachedQuery {
-  AstStorage ast_storage;
-  Query *query;
-  std::vector<AuthQuery::Privilege> required_privileges;
-};
-
-struct QueryCacheEntry {
-  bool operator==(const QueryCacheEntry &other) const { return first == other.first; }
-  bool operator<(const QueryCacheEntry &other) const { return first < other.first; }
-  bool operator==(const uint64_t &other) const { return first == other; }
-  bool operator<(const uint64_t &other) const { return first < other; }
-
-  uint64_t first;
-  // TODO: Maybe store the query string here and use it as a key with the hash
-  // so that we eliminate the risk of hash collisions.
-  CachedQuery second;
-};
-
-/**
- * A container for data related to the parsing of a query.
- */
-struct ParsedQuery {
-  std::string query_string;
-  std::map<std::string, storage::PropertyValue> user_parameters;
-  Parameters parameters;
-  frontend::StrippedQuery stripped_query;
-  AstStorage ast_storage;
-  Query *query;
-  std::vector<AuthQuery::Privilege> required_privileges;
-  bool is_cacheable{true};
-};
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config);

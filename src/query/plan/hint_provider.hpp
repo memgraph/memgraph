@@ -15,12 +15,15 @@
 
 #pragma once
 
+#include <fmt/core.h>
 #include <algorithm>
+#include <variant>
 #include <vector>
 
 #include <boost/algorithm/string.hpp>
 #include <range/v3/view.hpp>
 
+#include "query/frontend/ast/ast.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/logging.hpp"
@@ -222,8 +225,12 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
     Filters filters;
     filters.CollectFilterExpression(op.expression_, symbol_table_);
-    const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol),
-                                                       [](const auto &item) { return fmt::format(":{0}", item.name); });
+    const std::string filtered_labels = ExtractAndJoin(filters.FilteredLabels(scan_symbol), [](const auto &item) {
+      if (std::holds_alternative<LabelIx>(item)) {
+        return fmt::format(":{0}", std::get<LabelIx>(item).name);
+      }
+      return fmt::format(":{0}", "");
+    });
     const std::string filtered_properties =
         ExtractAndJoin(filters.FilteredProperties(scan_symbol), [](const auto &item) { return item.name; });
 

@@ -267,13 +267,29 @@ void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label, std::vector<
       ++filter_it;
       continue;
     }
-    auto label_it = std::find(filter_it->labels.begin(), filter_it->labels.end(), label);
+    // auto label_it = std::find(filter_it->labels.begin(), filter_it->labels.end(), label);
+    auto label_it = filter_it->labels.begin();
+    while (label_it != filter_it->labels.end()) {
+      if (std::holds_alternative<LabelIx>(*label_it) && std::get<LabelIx>(*label_it) == label) {
+        break;
+      }
+      ++label_it;
+    }
     if (label_it == filter_it->labels.end()) {
       ++filter_it;
       continue;
     }
-    filter_it->labels.erase(label_it);
-    DMG_ASSERT(!utils::Contains(filter_it->labels, label), "Didn't expect duplicated labels");
+    auto next = filter_it->labels.erase(label_it);
+    bool still_contains_same_label = false;
+    while (next != filter_it->labels.end()) {
+      still_contains_same_label = false;
+      if (std::holds_alternative<LabelIx>(*next) && std::get<LabelIx>(*next) == label) {
+        still_contains_same_label = true;
+        break;
+      }
+      ++next;
+    }
+    DMG_ASSERT(still_contains_same_label, "Didn't expect duplicated labels");
     if (filter_it->labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
       if (removed_filters) {

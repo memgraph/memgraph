@@ -32,6 +32,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/frame_change_id.hpp"
@@ -736,21 +737,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Vertex: {
         const auto &vertex = expression_result.ValueVertex();
         for (auto &label_variant : labels_test.labels_) {
-          std::variant<std::string, LabelIx> label;
-          if (const auto *label_ix = std::get_if<LabelIx>(&label_variant)) {
-            label = *label_ix;
+          storage::LabelId label;
+          if (std::holds_alternative<LabelIx>(label_variant)) {
+            label = GetLabel(std::get<LabelIx>(label_variant));
           } else {
             // return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
-            auto key = Visit(*std::get<ParameterLookup *>(label));
+            auto key = Visit(*std::get<ParameterLookup *>(label_variant));
             auto name = key.ValueString();
-            label = name;
+            label = dba_->NameToLabel(name);
           }
-          Result<bool> has_label;
-          if (std::holds_alternative<std::string>(label)) {
-            has_label = vertex.HasLabel(storage::View::NEW, std::get<std::string>(label));
-          } else {
-            has_label = vertex.HasLabel(storage::View::NEW, GetLabel(std::get<LabelIx>(label)));
-          }
+          auto has_label = vertex.HasLabel(storage::View::NEW, label);
           if (has_label.HasError() && has_label.GetError() == storage::Error::NONEXISTENT_OBJECT) {
             // This is a very nasty and temporary hack in order to make MERGE
             // work. The old storage had the following logic when returning an
@@ -759,11 +755,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             // we simulate that behavior.
             // TODO (mferencevic, teon.banek): Remove once MERGE is
             // reimplemented.
-            if (std::holds_alternative<std::string>(label)) {
-              has_label = vertex.HasLabel(storage::View::NEW, std::get<std::string>(label));
-            } else {
-              has_label = vertex.HasLabel(storage::View::NEW, GetLabel(std::get<LabelIx>(label)));
-            }
+            has_label = vertex.HasLabel(storage::View::NEW, label);
           }
           if (has_label.HasError()) {
             switch (has_label.GetError()) {
