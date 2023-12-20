@@ -25,17 +25,32 @@ namespace memgraph::utils {
 static constexpr int64_t VM_MAX_MAP_COUNT_DEFAULT{-1};
 
 /// Returns the number of bytes a directory is using on disk. If the given path
-/// isn't a directory, zero will be returned.
+/// isn't a directory, zero will be returned. If there are some files with
+/// wrong permission, it will be skipped
 template <bool IgnoreSymlink = true>
 inline uint64_t GetDirDiskUsage(const std::filesystem::path &path) {
   if (!std::filesystem::is_directory(path)) return 0;
 
+  if (!utils::HasReadAccess(path)) {
+    spdlog::warn(
+        "Skipping directory path on collecting directory disk usage '{}' because it is not readable, check file "
+        "ownership and read permissions!",
+        path);
+    return 0;
+  }
   uint64_t size = 0;
-  for (auto &p : std::filesystem::directory_iterator(path)) {
+  for (const auto &p : std::filesystem::directory_iterator(path)) {
     if (IgnoreSymlink && std::filesystem::is_symlink(p)) continue;
     if (std::filesystem::is_directory(p)) {
       size += GetDirDiskUsage(p);
     } else if (std::filesystem::is_regular_file(p)) {
+      if (!utils::HasReadAccess(p)) {
+        spdlog::warn(
+            "Skipping file path on collecting directory disk usage '{}' because it is not readable, check file "
+            "ownership and read permissions!",
+            p);
+        continue;
+      }
       size += std::filesystem::file_size(p);
     }
   }
