@@ -17,6 +17,7 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
+#include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
@@ -30,7 +31,8 @@ struct ParsingContext {
 
 class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
  public:
-  explicit CypherMainVisitor(ParsingContext context, AstStorage *storage) : context_(context), storage_(storage) {}
+  explicit CypherMainVisitor(ParsingContext context, AstStorage *storage, Parameters parameters)
+      : context_(context), storage_(storage), parameters_(std::move(parameters)) {}
 
  private:
   Expression *CreateBinaryOperatorByToken(size_t token, Expression *e1, Expression *e2) {
@@ -1021,6 +1023,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // We use this variable in visitReturnItem to check if we are in with or
   // return.
   bool in_with_ = false;
+
+  Parameters parameters_;
 
   QueryInfo query_info_;
 };

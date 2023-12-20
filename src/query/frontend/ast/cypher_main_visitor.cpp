@@ -1777,7 +1777,15 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
       if (std::holds_alternative<LabelIx>(label)) {
         node->labels_.push_back(std::get<LabelIx>(label));
       } else {
-        node->labels_to_lookup_.push_back(std::get<ParameterLookup *>(label));
+        // TypedValue Visit(ParameterLookup &param_lookup) override {
+        //     return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
+        // }
+        // node->labels_to_lookup_.push_back(std::get<ParameterLookup *>(label));
+        auto *param_lookup = std::get<ParameterLookup *>(label);
+        auto property_value = parameters_.AtTokenPosition(param_lookup->token_position_);
+        auto label_name = property_value.ValueString();
+        auto label_ix = storage_->GetLabelIx(label_name);
+        node->labels_.push_back(label_ix);
       }
     }
   }
@@ -1796,9 +1804,9 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
   std::vector<std::variant<LabelIx, ParameterLookup *>> labels;
   for (auto *node_label : ctx->nodeLabel()) {
     if (node_label->labelName()->symbolicName()) {
-      labels.push_back(AddLabel(std::any_cast<std::string>(node_label->accept(this))));
+      labels.emplace_back(AddLabel(std::any_cast<std::string>(node_label->accept(this))));
     } else {
-      labels.push_back(std::any_cast<ParameterLookup *>(node_label->accept(this)));
+      labels.emplace_back(std::any_cast<ParameterLookup *>(node_label->accept(this)));
     }
   }
   return labels;
