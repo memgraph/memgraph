@@ -1,11 +1,11 @@
-ARG TOOLCHAIN_VERSION=v4
-ARG OS=debian-10
+ARG TOOLCHAIN_VERSION
+ARG OS
 
 FROM memgraph/memgraph-builder:${TOOLCHAIN_VERSION}_${OS}
 
 SHELL ["/bin/bash", "-c"]
 
-ARG OS=debian-10
+ARG OS
 
 COPY . /memgraph
 
