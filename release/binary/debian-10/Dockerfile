@@ -17,5 +17,5 @@ RUN source /opt/toolchain-v4/activate && cd memgraph && ./init
 ENV MG_THREADS ${THREADS}
 ENV MG_BUILD_TYPE ${BUILD_TYPE}
 
-ENTRYPOINT ["sleep", "eternity"]
+ENTRYPOINT ["sleep", "infinity"]
 # ENTRYPOINT ["./memgraph/release/binary/debian-10/run.sh", "&&", "sleep", "3600"]
