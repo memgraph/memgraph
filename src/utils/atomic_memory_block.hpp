@@ -38,7 +38,7 @@ class [[nodiscard]] AtomicMemoryBlock {
   }
 
  private:
-  std::function<void()> function_;
+  Callable function_;
 };
 
 }  // namespace memgraph::utils
