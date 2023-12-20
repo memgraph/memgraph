@@ -39,10 +39,10 @@ case "$1" in
   ;;
 
   build-memgraph)
-      cd $DIR../../../build
+      cd $DIR/../../build
       source /opt/toolchain-v4/activate
-      cmake -DCMAKE_BUILD_TYPE=$MG_BUILD_TYPE -DMG_ENTERPRISE=OFF ..
-      make -j$MG_THREADS
+      cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DMG_ENTERPRISE=OFF ..
+      make -j$THREAD_COUNT
   ;;
 
   run-builder)
