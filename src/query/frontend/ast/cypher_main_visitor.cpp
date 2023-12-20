@@ -1772,8 +1772,14 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
     anonymous_identifiers.push_back(&node->identifier_);
   }
   if (ctx->nodeLabels()) {
-    node->labels_ =
-        std::any_cast<std::vector<std::variant<LabelIx, ParameterLookup *>>>(ctx->nodeLabels()->accept(this));
+    auto labels = std::any_cast<std::vector<std::variant<LabelIx, ParameterLookup *>>>(ctx->nodeLabels()->accept(this));
+    for (const auto &label : labels) {
+      if (std::holds_alternative<LabelIx>(label)) {
+        node->labels_.push_back(std::get<LabelIx>(label));
+      } else {
+        node->labels_to_lookup_.push_back(std::get<ParameterLookup *>(label));
+      }
+    }
   }
   if (ctx->properties()) {
     // This can return either properties or parameters

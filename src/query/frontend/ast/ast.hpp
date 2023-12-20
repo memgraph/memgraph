@@ -1773,7 +1773,8 @@ class NodeAtom : public memgraph::query::PatternAtom {
     return visitor.PostVisit(*this);
   }
 
-  std::vector<std::variant<memgraph::query::LabelIx, memgraph::query::ParameterLookup *>> labels_;
+  std::vector<memgraph::query::LabelIx> labels_;
+  std::vector<memgraph::query::ParameterLookup *> labels_to_lookup_;
   std::variant<std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>,
                memgraph::query::ParameterLookup *>
       properties_;
@@ -1783,11 +1784,10 @@ class NodeAtom : public memgraph::query::PatternAtom {
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
     object->labels_.resize(labels_.size());
     for (auto i = 0; i < object->labels_.size(); ++i) {
-      if (const auto *label = std::get_if<LabelIx>(&labels_[i])) {
-        object->labels_[i] = storage->GetLabelIx(label->name);
-      } else {
-        object->labels_[i] = std::get<ParameterLookup *>(labels_[i])->Clone(storage);
-      }
+      object->labels_[i] = storage->GetLabelIx(labels_[i].name);
+    }
+    for (auto *label_to_lookup : labels_to_lookup_) {
+      object->labels_to_lookup_.push_back(label_to_lookup->Clone(storage));
     }
     if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
       auto &new_obj_properties = std::get<std::unordered_map<PropertyIx, Expression *>>(object->properties_);
