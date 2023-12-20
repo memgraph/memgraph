@@ -4,7 +4,7 @@ set -eo pipefail
 
 DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-TARGET_OS=${TARGET_OS:-Debian-11}
+TARGET_OS=${TARGET_OS:-debian-11}
 TOOLCHAIN_VERSION=${TOOLCHAIN_VERSION:-v4}
 BUILD_TYPE=${BUILD_TYPE:-RelWithDebInfo}
 THREAD_COUNT=${THREAD_COUNT:-24}
