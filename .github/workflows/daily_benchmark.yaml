@@ -75,6 +75,8 @@ jobs:
 
           ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results cartesian.json cartesian
 
+          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results order_by.json order_by
+
       - name: Upload mgbench results
         run: |
           cd tools/bench-graph-client
@@ -101,6 +103,12 @@ jobs:
 
           ./main.py --benchmark-name "cartesian" \
                     --benchmark-results "../../tests/mgbench/cartesian.json" \
+                    --github-run-id "${{ github.run_id }}" \
+                    --github-run-number "${{ github.run_number }}" \
+                    --head-branch-name "${{ env.BRANCH_NAME }}"
+
+          ./main.py --benchmark-name "order_by" \
+                    --benchmark-results "../../tests/mgbench/order_by.json" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
