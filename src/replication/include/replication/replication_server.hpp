@@ -14,9 +14,8 @@
 #include "replication/config.hpp"
 #include "rpc/server.hpp"
 #include "slk/streams.hpp"
-#include "storage/v2/replication/global.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::replication {
 
 class ReplicationServer {
  public:
@@ -31,10 +30,10 @@ class ReplicationServer {
   bool Start();
 
  protected:
-  static void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
-
   communication::ServerContext rpc_server_context_;
-  rpc::Server rpc_server_;
+
+ public:
+  rpc::Server rpc_server_;  // TODO: Interface or something
 };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::replication

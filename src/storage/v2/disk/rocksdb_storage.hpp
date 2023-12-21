@@ -32,7 +32,7 @@ namespace memgraph::storage {
 /// Wraps RocksDB objects inside a struct. Vertex_chandle and edge_chandle are column family handles that may be
 /// nullptr. In that case client should take care about them.
 struct RocksDBStorage {
-  explicit RocksDBStorage() {}
+  explicit RocksDBStorage() = default;
 
   RocksDBStorage(const RocksDBStorage &) = delete;
   RocksDBStorage &operator=(const RocksDBStorage &) = delete;

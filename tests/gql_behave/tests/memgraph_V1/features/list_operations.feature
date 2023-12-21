@@ -263,3 +263,19 @@ Feature: List operators
             | id |
             | 1  |
             | 2  |
+
+     Scenario: InList 01
+        Given an empty graph
+        And having executed
+            """
+            CREATE (o:Node) SET o.Status = 'This is the status';
+            """
+        When executing query:
+            """
+            match (o:Node)
+            where o.Status IN ['This is not the status', 'This is the status']
+            return o;
+            """
+        Then the result should be:
+            | o                                       |
+            | (:Node {Status: 'This is the status'})  |

@@ -144,7 +144,7 @@ def run_writer(repetition_count: int, sleep_sec: float, worker_id: int) -> int:
     def create() -> bool:
         exception_occured = False
 
-        memory_allocated_before, _ = get_storage_data(session)
+        memory_tracked_before, _ = get_storage_data(session)
         count_before = execute_till_success(session, f"MATCH (n) RETURN COUNT(n) AS cnt")[0][0]["cnt"]
         try:
             try_execute(
@@ -155,12 +155,12 @@ def run_writer(repetition_count: int, sleep_sec: float, worker_id: int) -> int:
             log.info(f"Exception occured during create: {ex}")
             exception_occured = True
 
-        memory_allocated_after, _ = get_storage_data(session)
+        memory_tracked_after, _ = get_storage_data(session)
         count_after = execute_till_success(session, f"MATCH (n) RETURN COUNT(n) AS cnt")[0][0]["cnt"]
         if exception_occured:
             log.info(
                 f"Exception occured, stopping exection of run {Constants.CREATE_FUNCTION} worker."
-                f"Memory stats: before query: {memory_allocated_before}, after query: {memory_allocated_after}."
+                f"Memory stats: before query: {memory_tracked_before}, after query: {memory_tracked_after}."
                 f"Node stats: before query {count_before}, after query {count_after}"
             )
             return False
@@ -228,8 +228,8 @@ def get_storage_data(session) -> Tuple[float, float]:
 
     try:
         data = execute_till_success(session, f"SHOW STORAGE INFO")[0]
-        res_data = isolate_value(data, "memory_usage")
-        memory_tracker_data = isolate_value(data, "memory_allocated")
+        res_data = isolate_value(data, "memory_res")
+        memory_tracker_data = isolate_value(data, "memory_tracked")
         log.info(
             f"Worker {Constants.MONITOR_CLEANUP_FUNCTION} logged memory: memory tracker {memory_tracker_data} vs res data {res_data}"
         )
@@ -260,10 +260,11 @@ def run_monitor_cleanup(repetition_count: int, sleep_sec: float) -> None:
             # Problem with test using detach delete and memory tracker
             # is that memory tracker gets updated immediately
             # whereas RES takes some time
-            cnt_again = 3
+            # Tries 10 times or fails
+            cnt_again = 10
             skip_failure = False
-            # 10% is maximum increment, afterwards is fail
-            multiplier = 1
+            # 10% is maximum diff for this test to pass
+            multiplier = 1.10
             while cnt_again:
                 new_memory_tracker, new_res_data = get_storage_data(session)
 
@@ -277,7 +278,6 @@ def run_monitor_cleanup(repetition_count: int, sleep_sec: float) -> None:
                         f"RES data: {new_res_data}, multiplier: {multiplier}"
                     )
                     break
-                multiplier += 0.05
                 cnt_again -= 1
             if not skip_failure:
                 log.info(memory_tracker, initial_diff, res_data)

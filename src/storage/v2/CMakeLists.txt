@@ -35,24 +35,11 @@ add_library(mg-storage-v2 STATIC
         disk/unique_constraints.cpp
         storage_mode.cpp
         replication/replication_client.cpp
-        replication/replication_server.cpp
         replication/serialization.cpp
         replication/slk.cpp
         replication/rpc.cpp
         replication/replication_storage_state.cpp
-        replication/replication_handler.cpp
-        inmemory/replication/replication_server.cpp
-        inmemory/replication/replication_client.cpp
+        inmemory/replication/recovery.cpp
 )
-target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk mg-events)
 
-# Until we get LTO there is an advantage to do some unity builds
-set_target_properties(mg-storage-v2
-        PROPERTIES
-        UNITY_BUILD ON
-        UNITY_BUILD_MODE GROUP
-)
-set_source_files_properties(
-        vertex_info_cache.cpp vertex_accessor.cpp
-        PROPERTIES UNITY_GROUP "ensure inline of vertex_info_cache"
-)
+target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk mg-events mg-memory)

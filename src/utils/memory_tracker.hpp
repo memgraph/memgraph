@@ -25,17 +25,6 @@ class OutOfMemoryException : public utils::BasicException {
 };
 
 class MemoryTracker final {
- private:
-  std::atomic<int64_t> amount_{0};
-  std::atomic<int64_t> peak_{0};
-  std::atomic<int64_t> hard_limit_{0};
-  // Maximum possible value of a hard limit. If it's set to 0, no upper bound on the hard limit is set.
-  int64_t maximum_hard_limit_{0};
-
-  void UpdatePeak(int64_t will_be);
-
-  static void LogMemoryUsage(int64_t current);
-
  public:
   void LogPeakMemoryUsage() const;
 
@@ -60,6 +49,7 @@ class MemoryTracker final {
 
   void Alloc(int64_t size);
   void Free(int64_t size);
+  void DoCheck();
 
   auto Amount() const { return amount_.load(std::memory_order_relaxed); }
 
@@ -72,6 +62,13 @@ class MemoryTracker final {
   void SetMaximumHardLimit(int64_t limit);
 
   void ResetTrackings();
+
+  bool IsProcedureTracked();
+
+  void SetProcTrackingLimit(size_t limit);
+
+  void StartProcTracking();
+  void StopProcTracking();
 
   // By creating an object of this class, every allocation in its scope that goes over
   // the set hard limit produces an OutOfMemoryException.
@@ -109,6 +106,17 @@ class MemoryTracker final {
    private:
     static thread_local uint64_t counter_;
   };
+
+ private:
+  std::atomic<int64_t> amount_{0};
+  std::atomic<int64_t> peak_{0};
+  std::atomic<int64_t> hard_limit_{0};
+  // Maximum possible value of a hard limit. If it's set to 0, no upper bound on the hard limit is set.
+  int64_t maximum_hard_limit_{0};
+
+  void UpdatePeak(int64_t will_be);
+
+  static void LogMemoryUsage(int64_t current);
 };
 
 // Global memory tracker which tracks every allocation in the application.

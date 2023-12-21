@@ -51,7 +51,7 @@ class DatabaseHandler : public Handler<Database> {
    * @param config Storage configuration
    * @return HandlerT::NewResult
    */
-  HandlerT::NewResult New(std::string_view name, storage::Config config) {
+  HandlerT::NewResult New(std::string_view name, storage::Config config, replication::ReplicationState &repl_state) {
     // Control that no one is using the same data directory
     if (std::any_of(begin(), end(), [&](auto &elem) {
           auto db_acc = elem.second.access();
@@ -62,7 +62,7 @@ class DatabaseHandler : public Handler<Database> {
       return NewError::EXISTS;
     }
     config.name = name;  // Set storage id via config
-    return HandlerT::New(std::piecewise_construct, name, config);
+    return HandlerT::New(std::piecewise_construct, name, config, repl_state);
   }
 
   /**
@@ -93,5 +93,4 @@ class DatabaseHandler : public Handler<Database> {
 };
 
 }  // namespace memgraph::dbms
-
 #endif

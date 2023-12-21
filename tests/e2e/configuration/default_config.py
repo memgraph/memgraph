@@ -115,6 +115,16 @@ startup_config_dict = {
         "false",
         "Controls whether the index creation can be done in a multithreaded fashion.",
     ),
+    "storage_parallel_schema_recovery": (
+        "false",
+        "false",
+        "Controls whether the indices and constraints creation can be done in a multithreaded fashion.",
+    ),
+    "storage_enable_schema_metadata": (
+        "false",
+        "false",
+        "Controls whether metadata should be collected about the resident labels and edge types.",
+    ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
@@ -184,7 +194,7 @@ startup_config_dict = {
         "Set to true to enable telemetry. We collect information about the running system (CPU and memory information) and information about the database runtime (vertex and edge counts and resource usage) to allow for easier improvement of the product.",
     ),
     "query_cost_planner": ("true", "true", "Use the cost-estimating query planner."),
-    "query_plan_cache_ttl": ("60", "60", "Time to live for cached query plans, in seconds."),
+    "query_plan_cache_max_size": ("1000", "1000", "Maximum number of query plans to cache."),
     "query_vertex_count_to_expand_existing": (
         "10",
         "10",

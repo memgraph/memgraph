@@ -111,7 +111,7 @@ void MemoryTracker::Alloc(const int64_t size) {
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
-  if (UNLIKELY(current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow())) {
+  if (current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow()) [[unlikely]] {
     MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
 
     amount_.fetch_sub(size, std::memory_order_relaxed);
@@ -121,8 +121,20 @@ void MemoryTracker::Alloc(const int64_t size) {
                     "use to {}, while the maximum allowed size for allocation is set to {}.",
                     GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(current_hard_limit)));
   }
-
   UpdatePeak(will_be);
+}
+
+void MemoryTracker::DoCheck() {
+  const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
+  const auto current_amount = amount_.load(std::memory_order_relaxed);
+  if (current_hard_limit && current_amount > current_hard_limit && MemoryTrackerCanThrow()) [[unlikely]] {
+    MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
+    throw OutOfMemoryException(
+        fmt::format("Memory limit exceeded! Current "
+                    "use is {}, while the maximum allowed size for allocation is set to {}.",
+                    GetReadableSize(static_cast<double>(current_amount)),
+                    GetReadableSize(static_cast<double>(current_hard_limit))));
+  }
 }
 
 void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }

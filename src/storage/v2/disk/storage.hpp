@@ -121,6 +121,9 @@ class DiskStorage final : public Storage {
 
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
+    std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
+                                         VertexAccessor *to_vertex) override;
+
     Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) override;
 
     Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) override;
@@ -142,8 +145,8 @@ class DiskStorage final : public Storage {
     ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {}) override;
+    utils::BasicResult<StorageManipulationError, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {},
+                                                              bool is_main = true) override;
 
     void UpdateObjectsCountOnAbort();
 
@@ -172,9 +175,13 @@ class DiskStorage final : public Storage {
                                                            const std::set<PropertyId> &properties) override;
   };
 
-  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
+  using Storage::Access;
+  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
+                                            bool is_main) override;
 
-  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
+  using Storage::UniqueAccess;
+  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                  bool is_main) override;
 
   /// Flushing methods
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache(Transaction *transaction);
@@ -277,7 +284,8 @@ class DiskStorage final : public Storage {
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
+  using Storage::CreateTransaction;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) override;
 
   void SetEdgeImportMode(EdgeImportMode edge_import_status);
 
@@ -304,21 +312,9 @@ class DiskStorage final : public Storage {
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
 
-  void PrepareForNewEpoch(std::string /*prev_epoch*/) override {
-    throw utils::BasicException("Disk storage mode does not support replication.");
-  }
+  void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
-
-  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig & /*config*/)
-      -> std::unique_ptr<ReplicationClient> override {
-    throw utils::BasicException("Disk storage mode does not support replication.");
-  }
-
-  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig & /*config*/)
-      -> std::unique_ptr<ReplicationServer> override {
-    throw utils::BasicException("Disk storage mode does not support replication.");
-  }
 
   std::unique_ptr<RocksDBStorage> kvstore_;
   DurableMetadata durable_metadata_;

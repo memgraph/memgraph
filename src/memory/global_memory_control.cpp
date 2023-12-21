@@ -61,11 +61,8 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   // This needs to be before, to throw exception in case of too big alloc
   if (*commit) [[likely]] {
     memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
-    if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-      auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
-      if (memory_tracker != nullptr) [[likely]] {
-        memory_tracker->Alloc(static_cast<int64_t>(size));
-      }
+    if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
+      GetQueriesMemoryControl().TrackAllocOnCurrentThread(size);
     }
   }
 
@@ -73,11 +70,8 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   if (ptr == nullptr) [[unlikely]] {
     if (*commit) {
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-      if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-        auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
-        if (memory_tracker != nullptr) [[likely]] {
-          memory_tracker->Free(static_cast<int64_t>(size));
-        }
+      if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
+        GetQueriesMemoryControl().TrackFreeOnCurrentThread(size);
       }
     }
     return ptr;
@@ -96,11 +90,8 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
 
-    if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-      auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
-      if (memory_tracker != nullptr) [[likely]] {
-        memory_tracker->Free(static_cast<int64_t>(size));
-      }
+    if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
+      GetQueriesMemoryControl().TrackFreeOnCurrentThread(size);
     }
   }
 
@@ -110,11 +101,8 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-    if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-      auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
-      if (memory_tracker != nullptr) [[likely]] {
-        memory_tracker->Free(static_cast<int64_t>(size));
-      }
+    if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
+      GetQueriesMemoryControl().TrackFreeOnCurrentThread(size);
     }
   }
 
@@ -130,11 +118,8 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
   }
 
   memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
-  if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-    auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
-    if (memory_tracker != nullptr) [[likely]] {
-      memory_tracker->Alloc(static_cast<int64_t>(size));
-    }
+  if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
+    GetQueriesMemoryControl().TrackAllocOnCurrentThread(size);
   }
 
   return false;
@@ -150,11 +135,8 @@ static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, s
   }
 
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
-  if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-    auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
-    if (memory_tracker != nullptr) [[likely]] {
-      memory_tracker->Free(static_cast<int64_t>(size));
-    }
+  if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
+    GetQueriesMemoryControl().TrackFreeOnCurrentThread(size);
   }
 
   return false;
@@ -170,11 +152,8 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
   }
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
 
-  if (GetQueriesMemoryControl().IsArenaTracked(arena_ind)) [[unlikely]] {
-    auto *memory_tracker = GetQueriesMemoryControl().GetTrackerCurrentThread();
-    if (memory_tracker != nullptr) [[likely]] {
-      memory_tracker->Alloc(static_cast<int64_t>(size));
-    }
+  if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
+    GetQueriesMemoryControl().TrackFreeOnCurrentThread(size);
   }
 
   return false;
@@ -200,8 +179,11 @@ void SetHooks() {
     return;
   }
 
+  // Needs init due to error we might encounter otherwise
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=13684
+  [[maybe_unused]] const auto &queries_memory_control = GetQueriesMemoryControl();
+
   for (int i = 0; i < n_arenas; i++) {
-    GetQueriesMemoryControl().InitializeArenaCounter(i);
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
 
     size_t hooks_len = sizeof(old_hooks);
@@ -261,7 +243,6 @@ void UnsetHooks() {
   }
 
   for (int i = 0; i < n_arenas; i++) {
-    GetQueriesMemoryControl().InitializeArenaCounter(i);
     std::string func_name = "arena." + std::to_string(i) + ".extent_hooks";
 
     MG_ASSERT(old_hooks);

@@ -9,12 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "replication_server.hpp"
-#include "io/network/endpoint.hpp"
-#include "replication/config.hpp"
-#include "rpc.hpp"
+#include "replication/replication_server.hpp"
+#include "replication/messages.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::replication {
 namespace {
 
 auto CreateServerContext(const memgraph::replication::ReplicationServerConfig &config) -> communication::ServerContext {
@@ -27,14 +25,14 @@ auto CreateServerContext(const memgraph::replication::ReplicationServerConfig &c
 // because there is no need for more processing threads - each replica can
 // have only a single main server. Also, the single-threaded guarantee
 // simplifies the rest of the implementation.
-constexpr auto kReplictionServerThreads = 1;
+constexpr auto kReplicationServerThreads = 1;
 }  // namespace
 
 ReplicationServer::ReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
       rpc_server_{io::network::Endpoint{config.ip_address, config.port}, &rpc_server_context_,
-                  kReplictionServerThreads} {
-  rpc_server_.Register<replication::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
+                  kReplicationServerThreads} {
+  rpc_server_.Register<FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received FrequentHeartbeatRpc");
     FrequentHeartbeatHandler(req_reader, res_builder);
   });
@@ -51,11 +49,4 @@ ReplicationServer::~ReplicationServer() {
 
 bool ReplicationServer::Start() { return rpc_server_.Start(); }
 
-void ReplicationServer::FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
-  replication::FrequentHeartbeatReq req;
-  slk::Load(&req, req_reader);
-  replication::FrequentHeartbeatRes res{true};
-  slk::Save(res, res_builder);
-}
-
-}  // namespace memgraph::storage
+}  // namespace memgraph::replication

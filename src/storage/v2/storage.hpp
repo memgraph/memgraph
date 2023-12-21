@@ -20,6 +20,7 @@
 #include "kvstore/kvstore.hpp"
 #include "query/exceptions.hpp"
 #include "replication/config.hpp"
+#include "replication/replication_server.hpp"
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
@@ -30,7 +31,6 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
-#include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -40,6 +40,7 @@
 #include "utils/event_histogram.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/synchronized_metadata_store.hpp"
 #include "utils/timer.hpp"
 #include "utils/uuid.hpp"
 
@@ -69,7 +70,7 @@ struct StorageInfo {
   uint64_t vertex_count;
   uint64_t edge_count;
   double average_degree;
-  uint64_t memory_usage;
+  uint64_t memory_res;
   uint64_t disk_usage;
   uint64_t label_indices;
   uint64_t label_property_indices;
@@ -86,7 +87,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
 
   res["edges"] = info.edge_count;
   res["vertices"] = info.vertex_count;
-  res["memory"] = info.memory_usage;
+  res["memory"] = info.memory_res;
   res["disk"] = info.disk_usage;
   res["label_indices"] = info.label_indices;
   res["label_prop_indices"] = info.label_property_indices;
@@ -109,7 +110,7 @@ struct EdgeInfoForDeletion {
 
 class Storage {
   friend class ReplicationServer;
-  friend class ReplicationClient;
+  friend class ReplicationStorageClient;
 
  public:
   Storage(Config config, StorageMode storage_mode);
@@ -130,15 +131,17 @@ class Storage {
     static constexpr struct UniqueAccess {
     } unique_access;
 
-    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
-    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+             bool is_main = true);
+    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+             bool is_main = true);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;
 
     Accessor(Accessor &&other) noexcept;
 
-    virtual ~Accessor() {}
+    virtual ~Accessor() = default;
 
     virtual VertexAccessor CreateVertex() = 0;
 
@@ -193,6 +196,9 @@ class Storage {
 
     virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;
 
+    virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
+                                                 VertexAccessor *to_vertex) = 0;
+
     virtual Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) = 0;
 
     virtual Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) = 0;
@@ -211,7 +217,7 @@ class Storage {
 
     // NOLINTNEXTLINE(google-default-arguments)
     virtual utils::BasicResult<StorageManipulationError, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {}) = 0;
+        std::optional<uint64_t> desired_commit_timestamp = {}, bool is_main = true) = 0;
 
     virtual void Abort() = 0;
 
@@ -233,9 +239,13 @@ class Storage {
 
     EdgeTypeId NameToEdgeType(std::string_view name) { return storage_->NameToEdgeType(name); }
 
-    StorageMode GetCreationStorageMode() const;
+    StorageMode GetCreationStorageMode() const noexcept;
 
     const std::string &id() const { return storage_->id(); }
+
+    std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
+
+    std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
 
@@ -299,19 +309,26 @@ class Storage {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
 
-  void SetStorageMode(StorageMode storage_mode);
-
-  StorageMode GetStorageMode() const;
+  StorageMode GetStorageMode() const noexcept;
 
   virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) = 0;
 
   void FreeMemory() { FreeMemory({}); }
 
-  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
-  std::unique_ptr<Accessor> Access() { return Access(std::optional<IsolationLevel>{}); }
+  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level, bool is_main) = 0;
+  std::unique_ptr<Accessor> Access(bool is_main = true) { return Access(std::optional<IsolationLevel>{}, is_main); }
+  std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) {
+    return Access(std::move(override_isolation_level), true);
+  }
 
-  virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) = 0;
-  std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess(std::optional<IsolationLevel>{}); }
+  virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                 bool is_main) = 0;
+  std::unique_ptr<Accessor> UniqueAccess(bool is_main = true) {
+    return UniqueAccess(std::optional<IsolationLevel>{}, is_main);
+  }
+  std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) {
+    return UniqueAccess(std::move(override_isolation_level), true);
+  }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
@@ -338,23 +355,20 @@ class Storage {
     return GetInfo(force_dir);
   }
 
-  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
+    return CreateTransaction(isolation_level, storage_mode, true);
+  }
 
-  virtual void PrepareForNewEpoch(std::string prev_epoch) = 0;
+  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) = 0;
 
-  virtual auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
-      -> std::unique_ptr<ReplicationClient> = 0;
+  virtual void PrepareForNewEpoch() = 0;
 
-  virtual auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
-      -> std::unique_ptr<ReplicationServer> = 0;
-
-  auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(); }
+  auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(this); }
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
   }
 
   // TODO: make non-public
-  memgraph::replication::ReplicationState repl_state_;
   ReplicationStorageState repl_storage_state_;
 
   // Main storage lock.
@@ -374,7 +388,7 @@ class Storage {
   Config config_;
 
   // Transaction engine
-  utils::SpinLock engine_lock_;
+  mutable utils::SpinLock engine_lock_;
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
@@ -383,6 +397,18 @@ class Storage {
 
   Indices indices_;
   Constraints constraints_;
+
+  // Datastructures to provide fast retrieval of node-label and
+  // edge-type related metadata.
+  // Currently we should not remove any node-labels or edge-types even
+  // if the set of given types are currently not present in the
+  // database. This metadata is usually used by client side
+  // applications that want to be aware of the kind of data that *may*
+  // be present in the database.
+
+  // TODO(gvolfing): check if this would be faster with flat_maps.
+  utils::SynchronizedMetaDataStore<LabelId> stored_node_labels_;
+  utils::SynchronizedMetaDataStore<EdgeTypeId> stored_edge_types_;
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/auth_query_handler.hpp"
+#include "storage/v2/config.hpp"
 #ifdef MG_ENTERPRISE
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -57,6 +58,7 @@ class TestEnvironment : public ::testing::Environment {
   void TearDown() override {
     ptr_.reset();
     auth.reset();
+    std::filesystem::remove_all(storage_directory);
   }
 
   static std::unique_ptr<memgraph::dbms::DbmsHandler> ptr_;

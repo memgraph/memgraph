@@ -25,6 +25,7 @@
 #include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/vector.hpp"
@@ -867,7 +868,37 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 }
 
 namespace {
-std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Object py_record, mgp_memory *memory) {
+struct RecordFieldCache {
+  PyObject *key;
+  PyObject *val;
+  const char *field_name;
+  mgp_value *field_val;
+};
+
+std::optional<py::ExceptionInfo> InsertField(PyObject *key, PyObject *val, mgp_result_record *record,
+                                             const char *field_name, mgp_value *field_val) {
+  if (mgp_result_record_insert(record, field_name, field_val) != mgp_error::MGP_ERROR_NO_ERROR) {
+    std::stringstream ss;
+    ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '" << py::Object::FromBorrow(val)
+       << "'; did you set the correct field type?";
+    const auto &msg = ss.str();
+    PyErr_SetString(PyExc_ValueError, msg.c_str());
+    mgp_value_destroy(field_val);
+    return py::FetchError();
+  }
+  mgp_value_destroy(field_val);
+  return std::nullopt;
+}
+
+void SkipRecord(mgp_value *field_val, std::vector<RecordFieldCache> &current_record_cache) {
+  mgp_value_destroy(field_val);
+  for (auto &cache_entry : current_record_cache) {
+    mgp_value_destroy(cache_entry.field_val);
+  }
+}
+
+std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Object py_record, mgp_graph *graph,
+                                                     mgp_memory *memory) {
   py::Object py_mgp(PyImport_ImportModule("mgp"));
   if (!py_mgp) return py::FetchError();
   auto record_cls = py_mgp.GetAttr("Record");
@@ -888,15 +919,27 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
   py::Object items(PyDict_Items(fields.Ptr()));
   if (!items) return py::FetchError();
   mgp_result_record *record{nullptr};
-  if (RaiseExceptionFromErrorCode(mgp_result_new_record(result, &record))) {
-    return py::FetchError();
+  const auto is_transactional = storage::IsTransactional(graph->storage_mode);
+  if (is_transactional) {
+    // IN_MEMORY_ANALYTICAL must first verify that the record contains no deleted values
+    if (RaiseExceptionFromErrorCode(mgp_result_new_record(result, &record))) {
+      return py::FetchError();
+    }
   }
+  std::vector<RecordFieldCache> current_record_cache{};
+
+  utils::OnScopeExit clear_record_cache{[&current_record_cache] {
+    for (auto &record : current_record_cache) {
+      mgp_value_destroy(record.field_val);
+    }
+  }};
+
   Py_ssize_t len = PyList_GET_SIZE(items.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
     auto *item = PyList_GET_ITEM(items.Ptr(), i);
     if (!item) return py::FetchError();
     MG_ASSERT(PyTuple_Check(item));
-    auto *key = PyTuple_GetItem(item, 0);
+    PyObject *key = PyTuple_GetItem(item, 0);
     if (!key) return py::FetchError();
     if (!PyUnicode_Check(key)) {
       std::stringstream ss;
@@ -905,30 +948,48 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
       PyErr_SetString(PyExc_TypeError, msg.c_str());
       return py::FetchError();
     }
-    const auto *field_name = PyUnicode_AsUTF8(key);
+    const char *field_name = PyUnicode_AsUTF8(key);
     if (!field_name) return py::FetchError();
-    auto *val = PyTuple_GetItem(item, 1);
+    PyObject *val = PyTuple_GetItem(item, 1);
     if (!val) return py::FetchError();
     // This memory is one dedicated for mg_procedure.
     mgp_value *field_val = PyObjectToMgpValueWithPythonExceptions(val, memory);
     if (field_val == nullptr) {
       return py::FetchError();
     }
-    if (mgp_result_record_insert(record, field_name, field_val) != mgp_error::MGP_ERROR_NO_ERROR) {
-      std::stringstream ss;
-      ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '"
-         << py::Object::FromBorrow(val) << "'; did you set the correct field type?";
-      const auto &msg = ss.str();
-      PyErr_SetString(PyExc_ValueError, msg.c_str());
-      mgp_value_destroy(field_val);
-      return py::FetchError();
+
+    if (!is_transactional) {
+      // If a deleted value is being inserted into a record, skip the whole record
+      if (ContainsDeleted(field_val)) {
+        SkipRecord(field_val, current_record_cache);
+        return std::nullopt;
+      }
+      current_record_cache.emplace_back(
+          RecordFieldCache{.key = key, .val = val, .field_name = field_name, .field_val = field_val});
+    } else {
+      auto maybe_exc = InsertField(key, val, record, field_name, field_val);
+      if (maybe_exc) return maybe_exc;
     }
-    mgp_value_destroy(field_val);
   }
+
+  if (is_transactional) {
+    return std::nullopt;
+  }
+
+  // IN_MEMORY_ANALYTICAL only adds a new record after verifying that it contains no deleted values
+  if (RaiseExceptionFromErrorCode(mgp_result_new_record(result, &record))) {
+    return py::FetchError();
+  }
+  for (auto &cache_entry : current_record_cache) {
+    auto maybe_exc =
+        InsertField(cache_entry.key, cache_entry.val, record, cache_entry.field_name, cache_entry.field_val);
+    if (maybe_exc) return maybe_exc;
+  }
+
   return std::nullopt;
 }
 
-std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result, py::Object py_seq,
+std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result, py::Object py_seq, mgp_graph *graph,
                                                               mgp_memory *memory) {
   Py_ssize_t len = PySequence_Size(py_seq.Ptr());
   if (len == -1) return py::FetchError();
@@ -938,7 +999,7 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
   for (Py_ssize_t i = 0, curr_item = 0; i < len; ++i, ++curr_item) {
     py::Object py_record(PySequence_GetItem(py_seq.Ptr(), curr_item));
     if (!py_record) return py::FetchError();
-    auto maybe_exc = AddRecordFromPython(result, py_record, memory);
+    auto maybe_exc = AddRecordFromPython(result, py_record, graph, memory);
     if (maybe_exc) return maybe_exc;
     // Once PySequence_DelSlice deletes "transformed" objects, starting index is 0 again.
     if (i && i % del_cnt == 0) {
@@ -952,14 +1013,14 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
 }
 
 std::optional<py::ExceptionInfo> AddMultipleBatchRecordsFromPython(mgp_result *result, py::Object py_seq,
-                                                                   mgp_memory *memory) {
+                                                                   mgp_graph *graph, mgp_memory *memory) {
   Py_ssize_t len = PySequence_Size(py_seq.Ptr());
   if (len == -1) return py::FetchError();
   result->rows.reserve(len);
   for (Py_ssize_t i = 0; i < len; ++i) {
     py::Object py_record(PySequence_GetItem(py_seq.Ptr(), i));
     if (!py_record) return py::FetchError();
-    auto maybe_exc = AddRecordFromPython(result, py_record, memory);
+    auto maybe_exc = AddRecordFromPython(result, py_record, graph, memory);
     if (maybe_exc) return maybe_exc;
   }
   PySequence_DelSlice(py_seq.Ptr(), 0, PySequence_Size(py_seq.Ptr()));
@@ -1015,11 +1076,11 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
     if (!py_res) return py::FetchError();
     if (PySequence_Check(py_res.Ptr())) {
       if (is_batched) {
-        return AddMultipleBatchRecordsFromPython(result, py_res, memory);
+        return AddMultipleBatchRecordsFromPython(result, py_res, graph, memory);
       }
-      return AddMultipleRecordsFromPython(result, py_res, memory);
+      return AddMultipleRecordsFromPython(result, py_res, graph, memory);
     }
-    return AddRecordFromPython(result, py_res, memory);
+    return AddRecordFromPython(result, py_res, graph, memory);
   };
 
   // It is *VERY IMPORTANT* to note that this code takes great care not to keep
@@ -1114,9 +1175,9 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
     auto py_res = py_cb.Call(py_graph, py_messages);
     if (!py_res) return py::FetchError();
     if (PySequence_Check(py_res.Ptr())) {
-      return AddMultipleRecordsFromPython(result, py_res, memory);
+      return AddMultipleRecordsFromPython(result, py_res, graph, memory);
     }
-    return AddRecordFromPython(result, py_res, memory);
+    return AddRecordFromPython(result, py_res, graph, memory);
   };
 
   // It is *VERY IMPORTANT* to note that this code takes great care not to keep
@@ -1164,9 +1225,27 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
   auto call = [&](py::Object py_graph) -> utils::BasicResult<std::optional<py::ExceptionInfo>, mgp_value *> {
     py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
     if (!py_args) return {py::FetchError()};
+    const auto is_transactional = storage::IsTransactional(graph->storage_mode);
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return {py::FetchError()};
     mgp_value *ret_val = PyObjectToMgpValueWithPythonExceptions(py_res.Ptr(), memory);
+    if (!is_transactional && ContainsDeleted(ret_val)) {
+      mgp_value_destroy(ret_val);
+      mgp_value *null_val{nullptr};
+      mgp_error last_error{mgp_error::MGP_ERROR_NO_ERROR};
+
+      last_error = mgp_value_make_null(memory, &null_val);
+
+      if (last_error == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        throw std::bad_alloc{};
+      }
+      if (last_error != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::runtime_error{"Unexpected error while creating mgp_value"};
+      }
+
+      return null_val;
+    }
+
     if (ret_val == nullptr) {
       return {py::FetchError()};
     }

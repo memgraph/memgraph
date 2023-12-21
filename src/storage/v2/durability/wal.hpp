@@ -108,7 +108,7 @@ struct WalDeltaData {
 
   struct {
     std::string label;
-    std::set<std::string> properties;
+    std::set<std::string, std::less<>> properties;
   } operation_label_properties;
 
   struct {
