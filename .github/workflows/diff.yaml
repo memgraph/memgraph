@@ -328,7 +328,7 @@ jobs:
 
   release_jepsen_test:
     name: "Release Jepsen Test"
-    runs-on: [self-hosted, Linux, X64, Docker]
+    runs-on: [self-hosted, Linux, X64, Diff]
     #continue-on-error: true
     env:
       THREADS: 24
