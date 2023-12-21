@@ -9,13 +9,12 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import mgclient
 import typing
 
+import mgclient
 
-def execute_and_fetch_all(
-    cursor: mgclient.Cursor, query: str, params: dict = {}
-) -> typing.List[tuple]:
+
+def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
     cursor.execute(query, params)
     return cursor.fetchall()
 
@@ -24,3 +23,9 @@ def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(**kwargs)
     connection.autocommit = True
     return connection
+
+
+def connect_default(**kwargs) -> mgclient.Connection:
+    def_connection = mgclient.connect(host="localhost", port=7687, **kwargs)
+    def_connection.autocommit = True
+    return def_connection

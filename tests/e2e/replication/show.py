@@ -12,8 +12,6 @@
 import sys
 
 import pytest
-import time
-
 from common import execute_and_fetch_all
 from mg_utils import mg_sleep_and_assert
 

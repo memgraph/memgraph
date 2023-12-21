@@ -10,7 +10,6 @@
 # licenses/APL.txt.
 
 import sys
-import time
 
 import pytest
 from common import execute_and_fetch_all
