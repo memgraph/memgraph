@@ -66,7 +66,6 @@ case "$1" in
 
   cleanup)
       docker stop $BINARY_BUILDER_CNT
-      docker rm $BINARY_BUILDER_CNT
   ;;
 
   *)

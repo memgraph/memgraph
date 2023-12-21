@@ -349,6 +349,7 @@ jobs:
           ./release/binary/run.sh run-builder 
           ./release/binary/run.sh build-memgraph 
           ./release/binary/run.sh copy-binary memgraph-binary 
+          ./release/binary/run.sh cleanup
 
       - name: Run Jepsen tests
         run: |
