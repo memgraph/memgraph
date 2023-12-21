@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "dbms/dbms_handler.hpp"
+#include "replication/state.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::dbms {
 #ifdef MG_ENTERPRISE
@@ -66,8 +68,11 @@ DbmsHandler::DbmsHandler(
     }
     return true;
   };
+  auto coordinator = [](replication::RoleCoordinatorData &) -> bool {
+    throw utils::NotYetImplemented("Not yet implemented");
+  };
   // Startup proccess for main/replica
-  MG_ASSERT(std::visit(memgraph::utils::Overloaded{replica, main}, repl_state_.ReplicationData()),
+  MG_ASSERT(std::visit(memgraph::utils::Overloaded{replica, main, coordinator}, repl_state_.ReplicationData()),
             "Replica recovery failure!");
 }
 #endif

@@ -333,10 +333,9 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetRepl
     }
   } else if (ctx->COORDINATOR()) {
     replication_query->role_ = ReplicationQuery::ReplicationRole::COORDINATOR;
-    if (ctx->WITH() || ctx->PORT()) {
+    if (ctx->WITH() && ctx->PORT()) {
       throw SyntaxException("Coordinator shouldn't have port as an integer literal!");
     }
-    replication_query->port_ = std::any_cast<Expression *>(ctx->port->accept(this));
   }
   return replication_query;
 }

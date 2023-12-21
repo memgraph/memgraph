@@ -75,8 +75,25 @@ bool ReplicationHandler::SetReplicationRoleMain() {
     return true;
   };
 
+  auto const coordinator_handler = [](replication::RoleCoordinatorData const &) { return false; };
+
   // TODO: under lock
-  return std::visit(utils::Overloaded{main_handler, replica_handler},
+  return std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler},
+                    dbms_handler_.ReplicationState().ReplicationData());
+}
+
+bool ReplicationHandler::SetReplicationRoleCoordinator() {
+  auto const main_handler = [](RoleMainData const &) { return false; };
+  auto const replica_handler = [](RoleReplicaData const &) { return false; };
+
+  auto const coordinator_handler = [](replication::RoleCoordinatorData const &) {
+    // TODO
+    //  set RPCs
+    return true;
+  };
+
+  // TODO: under lock
+  return std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler},
                     dbms_handler_.ReplicationState().ReplicationData());
 }
 
@@ -113,7 +130,8 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
                                        return false;
                                      }
                                      return true;
-                                   }},
+                                   },
+                                   [](replication::RoleCoordinatorData const &) { return false; }},
                  dbms_handler_.ReplicationState().ReplicationData());
   // TODO Handle error (restore to main?)
   return success;
@@ -200,7 +218,11 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterR
     return n_unregistered != 0 ? UnregisterReplicaResult::SUCCESS : UnregisterReplicaResult::CAN_NOT_UNREGISTER;
   };
 
-  return std::visit(utils::Overloaded{main_handler, replica_handler},
+  auto const coordinator_handler = [](replication::RoleCoordinatorData const &) -> UnregisterReplicaResult {
+    return UnregisterReplicaResult::NOT_MAIN;
+  };
+
+  return std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler},
                     dbms_handler_.ReplicationState().ReplicationData());
 }
 
@@ -215,6 +237,9 @@ bool ReplicationHandler::IsReplica() const { return dbms_handler_.ReplicationSta
 // Per storage
 // NOTE Storage will connect to all replicas. Future work might change this
 void RestoreReplication(replication::ReplicationState &repl_state, storage::Storage &storage) {
+  ////// AF AS TODO
+
+  ///
   spdlog::info("Restoring replication role.");
 
   /// MAIN
@@ -252,11 +277,9 @@ void RestoreReplication(replication::ReplicationState &repl_state, storage::Stor
   /// REPLICA
   auto const recover_replica = [](RoleReplicaData const &data) { /*nothing to do*/ };
 
-  std::visit(
-      utils::Overloaded{
-          recover_main,
-          recover_replica,
-      },
-      repl_state.ReplicationData());
+  /// REPLICA
+  auto const coordinator_handler = [](replication::RoleCoordinatorData const &) { /*nothing to do*/ };
+
+  std::visit(utils::Overloaded{recover_main, recover_replica, coordinator_handler}, repl_state.ReplicationData());
 }
 }  // namespace memgraph::dbms

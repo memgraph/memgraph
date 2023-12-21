@@ -47,6 +47,8 @@ CONSUMER_GROUP          : C O N S U M E R UNDERSCORE G R O U P ;
 CREATE_DELETE           : C R E A T E UNDERSCORE D E L E T E ;
 CREDENTIALS             : C R E D E N T I A L S ;
 CSV                     : C S V ;
+COORDINATOR             : C O O R D I N A T O R;
+CLUSTER                 : C L U S T E R;
 DATA                    : D A T A ;
 DELIMITER               : D E L I M I T E R ;
 DATABASE                : D A T A B A S E ;

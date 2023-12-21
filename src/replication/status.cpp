@@ -11,6 +11,7 @@
 #include "replication/status.hpp"
 
 #include "fmt/format.h"
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -65,6 +66,10 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       j.at(kPort).get_to(port);
       auto config = ReplicationServerConfig{.ip_address = std::move(ip_address), .port = port};
       p = ReplicationRoleEntry{.version = version, .role = ReplicaRole{.config = std::move(config)}};
+      break;
+    }
+    case ReplicationRole::COORDINATOR: {
+      throw utils::NotYetImplemented("Not yet implemented");
       break;
     }
   }

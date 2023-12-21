@@ -44,6 +44,9 @@ struct ReplicationHandler {
   // as MAIN, become REPLICA
   bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config);
 
+  // as none, become COORDINATOR
+  bool SetReplicationRoleCoordinator();
+
   // as MAIN, define and connect to REPLICAs
   auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterReplicaError>;

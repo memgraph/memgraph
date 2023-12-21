@@ -53,6 +53,12 @@ struct RoleReplicaData {
   std::unique_ptr<ReplicationServer> server;
 };
 
+struct RoleCoordinatorData {
+  std::list<ReplicationClient> registered_replicas_{};
+  std::unique_ptr<ReplicationClient> main;
+  // TODO does it need epoch
+};
+
 // Global (instance) level object
 struct ReplicationState {
   explicit ReplicationState(std::optional<std::filesystem::path> durability_dir);
@@ -68,16 +74,22 @@ struct ReplicationState {
     PARSE_ERROR,
   };
 
-  using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData>;
+  using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData, RoleCoordinatorData>;
   using FetchReplicationResult_t = utils::BasicResult<FetchReplicationError, ReplicationData_t>;
   auto FetchReplicationData() -> FetchReplicationResult_t;
 
   auto GetRole() const -> ReplicationRole {
-    return std::holds_alternative<RoleReplicaData>(replication_data_) ? ReplicationRole::REPLICA
-                                                                      : ReplicationRole::MAIN;
+    if (std::holds_alternative<RoleReplicaData>(replication_data_)) {
+      return ReplicationRole::REPLICA;
+    }
+    if (std::holds_alternative<RoleMainData>(replication_data_)) {
+      return ReplicationRole::MAIN;
+    }
+    return ReplicationRole::COORDINATOR;
   }
   bool IsMain() const { return GetRole() == ReplicationRole::MAIN; }
   bool IsReplica() const { return GetRole() == ReplicationRole::REPLICA; }
+  bool IsCoordinator() const { return GetRole() == ReplicationRole::COORDINATOR; }
 
   bool ShouldPersist() const { return nullptr != durability_; }
   bool TryPersistRoleMain(std::string new_epoch);

@@ -269,7 +269,12 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
     return RegisterReplicaError::SUCCESS;
   };
 
-  const auto &res = std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
+  auto const coordinator_handler = [](auto const &) -> RegisterReplicaError {
+    throw utils::NotYetImplemented("Not yet implemented");
+  };
+
+  const auto &res =
+      std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler}, replication_data_);
   if (res == RegisterReplicaError::SUCCESS) {
     return client;
   }

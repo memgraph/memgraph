@@ -71,6 +71,7 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "replication/config.hpp"
+#include "replication/role.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
@@ -279,7 +280,12 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
+      // TODO add port
       if (!handler_.SetReplicationRoleMain()) {
+        throw QueryRuntimeException("Couldn't set role to main!");
+      }
+    } else if (replication_role == ReplicationQuery::ReplicationRole::COORDINATOR) {
+      if (!handler_.SetReplicationRoleCoordinator()) {
         throw QueryRuntimeException("Couldn't set role to main!");
       }
     } else {
@@ -305,6 +311,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         return ReplicationQuery::ReplicationRole::MAIN;
       case memgraph::replication::ReplicationRole::REPLICA:
         return ReplicationQuery::ReplicationRole::REPLICA;
+      case memgraph::replication::ReplicationRole::COORDINATOR:
+        return ReplicationQuery::ReplicationRole::COORDINATOR;
     }
     throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
   }
