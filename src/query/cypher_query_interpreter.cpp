@@ -11,11 +11,9 @@
 
 #include "query/cypher_query_interpreter.hpp"
 #include <string_view>
-#include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/interpret/eval.hpp"
 #include "utils/typeinfo.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
@@ -121,33 +119,6 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
                      is_cacheable};
 }
 
-// void ResolveParameters(CypherQuery *query, const Parameters &parameters, AstStorage *ast_storage) {
-//   EvaluationContext context;
-//   context.parameters = parameters;
-//   PrimitiveLiteralExpressionEvaluator evaluator{context};
-//   if (query->single_query_) {
-//     for (auto *clause : query->single_query_->clauses_) {
-//       if (auto *clause_with_parameters = utils::Downcast<Match>(clause)) {
-//         for (auto *pattern : clause_with_parameters->patterns_) {
-//           for (auto *atoms : pattern->atoms_) {
-//             if (auto *node = utils::Downcast<NodeAtom>(atoms)) {
-//               std::vector<LabelIx> labels;
-//               for (auto *label_to_lookup : node->labels_to_lookup_) {
-//                 auto key = evaluator.Visit(*label_to_lookup);
-//                 std::string_view label_string = key.ValueString();
-//                 std::string label_string_copy(label_string);
-//                 auto label_ix = ast_storage->GetLabelIx(label_string_copy);
-//                 labels.push_back(label_ix);
-//               }
-//               node->labels_.insert(node->labels_.end(), labels.begin(), labels.end());
-//             }
-//           }
-//         }
-//       }
-//     }
-//   }
-// }
-
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,
                                              const std::vector<Identifier *> &predefined_identifiers) {
@@ -155,9 +126,6 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
   auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
   auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
-  // if (parameters.size() > 0) {
-  //   ResolveParameters(query, parameters, &ast_storage);
-  // }
   return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage),
                                                  std::move(symbol_table));
 }

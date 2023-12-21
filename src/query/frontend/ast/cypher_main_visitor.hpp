@@ -31,8 +31,8 @@ struct ParsingContext {
 
 class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
  public:
-  explicit CypherMainVisitor(ParsingContext context, AstStorage *storage, Parameters parameters)
-      : context_(context), storage_(storage), parameters_(std::move(parameters)) {}
+  explicit CypherMainVisitor(ParsingContext context, AstStorage *storage, const Parameters &parameters)
+      : context_(context), storage_(storage), parameters_(parameters) {}
 
  private:
   Expression *CreateBinaryOperatorByToken(size_t token, Expression *e1, Expression *e2) {

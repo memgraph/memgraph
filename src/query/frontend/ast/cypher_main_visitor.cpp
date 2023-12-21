@@ -1772,22 +1772,7 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
     anonymous_identifiers.push_back(&node->identifier_);
   }
   if (ctx->nodeLabels()) {
-    auto labels = std::any_cast<std::vector<std::variant<LabelIx, ParameterLookup *>>>(ctx->nodeLabels()->accept(this));
-    for (const auto &label : labels) {
-      if (std::holds_alternative<LabelIx>(label)) {
-        node->labels_.push_back(std::get<LabelIx>(label));
-      } else {
-        // TypedValue Visit(ParameterLookup &param_lookup) override {
-        //     return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
-        // }
-        // node->labels_to_lookup_.push_back(std::get<ParameterLookup *>(label));
-        auto *param_lookup = std::get<ParameterLookup *>(label);
-        auto property_value = parameters_.AtTokenPosition(param_lookup->token_position_);
-        auto label_name = property_value.ValueString();
-        auto label_ix = storage_->GetLabelIx(label_name);
-        node->labels_.push_back(label_ix);
-      }
-    }
+    node->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
   }
   if (ctx->properties()) {
     // This can return either properties or parameters
@@ -1801,12 +1786,15 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) {
-  std::vector<std::variant<LabelIx, ParameterLookup *>> labels;
+  std::vector<LabelIx> labels;
   for (auto *node_label : ctx->nodeLabel()) {
     if (node_label->labelName()->symbolicName()) {
       labels.emplace_back(AddLabel(std::any_cast<std::string>(node_label->accept(this))));
     } else {
-      labels.emplace_back(std::any_cast<ParameterLookup *>(node_label->accept(this)));
+      // If we have a parameter, we have to resolve it.
+      const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
+      const auto label_name = parameters_.AtTokenPosition(param_lookup->token_position_).ValueString();
+      labels.emplace_back(storage_->GetLabelIx(label_name));
     }
   }
   return labels;
