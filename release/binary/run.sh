@@ -4,7 +4,7 @@ set -eo pipefail
 
 DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-TARGET_OS=${TARGET_OS:-debian-11}
+TARGET_OS=${TARGET_OS:-debian-10}
 TOOLCHAIN_VERSION=${TOOLCHAIN_VERSION:-v4}
 BUILD_TYPE=${BUILD_TYPE:-RelWithDebInfo}
 THREAD_COUNT=${THREAD_COUNT:-24}
@@ -19,7 +19,7 @@ print_help() {
   echo -e "  BUILD_TYPE           -> Debug|Release|RelWithDebInfo"
   echo -e ""
   echo -e "How to run?"
-  echo -e " $0 [build-builder|run-builder|build-memgraph|copy-binary dest_path|cleanup|help]"
+  echo -e " $0 [build-builder|run-builder|build-memgraph|build-memgraph-native|copy-binary dest_path|cleanup|help]"
   exit 1
 }
 
@@ -39,6 +39,10 @@ case "$1" in
   ;;
 
   build-memgraph)
+      docker exec $BINARY_BUILDER_CNT bash -c "/memgraph/release/binary/run.sh build-memgraph-native"
+  ;;
+
+  build-memgraph-native)
       cd $DIR/../../build
       source /opt/toolchain-v4/activate
       cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DMG_ENTERPRISE=OFF ..
