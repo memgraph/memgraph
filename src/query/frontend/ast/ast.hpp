@@ -1818,6 +1818,10 @@ class EdgeAtom : public memgraph::query::PatternAtom {
     memgraph::query::Identifier *inner_edge{nullptr};
     /// Argument identifier for the destination node of the edge.
     memgraph::query::Identifier *inner_node{nullptr};
+    /// Argument identifier for the currently-accumulated path.
+    memgraph::query::Identifier *accumulated_path{nullptr};
+    /// Argument identifier for the weight of the currently-accumulated path.
+    memgraph::query::Identifier *accumulated_weight{nullptr};
     /// Evaluates the result of the lambda.
     memgraph::query::Expression *expression{nullptr};
 
@@ -1825,6 +1829,8 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       Lambda object;
       object.inner_edge = inner_edge ? inner_edge->Clone(storage) : nullptr;
       object.inner_node = inner_node ? inner_node->Clone(storage) : nullptr;
+      object.accumulated_path = accumulated_path ? accumulated_path->Clone(storage) : nullptr;
+      object.accumulated_weight = accumulated_weight ? accumulated_weight->Clone(storage) : nullptr;
       object.expression = expression ? expression->Clone(storage) : nullptr;
       return object;
     }
@@ -2928,7 +2934,7 @@ class DatabaseInfoQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { INDEX, CONSTRAINT };
+  enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS };
 
   DEFVISITABLE(QueryVisitor<void>);
 

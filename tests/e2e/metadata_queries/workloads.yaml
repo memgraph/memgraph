@@ -1,0 +1,18 @@
+metadata_queries: &metadata_queries
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr", "--storage-enable-schema-metadata=TRUE"]
+      log_file: "metadata-queries.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Show edge types info"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["metadata_queries/show_edge_types_info.py"]
+    <<: *metadata_queries
+
+  - name: "Show node labels info"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["metadata_queries/show_node_labels_info.py"]
+    <<: *metadata_queries

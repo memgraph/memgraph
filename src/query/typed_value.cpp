@@ -370,6 +370,38 @@ bool TypedValue::IsGraph() const { return type_ == Type::Graph; }
 
 #undef DEFINE_VALUE_AND_TYPE_GETTERS
 
+bool TypedValue::ContainsDeleted() const {
+  switch (type_) {
+    // Value types
+    case Type::Null:
+    case Type::Bool:
+    case Type::Int:
+    case Type::Double:
+    case Type::String:
+    case Type::Date:
+    case Type::LocalTime:
+    case Type::LocalDateTime:
+    case Type::Duration:
+      return false;
+    // Reference types
+    case Type::List:
+      return std::ranges::any_of(list_v, [](const auto &elem) { return elem.ContainsDeleted(); });
+    case Type::Map:
+      return std::ranges::any_of(map_v, [](const auto &item) { return item.second.ContainsDeleted(); });
+    case Type::Vertex:
+      return vertex_v.impl_.vertex_->deleted;
+    case Type::Edge:
+      return edge_v.IsDeleted();
+    case Type::Path:
+      return std::ranges::any_of(path_v.vertices(),
+                                 [](auto &vertex_acc) { return vertex_acc.impl_.vertex_->deleted; }) ||
+             std::ranges::any_of(path_v.edges(), [](auto &edge_acc) { return edge_acc.IsDeleted(); });
+    default:
+      throw TypedValueException("Value of unknown type");
+  }
+  return false;
+}
+
 bool TypedValue::IsNull() const { return type_ == Type::Null; }
 
 bool TypedValue::IsNumeric() const { return IsInt() || IsDouble(); }
