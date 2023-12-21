@@ -328,7 +328,7 @@ jobs:
 
   release_jepsen_test:
     name: "Release Jepsen Test"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, Linux, X64, Diff, deadpool]
     #continue-on-error: true
     env:
       THREADS: 24
@@ -350,6 +350,9 @@ jobs:
           ./release/binary/run.sh build-memgraph 
           ./release/binary/run.sh copy-binary memgraph-binary 
           ./release/binary/run.sh cleanup
+        env:
+            TARGET_OS: debian-11
+            TOOLCHAIN_VERSION: v4
 
       - name: Run Jepsen tests
         run: |

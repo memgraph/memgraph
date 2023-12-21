@@ -7,7 +7,7 @@ MEMGRAPH_BINARY_PATH="../../build/memgraph"
 # NOTE: On Ubuntu 22.04 v0.3.2 uses non-existing docker compose --compatibility flag.
 # NOTE: On Ubuntu 22.04 v0.3.0 and v0.3.1 seems to be runnable.
 # TODO(gitbuda): Make sure Memgraph can be testes with Jepsen >= 0.3.0
-JEPSEN_VERSION="${JEPSEN_VERSION:-0.2.4}"
+JEPSEN_VERSION="${JEPSEN_VERSION:-0.3.4}"
 JEPSEN_ACTIVE_NODES_NO=5
 CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
 CONTROL_LEIN_RUN_STDOUT_LOGS=1
