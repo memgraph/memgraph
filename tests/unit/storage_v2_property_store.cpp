@@ -11,6 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <json/json.hpp>
 
 #include <limits>
 
@@ -20,6 +21,33 @@
 #include "storage/v2/temporal.hpp"
 
 using testing::UnorderedElementsAre;
+
+struct SearchResult {
+  std::uint64_t id;
+  nlohmann::json document;
+  double score;
+};
+
+class TantivyMock {
+  enum class Consistency : uint8_t { DEFAULT };
+
+  std::string INDEX = "";  // placeholder
+
+  std::map<std::string, std::map<std::uint64_t, nlohmann::json>> storage{};  // index_name: {document_id: document}
+
+  void CreateAllPropsIndex(std::string name, std::string tokenizer, Consistency consistency = Consistency::DEFAULT) {}
+
+  void DropIndex(std::string index_name) { storage.erase(index_name); }
+
+  void AddDocument(std::uint64_t id, nlohmann::json document) { storage[INDEX][id] = document; }
+
+  void DeleteDocument(std::uint64_t id) { storage[INDEX].erase(id); }
+
+  SearchResult Search(std::string index_name, std::string search_query) {
+    auto mock_result = storage[index_name].begin();
+    return SearchResult{.id = mock_result->first, .document = mock_result->second, .score = 1.0};
+  }
+};
 
 const memgraph::storage::PropertyValue kSampleValues[] = {
     memgraph::storage::PropertyValue(),

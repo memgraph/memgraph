@@ -105,7 +105,8 @@ enum class Type : uint8_t {
   STRING = 0x50,
   LIST = 0x60,
   MAP = 0x70,
-  TEMPORAL_DATA = 0x80
+  TEMPORAL_DATA = 0x80,
+  EXTERNALLY_STORED = 0x90
 };
 
 const uint8_t kMaskType = 0xf0;
