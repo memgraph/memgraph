@@ -3025,9 +3025,17 @@ class ReplicationQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { SET_REPLICATION_ROLE, SHOW_REPLICATION_ROLE, REGISTER_REPLICA, DROP_REPLICA, SHOW_REPLICAS };
+  enum class Action {
+    SET_REPLICATION_ROLE,
+    SHOW_REPLICATION_ROLE,
+    REGISTER_REPLICA,
+    REGISTER_MAIN,
+    DROP_REPLICA,
+    SHOW_REPLICAS,
+    SHOW_REPLICATION_CLUSTER
+  };
 
-  enum class ReplicationRole { MAIN, REPLICA };
+  enum class ReplicationRole { MAIN, REPLICA, COORDINATOR };
 
   enum class SyncMode { SYNC, ASYNC };
 

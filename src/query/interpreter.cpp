@@ -753,6 +753,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           case ReplicationQuery::ReplicationRole::REPLICA: {
             return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
           }
+          case ReplicationQuery::ReplicationRole::COORDINATOR: {
+            return std::vector<std::vector<TypedValue>>{{TypedValue("coordinator")}};
+          }
         }
       };
       return callback;
@@ -829,6 +832,12 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         return typed_replicas;
       };
       return callback;
+    }
+    case ReplicationQuery::Action::REGISTER_MAIN: {
+      throw QueryException("Not yet implemented");
+    }
+    case ReplicationQuery::Action::SHOW_REPLICATION_CLUSTER: {
+      throw QueryException("Show replicaiton cluster not yet implemented");
     }
   }
 }

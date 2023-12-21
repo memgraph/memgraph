@@ -42,6 +42,7 @@ memgraphCypherKeyword : cypherKeyword
                       | CONSUMER_GROUP
                       | CREATE_DELETE
                       | CREDENTIALS
+                      | COORDINATOR
                       | CSV
                       | DATA
                       | DELIMITER
@@ -181,6 +182,8 @@ replicationQuery : setReplicationRole
                  | registerReplica
                  | dropReplica
                  | showReplicas
+                 | registerMain
+                 | showReplicationCluster
                  ;
 
 triggerQuery : createTrigger
@@ -359,7 +362,7 @@ dumpQuery : DUMP DATABASE ;
 
 analyzeGraphQuery : ANALYZE GRAPH ( ON LABELS ( listOfColonSymbolicNames | ASTERISK ) ) ? ( DELETE STATISTICS ) ? ;
 
-setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
+setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA | COORDINATOR )
                       ( WITH PORT port=literal ) ? ;
 
 showReplicationRole : SHOW REPLICATION ROLE ;
@@ -371,9 +374,13 @@ socketAddress : literal ;
 registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
                 TO socketAddress ;
 
+registerMain : REGISTER MAIN TO socketAddress ;
+
 dropReplica : DROP REPLICA replicaName ;
 
 showReplicas : SHOW REPLICAS ;
+
+showReplicationCluster : SHOW REPLICATION CLUSTER ;
 
 lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY | DATA DIRECTORY LOCK STATUS;
 
