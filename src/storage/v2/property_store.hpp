@@ -42,6 +42,9 @@ class ExternalStoreMock {
 
   void DropIndex(std::string index_name) { storage.erase(index_name); }
 
+  /// @brief Add document with given ID
+  /// @param id Id of graph element
+  /// @param document Document storing the properties
   void AddDocument(std::uint64_t id, nlohmann::json document) { storage[INDEX][id] = document; }
 
   nlohmann::json GetDocument(std::uint64_t id) { return storage[INDEX][id]; }
