@@ -106,7 +106,6 @@ enum class Type : uint8_t {
   LIST = 0x60,
   MAP = 0x70,
   TEMPORAL_DATA = 0x80,
-  EXTERNALLY_STORED = 0x90
 };
 
 const uint8_t kMaskType = 0xf0;
@@ -1023,7 +1022,20 @@ PropertyStore::~PropertyStore() {
   }
 }
 
-PropertyValue PropertyStore::GetProperty(PropertyId property) const {
+PropertyValue PropertyStore::GetProperty(PropertyId property, const bool external,
+                                         ExternalStoreMock *external_store_mock) const {
+  if (external) {
+    int DUMMY_GRAPH_ELEMENT_ID = 1;
+
+    auto key = property.ToString();
+    auto properties = external_store_mock->GetDocument(DUMMY_GRAPH_ELEMENT_ID)["properties"];
+    if (!properties.contains(key)) {
+      return PropertyValue();
+    }
+
+    return PropertyValue(properties.at(key).get<int64_t>());
+  }
+
   uint64_t size;
   const uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
@@ -1038,7 +1050,15 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   return value;
 }
 
-bool PropertyStore::HasProperty(PropertyId property) const {
+bool PropertyStore::HasProperty(PropertyId property, const bool external,
+                                ExternalStoreMock *external_store_mock) const {
+  if (external) {
+    int DUMMY_GRAPH_ELEMENT_ID = 1;
+
+    auto properties = external_store_mock->GetDocument(DUMMY_GRAPH_ELEMENT_ID)["properties"];
+    return properties.contains(property.ToString());
+  }
+
   uint64_t size;
   const uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
@@ -1121,7 +1141,23 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
   return props;
 }
 
-bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
+bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value, const bool external,
+                                ExternalStoreMock *external_store_mock) {
+  if (external) {
+    int DUMMY_GRAPH_ELEMENT_ID = 1;
+    nlohmann::json document;
+    nlohmann::json property_map;
+
+    if (!value.IsNull()) {
+      property_map[property.ToString()] = value.ValueInt();
+    }
+
+    document["id"] = DUMMY_GRAPH_ELEMENT_ID;
+    document["properties"] = property_map;
+    external_store_mock->AddDocument(DUMMY_GRAPH_ELEMENT_ID, document);
+    return true;
+  }
+
   uint64_t property_size = 0;
   if (!value.IsNull()) {
     Writer writer;

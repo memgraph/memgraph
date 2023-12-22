@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <json/json.hpp>
 #include <map>
 #include <set>
 
@@ -18,6 +19,37 @@
 #include "storage/v2/property_value.hpp"
 
 namespace memgraph::storage {
+
+struct SearchResult {
+  std::uint64_t id;
+  nlohmann::json document;
+  double score;
+};
+
+class ExternalStoreMock {
+ private:
+  std::string INDEX = "";  // placeholder (Tantivy supports multiple indices)
+  std::map<std::string, std::map<std::uint64_t, nlohmann::json>> storage{};  // index_name: {document_id: document}
+
+ public:
+  enum class Consistency : uint8_t { DEFAULT };
+
+  void CreateAllPropsIndex(std::string name, std::string tokenizer = "DUMMY_TOKENIZER",
+                           Consistency consistency = Consistency::DEFAULT) {}
+
+  void DropIndex(std::string index_name) { storage.erase(index_name); }
+
+  void AddDocument(std::uint64_t id, nlohmann::json document) { storage[INDEX][id] = document; }
+
+  nlohmann::json GetDocument(std::uint64_t id) { return storage[INDEX][id]; }
+
+  void DeleteDocument(std::uint64_t id) { storage[INDEX].erase(id); }
+
+  SearchResult Search(std::string index_name, std::string search_query) {
+    auto mock_result = storage[index_name].begin();
+    return SearchResult{.id = mock_result->first, .document = mock_result->second, .score = 1.0};
+  }
+};
 
 class PropertyStore {
   static_assert(std::endian::native == std::endian::little,
@@ -43,11 +75,13 @@ class PropertyStore {
   /// property doesn't exist a Null value is returned. The time complexity of
   /// this function is O(n).
   /// @throw std::bad_alloc
-  PropertyValue GetProperty(PropertyId property) const;
+  PropertyValue GetProperty(PropertyId property, const bool external = false,
+                            ExternalStoreMock *external_store_mock = nullptr) const;
 
   /// Checks whether the property `property` exists in the store. The time
   /// complexity of this function is O(n).
-  bool HasProperty(PropertyId property) const;
+  bool HasProperty(PropertyId property, const bool external = false,
+                   ExternalStoreMock *external_store_mock = nullptr) const;
 
   /// Checks whether all properties in the set `properties` exist in the store. The time
   /// complexity of this function is O(n^2).
@@ -77,7 +111,8 @@ class PropertyStore {
   /// returned if assignment took place. The time complexity of this function is
   /// O(n).
   /// @throw std::bad_alloc
-  bool SetProperty(PropertyId property, const PropertyValue &value);
+  bool SetProperty(PropertyId property, const PropertyValue &value, const bool external = false,
+                   ExternalStoreMock *external_store_mock = nullptr);
 
   /// Init property values and return `true` if insertion took place. `false` is
   /// returned if there is any existing property in property store and insertion couldn't take place. The time

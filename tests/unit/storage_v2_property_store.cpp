@@ -22,33 +22,6 @@
 
 using testing::UnorderedElementsAre;
 
-struct SearchResult {
-  std::uint64_t id;
-  nlohmann::json document;
-  double score;
-};
-
-class TantivyMock {
-  enum class Consistency : uint8_t { DEFAULT };
-
-  std::string INDEX = "";  // placeholder
-
-  std::map<std::string, std::map<std::uint64_t, nlohmann::json>> storage{};  // index_name: {document_id: document}
-
-  void CreateAllPropsIndex(std::string name, std::string tokenizer, Consistency consistency = Consistency::DEFAULT) {}
-
-  void DropIndex(std::string index_name) { storage.erase(index_name); }
-
-  void AddDocument(std::uint64_t id, nlohmann::json document) { storage[INDEX][id] = document; }
-
-  void DeleteDocument(std::uint64_t id) { storage[INDEX].erase(id); }
-
-  SearchResult Search(std::string index_name, std::string search_query) {
-    auto mock_result = storage[index_name].begin();
-    return SearchResult{.id = mock_result->first, .document = mock_result->second, .score = 1.0};
-  }
-};
-
 const memgraph::storage::PropertyValue kSampleValues[] = {
     memgraph::storage::PropertyValue(),
     memgraph::storage::PropertyValue(false),
@@ -93,6 +66,28 @@ void TestIsPropertyEqual(const memgraph::storage::PropertyStore &store, memgraph
       ASSERT_FALSE(store.IsPropertyEqual(property, sample));
     }
   }
+}
+
+TEST(PropertyStore, SimpleExternallyStored) {
+  auto mock = memgraph::storage::ExternalStoreMock();
+
+  memgraph::storage::PropertyStore props;
+  auto prop = memgraph::storage::PropertyId::FromInt(42);
+  auto value = memgraph::storage::PropertyValue(42);
+
+  ASSERT_TRUE(props.SetProperty(prop, value, true, &mock));
+
+  ASSERT_EQ(props.GetProperty(prop, true, &mock), value);
+
+  ASSERT_TRUE(props.HasProperty(prop, true, &mock));
+
+  ASSERT_TRUE(props.SetProperty(prop, memgraph::storage::PropertyValue(), true, &mock));
+
+  ASSERT_TRUE(props.GetProperty(prop, true, &mock).IsNull());
+
+  ASSERT_FALSE(props.HasProperty(prop, true, &mock));
+
+  TestIsPropertyEqual(props, prop, memgraph::storage::PropertyValue());
 }
 
 TEST(PropertyStore, Simple) {
