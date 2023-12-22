@@ -34,8 +34,11 @@ class ExternalStoreMock {
  public:
   enum class Consistency : uint8_t { DEFAULT };
 
-  void CreateAllPropsIndex(std::string name, std::string tokenizer = "DUMMY_TOKENIZER",
-                           Consistency consistency = Consistency::DEFAULT) {}
+  void CreateAllPropsIndex(std::string index_name, LabelId label, std::string tokenizer = "DUMMY_TOKENIZER",
+                           Consistency consistency = Consistency::DEFAULT);
+
+  void CreateIndex(std::string index_name, LabelId label, std::vector<PropertyId> properties,
+                   std::string tokenizer = "DUMMY_TOKENIZER", Consistency consistency = Consistency::DEFAULT);
 
   void DropIndex(std::string index_name) { storage.erase(index_name); }
 
@@ -44,6 +47,8 @@ class ExternalStoreMock {
   nlohmann::json GetDocument(std::uint64_t id) { return storage[INDEX][id]; }
 
   void DeleteDocument(std::uint64_t id) { storage[INDEX].erase(id); }
+
+  // storage::IndicesInfo ListAllTextIndices(); TODO make IndicesInfo visible here
 
   SearchResult Search(std::string index_name, std::string search_query) {
     auto mock_result = storage[index_name].begin();
