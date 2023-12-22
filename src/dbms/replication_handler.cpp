@@ -142,12 +142,12 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
 
 auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
     -> memgraph::utils::BasicResult<RegisterReplicaError> {
-  MG_ASSERT(dbms_handler_.ReplicationState().IsMain(), "Only main instance can register a replica!");
+  MG_ASSERT(!dbms_handler_.ReplicationState().IsReplica(), "Replica can't register another replica!");
 
   auto instance_client = dbms_handler_.ReplicationState().RegisterReplica(config);
   if (instance_client.HasError()) switch (instance_client.GetError()) {
-      case memgraph::replication::RegisterReplicaError::NOT_MAIN:
-        MG_ASSERT(false, "Only main instance can register a replica!");
+      case memgraph::replication::RegisterReplicaError::IS_REPLICA:
+        MG_ASSERT(false, "Replica can't register another replica!");
         return {};
       case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
         return memgraph::dbms::RegisterReplicaError::NAME_EXISTS;
@@ -203,26 +203,44 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterReplicaResult {
   auto const replica_handler = [](RoleReplicaData const &) -> UnregisterReplicaResult {
-    return UnregisterReplicaResult::NOT_MAIN;
+    return UnregisterReplicaResult::IS_REPLICA;
   };
+
   auto const main_handler = [this, name](RoleMainData &mainData) -> UnregisterReplicaResult {
-    if (!dbms_handler_.ReplicationState().TryPersistUnregisterReplica(name)) {
+    if (!dbms_handler_.ReplicationState().TryPersistUnregisterReplicaOnMain(name)) {
       return UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
     }
+
     // Remove database specific clients
     dbms_handler_.ForEach([name](Database *db) {
       db->storage()->repl_storage_state_.replication_clients_.WithLock([&name](auto &clients) {
         std::erase_if(clients, [name](const auto &client) { return client->Name() == name; });
       });
     });
+
     // Remove instance level clients
     auto const n_unregistered =
         std::erase_if(mainData.registered_replicas_, [name](auto const &client) { return client.name_ == name; });
     return n_unregistered != 0 ? UnregisterReplicaResult::SUCCESS : UnregisterReplicaResult::CAN_NOT_UNREGISTER;
   };
 
-  auto const coordinator_handler = [](replication::RoleCoordinatorData const &) -> UnregisterReplicaResult {
-    return UnregisterReplicaResult::NOT_MAIN;
+  auto const coordinator_handler =
+      [this, name](replication::RoleCoordinatorData &coordinatorData) -> UnregisterReplicaResult {
+    if (!dbms_handler_.ReplicationState().TryPersistUnregisterReplicaOnMain(name)) {
+      return UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
+    }
+
+    // Remove database specific clients
+    dbms_handler_.ForEach([name](Database *db) {
+      db->storage()->repl_storage_state_.replication_clients_.WithLock([&name](auto &clients) {
+        std::erase_if(clients, [name](const auto &client) { return client->Name() == name; });
+      });
+    });
+
+    // Remove instance level clients
+    auto const n_unregistered = std::erase_if(coordinatorData.registered_replicas_,
+                                              [name](auto const &client) { return client.name_ == name; });
+    return n_unregistered != 0 ? UnregisterReplicaResult::SUCCESS : UnregisterReplicaResult::CAN_NOT_UNREGISTER;
   };
 
   return std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler},

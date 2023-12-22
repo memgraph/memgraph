@@ -32,7 +32,13 @@ namespace memgraph::replication {
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 
-enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
+enum class RegisterReplicaError : uint8_t {
+  NAME_EXISTS,
+  END_POINT_EXISTS,
+  COULD_NOT_BE_PERSISTED,
+  IS_REPLICA,
+  SUCCESS
+};
 
 struct RoleMainData {
   RoleMainData() = default;
@@ -64,7 +70,6 @@ struct RoleCoordinatorData {
 
   std::list<ReplicationClient> registered_replicas_{};
   std::unique_ptr<ReplicationClient> main;
-
   // TODO: (andi) Does it need epoch or some other way or tracking what is going on?
 };
 
@@ -106,8 +111,10 @@ struct ReplicationState {
   /// TODO: (andi) If we will need epoch or something to track, we will need to pass it here as argument
   bool TryPersistRoleCoordinator();
 
-  bool TryPersistUnregisterReplica(std::string_view name);
-  bool TryPersistRegisteredReplica(const ReplicationClientConfig &config);
+  bool TryPersistUnregisterReplicaOnMain(std::string_view name);
+  bool TryPersistRegisteredReplicaOnMain(const ReplicationClientConfig &config);
+  bool TryPersistUnregisterReplicaOnCoordinator(std::string_view name);
+  bool TryPersistRegisteredReplicaOnCoordinator(const ReplicationClientConfig &config);
 
   // TODO: locked access
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }

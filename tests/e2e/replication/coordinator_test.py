@@ -16,13 +16,13 @@ from common import connect_default, execute_and_fetch_all
 
 
 def test_registering_only_replicas_on_coordinator():
-    # cursor = connect_default().cursor()
-    # execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO COORDINATOR;")
-    # execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
-    # execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
+    cursor = connect_default().cursor()
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
     # execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")
     # TODO: (andi) Test that the replicas are registered
-    pass
+    execute_and_fetch_all(cursor, "DROP REPLICA replica_1")
+    execute_and_fetch_all(cursor, "DROP REPLICA replica_2")
 
 
 def test_registering_only_main_on_coordinator():

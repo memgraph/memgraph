@@ -105,7 +105,17 @@ bool ReplicationState::TryPersistRoleCoordinator() {
   return false;
 }
 
-bool ReplicationState::TryPersistUnregisterReplica(std::string_view name) {
+bool ReplicationState::TryPersistUnregisterReplicaOnMain(std::string_view name) {
+  if (!ShouldPersist()) return true;
+
+  auto key = BuildReplicaKey(name);
+
+  if (durability_->Delete(key)) return true;
+  spdlog::error("Error when removing replica {} from settings.", name);
+  return false;
+}
+
+bool ReplicationState::TryPersistUnregisterReplicaOnCoordinator(std::string_view name) {
   if (!ShouldPersist()) return true;
 
   auto key = BuildReplicaKey(name);
@@ -215,18 +225,34 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
   return true;
 }
 
-bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig &config) {
+bool ReplicationState::TryPersistRegisteredReplicaOnMain(const ReplicationClientConfig &config) {
   if (!ShouldPersist()) return true;
+  DMG_ASSERT(IsMain(), "Expected MAIN when registering replica.");
 
   // If any replicas are persisted then Role must be persisted
   if (role_persisted != RolePersisted::YES) {
-    DMG_ASSERT(IsMain(), "MAIN is expected");
     auto epoch_str = std::string(std::get<RoleMainData>(replication_data_).epoch_.id());
     if (!TryPersistRoleMain(std::move(epoch_str))) return false;
   }
 
   auto data = durability::ReplicationReplicaEntry{.config = config};
 
+  auto key = BuildReplicaKey(config.name);
+  if (durability_->Put(key, nlohmann::json(data).dump())) return true;
+  spdlog::error("Error when saving replica {} in settings.", config.name);
+  return false;
+}
+
+bool ReplicationState::TryPersistRegisteredReplicaOnCoordinator(const ReplicationClientConfig &config) {
+  if (!ShouldPersist()) return true;
+  DMG_ASSERT(IsCoordinator(), "Expected MAIN when registering replica.");
+
+  // If any replicas are persisted then Role must be persisted
+  if (role_persisted != RolePersisted::YES) {
+    if (!TryPersistRoleCoordinator()) return false;
+  }
+
+  auto data = durability::ReplicationReplicaEntry{.config = config};
   auto key = BuildReplicaKey(config.name);
   if (durability_->Put(key, nlohmann::json(data).dump())) return true;
   spdlog::error("Error when saving replica {} in settings.", config.name);
@@ -262,32 +288,36 @@ bool ReplicationState::SetReplicationRoleCoordinator() {
 
 utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::RegisterReplica(
     const ReplicationClientConfig &config) {
-  auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaError::NOT_MAIN; };
+  auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaError::IS_REPLICA; };
+
+  // Returned for MAIN and COORDINATOR
   ReplicationClient *client{nullptr};
-  auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaError {
-    // name check
-    auto name_check = [&config](auto const &replicas) {
-      auto name_matches = [&name = config.name](auto const &replica) { return replica.name_ == name; };
-      return std::any_of(replicas.begin(), replicas.end(), name_matches);
+
+  auto name_check = [&config](auto const &replicas) {
+    auto name_matches = [&name = config.name](auto const &replica) { return replica.name_ == name; };
+    return std::any_of(replicas.begin(), replicas.end(), name_matches);
+  };
+
+  auto endpoint_check = [&](auto const &replicas) {
+    auto endpoint_matches = [&config](auto const &replica) {
+      const auto &ep = replica.rpc_client_.Endpoint();
+      return ep.address == config.ip_address && ep.port == config.port;
     };
+    return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
+  };
+
+  auto const main_handler = [&client, &config, &name_check, &endpoint_check,
+                             this](RoleMainData &mainData) -> RegisterReplicaError {
     if (name_check(mainData.registered_replicas_)) {
       return RegisterReplicaError::NAME_EXISTS;
     }
 
-    // endpoint check
-    auto endpoint_check = [&](auto const &replicas) {
-      auto endpoint_matches = [&config](auto const &replica) {
-        const auto &ep = replica.rpc_client_.Endpoint();
-        return ep.address == config.ip_address && ep.port == config.port;
-      };
-      return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
-    };
     if (endpoint_check(mainData.registered_replicas_)) {
       return RegisterReplicaError::END_POINT_EXISTS;
     }
 
     // Durability
-    if (!TryPersistRegisteredReplica(config)) {
+    if (!TryPersistRegisteredReplicaOnMain(config)) {
       return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
     }
 
@@ -296,15 +326,32 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
     return RegisterReplicaError::SUCCESS;
   };
 
-  auto const coordinator_handler = [](auto const &) -> RegisterReplicaError {
-    throw utils::NotYetImplemented("Not yet implemented");
+  auto const coordinator_handler = [&client, &config, &name_check, &endpoint_check,
+                                    this](RoleCoordinatorData &coordinatorData) -> RegisterReplicaError {
+    if (name_check(coordinatorData.registered_replicas_)) {
+      return RegisterReplicaError::NAME_EXISTS;
+    }
+
+    if (endpoint_check(coordinatorData.registered_replicas_)) {
+      return RegisterReplicaError::END_POINT_EXISTS;
+    }
+
+    if (!TryPersistRegisteredReplicaOnCoordinator(config)) {
+      return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+    }
+
+    client = &coordinatorData.registered_replicas_.emplace_back(config);
+
+    return RegisterReplicaError::SUCCESS;
   };
 
   const auto &res =
       std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler}, replication_data_);
+
   if (res == RegisterReplicaError::SUCCESS) {
     return client;
   }
+
   return res;
 }
 }  // namespace memgraph::replication

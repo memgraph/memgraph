@@ -352,7 +352,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     auto const result = handler_.UnregisterReplica(replica_name);
     switch (result) {
       using enum memgraph::dbms::UnregisterReplicaResult;
-      case NOT_MAIN:
+      case IS_REPLICA:
         throw QueryRuntimeException("Replica can't unregister a replica!");
       case COULD_NOT_BE_PERSISTED:
         [[fallthrough]];
