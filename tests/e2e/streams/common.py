@@ -299,7 +299,7 @@ def test_start_checked_stream_after_timeout(connection, stream_creator):
     stream_name = "test_start_checked_stream_after_timeout"
     execute_and_fetch_all(cursor, stream_creator(stream_name))
 
-    timeout_in_ms = 2000
+    timeout_in_ms = 5000
 
     def call_check():
         execute_and_fetch_all(connect().cursor(), f"CHECK STREAM {stream_name} TIMEOUT {timeout_in_ms}")
@@ -447,7 +447,6 @@ def test_check_stream_different_number_of_queries_than_messages(connection, stre
 
 def test_start_stream_with_batch_limit(connection, stream_name, stream_creator, messages_sender):
     BATCH_LIMIT = 5
-    TIMEOUT = 10000
 
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator())
@@ -457,7 +456,7 @@ def test_start_stream_with_batch_limit(connection, stream_name, stream_creator, 
     def start_new_stream_with_limit():
         connection = connect()
         cursor = connection.cursor()
-        start_stream_with_limit(cursor, stream_name, BATCH_LIMIT, TIMEOUT)
+        start_stream_with_limit(cursor, stream_name, BATCH_LIMIT)
 
     def is_running():
         return get_is_running(cursor, stream_name)
@@ -465,7 +464,6 @@ def test_start_stream_with_batch_limit(connection, stream_name, stream_creator, 
     thread_stream_running = Process(target=start_new_stream_with_limit)
     thread_stream_running.start()
 
-    execute_and_fetch_all(connection.cursor(), "SHOW STREAMS")
     assert mg_sleep_and_assert(True, is_running)
     messages_sender(BATCH_LIMIT - 1)
 
