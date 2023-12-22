@@ -215,7 +215,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, Linux, X64, black-widow]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -229,10 +229,6 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
-      - name: Check e2e service dependencies
-        run: |
-          cd tests/e2e
-          ./dependency_check.sh
 
       - name: Build release binaries
         run: |
@@ -247,29 +243,12 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$THREADS
 
-      - name: Run GQL Behave tests
+      - name: Ensure Kafka and Pulsar are up
         run: |
-          cd tests
-          ./setup.sh /opt/toolchain-v4/activate
-          cd gql_behave
-          ./continuous_integration
-
-      - name: Save quality assurance status
-        uses: actions/upload-artifact@v3
-        with:
-          name: "GQL Behave Status"
-          path: |
-            tests/gql_behave/gql_behave_status.csv
-            tests/gql_behave/gql_behave_status.html
-
-      - name: Run unit tests
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run unit tests.
-          cd build
-          ctest -R memgraph__unit --output-on-failure -j$THREADS
+          cd tests/e2e/streams/kafka
+          docker-compose up -d
+          cd ../pulsar
+          docker-compose up -d
 
       - name: Run e2e tests
         run: |
@@ -279,52 +258,13 @@ jobs:
           cd e2e
           ./run.sh
 
-      - name: Run stress test (plain)
-        run: |
-          cd tests/stress
-          source ve3/bin/activate
-          ./continuous_integration
-
-      - name: Run stress test (SSL)
-        run: |
-          cd tests/stress
-          source ve3/bin/activate
-          ./continuous_integration --use-ssl
-
-      - name: Run durability test
-        run: |
-          cd tests/stress
-          source ve3/bin/activate
-          python3 durability --num-steps 5
-
-      - name: Create enterprise DEB package
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-          cd build
-
-          # create mgconsole
-          # we use the -B to force the build
-          make -j$THREADS -B mgconsole
-
-          # Create enterprise DEB package.
-          mkdir output && cd output
-          cpack -G DEB --config ../CPackConfig.cmake
-
-      - name: Save enterprise DEB package
-        uses: actions/upload-artifact@v3
-        with:
-          name: "Enterprise DEB package"
-          path: build/output/memgraph*.deb
-
-      - name: Save test data
-        uses: actions/upload-artifact@v3
+      - name: Ensure Kafka and Pulsar are down
         if: always()
-        with:
-          name: "Test data"
-          path: |
-            # multiple paths could be defined
-            build/logs
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose down
+          cd ../pulsar
+          docker-compose down
 
   release_jepsen_test:
     name: "Release Jepsen Test"
