@@ -79,6 +79,15 @@ TEST(ReplicationDurability, V2Replica) {
   ASSERT_EQ(role_entry, deser);
 }
 
+TEST(ReplicationDurability, V2Coordinator) {
+  auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V2, .role = CoordinatorRole{}};
+  nlohmann::json j;
+  to_json(j, role_entry);
+  ReplicationRoleEntry deser;
+  from_json(j, deser);
+  ASSERT_EQ(role_entry, deser);
+}
+
 TEST(ReplicationDurability, ReplicaEntrySync) {
   using namespace std::chrono_literals;
   using namespace std::string_literals;

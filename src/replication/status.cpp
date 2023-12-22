@@ -77,7 +77,7 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       break;
     }
     case ReplicationRole::COORDINATOR: {
-      throw utils::NotYetImplemented("Not yet implemented");
+      p = ReplicationRoleEntry{.version = version, .role = CoordinatorRole{}};
       break;
     }
   }
