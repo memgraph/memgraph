@@ -54,9 +54,18 @@ struct RoleReplicaData {
 };
 
 struct RoleCoordinatorData {
+  RoleCoordinatorData() = default;
+  ~RoleCoordinatorData() = default;
+
+  RoleCoordinatorData(RoleCoordinatorData const &) = delete;
+  RoleCoordinatorData &operator=(RoleCoordinatorData const &) = delete;
+  RoleCoordinatorData(RoleCoordinatorData &&) = default;
+  RoleCoordinatorData &operator=(RoleCoordinatorData &&) = default;
+
   std::list<ReplicationClient> registered_replicas_{};
   std::unique_ptr<ReplicationClient> main;
-  // TODO does it need epoch
+
+  // TODO: (andi) Does it need epoch or some other way or tracking what is going on?
 };
 
 // Global (instance) level object
@@ -94,6 +103,9 @@ struct ReplicationState {
   bool ShouldPersist() const { return nullptr != durability_; }
   bool TryPersistRoleMain(std::string new_epoch);
   bool TryPersistRoleReplica(const ReplicationServerConfig &config);
+  /// TODO: (andi) If we will need epoch or something to track, we will need to pass it here as argument
+  bool TryPersistRoleCoordinator();
+
   bool TryPersistUnregisterReplica(std::string_view name);
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config);
 
@@ -103,8 +115,8 @@ struct ReplicationState {
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain();
-
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
+  bool SetReplicationRoleCoordinator();
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;

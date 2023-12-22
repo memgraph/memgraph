@@ -46,11 +46,17 @@ struct ReplicaRole {
   friend bool operator==(ReplicaRole const &, ReplicaRole const &) = default;
 };
 
+// fragment of key: "__replication_role"
+// TODO: (andi) Check if you will need to add some epoch or something for managing coordinator role
+struct CoordinatorRole {
+  friend bool operator==(CoordinatorRole const &, CoordinatorRole const &) = default;
+};
+
 // from key: "__replication_role"
 struct ReplicationRoleEntry {
   DurabilityVersion version =
       DurabilityVersion::V2;  // if not latest then migration required for kReplicationReplicaPrefix
-  std::variant<MainRole, ReplicaRole> role;
+  std::variant<MainRole, ReplicaRole, CoordinatorRole> role;
 
   friend bool operator==(ReplicationRoleEntry const &, ReplicationRoleEntry const &) = default;
 };

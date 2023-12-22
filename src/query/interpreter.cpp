@@ -286,7 +286,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       }
     } else if (replication_role == ReplicationQuery::ReplicationRole::COORDINATOR) {
       if (!handler_.SetReplicationRoleCoordinator()) {
-        throw QueryRuntimeException("Couldn't set role to main!");
+        throw QueryRuntimeException("Couldn't set role to coordinator!");
       }
     } else {
       if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {

@@ -75,6 +75,7 @@ bool ReplicationHandler::SetReplicationRoleMain() {
     return true;
   };
 
+  // COORDINATOR cannot become main
   auto const coordinator_handler = [](replication::RoleCoordinatorData const &) { return false; };
 
   // TODO: under lock
@@ -83,13 +84,14 @@ bool ReplicationHandler::SetReplicationRoleMain() {
 }
 
 bool ReplicationHandler::SetReplicationRoleCoordinator() {
-  auto const main_handler = [](RoleMainData const &) { return false; };
+  // Upgrading REPLICA to COORDINATOR is not supported
   auto const replica_handler = [](RoleReplicaData const &) { return false; };
-
-  auto const coordinator_handler = [](replication::RoleCoordinatorData const &) {
-    // TODO
-    //  set RPCs
-    return true;
+  // If we are already COORDINATOR, we don't want to change anything
+  auto const coordinator_handler = [](replication::RoleCoordinatorData const &) { return false; };
+  // Upgrade MAIN to COORDINATOR
+  // TODO: (andi) Probably more complex steps will be necessary here.
+  auto const main_handler = [this](RoleMainData const &) {
+    return dbms_handler_.ReplicationState().SetReplicationRoleCoordinator();
   };
 
   // TODO: under lock
@@ -99,7 +101,7 @@ bool ReplicationHandler::SetReplicationRoleCoordinator() {
 
 bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config) {
   // We don't want to restart the server if we're already a REPLICA
-  if (dbms_handler_.ReplicationState().IsReplica()) {
+  if (dbms_handler_.ReplicationState().IsReplica() || dbms_handler_.ReplicationState().IsCoordinator()) {
     return false;
   }
 
@@ -131,6 +133,7 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
                                      }
                                      return true;
                                    },
+                                   /// TODO: (andi) Assert that this code cannot execute
                                    [](replication::RoleCoordinatorData const &) { return false; }},
                  dbms_handler_.ReplicationState().ReplicationData());
   // TODO Handle error (restore to main?)

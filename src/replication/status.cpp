@@ -28,6 +28,8 @@ constexpr auto *kReplicationRole = "replication_role";
 constexpr auto *kEpoch = "epoch";
 constexpr auto *kVersion = "durability_version";
 
+/// TODO: (andi) This will have to change for MAIN because now also MAIN will have its own server. Do we then have to
+/// introduce new durability version?
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
     j = nlohmann::json{{kVersion, p.version}, {kReplicationRole, ReplicationRole::MAIN}, {kEpoch, main.epoch.id()}};
@@ -41,7 +43,13 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
         // TODO: SSL
     };
   };
-  std::visit(utils::Overloaded{processMAIN, processREPLICA}, p.role);
+
+  /// TODO: (andi) Extend this if you need to introduce some kind of timestamp to coordinator.
+  auto processCOORDINATOR = [&](CoordinatorRole const &) {
+    j = nlohmann::json{{kVersion, p.version}, {kReplicationRole, ReplicationRole::COORDINATOR}};
+  };
+
+  std::visit(utils::Overloaded{processMAIN, processREPLICA, processCOORDINATOR}, p.role);
 }
 
 void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {

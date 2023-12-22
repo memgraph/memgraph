@@ -52,19 +52,38 @@ template_cluster: &template_cluster
       ]
       <<: *template_validation_queries
 
-in_memory_cluster: &in_memory_cluster
+set_coordinator_role_cluster: &set_coordinator_role_cluster
   cluster:
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
-      log_file: "replication_general_e2e.log"
+      log_file: "set_coordinator_role_e2e.log"
       setup_queries: []
       validation_queries: []
 
+coordinator_role_cluster: &coordinator_role_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "coordinator_role_e2e.log"
+      setup_queries: ["SET REPLICATION ROLE TO COORDINATOR;"]
+      validation_queries: []
+
+
 workloads:
-  - name: "Replication general"
+  - name: "Set coordinator role"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["replication/replication_general.py"]
-    <<: *in_memory_cluster
+    args: ["replication/set_coordinator_role.py"]
+    <<: *set_coordinator_role_cluster
+
+  - name: "Coordinator test"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/coordinator_test.py"]
+    <<: *coordinator_role_cluster
+
+  - name: "Replica test"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/replica_test.py"]
+    <<: *template_cluster
 
   - name: "Constraints"
     binary: "tests/e2e/replication/memgraph__e2e__replication__constraints"
@@ -81,40 +100,14 @@ workloads:
     args: []
     <<: *template_cluster
 
-  - name: "Manual failover cluster setup"
+  - name: "Show while creating invalid state"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["replication/manual_failover.py"]
-    cluster:
-      replica_1:
-        args: ["--bolt-port", "7688", "--log-level=trace"]
-        log_file: "replication-e2e-replica1.log"
-        setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"]
-        validation_queries: []
-      replica_2:
-        args: ["--bolt-port", "7689", "--log-level=trace"]
-        log_file: "replication-e2e-replica2.log"
-        setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"]
-        validation_queries: []
-      main:
-        args: ["--bolt-port", "7687", "--log-level=trace"]
-        log_file: "replication-e2e-main.log"
-        setup_queries: [
-          "SET REPLICATION ROLE TO MAIN WITH PORT 10003;",
-          "REGISTER REPLICA REPLICA_1 SYNC TO '127.0.0.1:10001'",
-          "REGISTER REPLICA REPLICA_2 SYNC TO '127.0.0.1:10002'",
-        ]
-        validation_queries: []
-      coordinator:
-        args: ["--bolt-port", "7690", "--log-level=trace"]
-        log_file: "replication-e2e-coordinator.log"
-        setup_queries: [
-          "SET REPLICATION ROLE TO COORDINATOR;",
-          "REGISTER MAIN TO '127.0.0.1:10003'",
-          "REGISTER REPLICA REPLICA_1 SYNC TO '127.0.0.1:10001'",
-          "REGISTER REPLICA REPLICA_2 SYNC TO '127.0.0.1:10002'",
-        ]
-        validation_queries: []
+    args: ["replication/show_while_creating_invalid_state.py"]
 
+  - name: "Delete edge replication"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/edge_delete.py"]
+    <<: *template_simple_cluster
 
   - name: "show"
     binary: "tests/e2e/pytest_runner.sh"
@@ -144,12 +137,3 @@ workloads:
           "register replica replica_3 async to '127.0.0.1:10003'"
         ]
         validation_queries: []
-
-  - name: "Show while creating invalid state"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["replication/show_while_creating_invalid_state.py"]
-
-  - name: "Delete edge replication"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["replication/edge_delete.py"]
-    <<: *template_simple_cluster

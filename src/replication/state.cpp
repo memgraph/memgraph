@@ -91,6 +91,20 @@ bool ReplicationState::TryPersistRoleMain(std::string new_epoch) {
   return false;
 }
 
+bool ReplicationState::TryPersistRoleCoordinator() {
+  if (!ShouldPersist()) return true;
+
+  /// TODO: (andi) Epoch/identifier possible change
+  auto data = durability::ReplicationRoleEntry{.role = durability::CoordinatorRole{}};
+
+  if (durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
+    role_persisted = RolePersisted::YES;
+    return true;
+  }
+  spdlog::error("Error when saving COORDINATOR replication role in settings.");
+  return false;
+}
+
 bool ReplicationState::TryPersistUnregisterReplica(std::string_view name) {
   if (!ShouldPersist()) return true;
 
@@ -151,6 +165,9 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
             [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t {
               return {RoleReplicaData{r.config, std::make_unique<ReplicationServer>(r.config)}};
             },
+            /// TODO: (andi) This must change for sure because this is the step in which we should create
+            /// ReplicationClient for MAIN and for REPLICAs
+            [&](durability::CoordinatorRole &&) -> FetchReplicationResult_t { return {RoleCoordinatorData{}}; },
         },
         std::move(data.role));
   } catch (...) {
@@ -230,6 +247,16 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
     return false;
   }
   replication_data_ = RoleReplicaData{config, std::make_unique<ReplicationServer>(config)};
+  return true;
+}
+
+bool ReplicationState::SetReplicationRoleCoordinator() {
+  /// TODO: (andi) Think if need epoch and how is this going to be tracked.
+  if (!TryPersistRoleCoordinator()) {
+    return false;
+  }
+
+  replication_data_ = RoleCoordinatorData{};
   return true;
 }
 
