@@ -122,26 +122,26 @@ workloads:
     args: ["replication/show.py"]
     cluster:
       replica_1:
-        args: ["--bolt-port", "7688", "--log-level=trace"]
+        args: ["--bolt-port", "7688", "--log-level=TRACE"]
         log_file: "replication-e2e-replica1.log"
-        setup_queries: ["set replication role to replica with port 10001;"]
+        setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"]
         validation_queries: []
       replica_2:
-        args: ["--bolt-port", "7689", "--log-level=trace"]
+        args: ["--bolt-port", "7689", "--log-level=TRACE"]
         log_file: "replication-e2e-replica2.log"
-        setup_queries: ["set replication role to replica with port 10002;"]
+        setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"]
         validation_queries: []
       replica_3:
-        args: ["--bolt-port", "7690", "--log-level=trace"]
+        args: ["--bolt-port", "7690", "--log-level=TRACE"]
         log_file: "replication-e2e-replica3.log"
-        setup_queries: ["set replication role to replica with port 10003;"]
+        setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10003;"]
         validation_queries: []
       main:
-        args: ["--bolt-port", "7687", "--log-level=trace"]
+        args: ["--bolt-port", "7687", "--log-level=TRACE"]
         log_file: "replication-e2e-main.log"
         setup_queries: [
-          "register replica replica_1 sync to '127.0.0.1:10001'",
-          "register replica replica_2 sync to '127.0.0.1:10002'",
-          "register replica replica_3 async to '127.0.0.1:10003'"
+          "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001'",
+          "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002'",
+          "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003'"
         ]
         validation_queries: []
