@@ -317,9 +317,8 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetRepl
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_ROLE;
   if (ctx->MAIN()) {
-    // Can set a port only if query is executed on coordinator
-    if (ctx->port->numberLiteral() && ctx->port->numberLiteral()->integerLiteral()) {
-      replication_query->port_ = std::any_cast<Expression *>(ctx->port->accept(this));
+    if (ctx->WITH() || ctx->PORT()) {
+      throw SemanticException("Main can't set a port!");
     }
     replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
   } else if (ctx->REPLICA()) {
@@ -364,16 +363,6 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
   return replication_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitRegisterMain(MemgraphCypher::RegisterMainContext *ctx) {
-  auto *replication_query = storage_->Create<ReplicationQuery>();
-  replication_query->action_ = ReplicationQuery::Action::REGISTER_MAIN;
-  if (!ctx->socketAddress()->literal()->StringLiteral()) {
-    throw SemanticException("Socket address should be a string literal!");
-  }
-  replication_query->socket_address_ = std::any_cast<Expression *>(ctx->socketAddress()->accept(this));
-  return replication_query;
-}
-
 antlrcpp::Any CypherMainVisitor::visitDropReplica(MemgraphCypher::DropReplicaContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::DROP_REPLICA;
@@ -384,12 +373,6 @@ antlrcpp::Any CypherMainVisitor::visitDropReplica(MemgraphCypher::DropReplicaCon
 antlrcpp::Any CypherMainVisitor::visitShowReplicas(MemgraphCypher::ShowReplicasContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICAS;
-  return replication_query;
-}
-
-antlrcpp::Any CypherMainVisitor::visitShowReplicationCluster(MemgraphCypher::ShowReplicationClusterContext *ctx) {
-  auto *replication_query = storage_->Create<ReplicationQuery>();
-  replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICATION_CLUSTER;
   return replication_query;
 }
 

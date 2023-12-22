@@ -182,8 +182,6 @@ replicationQuery : setReplicationRole
                  | registerReplica
                  | dropReplica
                  | showReplicas
-                 | registerMain
-                 | showReplicationCluster
                  ;
 
 triggerQuery : createTrigger
@@ -374,13 +372,9 @@ socketAddress : literal ;
 registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
                 TO socketAddress ;
 
-registerMain : REGISTER MAIN TO socketAddress ;
-
 dropReplica : DROP REPLICA replicaName ;
 
 showReplicas : SHOW REPLICAS ;
-
-showReplicationCluster : SHOW REPLICATION CLUSTER ;
 
 lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY | DATA DIRECTORY LOCK STATUS;
 
