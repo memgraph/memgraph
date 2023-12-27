@@ -139,8 +139,7 @@ Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip
 }
 
 // NOLINTNEXTLINE
-Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port)
-    : address(std::move(hostname)), port(port), family(IpFamily::NONE) {}
+Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port) : address(std::move(hostname)), port(port) {}
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
   // no need to cover the IpFamily::NONE case, as you can't even construct an
