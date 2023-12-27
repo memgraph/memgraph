@@ -111,11 +111,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PreVisit;
 
   CostEstimator(TDbAccessor *db_accessor, const SymbolTable &table, const Parameters &parameters,
-                IndexHints &index_hints)
+                const IndexHints &index_hints)
       : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{Scope()}, index_hints_(index_hints) {}
 
   CostEstimator(TDbAccessor *db_accessor, const SymbolTable &table, const Parameters &parameters, Scope scope,
-                IndexHints &index_hints)
+                const IndexHints &index_hints)
       : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{scope}, index_hints_(index_hints) {}
 
   bool PostVisit(ScanAll &) override {
@@ -472,7 +472,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 /** Returns the estimated cost of the given plan. */
 template <class TDbAccessor>
 std::pair<double, bool> EstimatePlanCost(TDbAccessor *db, const SymbolTable &table, const Parameters &parameters,
-                                         LogicalOperator &plan, IndexHints &index_hints) {
+                                         LogicalOperator &plan, const IndexHints &index_hints) {
   CostEstimator<TDbAccessor> estimator(db, table, parameters, index_hints);
   plan.Accept(estimator);
   return std::make_pair(estimator.cost(), estimator.use_index_hints());
