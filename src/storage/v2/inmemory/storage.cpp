@@ -145,7 +145,6 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     gc_runner_.Run("Storage GC", config_.gc.interval, [this] {
       this->FreeMemory(std::unique_lock<utils::ResourceLock>{main_lock_, std::defer_lock});
     });
-    gc_jemalloc_runner_.Run("Jemalloc GC", config_.gc.interval, [] { memory::PurgeUnusedMemory(); });
   }
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
@@ -159,7 +158,6 @@ InMemoryStorage::InMemoryStorage(Config config) : InMemoryStorage(config, Storag
 InMemoryStorage::~InMemoryStorage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
-    gc_jemalloc_runner_.Stop();
   }
   {
     // Stop replication (Stop all clients or stop the REPLICA server)
