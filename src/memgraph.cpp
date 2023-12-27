@@ -184,6 +184,10 @@ int main(int argc, char **argv) {
                                                    "https://memgr.ph/python"));
   }
 
+  memgraph::utils::Scheduler python_gc_scheduler;
+  python_gc_scheduler.Run("Python GC", std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec),
+                          [] { memgraph::query::procedure::PyCollectGarbage(); });
+
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
 
@@ -318,6 +322,11 @@ int main(int argc, char **argv) {
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
       .storage_mode = memgraph::flags::ParseStorageMode()};
+
+  memgraph::utils::Scheduler jemalloc_purge_scheduler;
+  jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
+                               [] { memgraph::memory::PurgeUnusedMemory(); });
+
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(
