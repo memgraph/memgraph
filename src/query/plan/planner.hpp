@@ -59,8 +59,8 @@ class PostProcessor final {
   }
 
   template <class TVertexCounts>
-  double EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts,
-                          const SymbolTable &table) {
+  std::pair<double, bool> EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts,
+                                           const SymbolTable &table) {
     return query::plan::EstimatePlanCost(vertex_counts, table, parameters_, *plan, index_hints_);
   }
 };
@@ -99,6 +99,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
   auto query_parts = CollectQueryParts(*context->symbol_table, *context->ast_storage, context->query);
   auto &vertex_counts = *context->db;
   double total_cost = std::numeric_limits<double>::max();
+  bool curr_uses_index_hint = false;
 
   using ProcessedPlan = typename TPlanPostProcess::ProcessedPlan;
   ProcessedPlan plan_with_least_cost;
@@ -110,16 +111,18 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
       // Plans are generated lazily and the current plan will disappear, so
       // it's ok to move it.
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-      double cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
-      if (!curr_plan || cost < total_cost) {
+      std::pair<double, bool> cost =
+          post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
+      if (!curr_plan || (cost.first < total_cost && (!curr_uses_index_hint || cost.second))) {
+        curr_uses_index_hint = cost.second;
         curr_plan.emplace(std::move(rewritten_plan));
-        total_cost = cost;
+        total_cost = cost.first;
       }
     }
   } else {
     auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, context);
     auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-    total_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
+    total_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table).first;
     curr_plan.emplace(std::move(rewritten_plan));
   }
 

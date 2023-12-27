@@ -93,7 +93,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kForeach{1.0};
     static constexpr double kUnion{1.0};
     static constexpr double kSubquery{1.0};
-    static constexpr double UsingIndexHint{-2.0};
   };
 
   struct CardParam {
@@ -133,12 +132,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     }
 
     cardinality_ *= db_accessor_->VerticesCount(scan_all_by_label.label_);
-    if (!index_hints_.HasLabelIndex(db_accessor_, scan_all_by_label.label_)) {
-      IncrementCost(CostParam::kScanAllByLabel);
-      return true;
+    if (index_hints_.HasLabelIndex(db_accessor_, scan_all_by_label.label_)) {
+      use_index_hints_ = true;
     }
 
-    IncrementCost(CostParam::UsingIndexHint);
+    IncrementCost(CostParam::kScanAllByLabel);
     return true;
   }
 
@@ -162,13 +160,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     cardinality_ *= factor;
 
-    if (!index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
-      IncrementCost(CostParam::MakeScanAllByLabelPropertyValue);
-      return true;
+    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+      use_index_hints_ = true;
     }
 
     // ScanAll performs some work for every element that is produced
-    IncrementCost(CostParam::UsingIndexHint);
+    IncrementCost(CostParam::MakeScanAllByLabelPropertyValue);
     return true;
   }
 
@@ -197,13 +194,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     cardinality_ *= factor;
 
-    if (!index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
-      IncrementCost(CostParam::MakeScanAllByLabelPropertyRange);
-      return true;
+    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+      use_index_hints_ = true;
     }
 
     // ScanAll performs some work for every element that is produced
-    IncrementCost(CostParam::UsingIndexHint);
+    IncrementCost(CostParam::MakeScanAllByLabelPropertyRange);
     return true;
   }
 
@@ -215,11 +211,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     const auto factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
     cardinality_ *= factor;
-    if (!index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
-      IncrementCost(CostParam::MakeScanAllByLabelProperty);
-      return true;
+    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+      use_index_hints_ = true;
     }
-    IncrementCost(CostParam::UsingIndexHint);
+
+    IncrementCost(CostParam::MakeScanAllByLabelProperty);
     return true;
   }
 
@@ -397,6 +393,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   auto cost() const { return cost_; }
   auto cardinality() const { return cardinality_; }
+  auto use_index_hints() const { return use_index_hints_; }
 
  private:
   // cost estimation that gets accumulated as the visitor
@@ -413,6 +410,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   const Parameters &parameters;
   std::vector<Scope> scopes_;
   IndexHints index_hints_;
+  bool use_index_hints_{false};
 
   void IncrementCost(double param) { cost_ += param * cardinality_; }
 
@@ -473,11 +471,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
 /** Returns the estimated cost of the given plan. */
 template <class TDbAccessor>
-double EstimatePlanCost(TDbAccessor *db, const SymbolTable &table, const Parameters &parameters, LogicalOperator &plan,
-                        IndexHints &index_hints) {
+std::pair<double, bool> EstimatePlanCost(TDbAccessor *db, const SymbolTable &table, const Parameters &parameters,
+                                         LogicalOperator &plan, IndexHints &index_hints) {
   CostEstimator<TDbAccessor> estimator(db, table, parameters, index_hints);
   plan.Accept(estimator);
-  return estimator.cost();
+  return std::make_pair(estimator.cost(), estimator.use_index_hints());
 }
 
 }  // namespace memgraph::query::plan
