@@ -144,6 +144,7 @@ Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port) : add
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
   // no need to cover the IpFamily::NONE case, as you can't even construct an
   // Endpoint object if the IpFamily is NONE (i.e. the IP address is invalid)
+  // unless you use DNS hostname
   if (endpoint.family == Endpoint::IpFamily::IP6) {
     return os << "[" << endpoint.address << "]"
               << ":" << endpoint.port;
