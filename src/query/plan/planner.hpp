@@ -113,8 +113,9 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
       auto cost_and_use_index_hints =
           post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
-      if (!curr_plan ||
-          (cost_and_use_index_hints.first < total_cost && (!curr_uses_index_hint || cost_and_use_index_hints.second))) {
+      if (curr_uses_index_hint && !cost_and_use_index_hints.second) continue;
+      if (!curr_plan || cost_and_use_index_hints.first < total_cost ||
+          (cost_and_use_index_hints.second && !curr_uses_index_hint)) {
         curr_uses_index_hint = cost_and_use_index_hints.second;
         curr_plan.emplace(std::move(rewritten_plan));
         total_cost = cost_and_use_index_hints.first;
