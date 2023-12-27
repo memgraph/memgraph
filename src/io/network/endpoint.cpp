@@ -139,7 +139,11 @@ Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip
 }
 
 // NOLINTNEXTLINE
-Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port) : address(std::move(hostname)), port(port) {}
+Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port) : address(std::move(hostname)), port(port) {
+  if (!IsResolvableAddress(address, port)) {
+    throw NetworkError("Not a valid hostname: {}", address);
+  }
+}
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
   // no need to cover the IpFamily::NONE case, as you can't even construct an
