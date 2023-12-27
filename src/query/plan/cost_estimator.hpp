@@ -14,6 +14,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan/rewrite/index_lookup.hpp"
 #include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/math.hpp"
@@ -92,6 +93,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kForeach{1.0};
     static constexpr double kUnion{1.0};
     static constexpr double kSubquery{1.0};
+    static constexpr double UsingIndexHint{-2.0};
   };
 
   struct CardParam {
@@ -109,11 +111,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
 
-  CostEstimator(TDbAccessor *db_accessor, const SymbolTable &table, const Parameters &parameters)
-      : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{Scope()} {}
+  CostEstimator(TDbAccessor *db_accessor, const SymbolTable &table, const Parameters &parameters,
+                IndexHints &index_hints)
+      : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{Scope()}, index_hints_(index_hints) {}
 
-  CostEstimator(TDbAccessor *db_accessor, const SymbolTable &table, const Parameters &parameters, Scope scope)
-      : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{scope} {}
+  CostEstimator(TDbAccessor *db_accessor, const SymbolTable &table, const Parameters &parameters, Scope scope,
+                IndexHints &index_hints)
+      : db_accessor_(db_accessor), table_(table), parameters(parameters), scopes_{scope}, index_hints_(index_hints) {}
 
   bool PostVisit(ScanAll &) override {
     cardinality_ *= db_accessor_->VerticesCount();
@@ -129,8 +133,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     }
 
     cardinality_ *= db_accessor_->VerticesCount(scan_all_by_label.label_);
-    // ScanAll performs some work for every element that is produced
-    IncrementCost(CostParam::kScanAllByLabel);
+    if (!index_hints_.HasLabelIndex(db_accessor_, scan_all_by_label.label_)) {
+      IncrementCost(CostParam::kScanAllByLabel);
+      return true;
+    }
+
+    IncrementCost(CostParam::UsingIndexHint);
     return true;
   }
 
@@ -154,8 +162,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     cardinality_ *= factor;
 
+    if (!index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+      IncrementCost(CostParam::MakeScanAllByLabelPropertyValue);
+      return true;
+    }
+
     // ScanAll performs some work for every element that is produced
-    IncrementCost(CostParam::MakeScanAllByLabelPropertyValue);
+    IncrementCost(CostParam::UsingIndexHint);
     return true;
   }
 
@@ -184,8 +197,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     cardinality_ *= factor;
 
+    if (!index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+      IncrementCost(CostParam::MakeScanAllByLabelPropertyRange);
+      return true;
+    }
+
     // ScanAll performs some work for every element that is produced
-    IncrementCost(CostParam::MakeScanAllByLabelPropertyRange);
+    IncrementCost(CostParam::UsingIndexHint);
     return true;
   }
 
@@ -197,7 +215,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     const auto factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
     cardinality_ *= factor;
-    IncrementCost(CostParam::MakeScanAllByLabelProperty);
+    if (!index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+      IncrementCost(CostParam::MakeScanAllByLabelProperty);
+      return true;
+    }
+    IncrementCost(CostParam::UsingIndexHint);
     return true;
   }
 
@@ -390,17 +412,18 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   const SymbolTable &table_;
   const Parameters &parameters;
   std::vector<Scope> scopes_;
+  IndexHints index_hints_;
 
   void IncrementCost(double param) { cost_ += param * cardinality_; }
 
   CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
-    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters);
+    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters, index_hints_);
     (*branch)->Accept(cost_estimator);
     return CostEstimation{.cost = cost_estimator.cost(), .cardinality = cost_estimator.cardinality()};
   }
 
   CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch, Scope scope) {
-    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters, scope);
+    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters, scope, index_hints_);
     (*branch)->Accept(cost_estimator);
     return CostEstimation{.cost = cost_estimator.cost(), .cardinality = cost_estimator.cardinality()};
   }
@@ -450,9 +473,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
 /** Returns the estimated cost of the given plan. */
 template <class TDbAccessor>
-double EstimatePlanCost(TDbAccessor *db, const SymbolTable &table, const Parameters &parameters,
-                        LogicalOperator &plan) {
-  CostEstimator<TDbAccessor> estimator(db, table, parameters);
+double EstimatePlanCost(TDbAccessor *db, const SymbolTable &table, const Parameters &parameters, LogicalOperator &plan,
+                        IndexHints &index_hints) {
+  CostEstimator<TDbAccessor> estimator(db, table, parameters, index_hints);
   plan.Accept(estimator);
   return estimator.cost();
 }
