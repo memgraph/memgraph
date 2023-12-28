@@ -356,10 +356,19 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
 
   if (!ctx->socketAddress()->literal()->StringLiteral()) {
     throw SemanticException("Socket address should be a string literal!");
-  } else {
-    replication_query->socket_address_ = std::any_cast<Expression *>(ctx->socketAddress()->accept(this));
   }
+  replication_query->socket_address_ = std::any_cast<Expression *>(ctx->socketAddress()->accept(this));
 
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRegisterMain(MemgraphCypher::RegisterMainContext *ctx) {
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::REGISTER_MAIN;
+  if (!ctx->socketAddress()->literal()->StringLiteral()) {
+    throw SemanticException("Socket address should be a string literal!");
+  }
+  replication_query->socket_address_ = std::any_cast<Expression *>(ctx->socketAddress()->accept(this));
   return replication_query;
 }
 

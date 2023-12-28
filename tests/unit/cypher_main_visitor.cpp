@@ -2544,18 +2544,15 @@ TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
 }
 
 void check_replication_query(Base *ast_generator, const ReplicationQuery *query, const std::string name,
-                             const std::optional<TypedValue> socket_address, const ReplicationQuery::SyncMode sync_mode,
-                             const std::optional<TypedValue> port = {}) {
+                             const std::optional<TypedValue> socket_address,
+                             const ReplicationQuery::SyncMode sync_mode) {
   EXPECT_EQ(query->replica_name_, name);
   EXPECT_EQ(query->sync_mode_, sync_mode);
   ASSERT_EQ(static_cast<bool>(query->socket_address_), static_cast<bool>(socket_address));
   if (socket_address) {
     ast_generator->CheckLiteral(query->socket_address_, *socket_address);
   }
-  ASSERT_EQ(static_cast<bool>(query->port_), static_cast<bool>(port));
-  if (port) {
-    ast_generator->CheckLiteral(query->port_, *port);
-  }
+  ASSERT_FALSE(static_cast<bool>(query->port_));
 }
 
 TEST_P(CypherMainVisitorTest, TestShowReplicationMode) {
@@ -2606,6 +2603,7 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
   }
 }
 
+// NOTE: When using RegisterMain query, port is not used, rather just socketAdress which also saves the port.
 TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
   auto &ast_generator = *GetParam();
 
@@ -2625,6 +2623,23 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
   ASSERT_TRUE(full_query_parsed);
   check_replication_query(&ast_generator, full_query_parsed, "replica2", TypedValue("1.1.1.1:10000"),
                           ReplicationQuery::SyncMode::SYNC);
+}
+
+// NOTE: When using RegisterMain query, port is not used, rather just socketAdress which also saves the port.
+TEST_P(CypherMainVisitorTest, TestRegisterMainQuery) {
+  auto &ast_generator = *GetParam();
+
+  // Missing IP address and port
+  const std::string faulty_query = "REGISTER MAIN TO";
+  ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
+
+  // Full valid query
+  std::string full_query = R"(REGISTER MAIN TO "127.0.0.1:10003")";
+  auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
+  ASSERT_TRUE(full_query_parsed);
+
+  ast_generator.CheckLiteral(full_query_parsed->socket_address_, TypedValue("127.0.0.1:10003"));
+  ASSERT_EQ(full_query_parsed->port_, nullptr);
 }
 
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {

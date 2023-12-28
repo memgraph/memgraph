@@ -783,6 +783,11 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                   fmt::format("Replica {} is registered.", repl_query->replica_name_));
       return callback;
     }
+    case ReplicationQuery::Action::REGISTER_MAIN: {
+      spdlog::warn("Request for registering main instance received. Ignoring.");
+      callback.fn = [] { return std::vector<std::vector<TypedValue>>{}; };
+      return callback;
+    }
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, name]() mutable {
