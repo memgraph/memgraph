@@ -28,6 +28,7 @@ namespace memgraph::replication::durability {
 // Keys
 constexpr auto *kReplicationRoleName{"__replication_role"};
 constexpr auto *kReplicationReplicaPrefix{"__replication_replica:"};  // introduced in V2
+constexpr auto *kReplicationMainPrefix("__replication_main:");
 
 enum class DurabilityVersion : uint8_t {
   V1,  // no distinct key for replicas
@@ -62,16 +63,15 @@ struct ReplicationRoleEntry {
   friend bool operator==(ReplicationRoleEntry const &, ReplicationRoleEntry const &) = default;
 };
 
-// from key: "__replication_replica:"
-struct ReplicationReplicaEntry {
-  ReplicationClientConfig config{};
-  friend bool operator==(ReplicationReplicaEntry const &, ReplicationReplicaEntry const &) = default;
+// used for main's and replicas' clients
+struct ReplicationClientConfigEntry {
+  ReplicationClientConfig config;
+  friend bool operator==(ReplicationClientConfigEntry const &, ReplicationClientConfigEntry const &) = default;
 };
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p);
 void from_json(const nlohmann::json &j, ReplicationRoleEntry &p);
 
-void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p);
-void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p);
-
+void to_json(nlohmann::json &j, const ReplicationClientConfigEntry &p);
+void from_json(const nlohmann::json &j, ReplicationClientConfigEntry &p);
 }  // namespace memgraph::replication::durability

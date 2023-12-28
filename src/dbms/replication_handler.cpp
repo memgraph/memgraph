@@ -207,6 +207,13 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   return {};
 }
 
+auto ReplicationHandler::RegisterMain(const memgraph::replication::ReplicationClientConfig &client_config)
+    -> utils::BasicResult<RegisterMainError> {
+  MG_ASSERT(dbms_handler_.ReplicationState().IsCoordinator(), "Only coordinator can register main!");
+
+  return {};
+}
+
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterReplicaResult {
   auto const replica_handler = [](RoleReplicaData const &) -> UnregisterReplicaResult {
     return UnregisterReplicaResult::IS_REPLICA;

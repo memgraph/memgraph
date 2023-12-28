@@ -32,11 +32,22 @@ namespace memgraph::replication {
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 
+// TODO: (andi) Dual definition of same error.
+
 enum class RegisterReplicaError : uint8_t {
   NAME_EXISTS,
   END_POINT_EXISTS,
   COULD_NOT_BE_PERSISTED,
   IS_REPLICA,
+  SUCCESS
+};
+
+enum class RegisterMainError : uint8_t {
+  MAIN_ALREADY_EXISTS,
+  END_POINT_EXISTS,
+  CONNECTION_FAILED,
+  COULD_NOT_BE_PERSISTED,
+  NOT_COORDINATOR,
   SUCCESS
 };
 
@@ -148,18 +159,23 @@ struct ReplicationState {
   bool ShouldPersist() const { return nullptr != durability_; }
   bool TryPersistRoleMain(std::string new_epoch, const ReplicationServerConfig &config);
   bool TryPersistRoleReplica(const ReplicationServerConfig &config);
-  /// TODO: (andi) If we will need epoch or something to track, we will need to pass it here as argument
   bool TryPersistRoleCoordinator();
 
-  bool TryPersistUnregisterReplicaOnMain(std::string_view name);
   bool TryPersistRegisteredReplicaOnMain(const ReplicationClientConfig &config);
-  bool TryPersistUnregisterReplicaOnCoordinator(std::string_view name);
+  bool TryPersistUnregisterReplicaOnMain(std::string_view name);
+
   bool TryPersistRegisteredReplicaOnCoordinator(const ReplicationClientConfig &config);
+  bool TryPersistUnregisterReplicaOnCoordinator(std::string_view name);
+
+  bool TryPersistRegisteredMainOnCoordinator(const ReplicationClientConfig &config);
+  // TODO: (andi) Unregistering main from coordinator
 
   // TODO: locked access
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
+
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
+  utils::BasicResult<RegisterMainError, ReplicationClient *> RegisterMain(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain(const ReplicationServerConfig &config);
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config);

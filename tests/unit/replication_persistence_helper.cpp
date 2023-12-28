@@ -87,36 +87,36 @@ TEST(ReplicationDurability, V2Coordinator) {
   ASSERT_EQ(role_entry, deser);
 }
 
-TEST(ReplicationDurability, ReplicaEntrySync) {
+TEST(ReplicationDurability, ReplicaClientConfigEntrySync) {
   using namespace std::chrono_literals;
   using namespace std::string_literals;
-  auto const replica_entry = ReplicationReplicaEntry{.config = ReplicationClientConfig{
-                                                         .name = "TEST_NAME"s,
-                                                         .mode = ReplicationMode::SYNC,
-                                                         .ip_address = "000.123.456.789"s,
-                                                         .port = 2023,
-                                                         .check_frequency = 3s,
-                                                     }};
+  auto const replica_entry = ReplicationClientConfigEntry{.config = ReplicationClientConfig{
+                                                              .name = "TEST_NAME"s,
+                                                              .mode = ReplicationMode::SYNC,
+                                                              .ip_address = "000.123.456.789"s,
+                                                              .port = 2023,
+                                                              .check_frequency = 3s,
+                                                          }};
   nlohmann::json j;
   to_json(j, replica_entry);
-  ReplicationReplicaEntry deser;
+  ReplicationClientConfigEntry deser;
   from_json(j, deser);
   ASSERT_EQ(replica_entry, deser);
 }
 
-TEST(ReplicationDurability, ReplicaEntryAsync) {
+TEST(ReplicationDurability, ReplicaClientConfigEntryAsync) {
   using namespace std::chrono_literals;
   using namespace std::string_literals;
-  auto const replica_entry = ReplicationReplicaEntry{.config = ReplicationClientConfig{
-                                                         .name = "TEST_NAME"s,
-                                                         .mode = ReplicationMode::ASYNC,
-                                                         .ip_address = "000.123.456.789"s,
-                                                         .port = 2023,
-                                                         .check_frequency = 3s,
-                                                     }};
+  auto const replica_entry = ReplicationClientConfigEntry{.config = ReplicationClientConfig{
+                                                              .name = "TEST_NAME"s,
+                                                              .mode = ReplicationMode::ASYNC,
+                                                              .ip_address = "000.123.456.789"s,
+                                                              .port = 2023,
+                                                              .check_frequency = 3s,
+                                                          }};
   nlohmann::json j;
   to_json(j, replica_entry);
-  ReplicationReplicaEntry deser;
+  ReplicationClientConfigEntry deser;
   from_json(j, deser);
   ASSERT_EQ(replica_entry, deser);
 }

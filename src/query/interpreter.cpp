@@ -369,12 +369,13 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       auto config = replication::ReplicationClientConfig{.name = memgraph::replication::kDefaultMainName,
                                                          .ip_address = ip,
                                                          .port = port,
+                                                         .mode = std::nullopt,
                                                          .check_frequency = main_check_frequency,
                                                          .ssl = std::nullopt};
-      // auto ret = handler_.RegisterReplica(config);
-      // if (ret.HasError()) {
-      //   throw QueryRuntimeException("Couldn't register main!");
-      // }
+      auto ret = handler_.RegisterMain(config);
+      if (ret.HasError()) {
+        throw QueryRuntimeException("Couldn't register main!");
+      }
     } else {
       throw QueryRuntimeException("Invalid socket address!");
     }

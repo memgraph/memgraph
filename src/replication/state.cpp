@@ -28,6 +28,12 @@ auto BuildReplicaKey(std::string_view name) -> std::string {
   return key;
 }
 
+auto BuildMainKey(std::string_view name) -> std::string {
+  auto key = std::string{durability::kReplicationMainPrefix};
+  key.append(name);
+  return key;
+}
+
 /// TODO: (andi) Here
 ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir) {
   if (!durability_dir) return;
@@ -163,7 +169,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                   return FetchReplicationError::PARSE_ERROR;
                 }
                 try {
-                  durability::ReplicationReplicaEntry data = json.get<durability::ReplicationReplicaEntry>();
+                  durability::ReplicationClientConfigEntry data = json.get<durability::ReplicationClientConfigEntry>();
                   auto key_name = std::string_view{replica_name}.substr(strlen(durability::kReplicationReplicaPrefix));
                   if (key_name != data.config.name) {
                     return FetchReplicationError::PARSE_ERROR;
@@ -203,12 +209,12 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
         auto old_json = nlohmann::json::parse(old_data, nullptr, false);
         if (old_json.is_discarded()) return false;  // Can not read old_data as json
         try {
-          durability::ReplicationReplicaEntry new_data = old_json.get<durability::ReplicationReplicaEntry>();
+          durability::ReplicationClientConfigEntry new_data = old_json.get<durability::ReplicationClientConfigEntry>();
 
           // Migrate to using new key
           to_put.emplace(BuildReplicaKey(old_key), nlohmann::json(new_data).dump());
         } catch (...) {
-          return false;  // Can not parse as ReplicationReplicaEntry
+          return false;  // Can not parse as ReplicationClientConfigEntry
         }
         to_delete.push_back(std::move(old_key));
       }
@@ -238,7 +244,7 @@ bool ReplicationState::TryPersistRegisteredReplicaOnMain(const ReplicationClient
     if (!TryPersistRoleMain(std::move(epoch_str), server_config)) return false;
   }
 
-  auto data = durability::ReplicationReplicaEntry{.config = config};
+  auto data = durability::ReplicationClientConfigEntry{.config = config};
 
   auto key = BuildReplicaKey(config.name);
   if (durability_->Put(key, nlohmann::json(data).dump())) return true;
@@ -248,18 +254,33 @@ bool ReplicationState::TryPersistRegisteredReplicaOnMain(const ReplicationClient
 
 bool ReplicationState::TryPersistRegisteredReplicaOnCoordinator(const ReplicationClientConfig &config) {
   if (!ShouldPersist()) return true;
-  DMG_ASSERT(IsCoordinator(), "Expected MAIN when registering replica.");
+  MG_ASSERT(IsCoordinator(), "Expected COORDINATOR when registering replica.");
 
   // If any replicas are persisted then Role must be persisted
   if (role_persisted != RolePersisted::YES) {
     if (!TryPersistRoleCoordinator()) return false;
   }
 
-  auto data = durability::ReplicationReplicaEntry{.config = config};
+  // TODO: (andi) This is violation of DRY, try to fix it -> same code as when main registers replica.
+  auto data = durability::ReplicationClientConfigEntry{.config = config};
   auto key = BuildReplicaKey(config.name);
   if (durability_->Put(key, nlohmann::json(data).dump())) return true;
   spdlog::error("Error when saving replica {} in settings.", config.name);
   return false;
+}
+
+bool ReplicationState::TryPersistRegisteredMainOnCoordinator(const ReplicationClientConfig &config) {
+  if (!ShouldPersist()) return true;
+  MG_ASSERT(IsCoordinator(), "Expected COORDINATOR when registering replica.");
+
+  // If MAIN is persisted then role must be persisted
+  if (role_persisted != RolePersisted::YES) {
+    if (!TryPersistRoleCoordinator()) return false;
+  }
+
+  // TODO: (andi) Build a main key
+
+  return true;
 }
 
 bool ReplicationState::SetReplicationRoleMain(const ReplicationServerConfig &config) {
@@ -344,7 +365,6 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
     }
 
     client = &coordinatorData.registered_replicas_.emplace_back(config);
-
     return RegisterReplicaError::SUCCESS;
   };
 
@@ -354,7 +374,49 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
   if (res == RegisterReplicaError::SUCCESS) {
     return client;
   }
-
   return res;
 }
+
+utils::BasicResult<RegisterMainError, ReplicationClient *> ReplicationState::RegisterMain(
+    const ReplicationClientConfig &config) {
+  // TODO: (andi) Check if all values from RegisterMainError are used
+  // TODO: (andi) RegisterReplicaStatus not Error since you also have Success
+  // TODO: (andi) Test if this makes sense.
+  auto const replica_handler = [](RoleReplicaData const &) { return RegisterMainError::NOT_COORDINATOR; };
+  auto const main_handler = [](RoleMainData const &) { return RegisterMainError::NOT_COORDINATOR; };
+
+  ReplicationClient *client{nullptr};
+  auto const coordinator_handler = [&config, &client, this](RoleCoordinatorData &coordinatorData) -> RegisterMainError {
+    auto name_matches = [](auto const &replica) { return replica.name_ == kDefaultMainName; };
+    if (std::any_of(coordinatorData.registered_replicas_.begin(), coordinatorData.registered_replicas_.end(),
+                    name_matches)) {
+      return RegisterMainError::MAIN_ALREADY_EXISTS;
+    }
+
+    auto endpoint_matches = [&config](auto const &replica) {
+      const auto &ep = replica.rpc_client_.Endpoint();
+      return ep.address == config.ip_address && ep.port == config.port;
+    };
+    if (std::any_of(coordinatorData.registered_replicas_.begin(), coordinatorData.registered_replicas_.end(),
+                    endpoint_matches)) {
+      return RegisterMainError::END_POINT_EXISTS;
+    }
+
+    if (!TryPersistRegisteredMainOnCoordinator(config)) {
+      return RegisterMainError::COULD_NOT_BE_PERSISTED;
+    }
+
+    client = &coordinatorData.registered_replicas_.emplace_back(config);
+    return RegisterMainError::SUCCESS;
+  };
+
+  const auto &res =
+      std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler}, replication_data_);
+
+  if (res == RegisterMainError::SUCCESS) {
+    return client;
+  }
+  return res;
+}
+
 }  // namespace memgraph::replication

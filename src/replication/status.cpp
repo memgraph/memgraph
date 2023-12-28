@@ -94,7 +94,7 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
   }
 }
 
-void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
+void to_json(nlohmann::json &j, const ReplicationClientConfigEntry &p) {
   auto common = nlohmann::json{{kReplicaName, p.config.name},
                                {kIpAddress, p.config.ip_address},
                                {kPort, p.config.port},
@@ -116,7 +116,7 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
 
   j = std::move(common);
 }
-void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
+void from_json(const nlohmann::json &j, ReplicationClientConfigEntry &p) {
   const auto &key_file = j.at(kSSLKeyFile);
   const auto &cert_file = j.at(kSSLCertFile);
 
@@ -139,6 +139,7 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
     config.mode = sync_mode.get<ReplicationMode>();
   }
 
-  p = ReplicationReplicaEntry{.config = std::move(config)};
+  p = ReplicationClientConfigEntry{.config = std::move(config)};
 }
+
 }  // namespace memgraph::replication::durability

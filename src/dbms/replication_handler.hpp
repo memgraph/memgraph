@@ -25,8 +25,9 @@ struct ReplicationClientConfig;
 namespace memgraph::dbms {
 class DbmsHandler;
 
-enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
+/// TODO: (andi) Two definitions of the same enum
 
+enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
 enum class RegisterMainError : uint8_t {
   MAIN_ALREADY_EXISTS,
   END_POINT_EXISTS,
@@ -60,8 +61,7 @@ struct ReplicationHandler {
       -> utils::BasicResult<RegisterReplicaError>;
 
   // as COORDINATOR, connect to MAIN
-  auto RegisterMain(const memgraph::replication::ReplicationServerConfig &server_config,
-                    const memgraph::replication::ReplicationClientConfig &client_config)
+  auto RegisterMain(const memgraph::replication::ReplicationClientConfig &client_config)
       -> utils::BasicResult<RegisterMainError>;
 
   // as MAIN, remove a REPLICA connection
