@@ -140,8 +140,13 @@ Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip
 
 // NOLINTNEXTLINE
 Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port) : address(std::move(hostname)), port(port) {
+  auto ip_family = GetIpFamily(address);
+  if (ip_family != IpFamily::NONE) {
+    family = ip_family;
+    return;
+  }
   if (!IsResolvableAddress(address, port)) {
-    throw NetworkError("Not a valid hostname: {}", address);
+    throw NetworkError("Not a valid IPv4 or IPv6 address: {}", address);
   }
 }
 
