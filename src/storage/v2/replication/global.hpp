@@ -31,7 +31,7 @@ struct TimestampInfo {
 
 struct ReplicaInfo {
   std::string name;
-  memgraph::replication::ReplicationMode mode;
+  std::optional<memgraph::replication::ReplicationMode> mode;
   io::network::Endpoint endpoint;
   replication::ReplicaState state;
   TimestampInfo timestamp_info;

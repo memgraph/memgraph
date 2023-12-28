@@ -15,11 +15,12 @@ import pytest
 from common import connect, execute_and_fetch_all
 
 
+# TODO: (andi) Test correct error message using pytest.raises
 def test_replication_is_disabled(connect):
     cursor = connect.cursor()
     execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
     try:
-        execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO MAIN")
+        execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO MAIN WITH PORT 12000")
         assert False
     except:
         assert True

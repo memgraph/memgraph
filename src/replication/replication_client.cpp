@@ -24,7 +24,7 @@ ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationCli
       rpc_context_{CreateClientContext(config)},
       rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
                   &rpc_context_},
-      replica_check_frequency_{config.replica_check_frequency},
+      check_frequency_{config.check_frequency},
       mode_{config.mode} {}
 
 ReplicationClient::~ReplicationClient() {

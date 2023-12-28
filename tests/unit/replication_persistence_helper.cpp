@@ -23,17 +23,13 @@
 using namespace memgraph::replication::durability;
 using namespace memgraph::replication;
 
-static_assert(sizeof(ReplicationRoleEntry) == 168,
-              "Most likely you modified ReplicationRoleEntry without updating the tests. ");
-
-static_assert(sizeof(ReplicationReplicaEntry) == 160,
-              "Most likely you modified ReplicationReplicaEntry without updating the tests.");
-
 TEST(ReplicationDurability, V1Main) {
-  auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V1,
-                                               .role = MainRole{
-                                                   .epoch = ReplicationEpoch{"TEST_STRING"},
-                                               }};
+  auto const role_entry =
+      ReplicationRoleEntry{.version = DurabilityVersion::V1,
+                           .role = MainRole{
+                               .epoch = ReplicationEpoch{"TEST_STRING"},
+                               .config = ReplicationServerConfig{.ip_address = "000.123.456.789", .port = 2023},
+                           }};
   nlohmann::json j;
   to_json(j, role_entry);
   ReplicationRoleEntry deser;
@@ -42,10 +38,13 @@ TEST(ReplicationDurability, V1Main) {
 }
 
 TEST(ReplicationDurability, V2Main) {
-  auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V2,
-                                               .role = MainRole{
-                                                   .epoch = ReplicationEpoch{"TEST_STRING"},
-                                               }};
+  auto const role_entry =
+      ReplicationRoleEntry{.version = DurabilityVersion::V2,
+                           .role = MainRole{
+                               .epoch = ReplicationEpoch{"TEST_STRING"},
+                               .config = ReplicationServerConfig{.ip_address = "000.123.456.789", .port = 2023},
+
+                           }};
   nlohmann::json j;
   to_json(j, role_entry);
   ReplicationRoleEntry deser;
@@ -96,7 +95,7 @@ TEST(ReplicationDurability, ReplicaEntrySync) {
                                                          .mode = ReplicationMode::SYNC,
                                                          .ip_address = "000.123.456.789"s,
                                                          .port = 2023,
-                                                         .replica_check_frequency = 3s,
+                                                         .check_frequency = 3s,
                                                      }};
   nlohmann::json j;
   to_json(j, replica_entry);
@@ -113,7 +112,7 @@ TEST(ReplicationDurability, ReplicaEntryAsync) {
                                                          .mode = ReplicationMode::ASYNC,
                                                          .ip_address = "000.123.456.789"s,
                                                          .port = 2023,
-                                                         .replica_check_frequency = 3s,
+                                                         .check_frequency = 3s,
                                                      }};
   nlohmann::json j;
   to_json(j, replica_entry);

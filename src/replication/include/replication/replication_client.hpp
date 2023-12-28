@@ -25,6 +25,7 @@ namespace memgraph::replication {
 template <typename F>
 concept InvocableWithStringView = std::invocable<F, std::string_view>;
 
+/// TODO: (andi) Consider adding some var type which would distinguish between MAIN and REPLICA checker
 struct ReplicationClient {
   explicit ReplicationClient(const memgraph::replication::ReplicationClientConfig &config);
 
@@ -37,8 +38,8 @@ struct ReplicationClient {
   template <InvocableWithStringView F>
   void StartFrequentCheck(F &&callback) {
     // Help the user to get the most accurate replica state possible.
-    if (replica_check_frequency_ > std::chrono::seconds(0)) {
-      replica_checker_.Run("Replica Checker", replica_check_frequency_, [this, cb = std::forward<F>(callback)] {
+    if (check_frequency_ > std::chrono::seconds(0)) {
+      replica_checker_.Run("Replica Checker", check_frequency_, [this, cb = std::forward<F>(callback)] {
         try {
           bool success = false;
           {
@@ -58,9 +59,9 @@ struct ReplicationClient {
   std::string name_;
   communication::ClientContext rpc_context_;
   rpc::Client rpc_client_;
-  std::chrono::seconds replica_check_frequency_;
+  std::chrono::seconds check_frequency_;
 
-  memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
+  std::optional<memgraph::replication::ReplicationMode> mode_{memgraph::replication::ReplicationMode::SYNC};
   // This thread pool is used for background tasks so we don't
   // block the main storage thread
   // We use only 1 thread for 2 reasons:

@@ -316,25 +316,26 @@ antlrcpp::Any CypherMainVisitor::visitEdgeImportModeQuery(MemgraphCypher::EdgeIm
 antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetReplicationRoleContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_ROLE;
-  if (ctx->MAIN()) {
-    if (ctx->WITH() || ctx->PORT()) {
-      throw SemanticException("Main can't set a port!");
+
+  if (ctx->MAIN() || ctx->REPLICA()) {
+    if (!ctx->WITH() || !ctx->PORT()) {
+      throw SyntaxException("Port must be specified when setting replication role to main or replica!");
     }
+    if (ctx->port->numberLiteral() && ctx->port->numberLiteral()->integerLiteral()) {
+      replication_query->port_ = std::any_cast<Expression *>(ctx->port->accept(this));
+    } else {
+      throw SyntaxException("Port must be an integer literal!");
+    }
+  } else if (ctx->WITH() || ctx->PORT()) {  // coordinator
+    throw SyntaxException("Port shouldn't be specified when setting replication role to coordinator!");
+  }
+
+  if (ctx->MAIN()) {
     replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
   } else if (ctx->REPLICA()) {
     replication_query->role_ = ReplicationQuery::ReplicationRole::REPLICA;
-    if (ctx->WITH() && ctx->PORT()) {
-      if (ctx->port->numberLiteral() && ctx->port->numberLiteral()->integerLiteral()) {
-        replication_query->port_ = std::any_cast<Expression *>(ctx->port->accept(this));
-      } else {
-        throw SyntaxException("Port must be an integer literal!");
-      }
-    }
   } else if (ctx->COORDINATOR()) {
     replication_query->role_ = ReplicationQuery::ReplicationRole::COORDINATOR;
-    if (ctx->WITH() && ctx->PORT()) {
-      throw SyntaxException("Coordinator shouldn't have port as an integer literal!");
-    }
   }
   return replication_query;
 }
@@ -369,6 +370,7 @@ antlrcpp::Any CypherMainVisitor::visitRegisterMain(MemgraphCypher::RegisterMainC
     throw SemanticException("Socket address should be a string literal!");
   }
   replication_query->socket_address_ = std::any_cast<Expression *>(ctx->socketAddress()->accept(this));
+
   return replication_query;
 }
 

@@ -279,19 +279,29 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
+    auto ValidatePort = [](std::optional<int64_t> port) -> void {
+      if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
+        throw QueryRuntimeException("Port number invalid!");
+      }
+    };
+
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
-      // TODO add port
-      if (!handler_.SetReplicationRoleMain()) {
+      ValidatePort(port);
+
+      auto const config = memgraph::replication::ReplicationServerConfig{
+          .ip_address = memgraph::replication::kDefaultReplicationServerIp,
+          .port = static_cast<uint16_t>(*port),
+      };
+
+      if (!handler_.SetReplicationRoleMain(config)) {
         throw QueryRuntimeException("Couldn't set role to main!");
       }
     } else if (replication_role == ReplicationQuery::ReplicationRole::COORDINATOR) {
       if (!handler_.SetReplicationRoleCoordinator()) {
         throw QueryRuntimeException("Couldn't set role to coordinator!");
       }
-    } else {
-      if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
-        throw QueryRuntimeException("Port number invalid!");
-      }
+    } else {  // replica
+      ValidatePort(port);
 
       auto const config = memgraph::replication::ReplicationServerConfig{
           .ip_address = memgraph::replication::kDefaultReplicationServerIp,
@@ -322,7 +332,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                        const ReplicationQuery::SyncMode sync_mode,
                        const std::chrono::seconds replica_check_frequency) override {
     if (handler_.IsReplica()) {
-      // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
     }
 
@@ -336,12 +345,36 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                                                          .mode = repl_mode,
                                                          .ip_address = ip,
                                                          .port = port,
-                                                         .replica_check_frequency = replica_check_frequency,
+                                                         .check_frequency = replica_check_frequency,
                                                          .ssl = std::nullopt};
       auto ret = handler_.RegisterReplica(config);
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
+    } else {
+      throw QueryRuntimeException("Invalid socket address!");
+    }
+  }
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  void RegisterMain(const std::string &socket_address, const std::chrono::seconds main_check_frequency) override {
+    if (!handler_.IsCoordinator()) {
+      throw QueryRuntimeException("Only coordinator can register main instance!");
+    }
+
+    auto maybe_ip_and_port =
+        io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
+    if (maybe_ip_and_port) {
+      auto [ip, port] = *maybe_ip_and_port;
+      auto config = replication::ReplicationClientConfig{.name = memgraph::replication::kDefaultMainName,
+                                                         .ip_address = ip,
+                                                         .port = port,
+                                                         .check_frequency = main_check_frequency,
+                                                         .ssl = std::nullopt};
+      // auto ret = handler_.RegisterReplica(config);
+      // if (ret.HasError()) {
+      //   throw QueryRuntimeException("Couldn't register main!");
+      // }
     } else {
       throw QueryRuntimeException("Invalid socket address!");
     }
@@ -388,7 +421,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       Replica replica;
       replica.name = repl_info.name;
       replica.socket_address = repl_info.endpoint.SocketAddress();
-      switch (repl_info.mode) {
+      switch (repl_info.mode.value()) {  // Replica always has mode set
         case memgraph::replication::ReplicationMode::SYNC:
           replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
           break;
@@ -772,10 +805,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       const auto &name = repl_query->replica_name_;
       const auto &sync_mode = repl_query->sync_mode_;
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
-      const auto replica_check_frequency = config.replication_replica_check_frequency;
 
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, name, socket_address, sync_mode,
-                     replica_check_frequency]() mutable {
+                     replica_check_frequency = config.replication_replica_check_frequency]() mutable {
         handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
       };
@@ -784,8 +816,20 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::REGISTER_MAIN: {
-      spdlog::warn("Request for registering main instance received. Ignoring.");
-      callback.fn = [] { return std::vector<std::vector<TypedValue>>{}; };
+      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+      // the argument to Callback.
+      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      auto socket_address_tv = repl_query->socket_address_->Accept(evaluator);
+
+      callback.fn = [handler = ReplQueryHandler{dbms_handler}, socket_address_tv,
+                     main_check_frequency = config.replication_replica_check_frequency]() mutable {
+        handler.RegisterMain(std::string(socket_address_tv.ValueString()), main_check_frequency);
+        return std::vector<std::vector<TypedValue>>();
+      };
+
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_MAIN,
+                                  "Coordinator has registered main instance.");
       return callback;
     }
     case ReplicationQuery::Action::DROP_REPLICA: {

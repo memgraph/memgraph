@@ -741,7 +741,10 @@ TEST_F(ReplicationTest, EpochTest) {
   main.repl_handler.UnregisterReplica(replicas[0]);
   main.repl_handler.UnregisterReplica(replicas[1]);
 
-  ASSERT_TRUE(replica1.repl_handler.SetReplicationRoleMain());
+  ASSERT_TRUE(replica1.repl_handler.SetReplicationRoleMain(ReplicationServerConfig{
+      .ip_address = local_host,
+      .port = 10003,
+  }));
 
   ASSERT_FALSE(replica1.repl_handler
                    .RegisterReplica(ReplicationClientConfig{
@@ -929,80 +932,16 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
                   .GetError() == RegisterReplicaError::END_POINT_EXISTS);
 }
 
-TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
-  auto main_config = main_conf;
-  auto replica1_config = main_conf;
-  auto replica2_config = main_conf;
-  main_config.durability.restore_replication_state_on_startup = true;
-
-  std::filesystem::path replica1_storage_directory{std::filesystem::temp_directory_path() / "replica1"};
-  std::filesystem::path replica2_storage_directory{std::filesystem::temp_directory_path() / "replica2"};
-  memgraph::utils::OnScopeExit replica1_directory_cleaner(
-      [&]() { std::filesystem::remove_all(replica1_storage_directory); });
-  memgraph::utils::OnScopeExit replica2_directory_cleaner(
-      [&]() { std::filesystem::remove_all(replica2_storage_directory); });
-
-  UpdatePaths(replica1_config, replica1_storage_directory);
-  UpdatePaths(replica2_config, replica2_storage_directory);
-
-  std::optional<MinMemgraph> main(main_config);
-  MinMemgraph replica1(replica1_config);
-
-  replica1.repl_handler.SetReplicationRoleReplica(ReplicationServerConfig{
-      .ip_address = local_host,
-      .port = ports[0],
-  });
-
-  MinMemgraph replica2(replica2_config);
-  replica2.repl_handler.SetReplicationRoleReplica(ReplicationServerConfig{
-      .ip_address = local_host,
-      .port = ports[1],
-  });
-
-  auto res = main->repl_handler.RegisterReplica(ReplicationClientConfig{
-      .name = replicas[0],
-      .mode = ReplicationMode::SYNC,
-      .ip_address = local_host,
-      .port = ports[0],
-  });
-  ASSERT_FALSE(res.HasError()) << (int)res.GetError();
-  res = main->repl_handler.RegisterReplica(ReplicationClientConfig{
-      .name = replicas[1],
-      .mode = ReplicationMode::SYNC,
-      .ip_address = local_host,
-      .port = ports[1],
-  });
-  ASSERT_FALSE(res.HasError()) << (int)res.GetError();
-
-  auto replica_infos = main->db.storage()->ReplicasInfo();
-
-  ASSERT_EQ(replica_infos.size(), 2);
-  ASSERT_EQ(replica_infos[0].name, replicas[0]);
-  ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
-  ASSERT_EQ(replica_infos[0].endpoint.port, ports[0]);
-  ASSERT_EQ(replica_infos[1].name, replicas[1]);
-  ASSERT_EQ(replica_infos[1].endpoint.address, local_host);
-  ASSERT_EQ(replica_infos[1].endpoint.port, ports[1]);
-
-  main.reset();
-
-  MinMemgraph other_main(main_config);
-
-  replica_infos = other_main.db.storage()->ReplicasInfo();
-  ASSERT_EQ(replica_infos.size(), 2);
-  ASSERT_EQ(replica_infos[0].name, replicas[0]);
-  ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
-  ASSERT_EQ(replica_infos[0].endpoint.port, ports[0]);
-  ASSERT_EQ(replica_infos[1].name, replicas[1]);
-  ASSERT_EQ(replica_infos[1].endpoint.address, local_host);
-  ASSERT_EQ(replica_infos[1].endpoint.port, ports[1]);
-}
-
 TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   auto main_config = main_conf;
   main_config.durability.restore_replication_state_on_startup = true;
 
   std::optional<MinMemgraph> main(main_config);
+  main->repl_handler.SetReplicationRoleMain(ReplicationServerConfig{
+      .ip_address = local_host,
+      .port = 10003,
+  });
+
   MinMemgraph replica1(repl_conf);
 
   replica1.repl_handler.SetReplicationRoleReplica(ReplicationServerConfig{
@@ -1060,6 +999,80 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   ASSERT_EQ(replica_infos[0].name, replicas[1]);
   ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
   ASSERT_EQ(replica_infos[0].endpoint.port, ports[1]);
+}
+
+TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
+  auto main_config = main_conf;
+  auto replica1_config = main_conf;
+  auto replica2_config = main_conf;
+  main_config.durability.restore_replication_state_on_startup = true;
+
+  std::filesystem::path replica1_storage_directory{std::filesystem::temp_directory_path() / "replica1"};
+  std::filesystem::path replica2_storage_directory{std::filesystem::temp_directory_path() / "replica2"};
+  memgraph::utils::OnScopeExit replica1_directory_cleaner(
+      [&]() { std::filesystem::remove_all(replica1_storage_directory); });
+  memgraph::utils::OnScopeExit replica2_directory_cleaner(
+      [&]() { std::filesystem::remove_all(replica2_storage_directory); });
+
+  UpdatePaths(replica1_config, replica1_storage_directory);
+  UpdatePaths(replica2_config, replica2_storage_directory);
+
+  std::optional<MinMemgraph> main(main_config);
+  main->repl_handler.SetReplicationRoleMain(ReplicationServerConfig{
+      .ip_address = local_host,
+      .port = 10003,
+  });
+
+  MinMemgraph replica1(replica1_config);
+
+  replica1.repl_handler.SetReplicationRoleReplica(ReplicationServerConfig{
+      .ip_address = local_host,
+      .port = ports[0],
+  });
+
+  MinMemgraph replica2(replica2_config);
+  replica2.repl_handler.SetReplicationRoleReplica(ReplicationServerConfig{
+      .ip_address = local_host,
+      .port = ports[1],
+  });
+
+  auto res = main->repl_handler.RegisterReplica(ReplicationClientConfig{
+      .name = replicas[0],
+      .mode = ReplicationMode::SYNC,
+      .ip_address = local_host,
+      .port = ports[0],
+  });
+  ASSERT_FALSE(res.HasError()) << (int)res.GetError();
+  res = main->repl_handler.RegisterReplica(ReplicationClientConfig{
+      .name = replicas[1],
+      .mode = ReplicationMode::SYNC,
+      .ip_address = local_host,
+      .port = ports[1],
+  });
+  ASSERT_FALSE(res.HasError()) << (int)res.GetError();
+
+  auto replica_infos = main->db.storage()->ReplicasInfo();
+
+  ASSERT_EQ(replica_infos.size(), 2);
+  ASSERT_EQ(replica_infos[0].name, replicas[0]);
+  ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
+  ASSERT_EQ(replica_infos[0].endpoint.port, ports[0]);
+  ASSERT_EQ(replica_infos[1].name, replicas[1]);
+  ASSERT_EQ(replica_infos[1].endpoint.address, local_host);
+  ASSERT_EQ(replica_infos[1].endpoint.port, ports[1]);
+
+  main.reset();
+
+  MinMemgraph other_main(main_config);
+
+  replica_infos = other_main.db.storage()->ReplicasInfo();
+  ASSERT_EQ(replica_infos.size(), 2);
+  ASSERT_EQ(replica_infos[0].name, replicas[0]);
+  ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
+  ASSERT_EQ(replica_infos[0].endpoint.port, ports[0]);
+  ASSERT_EQ(replica_infos[1].name, replicas[1]);
+  ASSERT_EQ(replica_infos[1].endpoint.address, local_host);
+  ASSERT_EQ(replica_infos[1].endpoint.port, ports[1]);
 }
 
 TEST_F(ReplicationTest, AddingInvalidReplica) {

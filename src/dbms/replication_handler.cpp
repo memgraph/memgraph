@@ -19,6 +19,7 @@
 #include "replication/state.hpp"
 
 using memgraph::replication::ReplicationClientConfig;
+using memgraph::replication::ReplicationServer;
 using memgraph::replication::ReplicationState;
 using memgraph::replication::RoleMainData;
 using memgraph::replication::RoleReplicaData;
@@ -44,12 +45,17 @@ std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
 
 ReplicationHandler::ReplicationHandler(DbmsHandler &dbms_handler) : dbms_handler_(dbms_handler) {}
 
-bool ReplicationHandler::SetReplicationRoleMain() {
-  auto const main_handler = [](RoleMainData const &) {
-    // If we are already MAIN, we don't want to change anything
-    return false;
+/// TODO: (andi) Update
+bool ReplicationHandler::SetReplicationRoleMain(const memgraph::replication::ReplicationServerConfig &config) {
+  auto const main_handler = [&config](RoleMainData &main_data) {
+    // TODO: (andi) Epoch will probably need to updated eventually, maybe with coordinator command.
+    // If we are already MAIN, we will not update epoch. Instead, we wil set the config and create ReplicationServer.
+    // Registered replicas won't be touched.
+    main_data.server_config_ = config;
+    main_data.server_ = std::make_unique<ReplicationServer>(config);
+    return true;
   };
-  auto const replica_handler = [this](RoleReplicaData const &) {
+  auto const replica_handler = [this, &config](RoleReplicaData const &) {
     // STEP 1) bring down all REPLICA servers
     dbms_handler_.ForEach([](Database *db) {
       auto *storage = db->storage();
@@ -59,7 +65,7 @@ bool ReplicationHandler::SetReplicationRoleMain() {
 
     // STEP 2) Change to MAIN
     // TODO: restore replication servers if false?
-    if (!dbms_handler_.ReplicationState().SetReplicationRoleMain()) {
+    if (!dbms_handler_.ReplicationState().SetReplicationRoleMain(config)) {
       // TODO: Handle recovery on failure???
       return false;
     }
@@ -126,8 +132,8 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
                                    },
                                    [this](RoleReplicaData const &data) {
                                      // Register handlers
-                                     InMemoryReplicationHandlers::Register(&dbms_handler_, *data.server);
-                                     if (!data.server->Start()) {
+                                     InMemoryReplicationHandlers::Register(&dbms_handler_, *data.server_);
+                                     if (!data.server_->Start()) {
                                        spdlog::error("Unable to start the replication server.");
                                        return false;
                                      }
@@ -254,6 +260,8 @@ auto ReplicationHandler::GetRole() const -> memgraph::replication::ReplicationRo
 bool ReplicationHandler::IsMain() const { return dbms_handler_.ReplicationState().IsMain(); }
 
 bool ReplicationHandler::IsReplica() const { return dbms_handler_.ReplicationState().IsReplica(); }
+
+bool ReplicationHandler::IsCoordinator() const { return dbms_handler_.ReplicationState().IsCoordinator(); }
 
 // Per storage
 // NOTE Storage will connect to all replicas. Future work might change this

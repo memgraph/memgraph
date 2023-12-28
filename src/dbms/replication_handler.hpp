@@ -26,6 +26,14 @@ namespace memgraph::dbms {
 class DbmsHandler;
 
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
+
+enum class RegisterMainError : uint8_t {
+  MAIN_ALREADY_EXISTS,
+  END_POINT_EXISTS,
+  CONNECTION_FAILED,
+  COULD_NOT_BE_PERSISTED
+};
+
 enum class UnregisterReplicaResult : uint8_t {
   IS_REPLICA,
   COULD_NOT_BE_PERSISTED,
@@ -39,7 +47,7 @@ struct ReplicationHandler {
   explicit ReplicationHandler(DbmsHandler &dbms_handler);
 
   // as REPLICA, become MAIN
-  bool SetReplicationRoleMain();
+  bool SetReplicationRoleMain(const memgraph::replication::ReplicationServerConfig &config);
 
   // as MAIN, become REPLICA
   bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config);
@@ -51,6 +59,11 @@ struct ReplicationHandler {
   auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterReplicaError>;
 
+  // as COORDINATOR, connect to MAIN
+  auto RegisterMain(const memgraph::replication::ReplicationServerConfig &server_config,
+                    const memgraph::replication::ReplicationClientConfig &client_config)
+      -> utils::BasicResult<RegisterMainError>;
+
   // as MAIN, remove a REPLICA connection
   auto UnregisterReplica(std::string_view name) -> UnregisterReplicaResult;
 
@@ -58,6 +71,7 @@ struct ReplicationHandler {
   auto GetRole() const -> memgraph::replication::ReplicationRole;
   bool IsMain() const;
   bool IsReplica() const;
+  bool IsCoordinator() const;
 
  private:
   DbmsHandler &dbms_handler_;

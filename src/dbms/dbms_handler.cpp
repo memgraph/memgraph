@@ -54,8 +54,8 @@ DbmsHandler::DbmsHandler(
   // Startup replication state (if recovered at startup)
   auto replica = [this](replication::RoleReplicaData const &data) {
     // Register handlers
-    InMemoryReplicationHandlers::Register(this, *data.server);
-    if (!data.server->Start()) {
+    InMemoryReplicationHandlers::Register(this, *data.server_);
+    if (!data.server_->Start()) {
       spdlog::error("Unable to start the replication server.");
       return false;
     }

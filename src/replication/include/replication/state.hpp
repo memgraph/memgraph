@@ -41,22 +41,62 @@ enum class RegisterReplicaError : uint8_t {
 };
 
 struct RoleMainData {
+  // TODO: (andi) Currently, RoleMainData can exist without server and server_config_. Introducing new role should solve
+  // this non-happy design decision.
   RoleMainData() = default;
-  explicit RoleMainData(ReplicationEpoch e) : epoch_(std::move(e)) {}
+  // Init constructor
+  RoleMainData(ReplicationEpoch epoch, ReplicationServerConfig server_config)
+      : epoch_(std::move(epoch)),
+        server_config_(std::move(server_config)),
+        server_(std::make_unique<ReplicationServer>(server_config_)) {}
   ~RoleMainData() = default;
 
   RoleMainData(RoleMainData const &) = delete;
   RoleMainData &operator=(RoleMainData const &) = delete;
-  RoleMainData(RoleMainData &&) = default;
-  RoleMainData &operator=(RoleMainData &&) = default;
+
+  RoleMainData(RoleMainData &&other) noexcept
+      : epoch_(std::move(other.epoch_)),
+        registered_replicas_(std::move(other.registered_replicas_)),
+        server_config_(std::move(other.server_config_)),
+        server_(std::move(other.server_)) {}
+
+  RoleMainData &operator=(RoleMainData &&other) noexcept {
+    if (this != &other) {
+      epoch_ = std::move(other.epoch_);
+      registered_replicas_ = std::move(other.registered_replicas_);
+      server_config_ = std::move(other.server_config_);
+      server_ = std::move(other.server_);
+    }
+    return *this;
+  }
 
   ReplicationEpoch epoch_;
-  std::list<ReplicationClient> registered_replicas_{};
+  std::list<ReplicationClient> registered_replicas_;
+  ReplicationServerConfig server_config_;
+  std::unique_ptr<ReplicationServer> server_;
 };
 
 struct RoleReplicaData {
-  ReplicationServerConfig config;
-  std::unique_ptr<ReplicationServer> server;
+  explicit RoleReplicaData(ReplicationServerConfig config)
+      : config_(std::move(config)), server_(std::make_unique<ReplicationServer>(config_)) {}
+
+  ~RoleReplicaData() = default;
+
+  RoleReplicaData(RoleReplicaData const &) = delete;
+  RoleReplicaData &operator=(RoleReplicaData const &) = delete;
+  RoleReplicaData(RoleReplicaData &&other) noexcept
+      : config_(std::move(other.config_)), server_(std::move(other.server_)) {}
+
+  RoleReplicaData &operator=(RoleReplicaData &&other) noexcept {
+    if (this != &other) {
+      config_ = std::move(other.config_);
+      server_ = std::move(other.server_);
+    }
+    return *this;
+  }
+
+  ReplicationServerConfig config_;
+  std::unique_ptr<ReplicationServer> server_;
 };
 
 struct RoleCoordinatorData {
@@ -68,7 +108,7 @@ struct RoleCoordinatorData {
   RoleCoordinatorData(RoleCoordinatorData &&) = default;
   RoleCoordinatorData &operator=(RoleCoordinatorData &&) = default;
 
-  std::list<ReplicationClient> registered_replicas_{};
+  std::list<ReplicationClient> registered_replicas_;
   std::unique_ptr<ReplicationClient> main;
   // TODO: (andi) Does it need epoch or some other way or tracking what is going on?
 };
@@ -106,7 +146,7 @@ struct ReplicationState {
   bool IsCoordinator() const { return GetRole() == ReplicationRole::COORDINATOR; }
 
   bool ShouldPersist() const { return nullptr != durability_; }
-  bool TryPersistRoleMain(std::string new_epoch);
+  bool TryPersistRoleMain(std::string new_epoch, const ReplicationServerConfig &config);
   bool TryPersistRoleReplica(const ReplicationServerConfig &config);
   /// TODO: (andi) If we will need epoch or something to track, we will need to pass it here as argument
   bool TryPersistRoleCoordinator();
@@ -121,7 +161,7 @@ struct ReplicationState {
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
-  bool SetReplicationRoleMain();
+  bool SetReplicationRoleMain(const ReplicationServerConfig &config);
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
   bool SetReplicationRoleCoordinator();
 

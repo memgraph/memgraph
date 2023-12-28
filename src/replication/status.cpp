@@ -32,7 +32,11 @@ constexpr auto *kVersion = "durability_version";
 /// introduce new durability version?
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
-    j = nlohmann::json{{kVersion, p.version}, {kReplicationRole, ReplicationRole::MAIN}, {kEpoch, main.epoch.id()}};
+    j = nlohmann::json{{kVersion, p.version},
+                       {kReplicationRole, ReplicationRole::MAIN},
+                       {kEpoch, main.epoch.id()},
+                       {kIpAddress, main.config.ip_address},
+                       {kPort, main.config.port}};
   };
   auto processREPLICA = [&](ReplicaRole const &replica) {
     j = nlohmann::json{
@@ -58,21 +62,28 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   ReplicationRole role;
   j.at(kReplicationRole).get_to(role);
+
+  auto ParseReplicationServerConfig = [](const nlohmann::json &j) -> ReplicationServerConfig {
+    std::string ip_address;
+    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+    uint16_t port;
+    j.at(kIpAddress).get_to(ip_address);
+    j.at(kPort).get_to(port);
+    return ReplicationServerConfig{.ip_address = std::move(ip_address), .port = port};
+  };
+
   switch (role) {
     case ReplicationRole::MAIN: {
       auto json_epoch = j.value(kEpoch, std::string{});
       auto epoch = ReplicationEpoch{};
       if (!json_epoch.empty()) epoch.SetEpoch(json_epoch);
-      p = ReplicationRoleEntry{.version = version, .role = MainRole{.epoch = std::move(epoch)}};
+      auto config = ParseReplicationServerConfig(j);
+      p = ReplicationRoleEntry{.version = version,
+                               .role = MainRole{.epoch = std::move(epoch), .config = std::move(config)}};
       break;
     }
     case ReplicationRole::REPLICA: {
-      std::string ip_address;
-      // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-      uint16_t port;
-      j.at(kIpAddress).get_to(ip_address);
-      j.at(kPort).get_to(port);
-      auto config = ReplicationServerConfig{.ip_address = std::move(ip_address), .port = port};
+      auto config = ParseReplicationServerConfig(j);
       p = ReplicationRoleEntry{.version = version, .role = ReplicaRole{.config = std::move(config)}};
       break;
     }
@@ -87,8 +98,7 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
   auto common = nlohmann::json{{kReplicaName, p.config.name},
                                {kIpAddress, p.config.ip_address},
                                {kPort, p.config.port},
-                               {kSyncMode, p.config.mode},
-                               {kCheckFrequency, p.config.replica_check_frequency.count()}};
+                               {kCheckFrequency, p.config.check_frequency.count()}};
 
   if (p.config.ssl.has_value()) {
     common[kSSLKeyFile] = p.config.ssl->key_file;
@@ -97,6 +107,13 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
     common[kSSLKeyFile] = nullptr;
     common[kSSLCertFile] = nullptr;
   }
+
+  if (p.config.mode.has_value()) {
+    common[kSyncMode] = p.config.mode.value();
+  } else {
+    common[kSyncMode] = nullptr;
+  }
+
   j = std::move(common);
 }
 void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
@@ -108,16 +125,20 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   auto seconds = j.at(kCheckFrequency).get<std::chrono::seconds::rep>();
   auto config = ReplicationClientConfig{
       .name = j.at(kReplicaName).get<std::string>(),
-      .mode = j.at(kSyncMode).get<ReplicationMode>(),
       .ip_address = j.at(kIpAddress).get<std::string>(),
       .port = j.at(kPort).get<uint16_t>(),
-      .replica_check_frequency = std::chrono::seconds{seconds},
+      .check_frequency = std::chrono::seconds{seconds},
   };
   if (!key_file.is_null()) {
     config.ssl = ReplicationClientConfig::SSL{};
     key_file.get_to(config.ssl->key_file);
     cert_file.get_to(config.ssl->cert_file);
   }
+
+  if (const auto &sync_mode = j.at(kSyncMode); !sync_mode.is_null()) {
+    config.mode = sync_mode.get<ReplicationMode>();
+  }
+
   p = ReplicationReplicaEntry{.config = std::move(config)};
 }
 }  // namespace memgraph::replication::durability

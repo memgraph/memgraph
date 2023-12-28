@@ -21,17 +21,19 @@ namespace memgraph::replication {
 
 inline constexpr uint16_t kDefaultReplicationPort = 10000;
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
+// Default name which coordinator uses to distinguish Main's ReplicationClient from replicas'.
+inline constexpr auto *kDefaultMainName = "main";
 
 struct ReplicationClientConfig {
   std::string name;
-  ReplicationMode mode{};
+  std::optional<ReplicationMode> mode;
   std::string ip_address;
   uint16_t port{};
 
-  // The default delay between main checking/pinging replicas is 1s because
-  // that seems like a reasonable timeframe in which main should notice a
-  // replica is down.
-  std::chrono::seconds replica_check_frequency{1};
+  // The default delay between coordinator/main checking/pinging main and replicas/replicas is 1s because
+  // that seems like a reasonable timeframe in which coordinator/main should notice a
+  // main or replica is down.
+  std::chrono::seconds check_frequency{1};
 
   struct SSL {
     std::string key_file;

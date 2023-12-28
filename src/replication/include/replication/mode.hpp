@@ -12,5 +12,7 @@
 #pragma once
 #include <cstdint>
 namespace memgraph::replication {
+
 enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
-}
+
+}  // namespace memgraph::replication

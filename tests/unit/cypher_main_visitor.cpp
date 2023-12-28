@@ -2584,14 +2584,15 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
 
   {
     const std::string query = "SET REPLICATION ROLE TO MAIN";
-    auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(query));
-    EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SET_REPLICATION_ROLE);
-    EXPECT_EQ(parsed_query->role_, ReplicationQuery::ReplicationRole::MAIN);
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
   }
 
   {
     const std::string query = "SET REPLICATION ROLE TO MAIN WITH PORT 10000";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+    auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(query));
+    EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SET_REPLICATION_ROLE);
+    EXPECT_EQ(parsed_query->role_, ReplicationQuery::ReplicationRole::MAIN);
+    ast_generator.CheckLiteral(parsed_query->port_, 10000);
   }
 
   {
@@ -2603,7 +2604,7 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
   }
 }
 
-// NOTE: When using RegisterMain query, port is not used, rather just socketAdress which also saves the port.
+// NOTE: When using RegisterReplica query, port is not used, rather just socketAdress which also saves the port.
 TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
   auto &ast_generator = *GetParam();
 
@@ -2625,7 +2626,7 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
                           ReplicationQuery::SyncMode::SYNC);
 }
 
-// NOTE: When using RegisterMain query, port is not used, rather just socketAdress which also saves the port.
+// NOTE: When using RegisterMain query, port_ is not used, rather just socket_address_ is used.
 TEST_P(CypherMainVisitorTest, TestRegisterMainQuery) {
   auto &ast_generator = *GetParam();
 
@@ -2638,7 +2639,7 @@ TEST_P(CypherMainVisitorTest, TestRegisterMainQuery) {
   auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
   ASSERT_TRUE(full_query_parsed);
 
-  ast_generator.CheckLiteral(full_query_parsed->socket_address_, TypedValue("127.0.0.1:10003"));
+  ast_generator.CheckLiteral(full_query_parsed->socket_address_, "127.0.0.1:10003");
   ASSERT_EQ(full_query_parsed->port_, nullptr);
 }
 

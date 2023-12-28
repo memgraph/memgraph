@@ -37,12 +37,13 @@ enum class DurabilityVersion : uint8_t {
 // fragment of key: "__replication_role"
 struct MainRole {
   ReplicationEpoch epoch{};
+  ReplicationServerConfig config{};
   friend bool operator==(MainRole const &, MainRole const &) = default;
 };
 
 // fragment of key: "__replication_role"
 struct ReplicaRole {
-  ReplicationServerConfig config;
+  ReplicationServerConfig config{};
   friend bool operator==(ReplicaRole const &, ReplicaRole const &) = default;
 };
 
@@ -63,7 +64,7 @@ struct ReplicationRoleEntry {
 
 // from key: "__replication_replica:"
 struct ReplicationReplicaEntry {
-  ReplicationClientConfig config;
+  ReplicationClientConfig config{};
   friend bool operator==(ReplicationReplicaEntry const &, ReplicationReplicaEntry const &) = default;
 };
 
