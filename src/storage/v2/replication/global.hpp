@@ -34,7 +34,7 @@ struct ReplicaInfo {
 #ifdef MG_ENTERPRISE
   std::optional<memgraph::replication::ReplicationMode> mode;
 #else
-  memgraph::replication::ReplicationMode mode{};
+  memgraph::replication::ReplicationMode mode;
 #endif
   io::network::Endpoint endpoint;
   replication::ReplicaState state;

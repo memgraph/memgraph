@@ -25,11 +25,16 @@ using namespace memgraph::replication;
 
 TEST(ReplicationDurability, V1Main) {
   auto const role_entry =
+#ifdef MG_ENTERPRISE
       ReplicationRoleEntry{.version = DurabilityVersion::V1,
                            .role = MainRole{
                                .epoch = ReplicationEpoch{"TEST_STRING"},
                                .config = ReplicationServerConfig{.ip_address = "000.123.456.789", .port = 2023},
                            }};
+#else
+      ReplicationRoleEntry{.version = DurabilityVersion::V1,
+                           .role = MainRole{.epoch = ReplicationEpoch{"TEST_STRING"}}};
+#endif
   nlohmann::json j;
   to_json(j, role_entry);
   ReplicationRoleEntry deser;
@@ -39,12 +44,16 @@ TEST(ReplicationDurability, V1Main) {
 
 TEST(ReplicationDurability, V2Main) {
   auto const role_entry =
+#ifdef MG_ENTERPRISE
       ReplicationRoleEntry{.version = DurabilityVersion::V2,
                            .role = MainRole{
                                .epoch = ReplicationEpoch{"TEST_STRING"},
                                .config = ReplicationServerConfig{.ip_address = "000.123.456.789", .port = 2023},
-
                            }};
+#else
+      ReplicationRoleEntry{.version = DurabilityVersion::V2,
+                           .role = MainRole{.epoch = ReplicationEpoch{"TEST_STRING"}}};
+#endif
   nlohmann::json j;
   to_json(j, role_entry);
   ReplicationRoleEntry deser;
@@ -78,6 +87,7 @@ TEST(ReplicationDurability, V2Replica) {
   ASSERT_EQ(role_entry, deser);
 }
 
+#ifdef MG_ENTERPRISE
 TEST(ReplicationDurability, V2Coordinator) {
   auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V2, .role = CoordinatorRole{}};
   nlohmann::json j;
@@ -86,6 +96,7 @@ TEST(ReplicationDurability, V2Coordinator) {
   from_json(j, deser);
   ASSERT_EQ(role_entry, deser);
 }
+#endif
 
 TEST(ReplicationDurability, ReplicaClientConfigEntrySync) {
   using namespace std::chrono_literals;
