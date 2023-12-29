@@ -34,7 +34,6 @@ auto BuildMainKey(std::string_view name) -> std::string {
   return key;
 }
 
-/// TODO: (andi) Here
 ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir) {
   if (!durability_dir) return;
   auto repl_dir = *std::move(durability_dir);
@@ -278,9 +277,11 @@ bool ReplicationState::TryPersistRegisteredMainOnCoordinator(const ReplicationCl
     if (!TryPersistRoleCoordinator()) return false;
   }
 
-  // TODO: (andi) Build a main key
-
-  return true;
+  auto data = durability::ReplicationClientConfigEntry{.config = config};
+  auto key = BuildMainKey(config.name);
+  if (durability_->Put(key, nlohmann::json(data).dump())) return true;
+  spdlog::error("Error when saving main {} in settings.", config.name);
+  return false;
 }
 
 bool ReplicationState::SetReplicationRoleMain(const ReplicationServerConfig &config) {
@@ -406,7 +407,8 @@ utils::BasicResult<RegisterMainError, ReplicationClient *> ReplicationState::Reg
       return RegisterMainError::COULD_NOT_BE_PERSISTED;
     }
 
-    client = &coordinatorData.registered_replicas_.emplace_back(config);
+    coordinatorData.main = std::make_unique<ReplicationClient>(config);
+    client = coordinatorData.main.get();
     return RegisterMainError::SUCCESS;
   };
 

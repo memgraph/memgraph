@@ -25,7 +25,7 @@ namespace memgraph::replication {
 template <typename F>
 concept InvocableWithStringView = std::invocable<F, std::string_view>;
 
-/// TODO: (andi) Consider adding some var type which would distinguish between MAIN and REPLICA checker
+/// TODO: (andi) Consider adding some var type which would distinguish between MAIN and REPLICA frequency_checker
 struct ReplicationClient {
   explicit ReplicationClient(const memgraph::replication::ReplicationClientConfig &config);
 

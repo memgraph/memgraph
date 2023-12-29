@@ -207,9 +207,30 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   return {};
 }
 
-auto ReplicationHandler::RegisterMain(const memgraph::replication::ReplicationClientConfig &client_config)
+auto ReplicationHandler::RegisterMain(const memgraph::replication::ReplicationClientConfig &config)
     -> utils::BasicResult<RegisterMainError> {
-  MG_ASSERT(dbms_handler_.ReplicationState().IsCoordinator(), "Only coordinator can register main!");
+  MG_ASSERT(dbms_handler_.ReplicationState().IsCoordinator(), "Only coordinator can register main instance!");
+
+  auto instance_client = dbms_handler_.ReplicationState().RegisterMain(config);
+  if (instance_client.HasError()) switch (instance_client.GetError()) {
+      case memgraph::replication::RegisterMainError::NOT_COORDINATOR:
+        MG_ASSERT(false, "Only coordinator can register main instance!");
+        return {};
+      case memgraph::replication::RegisterMainError::END_POINT_EXISTS:
+        return memgraph::dbms::RegisterMainError::END_POINT_EXISTS;
+      case memgraph::replication::RegisterMainError::COULD_NOT_BE_PERSISTED:
+        return memgraph::dbms::RegisterMainError::COULD_NOT_BE_PERSISTED;
+      case memgraph::replication::RegisterMainError::MAIN_ALREADY_EXISTS:
+        return memgraph::dbms::RegisterMainError::MAIN_ALREADY_EXISTS;
+      case memgraph::replication::RegisterMainError::SUCCESS:
+        break;
+    }
+
+  if (!allow_mt_repl && dbms_handler_.All().size() > 1) {
+    spdlog::warn("Multi-tenant replication is currently not supported!");
+  }
+
+  // TODO: (andi) Continue this code
 
   return {};
 }

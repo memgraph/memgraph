@@ -45,7 +45,6 @@ enum class RegisterReplicaError : uint8_t {
 enum class RegisterMainError : uint8_t {
   MAIN_ALREADY_EXISTS,
   END_POINT_EXISTS,
-  CONNECTION_FAILED,
   COULD_NOT_BE_PERSISTED,
   NOT_COORDINATOR,
   SUCCESS
@@ -116,12 +115,20 @@ struct RoleCoordinatorData {
 
   RoleCoordinatorData(RoleCoordinatorData const &) = delete;
   RoleCoordinatorData &operator=(RoleCoordinatorData const &) = delete;
-  RoleCoordinatorData(RoleCoordinatorData &&) = default;
-  RoleCoordinatorData &operator=(RoleCoordinatorData &&) = default;
 
+  RoleCoordinatorData(RoleCoordinatorData &&other) noexcept
+      : registered_replicas_(std::move(other.registered_replicas_)), main(std::move(other.main)) {}
+  RoleCoordinatorData &operator=(RoleCoordinatorData &&other) noexcept {
+    if (this != &other) {
+      registered_replicas_ = std::move(other.registered_replicas_);
+      main = std::move(other.main);
+    }
+    return *this;
+  }
+
+  // TODO: (andi) Does it need epoch or some other way or tracking what is going on?
   std::list<ReplicationClient> registered_replicas_;
   std::unique_ptr<ReplicationClient> main;
-  // TODO: (andi) Does it need epoch or some other way or tracking what is going on?
 };
 
 // Global (instance) level object

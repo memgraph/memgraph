@@ -294,11 +294,11 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       };
 
       if (!handler_.SetReplicationRoleMain(config)) {
-        throw QueryRuntimeException("Couldn't set role to main!");
+        throw QueryRuntimeException("Couldn't set replication role to main!");
       }
     } else if (replication_role == ReplicationQuery::ReplicationRole::COORDINATOR) {
       if (!handler_.SetReplicationRoleCoordinator()) {
-        throw QueryRuntimeException("Couldn't set role to coordinator!");
+        throw QueryRuntimeException("Couldn't set replication role to coordinator!");
       }
     } else {  // replica
       ValidatePort(port);
@@ -309,7 +309,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       };
 
       if (!handler_.SetReplicationRoleReplica(config)) {
-        throw QueryRuntimeException("Couldn't set role to replica!");
+        throw QueryRuntimeException("Couldn't set replication role to replica!");
       }
     }
   }
@@ -367,9 +367,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
       auto config = replication::ReplicationClientConfig{.name = memgraph::replication::kDefaultMainName,
+                                                         .mode = std::nullopt,
                                                          .ip_address = ip,
                                                          .port = port,
-                                                         .mode = std::nullopt,
                                                          .check_frequency = main_check_frequency,
                                                          .ssl = std::nullopt};
       auto ret = handler_.RegisterMain(config);

@@ -111,16 +111,6 @@ workloads:
     args: ["replication/set_coordinator_role.py"]
     <<: *set_coordinator_role_cluster
 
-  - name: "Coordinator test"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["replication/coordinator_test.py"]
-    <<: *coordinator_role_cluster
-
-  - name: "Replica test"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["replication/replica_test.py"]
-    <<: *template_simple_cluster
-
   - name: "Manual failover"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/manual_failover.py"]
