@@ -268,6 +268,8 @@ auto ReplicationHandler::RegisterMain(const memgraph::replication::ReplicationCl
     spdlog::warn("Multi-tenant replication is currently not supported!");
   }
 
+  bool all_clients_good = true;
+
   // TODO: (andi) Solve DRY
   // Add database specific clients (NOTE Currently all databases are connected to each replica)
   dbms_handler_.ForEach([&](Database *db) {
