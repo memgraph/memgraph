@@ -71,7 +71,6 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "replication/config.hpp"
-#include "replication/role.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
@@ -286,6 +285,11 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     };
 
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
+#ifdef MG_ENTERPRISE
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryException("Trying to use enterprise feature without a valid license.");
+      }
+
       ValidatePort(port);
 
       auto const config = memgraph::replication::ReplicationServerConfig{
@@ -296,18 +300,31 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       if (!handler_.SetReplicationRoleMain(config)) {
         throw QueryRuntimeException("Couldn't set replication role to main!");
       }
-    } else if (replication_role == ReplicationQuery::ReplicationRole::COORDINATOR) {
+#else
+      if (!handler_.SetReplicationRoleMain()) {
+        throw QueryRuntimeException("Couldn't set replication role to main!");
+      }
+#endif
+
+    }
+#ifdef MG_ENTERPRISE
+    else if (replication_role == ReplicationQuery::ReplicationRole::COORDINATOR) {
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryException("Trying to use enterprise feature without a valid license.");
+      }
+
       if (!handler_.SetReplicationRoleCoordinator()) {
         throw QueryRuntimeException("Couldn't set replication role to coordinator!");
       }
-    } else {  // replica
+    }
+#endif
+    else {  // replica
       ValidatePort(port);
 
       auto const config = memgraph::replication::ReplicationServerConfig{
           .ip_address = memgraph::replication::kDefaultReplicationServerIp,
           .port = static_cast<uint16_t>(*port),
       };
-
       if (!handler_.SetReplicationRoleReplica(config)) {
         throw QueryRuntimeException("Couldn't set replication role to replica!");
       }
@@ -321,8 +338,13 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         return ReplicationQuery::ReplicationRole::MAIN;
       case memgraph::replication::ReplicationRole::REPLICA:
         return ReplicationQuery::ReplicationRole::REPLICA;
+#ifdef MG_ENTERPRISE
+        if (!license::global_license_checker.IsEnterpriseValidFast()) {
+          throw QueryException("Trying to use enterprise feature without a valid license.");
+        }
       case memgraph::replication::ReplicationRole::COORDINATOR:
         return ReplicationQuery::ReplicationRole::COORDINATOR;
+#endif
     }
     throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
   }
@@ -356,8 +378,12 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     }
   }
 
+#ifdef MG_ENTERPRISE
   /// @throw QueryRuntimeException if an error ocurred.
   void RegisterMain(const std::string &socket_address, const std::chrono::seconds main_check_frequency) override {
+    if (!license::global_license_checker.IsEnterpriseValidFast()) {
+      throw QueryException("Trying to use enterprise feature without a valid license.");
+    }
     if (!handler_.IsCoordinator()) {
       throw QueryRuntimeException("Only coordinator can register main instance!");
     }
@@ -380,6 +406,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       throw QueryRuntimeException("Invalid socket address!");
     }
   }
+#endif
 
   /// @throw QueryRuntimeException if an error occurred.
   void DropReplica(std::string_view replica_name) override {
@@ -422,7 +449,11 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       Replica replica;
       replica.name = repl_info.name;
       replica.socket_address = repl_info.endpoint.SocketAddress();
-      switch (repl_info.mode.value()) {  // Replica always has mode set
+#ifdef MG_ENTERPRISE
+      switch (repl_info.mode.value()) {  // Replica has always mode set
+#else
+      switch (repl_info.mode) {
+#endif
         case memgraph::replication::ReplicationMode::SYNC:
           replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
           break;
@@ -529,7 +560,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           auth->GrantPrivilege(username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
                                ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+                               {{
+                                 { AuthQuery::FineGrainedPrivilege::CREATE_DELETE,
+                                   { query::kAsterisk } }
+                               }},
                                {
                                  {
                                    {
@@ -795,9 +829,11 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           case ReplicationQuery::ReplicationRole::REPLICA: {
             return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
           }
+#ifdef MG_ENTERPRISE
           case ReplicationQuery::ReplicationRole::COORDINATOR: {
-            return std::vector<std::vector<TypedValue>>{{TypedValue("coordinator")}};
+            return std::vector<std::vector<TypedValue>>{{ TypedValue("coordinator") }};
           }
+#endif
         }
       };
       return callback;
@@ -816,6 +852,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                   fmt::format("Replica {} is registered.", repl_query->replica_name_));
       return callback;
     }
+#ifdef MG_ENTERPRISE
     case ReplicationQuery::Action::REGISTER_MAIN: {
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
@@ -833,6 +870,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                   "Coordinator has registered main instance.");
       return callback;
     }
+#endif
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, name]() mutable {
@@ -2298,8 +2336,12 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
   auto callback = HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
-                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr),
-                        interpreter_context](  // NOLINT
+                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)
+#ifdef MG_ENTERPRISE
+                                                              ,
+                        interpreter_context
+#endif
+  ](  // NOLINT
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (!pull_plan) {
                            // Run the specific query

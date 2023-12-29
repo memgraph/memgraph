@@ -60,23 +60,6 @@ set_coordinator_role_cluster: &set_coordinator_role_cluster
       setup_queries: []
       validation_queries: []
 
-coordinator_role_cluster: &coordinator_role_cluster
-  cluster:
-    replica_1:
-      args: [ "--bolt-port", "7688", "--log-level=TRACE" ]
-      log_file: "replication-e2e-replica1.log"
-      setup_queries: [ "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;" ]
-    replica_2:
-      args: ["--bolt-port", "7689", "--log-level=TRACE"]
-      log_file: "replication-e2e-replica2.log"
-      setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"]
-    coordinator:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
-      log_file: "replication-e2e-coordinator.log"
-      setup_queries: [
-        "SET REPLICATION ROLE TO COORDINATOR;"
-      ]
-
 manual_failover_cluster: &manual_failover_cluster
   cluster:
     replica_1:

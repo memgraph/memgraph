@@ -221,10 +221,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitRegisterReplica(MemgraphCypher::RegisterReplicaContext *ctx) override;
 
+#ifdef MEMGRAPH_ENTERPRISE
   /**
    * @return ReplicationQuery*
    */
   antlrcpp::Any visitRegisterMain(MemgraphCypher::RegisterMainContext *ctx) override;
+#endif
 
   /**
    * @return ReplicationQuery*

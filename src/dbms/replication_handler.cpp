@@ -18,7 +18,6 @@
 #include "dbms/replication_client.hpp"
 #include "replication/state.hpp"
 
-using memgraph::replication::ReplicationClientConfig;
 using memgraph::replication::ReplicationServer;
 using memgraph::replication::ReplicationState;
 using memgraph::replication::RoleMainData;
@@ -45,8 +44,13 @@ std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
 
 ReplicationHandler::ReplicationHandler(DbmsHandler &dbms_handler) : dbms_handler_(dbms_handler) {}
 
-/// TODO: (andi) Update
+#ifdef MG_ENTERPRISE
 bool ReplicationHandler::SetReplicationRoleMain(const memgraph::replication::ReplicationServerConfig &config) {
+#else
+bool ReplicationHandler::SetReplicationRoleMain() {
+#endif
+
+#ifdef MG_ENTERPRISE
   auto const main_handler = [&config](RoleMainData &main_data) {
     // TODO: (andi) Epoch will probably need to updated eventually, maybe with coordinator command.
     // If we are already MAIN, we will not update epoch. Instead, we wil set the config and create ReplicationServer.
@@ -55,7 +59,18 @@ bool ReplicationHandler::SetReplicationRoleMain(const memgraph::replication::Rep
     main_data.server_ = std::make_unique<ReplicationServer>(config);
     return true;
   };
+#else
+  auto const main_handler = [](RoleMainData const &) {
+    // If we are already MAIN, we don't want to change anything
+    return false;
+  };
+#endif
+
+#ifdef MG_ENTERPRISE
   auto const replica_handler = [this, &config](RoleReplicaData const &) {
+#else
+  auto const replica_handler = [this](RoleReplicaData const &) {
+#endif
     // STEP 1) bring down all REPLICA servers
     dbms_handler_.ForEach([](Database *db) {
       auto *storage = db->storage();
@@ -63,9 +78,13 @@ bool ReplicationHandler::SetReplicationRoleMain(const memgraph::replication::Rep
       storage->PrepareForNewEpoch();
     });
 
-    // STEP 2) Change to MAIN
-    // TODO: restore replication servers if false?
+// STEP 2) Change to MAIN
+// TODO: restore replication servers if false?
+#ifdef MG_ENTERPRISE
     if (!dbms_handler_.ReplicationState().SetReplicationRoleMain(config)) {
+#else
+    if (!dbms_handler_.ReplicationState().SetReplicationRoleMain()) {
+#endif
       // TODO: Handle recovery on failure???
       return false;
     }
@@ -81,14 +100,20 @@ bool ReplicationHandler::SetReplicationRoleMain(const memgraph::replication::Rep
     return true;
   };
 
+#ifdef MG_ENTERPRISE
   // COORDINATOR cannot become main
   auto const coordinator_handler = [](replication::RoleCoordinatorData const &) { return false; };
-
   // TODO: under lock
   return std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler},
                     dbms_handler_.ReplicationState().ReplicationData());
+#else
+  // TODO: under lock
+  return std::visit(utils::Overloaded{main_handler, replica_handler},
+                    dbms_handler_.ReplicationState().ReplicationData());
+#endif
 }
 
+#ifdef MG_ENTERPRISE
 bool ReplicationHandler::SetReplicationRoleCoordinator() {
   // Upgrading REPLICA to COORDINATOR is not supported
   auto const replica_handler = [](RoleReplicaData const &) { return false; };
@@ -104,12 +129,20 @@ bool ReplicationHandler::SetReplicationRoleCoordinator() {
   return std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler},
                     dbms_handler_.ReplicationState().ReplicationData());
 }
+#endif
 
 bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config) {
   // We don't want to restart the server if we're already a REPLICA
-  if (dbms_handler_.ReplicationState().IsReplica() || dbms_handler_.ReplicationState().IsCoordinator()) {
+  if (dbms_handler_.ReplicationState().IsReplica()) {
     return false;
   }
+
+#ifdef MG_ENTERPRISE
+  // Upgrading replica to coordinator is forbidden
+  if (dbms_handler_.ReplicationState().IsCoordinator()) {
+    return false;
+  }
+#endif
 
   // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
   //      deleting the replica.
@@ -124,24 +157,28 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
   // Creates the server
   dbms_handler_.ReplicationState().SetReplicationRoleReplica(config);
 
-  // Start
+  // TODO: (andi) Assert instead of returning false
+  auto const main_handler = [](RoleMainData const &) { return false; };
+
+  auto const replica_handler = [this](RoleReplicaData const &data) {
+    InMemoryReplicationHandlers::Register(&dbms_handler_, *data.server_);
+    if (!data.server_->Start()) {
+      spdlog::error("Unable to start the replication server.");
+      return false;
+    }
+    return true;
+  };
+
+#ifdef MG_ENTERPRISE
+  // TODO: (andi) Assert instead of returning false
+  auto const coordinator_handler = [](replication::RoleCoordinatorData const &) { return false; };
+  const auto success = std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler},
+                                  dbms_handler_.ReplicationState().ReplicationData());
+#else
   const auto success =
-      std::visit(utils::Overloaded{[](RoleMainData const &) {
-                                     // ASSERT
-                                     return false;
-                                   },
-                                   [this](RoleReplicaData const &data) {
-                                     // Register handlers
-                                     InMemoryReplicationHandlers::Register(&dbms_handler_, *data.server_);
-                                     if (!data.server_->Start()) {
-                                       spdlog::error("Unable to start the replication server.");
-                                       return false;
-                                     }
-                                     return true;
-                                   },
-                                   /// TODO: (andi) Assert that this code cannot execute
-                                   [](replication::RoleCoordinatorData const &) { return false; }},
-                 dbms_handler_.ReplicationState().ReplicationData());
+      std::visit(utils::Overloaded{main_handler, replica_handler}, dbms_handler_.ReplicationState().ReplicationData());
+#endif
+
   // TODO Handle error (restore to main?)
   return success;
 }
@@ -207,6 +244,7 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   return {};
 }
 
+#ifdef MG_ENTERPRISE
 auto ReplicationHandler::RegisterMain(const memgraph::replication::ReplicationClientConfig &config)
     -> utils::BasicResult<RegisterMainError> {
   MG_ASSERT(dbms_handler_.ReplicationState().IsCoordinator(), "Only coordinator can register main instance!");
@@ -230,10 +268,11 @@ auto ReplicationHandler::RegisterMain(const memgraph::replication::ReplicationCl
     spdlog::warn("Multi-tenant replication is currently not supported!");
   }
 
-  // TODO: (andi) Continue this code
+  // TODO: (andi) Continue this code and connect it with multi-tenant replication
 
   return {};
 }
+#endif
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterReplicaResult {
   auto const replica_handler = [](RoleReplicaData const &) -> UnregisterReplicaResult {
@@ -258,6 +297,7 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterR
     return n_unregistered != 0 ? UnregisterReplicaResult::SUCCESS : UnregisterReplicaResult::CAN_NOT_UNREGISTER;
   };
 
+#ifdef MG_ENTERPRISE
   auto const coordinator_handler =
       [this, name](replication::RoleCoordinatorData &coordinatorData) -> UnregisterReplicaResult {
     if (!dbms_handler_.ReplicationState().TryPersistUnregisterReplicaOnMain(name)) {
@@ -279,6 +319,10 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterR
 
   return std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler},
                     dbms_handler_.ReplicationState().ReplicationData());
+#else
+  return std::visit(utils::Overloaded{main_handler, replica_handler},
+                    dbms_handler_.ReplicationState().ReplicationData());
+#endif
 }
 
 auto ReplicationHandler::GetRole() const -> memgraph::replication::ReplicationRole {
@@ -289,17 +333,15 @@ bool ReplicationHandler::IsMain() const { return dbms_handler_.ReplicationState(
 
 bool ReplicationHandler::IsReplica() const { return dbms_handler_.ReplicationState().IsReplica(); }
 
+#ifdef MG_ENTERPRISE
 bool ReplicationHandler::IsCoordinator() const { return dbms_handler_.ReplicationState().IsCoordinator(); }
+#endif
 
 // Per storage
 // NOTE Storage will connect to all replicas. Future work might change this
 void RestoreReplication(replication::ReplicationState &repl_state, storage::Storage &storage) {
-  ////// AF AS TODO
-
-  ///
   spdlog::info("Restoring replication role.");
 
-  /// MAIN
   auto const recover_main = [&storage](RoleMainData &mainData) {
     // Each individual client has already been restored and started. Here we just go through each database and start its
     // client
@@ -331,12 +373,15 @@ void RestoreReplication(replication::ReplicationState &repl_state, storage::Stor
     spdlog::info("Replication role restored to MAIN.");
   };
 
-  /// REPLICA
   auto const recover_replica = [](RoleReplicaData const &data) { /*nothing to do*/ };
 
-  /// REPLICA
-  auto const coordinator_handler = [](replication::RoleCoordinatorData const &) { /*nothing to do*/ };
-
-  std::visit(utils::Overloaded{recover_main, recover_replica, coordinator_handler}, repl_state.ReplicationData());
+#ifdef MG_ENTERPRISE
+  // TODO: (andi) This will probably have to be implemented
+  auto const recover_coordinator = [](replication::RoleCoordinatorData const &) { /*nothing to do*/ };
+  std::visit(utils::Overloaded{recover_main, recover_replica, recover_coordinator}, repl_state.ReplicationData());
+#else
+  std::visit(utils::Overloaded{recover_main, recover_replica}, repl_state.ReplicationData());
+#endif
 }
+
 }  // namespace memgraph::dbms

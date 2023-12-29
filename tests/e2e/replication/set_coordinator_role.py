@@ -15,7 +15,6 @@ import pytest
 from common import connect_default, execute_and_fetch_all
 
 
-# Coordinator doesn't have a port associated with it.
 def test_coordinator_role_port_throws():
     cursor = connect_default().cursor()
     with pytest.raises(Exception) as e:

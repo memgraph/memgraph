@@ -3031,10 +3031,16 @@ class ReplicationQuery : public memgraph::query::Query {
     REGISTER_REPLICA,
     DROP_REPLICA,
     SHOW_REPLICAS,
+#ifdef MG_ENTERPRISE
     REGISTER_MAIN
+#endif
   };
 
-  enum class ReplicationRole { MAIN, REPLICA, COORDINATOR };
+#ifdef MG_ENTERPRISE
+  enum class ReplicationRole{MAIN, REPLICA, COORDINATOR};
+#else
+  enum class ReplicationRole { MAIN, REPLICA };
+#endif
 
   enum class SyncMode { SYNC, ASYNC };
 

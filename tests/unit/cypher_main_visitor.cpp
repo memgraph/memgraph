@@ -2584,7 +2584,7 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
 
   {
     const std::string query = "SET REPLICATION ROLE TO MAIN";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
   }
 
   {

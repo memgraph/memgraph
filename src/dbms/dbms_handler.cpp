@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "dbms/dbms_handler.hpp"
-#include "replication/state.hpp"
 #include "utils/exceptions.hpp"
 
 namespace memgraph::dbms {

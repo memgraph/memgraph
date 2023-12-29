@@ -21,12 +21,19 @@ namespace memgraph::replication {
 
 inline constexpr uint16_t kDefaultReplicationPort = 10000;
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
-// Default name which coordinator uses to distinguish Main's ReplicationClient from replicas'.
+
+#ifdef MG_ENTERPRISE
+// Default name which coordinator uses to distinguish main's ReplicationClient from replicas'.
 inline constexpr auto *kDefaultMainName = "main";
+#endif
 
 struct ReplicationClientConfig {
   std::string name;
+#ifdef MG_ENTERPRISE
   std::optional<ReplicationMode> mode;
+#else
+  ReplicationMode mode{};
+#endif
   std::string ip_address;
   uint16_t port{};
 

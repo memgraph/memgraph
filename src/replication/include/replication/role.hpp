@@ -14,5 +14,10 @@
 #include <cstdint>
 namespace memgraph::replication {
 
+#ifdef MG_ENTERPRISE
 enum class ReplicationRole : uint8_t { MAIN, REPLICA, COORDINATOR };
-}
+#else
+enum class ReplicationRole : uint8_t { MAIN, REPLICA };
+#endif
+
+}  // namespace memgraph::replication

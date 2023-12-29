@@ -28,7 +28,10 @@ namespace memgraph::replication::durability {
 // Keys
 constexpr auto *kReplicationRoleName{"__replication_role"};
 constexpr auto *kReplicationReplicaPrefix{"__replication_replica:"};  // introduced in V2
+
+#ifdef MG_ENTERPRISE
 constexpr auto *kReplicationMainPrefix("__replication_main:");
+#endif
 
 enum class DurabilityVersion : uint8_t {
   V1,  // no distinct key for replicas
@@ -38,7 +41,9 @@ enum class DurabilityVersion : uint8_t {
 // fragment of key: "__replication_role"
 struct MainRole {
   ReplicationEpoch epoch{};
+#ifdef MG_ENTERPRISE
   ReplicationServerConfig config{};
+#endif
   friend bool operator==(MainRole const &, MainRole const &) = default;
 };
 
@@ -48,17 +53,24 @@ struct ReplicaRole {
   friend bool operator==(ReplicaRole const &, ReplicaRole const &) = default;
 };
 
+#ifdef MG_ENTERPRISE
 // fragment of key: "__replication_role"
 // TODO: (andi) Check if you will need to add some epoch or something for managing coordinator role
 struct CoordinatorRole {
   friend bool operator==(CoordinatorRole const &, CoordinatorRole const &) = default;
 };
+#endif
 
 // from key: "__replication_role"
 struct ReplicationRoleEntry {
   DurabilityVersion version =
       DurabilityVersion::V2;  // if not latest then migration required for kReplicationReplicaPrefix
+
+#ifdef MG_ENTERPRISE
   std::variant<MainRole, ReplicaRole, CoordinatorRole> role;
+#else
+  std::variant<MainRole, ReplicaRole> role;
+#endif
 
   friend bool operator==(ReplicationRoleEntry const &, ReplicationRoleEntry const &) = default;
 };

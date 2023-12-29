@@ -11,7 +11,6 @@
 #include "replication/status.hpp"
 
 #include "fmt/format.h"
-#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -28,9 +27,8 @@ constexpr auto *kReplicationRole = "replication_role";
 constexpr auto *kEpoch = "epoch";
 constexpr auto *kVersion = "durability_version";
 
-/// TODO: (andi) This will have to change for MAIN because now also MAIN will have its own server. Do we then have to
-/// introduce new durability version?
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
+#ifdef MG_ENTERPRISE
   auto processMAIN = [&](MainRole const &main) {
     j = nlohmann::json{{kVersion, p.version},
                        {kReplicationRole, ReplicationRole::MAIN},
@@ -38,6 +36,12 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
                        {kIpAddress, main.config.ip_address},
                        {kPort, main.config.port}};
   };
+#else
+  auto processMAIN = [&](MainRole const &main) {
+    j = nlohmann::json{{kVersion, p.version}, {kReplicationRole, ReplicationRole::MAIN}, {kEpoch, main.epoch.id()}};
+  };
+#endif
+
   auto processREPLICA = [&](ReplicaRole const &replica) {
     j = nlohmann::json{
         {kVersion, p.version},
@@ -48,12 +52,16 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
     };
   };
 
+#ifdef MG_ENTERPRISE
   /// TODO: (andi) Extend this if you need to introduce some kind of timestamp to coordinator.
   auto processCOORDINATOR = [&](CoordinatorRole const &) {
     j = nlohmann::json{{kVersion, p.version}, {kReplicationRole, ReplicationRole::COORDINATOR}};
   };
 
   std::visit(utils::Overloaded{processMAIN, processREPLICA, processCOORDINATOR}, p.role);
+#else
+  std::visit(utils::Overloaded{processMAIN, processREPLICA}, p.role);
+#endif
 }
 
 void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
@@ -77,9 +85,13 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       auto json_epoch = j.value(kEpoch, std::string{});
       auto epoch = ReplicationEpoch{};
       if (!json_epoch.empty()) epoch.SetEpoch(json_epoch);
+#ifdef MG_ENTERPRISE
       auto config = ParseReplicationServerConfig(j);
       p = ReplicationRoleEntry{.version = version,
                                .role = MainRole{.epoch = std::move(epoch), .config = std::move(config)}};
+#else
+      p = ReplicationRoleEntry{.version = version, .role = MainRole{.epoch = std::move(epoch)}};
+#endif
       break;
     }
     case ReplicationRole::REPLICA: {
@@ -87,18 +99,28 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       p = ReplicationRoleEntry{.version = version, .role = ReplicaRole{.config = std::move(config)}};
       break;
     }
+#ifdef MG_ENTERPRISE
     case ReplicationRole::COORDINATOR: {
       p = ReplicationRoleEntry{.version = version, .role = CoordinatorRole{}};
       break;
     }
+#endif
   }
 }
 
 void to_json(nlohmann::json &j, const ReplicationClientConfigEntry &p) {
+#ifdef MG_ENTERPRISE
   auto common = nlohmann::json{{kReplicaName, p.config.name},
                                {kIpAddress, p.config.ip_address},
                                {kPort, p.config.port},
                                {kCheckFrequency, p.config.check_frequency.count()}};
+#else
+  auto common = nlohmann::json{{kReplicaName, p.config.name},
+                               {kIpAddress, p.config.ip_address},
+                               {kPort, p.config.port},
+                               {kSyncMode, p.config.mode},
+                               {kCheckFrequency, p.config.check_frequency.count()}};
+#endif
 
   if (p.config.ssl.has_value()) {
     common[kSSLKeyFile] = p.config.ssl->key_file;
@@ -108,11 +130,13 @@ void to_json(nlohmann::json &j, const ReplicationClientConfigEntry &p) {
     common[kSSLCertFile] = nullptr;
   }
 
+#ifdef MG_ENTERPRISE
   if (p.config.mode.has_value()) {
     common[kSyncMode] = p.config.mode.value();
   } else {
     common[kSyncMode] = nullptr;
   }
+#endif
 
   j = std::move(common);
 }
@@ -123,21 +147,35 @@ void from_json(const nlohmann::json &j, ReplicationClientConfigEntry &p) {
   MG_ASSERT(key_file.is_null() == cert_file.is_null());
 
   auto seconds = j.at(kCheckFrequency).get<std::chrono::seconds::rep>();
+
+#ifdef MG_ENTERPRISE
   auto config = ReplicationClientConfig{
       .name = j.at(kReplicaName).get<std::string>(),
       .ip_address = j.at(kIpAddress).get<std::string>(),
       .port = j.at(kPort).get<uint16_t>(),
       .check_frequency = std::chrono::seconds{seconds},
   };
+#else
+  auto config = ReplicationClientConfig{
+      .name = j.at(kReplicaName).get<std::string>(),
+      .mode = j.at(kSyncMode).get<ReplicationMode>(),
+      .ip_address = j.at(kIpAddress).get<std::string>(),
+      .port = j.at(kPort).get<uint16_t>(),
+      .check_frequency = std::chrono::seconds{seconds},
+  };
+#endif
+
   if (!key_file.is_null()) {
     config.ssl = ReplicationClientConfig::SSL{};
     key_file.get_to(config.ssl->key_file);
     cert_file.get_to(config.ssl->cert_file);
   }
 
+#ifdef MG_ENTERPRISE
   if (const auto &sync_mode = j.at(kSyncMode); !sync_mode.is_null()) {
     config.mode = sync_mode.get<ReplicationMode>();
   }
+#endif
 
   p = ReplicationClientConfigEntry{.config = std::move(config)};
 }

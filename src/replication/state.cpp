@@ -28,11 +28,13 @@ auto BuildReplicaKey(std::string_view name) -> std::string {
   return key;
 }
 
+#ifdef MG_ENTERPRISE
 auto BuildMainKey(std::string_view name) -> std::string {
   auto key = std::string{durability::kReplicationMainPrefix};
   key.append(name);
   return key;
 }
+#endif
 
 ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir) {
   if (!durability_dir) return;
@@ -83,13 +85,21 @@ bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &conf
   return true;
 }
 
+#ifdef MG_ENTERPRISE
 bool ReplicationState::TryPersistRoleMain(std::string new_epoch, const ReplicationServerConfig &config) {
+#else
+bool ReplicationState::TryPersistRoleMain(std::string new_epoch) {
+#endif
+
   if (!ShouldPersist()) return true;
 
-  spdlog::trace("In TryPersistRoleMain, port is {}", config.port);
-
+#ifdef MG_ENTERPRISE
   auto data = durability::ReplicationRoleEntry{
       .role = durability::MainRole{.epoch = ReplicationEpoch{std::move(new_epoch)}, .config = config}};
+#else
+  auto data =
+      durability::ReplicationRoleEntry{.role = durability::MainRole{.epoch = ReplicationEpoch{std::move(new_epoch)}}};
+#endif
 
   if (durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
     role_persisted = RolePersisted::YES;
@@ -99,6 +109,7 @@ bool ReplicationState::TryPersistRoleMain(std::string new_epoch, const Replicati
   return false;
 }
 
+#ifdef MG_ENTERPRISE
 bool ReplicationState::TryPersistRoleCoordinator() {
   if (!ShouldPersist()) return true;
 
@@ -112,6 +123,7 @@ bool ReplicationState::TryPersistRoleCoordinator() {
   spdlog::error("Error when saving COORDINATOR replication role in settings.");
   return false;
 }
+#endif
 
 bool ReplicationState::TryPersistUnregisterReplicaOnMain(std::string_view name) {
   if (!ShouldPersist()) return true;
@@ -123,6 +135,7 @@ bool ReplicationState::TryPersistUnregisterReplicaOnMain(std::string_view name) 
   return false;
 }
 
+#ifdef MG_ENTERPRISE
 bool ReplicationState::TryPersistUnregisterReplicaOnCoordinator(std::string_view name) {
   if (!ShouldPersist()) return true;
 
@@ -132,6 +145,7 @@ bool ReplicationState::TryPersistUnregisterReplicaOnCoordinator(std::string_view
   spdlog::error("Error when removing replica {} from settings.", name);
   return false;
 }
+#endif
 
 // TODO: FetchEpochData (agnostic of FetchReplicationData, but should be done before)
 
@@ -155,38 +169,51 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
 
     role_persisted = memgraph::replication::RolePersisted::YES;
 
-    return std::visit(
-        utils::Overloaded{
-            [&](durability::MainRole &&r) -> FetchReplicationResult_t {
-              auto res = RoleMainData{std::move(r.epoch), std::move(r.config)};
-              auto b = durability_->begin(durability::kReplicationReplicaPrefix);
-              auto e = durability_->end(durability::kReplicationReplicaPrefix);
-              for (; b != e; ++b) {
-                auto const &[replica_name, replica_data] = *b;
-                auto json = nlohmann::json::parse(replica_data, nullptr, false);
-                if (json.is_discarded()) {
-                  return FetchReplicationError::PARSE_ERROR;
-                }
-                try {
-                  durability::ReplicationClientConfigEntry data = json.get<durability::ReplicationClientConfigEntry>();
-                  auto key_name = std::string_view{replica_name}.substr(strlen(durability::kReplicationReplicaPrefix));
-                  if (key_name != data.config.name) {
-                    return FetchReplicationError::PARSE_ERROR;
-                  }
-                  // Instance clients
-                  res.registered_replicas_.emplace_back(data.config);
-                } catch (...) {
-                  return FetchReplicationError::PARSE_ERROR;
-                }
-              }
-              return {std::move(res)};
-            },
-            [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t { return {RoleReplicaData{r.config}}; },
-            /// TODO: (andi) This must change for sure because this is the step in which we should create
-            /// ReplicationClient for MAIN and for REPLICAs
-            [&](durability::CoordinatorRole &&) -> FetchReplicationResult_t { return {RoleCoordinatorData{}}; },
-        },
-        std::move(data.role));
+    auto const main_handler = [&](durability::MainRole &&r) -> FetchReplicationResult_t {
+#ifdef MG_ENTERPRISE
+      auto res = RoleMainData{std::move(r.epoch), std::move(r.config)};
+#else
+      auto res = RoleMainData{std::move(r.epoch)};
+#endif
+      auto b = durability_->begin(durability::kReplicationReplicaPrefix);
+      auto e = durability_->end(durability::kReplicationReplicaPrefix);
+      for (; b != e; ++b) {
+        auto const &[replica_name, replica_data] = *b;
+        auto json = nlohmann::json::parse(replica_data, nullptr, false);
+        if (json.is_discarded()) {
+          return FetchReplicationError::PARSE_ERROR;
+        }
+        try {
+          durability::ReplicationClientConfigEntry data = json.get<durability::ReplicationClientConfigEntry>();
+          auto key_name = std::string_view{replica_name}.substr(strlen(durability::kReplicationReplicaPrefix));
+          if (key_name != data.config.name) {
+            return FetchReplicationError::PARSE_ERROR;
+          }
+          // Instance clients
+          res.registered_replicas_.emplace_back(data.config);
+        } catch (...) {
+          return FetchReplicationError::PARSE_ERROR;
+        }
+      }
+      return {std::move(res)};
+    };
+
+    auto const replica_handler = [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t {
+      return {RoleReplicaData{r.config}};
+    };
+
+#ifdef MG_ENTERPRISE
+    // TODO: (andi) This must change for sure because this is the step in which we should create
+    // ReplicationClient for MAIN and for REPLICAs
+    auto const coordinator_handler = [&](durability::CoordinatorRole &&) -> FetchReplicationResult_t {
+      return {RoleCoordinatorData{}};
+    };
+
+    return std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler}, std::move(data.role));
+#else
+    return std::visit(utils::Overloaded{main_handler, replica_handler}, std::move(data.role));
+#endif
+
   } catch (...) {
     return FetchReplicationError::PARSE_ERROR;
   }
@@ -234,13 +261,18 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
 
 bool ReplicationState::TryPersistRegisteredReplicaOnMain(const ReplicationClientConfig &config) {
   if (!ShouldPersist()) return true;
-  DMG_ASSERT(IsMain(), "Expected MAIN when registering replica.");
+  DMG_ASSERT(IsMain(), "Expected MAIN when persisting registered replica.");
 
   // If any replicas are persisted then Role must be persisted
   if (role_persisted != RolePersisted::YES) {
     auto epoch_str = std::string(std::get<RoleMainData>(replication_data_).epoch_.id());
+
+#ifdef MG_ENTERPRISE
     auto server_config = std::get<RoleMainData>(replication_data_).server_config_;
     if (!TryPersistRoleMain(std::move(epoch_str), server_config)) return false;
+#else
+    if (!TryPersistRoleMain(std::move(epoch_str))) return false;
+#endif
   }
 
   auto data = durability::ReplicationClientConfigEntry{.config = config};
@@ -251,6 +283,7 @@ bool ReplicationState::TryPersistRegisteredReplicaOnMain(const ReplicationClient
   return false;
 }
 
+#ifdef MG_ENTERPRISE
 bool ReplicationState::TryPersistRegisteredReplicaOnCoordinator(const ReplicationClientConfig &config) {
   if (!ShouldPersist()) return true;
   MG_ASSERT(IsCoordinator(), "Expected COORDINATOR when registering replica.");
@@ -267,7 +300,9 @@ bool ReplicationState::TryPersistRegisteredReplicaOnCoordinator(const Replicatio
   spdlog::error("Error when saving replica {} in settings.", config.name);
   return false;
 }
+#endif
 
+#ifdef MG_ENTERPRISE
 bool ReplicationState::TryPersistRegisteredMainOnCoordinator(const ReplicationClientConfig &config) {
   if (!ShouldPersist()) return true;
   MG_ASSERT(IsCoordinator(), "Expected COORDINATOR when registering replica.");
@@ -283,13 +318,28 @@ bool ReplicationState::TryPersistRegisteredMainOnCoordinator(const ReplicationCl
   spdlog::error("Error when saving main {} in settings.", config.name);
   return false;
 }
+#endif
 
+#ifdef MG_ENTERPRISE
 bool ReplicationState::SetReplicationRoleMain(const ReplicationServerConfig &config) {
+#else
+bool ReplicationState::SetReplicationRoleMain() {
+#endif
+
   auto new_epoch = utils::GenerateUUID();
+
+#ifdef MG_ENTERPRISE
   if (!TryPersistRoleMain(new_epoch, config)) {
     return false;
   }
   replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, config};
+#else
+  if (!TryPersistRoleMain(new_epoch)) {
+    return false;
+  }
+  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}};
+#endif
+
   return true;
 }
 
@@ -301,6 +351,7 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   return true;
 }
 
+#ifdef MG_ENTERPRISE
 bool ReplicationState::SetReplicationRoleCoordinator() {
   /// TODO: (andi) Think if need epoch and how is this going to be tracked.
   if (!TryPersistRoleCoordinator()) {
@@ -310,6 +361,7 @@ bool ReplicationState::SetReplicationRoleCoordinator() {
   replication_data_ = RoleCoordinatorData{};
   return true;
 }
+#endif
 
 utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::RegisterReplica(
     const ReplicationClientConfig &config) {
@@ -351,6 +403,7 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
     return RegisterReplicaError::SUCCESS;
   };
 
+#ifdef MG_ENTERPRISE
   auto const coordinator_handler = [&client, &config, &name_check, &endpoint_check,
                                     this](RoleCoordinatorData &coordinatorData) -> RegisterReplicaError {
     if (name_check(coordinatorData.registered_replicas_)) {
@@ -371,6 +424,9 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
 
   const auto &res =
       std::visit(utils::Overloaded{main_handler, replica_handler, coordinator_handler}, replication_data_);
+#else
+  const auto &res = std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
+#endif
 
   if (res == RegisterReplicaError::SUCCESS) {
     return client;
@@ -378,11 +434,10 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
   return res;
 }
 
+#ifdef MG_ENTERPRISE
 utils::BasicResult<RegisterMainError, ReplicationClient *> ReplicationState::RegisterMain(
     const ReplicationClientConfig &config) {
-  // TODO: (andi) Check if all values from RegisterMainError are used
   // TODO: (andi) RegisterReplicaStatus not Error since you also have Success
-  // TODO: (andi) Test if this makes sense.
   auto const replica_handler = [](RoleReplicaData const &) { return RegisterMainError::NOT_COORDINATOR; };
   auto const main_handler = [](RoleMainData const &) { return RegisterMainError::NOT_COORDINATOR; };
 
@@ -420,5 +475,6 @@ utils::BasicResult<RegisterMainError, ReplicationClient *> ReplicationState::Reg
   }
   return res;
 }
+#endif
 
 }  // namespace memgraph::replication

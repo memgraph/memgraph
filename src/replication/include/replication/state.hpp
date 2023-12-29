@@ -42,6 +42,7 @@ enum class RegisterReplicaError : uint8_t {
   SUCCESS
 };
 
+#ifdef MG_ENTERPRISE
 enum class RegisterMainError : uint8_t {
   MAIN_ALREADY_EXISTS,
   END_POINT_EXISTS,
@@ -49,21 +50,28 @@ enum class RegisterMainError : uint8_t {
   NOT_COORDINATOR,
   SUCCESS
 };
+#endif
 
 struct RoleMainData {
-  // TODO: (andi) Currently, RoleMainData can exist without server and server_config_. Introducing new role should solve
-  // this non-happy design decision.
+  // TODO: (andi) Currently, RoleMainData can exist without server and server_config_ in enterprise version of the code.
+  // Introducing new role should solve this non-happy design decision.
   RoleMainData() = default;
-  // Init constructor
+
+#ifdef MG_ENTERPRISE
   RoleMainData(ReplicationEpoch epoch, ReplicationServerConfig server_config)
       : epoch_(std::move(epoch)),
         server_config_(std::move(server_config)),
         server_(std::make_unique<ReplicationServer>(server_config_)) {}
+#else
+  explicit RoleMainData(ReplicationEpoch epoch) : epoch_(std::move(epoch)) {}
+#endif
+
   ~RoleMainData() = default;
 
   RoleMainData(RoleMainData const &) = delete;
   RoleMainData &operator=(RoleMainData const &) = delete;
 
+#ifdef MG_ENTERPRISE
   RoleMainData(RoleMainData &&other) noexcept
       : epoch_(std::move(other.epoch_)),
         registered_replicas_(std::move(other.registered_replicas_)),
@@ -79,11 +87,18 @@ struct RoleMainData {
     }
     return *this;
   }
+#else
+  RoleMainData(RoleMainData &&) noexcept = default;
+  RoleMainData &operator=(RoleMainData &&) noexcept = default;
+#endif
 
   ReplicationEpoch epoch_;
   std::list<ReplicationClient> registered_replicas_;
+
+#ifdef MG_ENTERPRISE
   ReplicationServerConfig server_config_;
   std::unique_ptr<ReplicationServer> server_;
+#endif
 };
 
 struct RoleReplicaData {
@@ -94,6 +109,7 @@ struct RoleReplicaData {
 
   RoleReplicaData(RoleReplicaData const &) = delete;
   RoleReplicaData &operator=(RoleReplicaData const &) = delete;
+
   RoleReplicaData(RoleReplicaData &&other) noexcept
       : config_(std::move(other.config_)), server_(std::move(other.server_)) {}
 
@@ -109,6 +125,7 @@ struct RoleReplicaData {
   std::unique_ptr<ReplicationServer> server_;
 };
 
+#ifdef MG_ENTERPRISE
 struct RoleCoordinatorData {
   RoleCoordinatorData() = default;
   ~RoleCoordinatorData() = default;
@@ -130,6 +147,7 @@ struct RoleCoordinatorData {
   std::list<ReplicationClient> registered_replicas_;
   std::unique_ptr<ReplicationClient> main;
 };
+#endif
 
 // Global (instance) level object
 struct ReplicationState {
@@ -146,7 +164,12 @@ struct ReplicationState {
     PARSE_ERROR,
   };
 
+#ifdef MG_ENTERPRISE
   using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData, RoleCoordinatorData>;
+#else
+  using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData>;
+#endif
+
   using FetchReplicationResult_t = utils::BasicResult<FetchReplicationError, ReplicationData_t>;
   auto FetchReplicationData() -> FetchReplicationResult_t;
 
@@ -154,39 +177,55 @@ struct ReplicationState {
     if (std::holds_alternative<RoleReplicaData>(replication_data_)) {
       return ReplicationRole::REPLICA;
     }
-    if (std::holds_alternative<RoleMainData>(replication_data_)) {
-      return ReplicationRole::MAIN;
+#ifdef MG_ENTERPRISE
+    if (std::holds_alternative<RoleCoordinatorData>(replication_data_)) {
+      return ReplicationRole::COORDINATOR;
     }
-    return ReplicationRole::COORDINATOR;
+#endif
+    return ReplicationRole::MAIN;
   }
+
+#ifdef MG_ENTERPRISE
+  // TODO: (andi) Unregistering main from coordinator
+  bool IsCoordinator() const { return GetRole() == ReplicationRole::COORDINATOR; }
+  bool TryPersistRoleCoordinator();
+  bool TryPersistRegisteredReplicaOnCoordinator(const ReplicationClientConfig &config);
+  bool TryPersistUnregisterReplicaOnCoordinator(std::string_view name);
+  bool TryPersistRegisteredMainOnCoordinator(const ReplicationClientConfig &config);
+#endif
+
   bool IsMain() const { return GetRole() == ReplicationRole::MAIN; }
   bool IsReplica() const { return GetRole() == ReplicationRole::REPLICA; }
-  bool IsCoordinator() const { return GetRole() == ReplicationRole::COORDINATOR; }
-
   bool ShouldPersist() const { return nullptr != durability_; }
-  bool TryPersistRoleMain(std::string new_epoch, const ReplicationServerConfig &config);
-  bool TryPersistRoleReplica(const ReplicationServerConfig &config);
-  bool TryPersistRoleCoordinator();
 
+  bool TryPersistRoleReplica(const ReplicationServerConfig &config);
   bool TryPersistRegisteredReplicaOnMain(const ReplicationClientConfig &config);
   bool TryPersistUnregisterReplicaOnMain(std::string_view name);
 
-  bool TryPersistRegisteredReplicaOnCoordinator(const ReplicationClientConfig &config);
-  bool TryPersistUnregisterReplicaOnCoordinator(std::string_view name);
-
-  bool TryPersistRegisteredMainOnCoordinator(const ReplicationClientConfig &config);
-  // TODO: (andi) Unregistering main from coordinator
+#ifdef MG_ENTERPRISE
+  bool TryPersistRoleMain(std::string new_epoch, const ReplicationServerConfig &config);
+#else
+  bool TryPersistRoleMain(std::string new_epoch);
+#endif
 
   // TODO: locked access
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
 
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
-  utils::BasicResult<RegisterMainError, ReplicationClient *> RegisterMain(const ReplicationClientConfig &config);
 
-  bool SetReplicationRoleMain(const ReplicationServerConfig &config);
-  bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
+#ifdef MG_ENTERPRISE
+  utils::BasicResult<RegisterMainError, ReplicationClient *> RegisterMain(const ReplicationClientConfig &config);
   bool SetReplicationRoleCoordinator();
+#endif
+
+#ifdef MG_ENTERPRISE
+  bool SetReplicationRoleMain(const ReplicationServerConfig &config);
+#else
+  bool SetReplicationRoleMain();
+#endif
+
+  bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;

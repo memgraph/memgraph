@@ -61,7 +61,11 @@ struct ReplicationClient {
   rpc::Client rpc_client_;
   std::chrono::seconds check_frequency_;
 
+#ifdef MG_ENTERPRISE
   std::optional<memgraph::replication::ReplicationMode> mode_{memgraph::replication::ReplicationMode::SYNC};
+#else
+  memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
+#endif
   // This thread pool is used for background tasks so we don't
   // block the main storage thread
   // We use only 1 thread for 2 reasons:

@@ -26,9 +26,11 @@ namespace memgraph::dbms {
 class DbmsHandler;
 
 /// TODO: (andi) Two definitions of the same enum
-
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
+
+#ifdef MG_ENTERPRISE
 enum class RegisterMainError : uint8_t { MAIN_ALREADY_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED };
+#endif
 
 enum class UnregisterReplicaResult : uint8_t {
   IS_REPLICA,
@@ -42,22 +44,32 @@ enum class UnregisterReplicaResult : uint8_t {
 struct ReplicationHandler {
   explicit ReplicationHandler(DbmsHandler &dbms_handler);
 
-  // as REPLICA, become MAIN
+#ifdef MG_ENTERPRISE
+  // as default main, add replication server to the main.
+  // As replica become main
   bool SetReplicationRoleMain(const memgraph::replication::ReplicationServerConfig &config);
+#else
+  // as replica, become main.
+  bool SetReplicationRoleMain();
+#endif
 
-  // as MAIN, become REPLICA
+  // as main, become replica
   bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config);
 
-  // as none, become COORDINATOR
+#ifdef MG_ENTERPRISE
+  // as default main, become coordinator
   bool SetReplicationRoleCoordinator();
+#endif
 
-  // as MAIN, define and connect to REPLICAs
+  // as main, define and connect to replicas
   auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterReplicaError>;
 
-  // as COORDINATOR, connect to MAIN
+#ifdef MG_ENTERPRISE
+  // as coordinator, connect to main
   auto RegisterMain(const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterMainError>;
+#endif
 
   // as MAIN, remove a REPLICA connection
   auto UnregisterReplica(std::string_view name) -> UnregisterReplicaResult;
@@ -66,7 +78,9 @@ struct ReplicationHandler {
   auto GetRole() const -> memgraph::replication::ReplicationRole;
   bool IsMain() const;
   bool IsReplica() const;
+#ifdef MG_ENTERPRISE
   bool IsCoordinator() const;
+#endif
 
  private:
   DbmsHandler &dbms_handler_;

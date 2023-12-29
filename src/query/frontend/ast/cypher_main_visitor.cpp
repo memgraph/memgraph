@@ -317,9 +317,11 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetRepl
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_ROLE;
 
+#ifdef MG_ENTERPRISE
+  // Licence check in the interpreter.
   if (ctx->MAIN() || ctx->REPLICA()) {
     if (!ctx->WITH() || !ctx->PORT()) {
-      throw SyntaxException("Port must be specified when setting replication role to main or replica!");
+      throw SemanticException("Port must be specified when setting replication role to main or replica!");
     }
     if (ctx->port->numberLiteral() && ctx->port->numberLiteral()->integerLiteral()) {
       replication_query->port_ = std::any_cast<Expression *>(ctx->port->accept(this));
@@ -327,7 +329,7 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetRepl
       throw SyntaxException("Port must be an integer literal!");
     }
   } else if (ctx->WITH() || ctx->PORT()) {  // coordinator
-    throw SyntaxException("Port shouldn't be specified when setting replication role to coordinator!");
+    throw SemanticException("Port shouldn't be specified when setting replication role to coordinator!");
   }
 
   if (ctx->MAIN()) {
@@ -337,6 +339,24 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetRepl
   } else if (ctx->COORDINATOR()) {
     replication_query->role_ = ReplicationQuery::ReplicationRole::COORDINATOR;
   }
+#else
+  if (ctx->MAIN()) {
+    if (ctx->WITH() || ctx->PORT()) {
+      throw SemanticException("Main can't set a port!");
+    }
+    replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
+  } else if (ctx->REPLICA()) {
+    replication_query->role_ = ReplicationQuery::ReplicationRole::REPLICA;
+    if (ctx->WITH() && ctx->PORT()) {
+      if (ctx->port->numberLiteral() && ctx->port->numberLiteral()->integerLiteral()) {
+        replication_query->port_ = std::any_cast<Expression *>(ctx->port->accept(this));
+      } else {
+        throw SyntaxException("Port must be an integer literal!");
+      }
+    }
+  }
+#endif
+
   return replication_query;
 }
 antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(MemgraphCypher::ShowReplicationRoleContext *ctx) {
@@ -363,6 +383,9 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
   return replication_query;
 }
 
+// We want to completely disable this code in community version.
+// License check is done in the interpreter.
+#ifdef MG_ENTERPRISE
 antlrcpp::Any CypherMainVisitor::visitRegisterMain(MemgraphCypher::RegisterMainContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::REGISTER_MAIN;
@@ -373,6 +396,7 @@ antlrcpp::Any CypherMainVisitor::visitRegisterMain(MemgraphCypher::RegisterMainC
 
   return replication_query;
 }
+#endif
 
 antlrcpp::Any CypherMainVisitor::visitDropReplica(MemgraphCypher::DropReplicaContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
