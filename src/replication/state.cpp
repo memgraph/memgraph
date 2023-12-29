@@ -203,9 +203,9 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
     };
 
 #ifdef MG_ENTERPRISE
-    // TODO: (andi) This must change for sure because this is the step in which we should create
-    // ReplicationClient for MAIN and for REPLICAs
     auto const coordinator_handler = [&](durability::CoordinatorRole &&) -> FetchReplicationResult_t {
+      // When coordinator wakes up, we don't restore its state from before. This step will be handled once we include
+      // high availability for coordinator.
       return {RoleCoordinatorData{}};
     };
 

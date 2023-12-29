@@ -385,7 +385,6 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
 
 // We want to completely disable this code in community version.
 // License check is done in the interpreter.
-#ifdef MG_ENTERPRISE
 antlrcpp::Any CypherMainVisitor::visitRegisterMain(MemgraphCypher::RegisterMainContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::REGISTER_MAIN;
@@ -396,7 +395,6 @@ antlrcpp::Any CypherMainVisitor::visitRegisterMain(MemgraphCypher::RegisterMainC
 
   return replication_query;
 }
-#endif
 
 antlrcpp::Any CypherMainVisitor::visitDropReplica(MemgraphCypher::DropReplicaContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();

@@ -381,9 +381,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
   /// @throw QueryRuntimeException if an error ocurred.
   void RegisterMain(const std::string &socket_address, const std::chrono::seconds main_check_frequency) override {
-    if (!license::global_license_checker.IsEnterpriseValidFast()) {
-      throw QueryException("Trying to use enterprise feature without a valid license.");
-    }
     if (!handler_.IsCoordinator()) {
       throw QueryRuntimeException("Only coordinator can register main instance!");
     }
@@ -852,8 +849,11 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                   fmt::format("Replica {} is registered.", repl_query->replica_name_));
       return callback;
     }
-#ifdef MG_ENTERPRISE
     case ReplicationQuery::Action::REGISTER_MAIN: {
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryException("Trying to use enterprise feature without a valid license.");
+      }
+#ifdef MG_ENTERPRISE
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
       EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
@@ -869,8 +869,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_MAIN,
                                   "Coordinator has registered main instance.");
       return callback;
-    }
 #endif
+    }
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, name]() mutable {

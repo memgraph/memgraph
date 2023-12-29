@@ -193,12 +193,13 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
   for (const auto &[key, bolt_param] : params) {
     params_pv.emplace(key, ToPropertyValue(bolt_param));
   }
+
+#ifdef MG_ENTERPRISE
   const std::string *username{nullptr};
   if (user_) {
     username = &user_->username();
   }
 
-#ifdef MG_ENTERPRISE
   // TODO: Update once interpreter can handle non-database queries (db_acc will be nullopt)
   auto *db = interpreter_.current_db_.db_acc_->get();
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {

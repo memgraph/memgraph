@@ -3031,9 +3031,7 @@ class ReplicationQuery : public memgraph::query::Query {
     REGISTER_REPLICA,
     DROP_REPLICA,
     SHOW_REPLICAS,
-#ifdef MG_ENTERPRISE
     REGISTER_MAIN
-#endif
   };
 
 #ifdef MG_ENTERPRISE
