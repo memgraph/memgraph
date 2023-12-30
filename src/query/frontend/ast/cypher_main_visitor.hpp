@@ -677,6 +677,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitPatternElement(MemgraphCypher::PatternElementContext *ctx) override;
 
   /**
+   * @return Pattern*
+   */
+  antlrcpp::Any visitRelationshipsPattern(MemgraphCypher::RelationshipsPatternContext *ctx) override;
+
+  /**
    * @return vector<pair<EdgeAtom*, NodeAtom*>>
    */
   antlrcpp::Any visitPatternElementChain(MemgraphCypher::PatternElementChainContext *ctx) override;
@@ -840,6 +845,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return Exists* (Expression)
    */
   antlrcpp::Any visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) override;
+
+  /**
+   * @return pattern comprehension (Expression)
+   */
+  antlrcpp::Any visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) override;
 
   /**
    * @return Expression*

@@ -137,6 +137,8 @@ returnItems : ( '*' ( ',' returnItem )* )
 
 returnItem : ( expression AS variable )
            | expression
+           | ( patternComprehension AS variable )
+           | patternComprehension
            ;
 
 order : ORDER BY sortItem ( ',' sortItem )* ;
@@ -296,7 +298,7 @@ functionName : symbolicName ( '.' symbolicName )* ;
 
 listComprehension : '[' filterExpression ( '|' expression )? ']' ;
 
-patternComprehension : '[' ( variable '=' )? relationshipsPattern ( WHERE expression )? '|' expression ']' ;
+patternComprehension : '[' ( variable '=' )? relationshipsPattern ( where )? '|' resultExpr=expression ']' ;
 
 propertyLookup : '.' ( propertyKeyName ) ;
 

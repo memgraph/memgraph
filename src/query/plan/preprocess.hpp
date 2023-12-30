@@ -230,6 +230,7 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(ParameterLookup &op) override{};
   void Visit(NamedExpression &op) override{};
   void Visit(RegexMatch &op) override{};
+  void Visit(PatternComprehension &op) override{};
 
   std::vector<FilterMatching> getMatchings() { return matchings_; }
 

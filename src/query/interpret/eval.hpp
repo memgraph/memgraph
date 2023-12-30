@@ -101,6 +101,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(ParameterLookup);
   UNSUCCESSFUL_VISIT(RegexMatch);
   UNSUCCESSFUL_VISIT(Exists);
+  UNSUCCESSFUL_VISIT(PatternComprehension);
 
 #undef UNSUCCESSFUL_VISIT
 
@@ -170,6 +171,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(Identifier)
   INVALID_VISIT(RegexMatch)
   INVALID_VISIT(Exists)
+  INVALID_VISIT(PatternComprehension)
 
 #undef INVALID_VISIT
  private:
@@ -1088,6 +1090,18 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     } catch (const std::regex_error &e) {
       throw QueryRuntimeException("Regex error in '{}': {}", regex_value.ValueString(), e.what());
     }
+  }
+
+  TypedValue Visit(PatternComprehension &pattern_comprehension) override {
+    TypedValue &frame_pattern_value = frame_->at(symbol_table_->at(pattern_comprehension));
+    if (!frame_pattern_value.IsFunction()) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
+          frame_pattern_value.type());
+    }
+    TypedValue result{ctx_->memory};
+    frame_pattern_value.ValueFunction()(&result);
+    return result;
   }
 
  private:
