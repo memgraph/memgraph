@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,5 +26,8 @@ struct InterpreterConfig {
   std::string default_pulsar_service_url;
   uint32_t stream_transaction_conflict_retries;
   std::chrono::milliseconds stream_transaction_retry_interval;
+#ifdef MG_ENTERPRISE
+  bool is_coordinator{false};
+#endif
 };
 }  // namespace memgraph::query
