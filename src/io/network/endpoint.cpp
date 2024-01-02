@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -143,10 +143,6 @@ Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port) : add
   auto ip_family = GetIpFamily(address);
   if (ip_family != IpFamily::NONE) {
     family = ip_family;
-    return;
-  }
-  if (!IsResolvableAddress(address, port)) {
-    throw NetworkError("Not a valid IPv4 or IPv6 address: {}", address);
   }
 }
 
@@ -169,6 +165,7 @@ bool Endpoint::IsResolvableAddress(const std::string &address, uint16_t port) {
   };
   addrinfo *info = nullptr;
   auto status = getaddrinfo(address.c_str(), std::to_string(port).c_str(), &hints, &info);
+  if (status != 0) throw NetworkError(gai_strerror(status));
   freeaddrinfo(info);
   return status == 0;
 }
