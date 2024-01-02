@@ -40,7 +40,7 @@ struct ReplicationHandler {
 
   // As default main, add replication server to the main or
   // As replica become main
-  bool SetReplicationRoleMain(const std::optional<memgraph::replication::ReplicationServerConfig> &config);
+  bool SetReplicationRoleMain(const std::optional<memgraph::replication::ReplicationServerConfig> &config = {});
 
   // as MAIN, become REPLICA
   bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config);
