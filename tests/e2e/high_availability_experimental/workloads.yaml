@@ -1,0 +1,63 @@
+ha_cluster: &ha_cluster
+  cluster:
+    replica_1:
+      args: ["--bolt-port", "7688", "--log-level=TRACE", "--coordinator-server-port=10011"]
+      log_file: "replication-e2e-replica1.log"
+      setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"]
+    replica_2:
+      args: ["--bolt-port", "7689", "--log-level=TRACE", "--coordinator-server-port=10012"]
+      log_file: "replication-e2e-replica2.log"
+      setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"]
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--coordinator-server-port=10013"]
+      log_file: "replication-e2e-main.log"
+      setup_queries: [
+        "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001'",
+        "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002'",
+      ]
+    coordinator:
+      args: ["--bolt-port", "7690", "--log-level=TRACE", "--coordinator"]
+      log_file: "replication-e2e-coordinator.log"
+      setup_queries: [
+        "REGISTER MAIN main WITH COORDINATOR SERVER ON '127.0.0.1:10013'",
+        "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001' WITH COORDINATOR SERVER ON '127.0.0.1:10011'",
+        "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002' WITH COORDINATOR SERVER ON '127.0.0.1:10012'",
+      ]
+
+noninitialized_cluster: &noninitialized_cluster
+  cluster:
+    replica_1:
+      args: ["--bolt-port", "7688", "--log-level=TRACE", "--coordinator-server-port=10011"]
+      log_file: "replication-e2e-replica1.log"
+      setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"]
+    replica_2:
+      args: ["--bolt-port", "7689", "--log-level=TRACE", "--coordinator-server-port=10012"]
+      log_file: "replication-e2e-replica2.log"
+      setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"]
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--coordinator-server-port=10013"]
+      log_file: "replication-e2e-main.log"
+      setup_queries: [
+        "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001'",
+        "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002'",
+      ]
+    coordinator:
+      args: ["--bolt-port", "7690", "--log-level=TRACE", "--coordinator"]
+      log_file: "replication-e2e-coordinator.log"
+      setup_queries: []
+
+
+workloads:
+  - name: "Coordinator"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability_experimental/coordinator.py"]
+    <<: *ha_cluster
+
+  - name: "Uninitialized cluster"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability_experimental/uninitialized_cluster.py"]
+    <<: *noninitialized_cluster
+
+  - name: "Client initiated failover"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability_experimental/client_initiated_failover.py"]

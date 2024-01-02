@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -48,6 +48,7 @@ enum class Permission : uint64_t {
   STORAGE_MODE = 1U << 22U,
   MULTI_DATABASE_EDIT = 1U << 23U,
   MULTI_DATABASE_USE  = 1U << 24U,
+  COORDINATOR  = 1U << 25U,
 };
 // clang-format on
 

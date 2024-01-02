@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -257,6 +257,13 @@ class ReplicationModificationInMulticommandTxException : public QueryException {
   ReplicationModificationInMulticommandTxException()
       : QueryException("Replication clause not allowed in multicommand transactions.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReplicationModificationInMulticommandTxException)
+};
+
+class CoordinatorModificationInMulticommandTxException : public QueryException {
+ public:
+  CoordinatorModificationInMulticommandTxException()
+      : QueryException("Coordinator clause not allowed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorModificationInMulticommandTxException)
 };
 
 class ReplicationDisabledOnDiskStorage : public QueryException {
