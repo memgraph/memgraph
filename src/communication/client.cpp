@@ -26,9 +26,7 @@ Client::~Client() {
 
 bool Client::Connect(const io::network::Endpoint &endpoint) {
   // Try to establish a socket connection.
-  try {
-    socket_.Connect(endpoint);
-  } catch (const io::network::NetworkError &e) {
+  if (!socket_.Connect(endpoint)) {
     return false;
   }
 
