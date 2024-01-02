@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -77,11 +77,11 @@ bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &conf
   return true;
 }
 
-bool ReplicationState::TryPersistRoleMain(std::string new_epoch) {
+bool ReplicationState::TryPersistRoleMain(std::string new_epoch, const std::optional<ReplicationServerConfig> &config) {
   if (!ShouldPersist()) return true;
 
-  auto data =
-      durability::ReplicationRoleEntry{.role = durability::MainRole{.epoch = ReplicationEpoch{std::move(new_epoch)}}};
+  auto data = durability::ReplicationRoleEntry{
+      .role = durability::MainRole{.epoch = ReplicationEpoch{std::move(new_epoch)}, .config = config}};
 
   if (durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
     role_persisted = RolePersisted::YES;
@@ -127,7 +127,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
     return std::visit(
         utils::Overloaded{
             [&](durability::MainRole &&r) -> FetchReplicationResult_t {
-              auto res = RoleMainData{std::move(r.epoch)};
+              auto res = RoleMainData{std::move(r.epoch), std::move(r.config)};
               auto b = durability_->begin(durability::kReplicationReplicaPrefix);
               auto e = durability_->end(durability::kReplicationReplicaPrefix);
               for (; b != e; ++b) {
@@ -216,12 +216,14 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   return false;
 }
 
-bool ReplicationState::SetReplicationRoleMain() {
+bool ReplicationState::SetReplicationRoleMain(const std::optional<ReplicationServerConfig> &config) {
   auto new_epoch = utils::GenerateUUID();
-  if (!TryPersistRoleMain(new_epoch)) {
+
+  if (!TryPersistRoleMain(new_epoch, config)) {
     return false;
   }
-  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}};
+  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, config};
+
   return true;
 }
 

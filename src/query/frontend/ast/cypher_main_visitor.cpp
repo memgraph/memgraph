@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -316,21 +316,37 @@ antlrcpp::Any CypherMainVisitor::visitEdgeImportModeQuery(MemgraphCypher::EdgeIm
 antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetReplicationRoleContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_ROLE;
+
+  auto set_replication_port = [replication_query, ctx, this]() -> void {
+    if (ctx->port->numberLiteral() && ctx->port->numberLiteral()->integerLiteral()) {
+      replication_query->port_ = std::any_cast<Expression *>(ctx->port->accept(this));
+    } else {
+      throw SyntaxException("Port must be an integer literal!");
+    }
+  };
+
   if (ctx->MAIN()) {
+    replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
+
+#ifdef MG_ENTERPRISE
+    if (ctx->WITH() && ctx->PORT()) {
+      set_replication_port();
+    }
+#else
     if (ctx->WITH() || ctx->PORT()) {
       throw SemanticException("Main can't set a port!");
     }
-    replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
+#endif
+
   } else if (ctx->REPLICA()) {
     replication_query->role_ = ReplicationQuery::ReplicationRole::REPLICA;
     if (ctx->WITH() && ctx->PORT()) {
-      if (ctx->port->numberLiteral() && ctx->port->numberLiteral()->integerLiteral()) {
-        replication_query->port_ = std::any_cast<Expression *>(ctx->port->accept(this));
-      } else {
-        throw SyntaxException("Port must be an integer literal!");
-      }
+      set_replication_port();
+    } else {
+      throw SemanticException("Replica must set a port!");
     }
   }
+
   return replication_query;
 }
 antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(MemgraphCypher::ShowReplicationRoleContext *ctx) {

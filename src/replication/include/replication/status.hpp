@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,12 +37,13 @@ enum class DurabilityVersion : uint8_t {
 // fragment of key: "__replication_role"
 struct MainRole {
   ReplicationEpoch epoch{};
+  std::optional<ReplicationServerConfig> config{};
   friend bool operator==(MainRole const &, MainRole const &) = default;
 };
 
 // fragment of key: "__replication_role"
 struct ReplicaRole {
-  ReplicationServerConfig config;
+  ReplicationServerConfig config{};
   friend bool operator==(ReplicaRole const &, ReplicaRole const &) = default;
 };
 

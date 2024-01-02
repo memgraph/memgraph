@@ -278,14 +278,34 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
-    if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
-      if (!handler_.SetReplicationRoleMain()) {
-        throw QueryRuntimeException("Couldn't set role to main!");
-      }
-    } else {
-      if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
+    auto ValidatePort = [](std::optional<int64_t> port) -> void {
+      if (*port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
         throw QueryRuntimeException("Port number invalid!");
       }
+    };
+
+    if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
+      auto const config = std::invoke([&]() -> std::optional<memgraph::replication::ReplicationServerConfig> {
+        if (port.has_value()) {
+          if (!license::global_license_checker.IsEnterpriseValidFast()) {
+            throw QueryException("Trying to use enterprise feature without a valid license.");
+          }
+
+          ValidatePort(port);
+
+          return memgraph::replication::ReplicationServerConfig{
+              .ip_address = memgraph::replication::kDefaultReplicationServerIp,
+              .port = static_cast<uint16_t>(*port),
+          };
+        }
+        return {};
+      });
+
+      if (!handler_.SetReplicationRoleMain(config)) {
+        throw QueryRuntimeException("Couldn't set replication role to main!");
+      }
+    } else {
+      ValidatePort(port);
 
       auto const config = memgraph::replication::ReplicationServerConfig{
           .ip_address = memgraph::replication::kDefaultReplicationServerIp,

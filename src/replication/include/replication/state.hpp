@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,17 +35,45 @@ enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
 struct RoleMainData {
+  // TODO: (andi) Currently, RoleMainData can exist without server and server_config_ in enterprise version of the code.
+  // Introducing new role should solve this non-happy design decision.
+  // TODO: (andi) Remove this constructor
   RoleMainData() = default;
-  explicit RoleMainData(ReplicationEpoch e) : epoch_(std::move(e)) {}
+
+  RoleMainData(ReplicationEpoch epoch, std::optional<ReplicationServerConfig> server_config)
+      : epoch_(std::move(epoch)) {
+    if (server_config.has_value()) {
+      server_config_ = std::move(*server_config);
+      server_ = std::make_unique<ReplicationServer>(*server_config_);
+    }
+  }
+
   ~RoleMainData() = default;
 
   RoleMainData(RoleMainData const &) = delete;
   RoleMainData &operator=(RoleMainData const &) = delete;
-  RoleMainData(RoleMainData &&) = default;
-  RoleMainData &operator=(RoleMainData &&) = default;
+
+  RoleMainData(RoleMainData &&other) noexcept
+      : epoch_(std::move(other.epoch_)),
+        registered_replicas_(std::move(other.registered_replicas_)),
+        server_config_(std::move(other.server_config_)),
+        server_(std::move(other.server_)) {}
+
+  RoleMainData &operator=(RoleMainData &&other) noexcept {
+    if (this != &other) {
+      epoch_ = std::move(other.epoch_);
+      registered_replicas_ = std::move(other.registered_replicas_);
+      server_config_ = std::move(other.server_config_);
+      server_ = std::move(other.server_);
+    }
+    return *this;
+  }
 
   ReplicationEpoch epoch_;
   std::list<ReplicationClient> registered_replicas_{};
+  // TODO: (andi) When needed try to fetch server_config_ from ReplicationServer to avoid saving std::optional
+  std::optional<ReplicationServerConfig> server_config_;
+  std::unique_ptr<ReplicationServer> server_;
 };
 
 struct RoleReplicaData {
@@ -80,7 +108,9 @@ struct ReplicationState {
   bool IsReplica() const { return GetRole() == ReplicationRole::REPLICA; }
 
   bool ShouldPersist() const { return nullptr != durability_; }
-  bool TryPersistRoleMain(std::string new_epoch);
+
+  bool TryPersistRoleMain(std::string new_epoch, const std::optional<ReplicationServerConfig> &config = {});
+
   bool TryPersistRoleReplica(const ReplicationServerConfig &config);
   bool TryPersistUnregisterReplica(std::string_view name);
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config);
@@ -90,7 +120,7 @@ struct ReplicationState {
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
-  bool SetReplicationRoleMain();
+  bool SetReplicationRoleMain(const std::optional<ReplicationServerConfig> &config = {});
 
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
 

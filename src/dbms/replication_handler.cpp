@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 #include "dbms/replication_client.hpp"
 #include "replication/state.hpp"
 
-using memgraph::replication::ReplicationClientConfig;
+using memgraph::replication::ReplicationServer;
 using memgraph::replication::ReplicationState;
 using memgraph::replication::RoleMainData;
 using memgraph::replication::RoleReplicaData;
@@ -44,12 +44,19 @@ std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
 
 ReplicationHandler::ReplicationHandler(DbmsHandler &dbms_handler) : dbms_handler_(dbms_handler) {}
 
-bool ReplicationHandler::SetReplicationRoleMain() {
-  auto const main_handler = [](RoleMainData const &) {
-    // If we are already MAIN, we don't want to change anything
+bool ReplicationHandler::SetReplicationRoleMain(
+    const std::optional<memgraph::replication::ReplicationServerConfig> &config) {
+  // TODO: (andi) In reality instance should be started as a default non-replication instance and then switched to MAIN
+  auto const main_handler = [&config](RoleMainData &main_data) {
+    if (config.has_value()) {
+      main_data.server_config_ = *config;
+      main_data.server_ = std::make_unique<ReplicationServer>(*config);
+      return true;
+    }
     return false;
   };
-  auto const replica_handler = [this](RoleReplicaData const &) {
+
+  auto const replica_handler = [this, &config](RoleReplicaData const &) {
     // STEP 1) bring down all REPLICA servers
     dbms_handler_.ForEach([](Database *db) {
       auto *storage = db->storage();
@@ -59,7 +66,7 @@ bool ReplicationHandler::SetReplicationRoleMain() {
 
     // STEP 2) Change to MAIN
     // TODO: restore replication servers if false?
-    if (!dbms_handler_.ReplicationState().SetReplicationRoleMain()) {
+    if (!dbms_handler_.ReplicationState().SetReplicationRoleMain(config)) {
       // TODO: Handle recovery on failure???
       return false;
     }

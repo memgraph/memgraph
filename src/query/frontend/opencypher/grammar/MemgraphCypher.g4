@@ -179,6 +179,7 @@ authQuery : createRole
 replicationQuery : setReplicationRole
                  | showReplicationRole
                  | registerReplica
+                 | registerMain
                  | dropReplica
                  | showReplicas
                  ;
@@ -370,6 +371,8 @@ socketAddress : literal ;
 
 registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
                 TO socketAddress ;
+
+registerMain : REGISTER MAIN TO socketAddress ;
 
 dropReplica : DROP REPLICA replicaName ;
 

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,8 +38,9 @@ enum class UnregisterReplicaResult : uint8_t {
 struct ReplicationHandler {
   explicit ReplicationHandler(DbmsHandler &dbms_handler);
 
-  // as REPLICA, become MAIN
-  bool SetReplicationRoleMain();
+  // As default main, add replication server to the main or
+  // As replica become main
+  bool SetReplicationRoleMain(const std::optional<memgraph::replication::ReplicationServerConfig> &config);
 
   // as MAIN, become REPLICA
   bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config);
