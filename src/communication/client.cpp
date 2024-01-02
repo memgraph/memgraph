@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #include "communication/client.hpp"
 
 #include "communication/helpers.hpp"
+#include "io/network/network_error.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::communication {
@@ -25,7 +26,11 @@ Client::~Client() {
 
 bool Client::Connect(const io::network::Endpoint &endpoint) {
   // Try to establish a socket connection.
-  if (!socket_.Connect(endpoint)) return false;
+  try {
+    socket_.Connect(endpoint);
+  } catch (const io::network::NetworkError &e) {
+    return false;
+  }
 
   // Enable TCP keep alive for all connections.
   // Because we manually always set the `have_more` flag to the socket
