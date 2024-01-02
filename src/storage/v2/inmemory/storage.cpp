@@ -65,14 +65,14 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
-InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
-    : Storage(config, storage_mode),
+InMemoryStorage::InMemoryStorage(Config config)
+    : Storage(config, config.storage_mode),
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       uuid_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
-  MG_ASSERT(storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
+  MG_ASSERT(config.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
@@ -152,8 +152,6 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     commit_log_.emplace(timestamp_);
   }
 }
-
-InMemoryStorage::InMemoryStorage(Config config) : InMemoryStorage(config, config.storage_mode) {}
 
 InMemoryStorage::~InMemoryStorage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
