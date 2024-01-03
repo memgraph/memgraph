@@ -49,6 +49,7 @@ class MemoryTracker final {
 
   void Alloc(int64_t size);
   void Free(int64_t size);
+  void DoCheck();
 
   auto Amount() const { return amount_.load(std::memory_order_relaxed); }
 
