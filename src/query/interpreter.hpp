@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -98,6 +98,11 @@ class ReplicationQueryHandler {
   virtual void RegisterReplica(const std::string &name, const std::string &socket_address,
                                ReplicationQuery::SyncMode sync_mode,
                                const std::chrono::seconds replica_check_frequency) = 0;
+
+#ifdef MG_ENTERPRISE
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void RegisterMain(const std::string &socket_address, const std::chrono::seconds main_check_frequency) = 0;
+#endif
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void DropReplica(std::string_view replica_name) = 0;

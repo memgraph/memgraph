@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -3025,7 +3025,14 @@ class ReplicationQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { SET_REPLICATION_ROLE, SHOW_REPLICATION_ROLE, REGISTER_REPLICA, DROP_REPLICA, SHOW_REPLICAS };
+  enum class Action {
+    SET_REPLICATION_ROLE,
+    SHOW_REPLICATION_ROLE,
+    REGISTER_REPLICA,
+    DROP_REPLICA,
+    SHOW_REPLICAS,
+    REGISTER_MAIN
+  };
 
   enum class ReplicationRole { MAIN, REPLICA };
 

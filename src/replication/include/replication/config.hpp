@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,10 @@ namespace memgraph::replication {
 
 inline constexpr uint16_t kDefaultReplicationPort = 10000;
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
+#ifdef MG_ENTERPRISE
+// Default name which coordinator uses to distinguish main's ReplicationClient from replicas'.
+inline constexpr auto *kDefaultMainName = "main";
+#endif
 
 struct ReplicationClientConfig {
   std::string name;

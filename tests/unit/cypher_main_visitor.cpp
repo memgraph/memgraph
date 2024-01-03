@@ -2643,6 +2643,23 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
                           ReplicationQuery::SyncMode::SYNC);
 }
 
+// NOTE: When using RegisterMain query, port_ is not used, rather just socket_address_ is used.
+TEST_P(CypherMainVisitorTest, TestRegisterMainQuery) {
+  auto &ast_generator = *GetParam();
+
+  // Missing IP address and port
+  const std::string faulty_query = "REGISTER MAIN TO";
+  ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
+
+  // Full valid query
+  std::string full_query = R"(REGISTER MAIN TO "127.0.0.1:10003")";
+  auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
+  ASSERT_TRUE(full_query_parsed);
+
+  ast_generator.CheckLiteral(full_query_parsed->socket_address_, "127.0.0.1:10003");
+  ASSERT_EQ(full_query_parsed->port_, nullptr);
+}
+
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   auto &ast_generator = *GetParam();
 

@@ -16,6 +16,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "dbms/replication_client.hpp"
+#include "flags/general.hpp"
 #include "replication/state.hpp"
 
 using memgraph::replication::ReplicationServer;
@@ -128,6 +129,7 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
 
 auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
     -> memgraph::utils::BasicResult<RegisterReplicaError> {
+  // TODO: (andi) Coordinator is a main which cannot do anything atm?
   MG_ASSERT(dbms_handler_.ReplicationState().IsMain(), "Only main instance can register a replica!");
 
   auto instance_client = dbms_handler_.ReplicationState().RegisterReplica(config);
@@ -144,6 +146,14 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
       case memgraph::replication::RegisterReplicaError::SUCCESS:
         break;
     }
+#ifdef MG_ENTERPRISE
+  // Coordinator doesn't care about database specific clients
+  if (FLAGS_coordinator) {
+    // No client error, start instance level client
+    StartReplicaClient(dbms_handler_, *instance_client.GetValue());
+    return {};
+  }
+#endif
 
   if (!allow_mt_repl && dbms_handler_.All().size() > 1) {
     spdlog::warn("Multi-tenant replication is currently not supported!");

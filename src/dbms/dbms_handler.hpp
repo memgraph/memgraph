@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -212,7 +212,7 @@ class DbmsHandler {
    * @return std::vector<std::string>
    */
   std::vector<std::string> All() const {
-#ifdef MG_ENTERPRISE
+#ifdef MG_ENTERPRISEstorage.hpp
     std::shared_lock<LockT> rd(lock_);
     return db_handler_.All();
 #else

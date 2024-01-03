@@ -238,6 +238,7 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
 utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::RegisterReplica(
     const ReplicationClientConfig &config) {
   auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaError::NOT_MAIN; };
+
   ReplicationClient *client{nullptr};
   auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaError {
     // name check

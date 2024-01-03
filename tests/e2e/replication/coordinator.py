@@ -19,7 +19,7 @@ def test_disable_cypher_queries(connection):
     cursor = connection(7690, "coordinator").cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "CREATE (n:TestNode {prop: 'test'})")
-    assert str(e.value) == "Coordinator cannot accept Cypher queries."
+    assert str(e.value) == "Coordinator can run only replication queries!"
 
 
 def test_coordinator_cannot_be_replica_role(connection):
@@ -63,6 +63,17 @@ def test_coordinator_show_replicas(connection):
         ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
     }
     assert actual_data == expected_data
+
+
+@pytest.mark.parametrize(
+    "port, role",
+    [(7687, "main"), (7688, "replica"), (7689, "replica")],
+)
+def test_main_and_replicas_cannot_register_main(port, role, connection):
+    cursor = connection(port, role).cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(cursor, "REGISTER MAIN TO '127.0.0.1:10005';")
+    assert str(e.value) == "Only coordinator can register main instance!"
 
 
 if __name__ == "__main__":

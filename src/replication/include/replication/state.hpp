@@ -96,6 +96,8 @@ struct ReplicationState {
     PARSE_ERROR,
   };
 
+  // CoordinatorState: ReplicationClients for replicas and for main.
+
   using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData>;
   using FetchReplicationResult_t = utils::BasicResult<FetchReplicationError, ReplicationData_t>;
   auto FetchReplicationData() -> FetchReplicationResult_t;
