@@ -13,6 +13,8 @@ target_sources(mg-replication
         include/replication/replication_server.hpp
         include/replication/coordinator.hpp
         include/replication/register_replica_error.hpp
+        include/replication/coordinator_entity_info.hpp
+
 
         PRIVATE
         state.cpp

@@ -39,6 +39,7 @@ BOOTSTRAP_SERVERS       : B O O T S T R A P UNDERSCORE S E R V E R S ;
 CALL                    : C A L L ;
 CHECK                   : C H E C K ;
 CLEAR                   : C L E A R ;
+CLUSTER                 : C L U S T E R ;
 COMMIT                  : C O M M I T ;
 COMMITTED               : C O M M I T T E D ;
 CONFIG                  : C O N F I G ;

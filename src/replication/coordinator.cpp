@@ -77,6 +77,24 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> Coordinator::Regis
   registered_main_ = std::make_unique<ReplicationClient>(config);
   return registered_main_.get();
 }
+
+std::vector<CoordinatorEntityInfo> Coordinator::ShowReplicas() const {
+  std::vector<CoordinatorEntityInfo> result;
+  result.reserve(registered_replicas_.size());
+  std::transform(registered_replicas_.begin(), registered_replicas_.end(), std::back_inserter(result),
+                 [](const auto &replica) {
+                   return CoordinatorEntityInfo{replica.name_, replica.rpc_client_.Endpoint()};
+                 });
+  return result;
+}
+
+std::optional<CoordinatorEntityInfo> Coordinator::ShowMain() const {
+  if (registered_main_) {
+    return CoordinatorEntityInfo{registered_main_->name_, registered_main_->rpc_client_.Endpoint()};
+  }
+  return std::nullopt;
+}
+
 #endif
 
 }  // namespace memgraph::replication

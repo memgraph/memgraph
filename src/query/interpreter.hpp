@@ -35,6 +35,7 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "replication/coordinator_entity_info.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -102,6 +103,13 @@ class ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RegisterMain(const std::string &socket_address, const std::chrono::seconds main_check_frequency) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<replication::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::optional<replication::CoordinatorEntityInfo> ShowMainOnCoordinator() const = 0;
+
 #endif
 
   /// @throw QueryRuntimeException if an error ocurred.

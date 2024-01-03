@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "replication/coordinator_entity_info.hpp"
 #include "replication/register_replica_error.hpp"
 #include "replication/replication_client.hpp"
 #include "utils/result.hpp"
@@ -44,6 +45,10 @@ struct Coordinator {
 
   /// TODO: (andi) Introduce RegisterMainError
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterMain(const ReplicationClientConfig &config);
+
+  std::vector<CoordinatorEntityInfo> ShowReplicas() const;
+
+  std::optional<CoordinatorEntityInfo> ShowMain() const;
 
   std::list<ReplicationClient> registered_replicas_;
   std::unique_ptr<ReplicationClient> registered_main_;

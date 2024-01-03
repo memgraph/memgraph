@@ -182,6 +182,7 @@ replicationQuery : setReplicationRole
                  | registerMain
                  | dropReplica
                  | showReplicas
+                 | showReplicationCluster
                  ;
 
 triggerQuery : createTrigger
@@ -364,6 +365,8 @@ setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
                       ( WITH PORT port=literal ) ? ;
 
 showReplicationRole : SHOW REPLICATION ROLE ;
+
+showReplicationCluster : SHOW REPLICATION CLUSTER ;
 
 replicaName : symbolicName ;
 

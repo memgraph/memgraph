@@ -233,6 +233,16 @@ auto ReplicationHandler::RegisterMainOnCoordinator(const memgraph::replication::
   StartReplicaClient(dbms_handler_, *instance_client.GetValue());
   return {};
 }
+
+/// TODO: (andi) No need to go through replication_handler probably
+auto ReplicationHandler::ShowReplicasOnCoordinator() const -> std::vector<replication::CoordinatorEntityInfo> {
+  return dbms_handler_.Coordinator().ShowReplicas();
+}
+
+auto ReplicationHandler::ShowMainOnCoordinator() const -> std::optional<replication::CoordinatorEntityInfo> {
+  return dbms_handler_.Coordinator().ShowMain();
+}
+
 #endif
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterReplicaResult {

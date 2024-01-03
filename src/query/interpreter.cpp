@@ -482,6 +482,17 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     return replicas;
   }
 
+#ifdef MG_ENTERPRISE
+  std::vector<replication::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const override {
+    return handler_.ShowReplicasOnCoordinator();
+  }
+
+  std::optional<replication::CoordinatorEntityInfo> ShowMainOnCoordinator() const override {
+    return handler_.ShowMainOnCoordinator();
+  }
+
+#endif
+
  private:
   dbms::DbmsHandler *dbms_handler_;
   dbms::ReplicationHandler handler_;
@@ -876,6 +887,38 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
 #endif
     }
+    case ReplicationQuery::Action::SHOW_REPLICATION_CLUSTER: {
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryException("Trying to use enterprise feature without a valid license.");
+      }
+#ifdef MG_ENTERPRISE
+      if (!FLAGS_coordinator) {
+        throw QueryRuntimeException("Only coordinator can call SHOW REPLICATION CLUSTER!");
+      }
+
+      // TODO: (andi) Exact order of this checks
+      // TODO: (andi) Bunch of details missing atm
+      callback.header = {"name", "socket_address"};
+      callback.fn = [handler = ReplQueryHandler{dbms_handler}, replica_nfields = callback.header.size()]() mutable {
+        const auto replicas = handler.ShowReplicasOnCoordinator();
+        std::vector<std::vector<TypedValue>> result{};
+        result.reserve(replicas.size() + 1);  // replicas + 1 main
+        std::ranges::transform(replicas, std::back_inserter(result),
+                               [](const auto &replica) -> std::vector<TypedValue> {
+                                 return {TypedValue(replica.name), TypedValue(replica.endpoint.SocketAddress())};
+                               });
+        const auto main = handler.ShowMainOnCoordinator();
+        if (main) {
+          result.emplace_back(
+              std::vector<TypedValue>{TypedValue(main->name), TypedValue(main->endpoint.SocketAddress())});
+        }
+
+        return result;
+      };
+      return callback;
+    }
+#endif
+
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, name]() mutable {
@@ -887,6 +930,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
+      if (FLAGS_coordinator) {
+        throw QueryRuntimeException("Coordinator cannot call SHOW REPLICAS! Use SHOW REPLICATION CLUSTER instead.");
+      }
+
       callback.header = {
           "name", "socket_address", "sync_mode", "current_timestamp_of_replica", "number_of_timestamp_behind_master",
           "state"};

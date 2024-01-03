@@ -43,26 +43,34 @@ def test_coordinator_cannot_run_show_repl_role(connection):
     assert str(e.value) == "Coordinator doesn't have a replication role!"
 
 
-# def test_coordinator_show_replicas(connection):
-#     cursor = connection(7690, "coordinator").cursor()
-#     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-#
-#     expected_column_names = {
-#         "name",
-#         "socket_address",
-#         "sync_mode",
-#         "current_timestamp_of_replica",
-#         "number_of_timestamp_behind_master",
-#         "state",
-#     }
-#     actual_column_names = {x.name for x in cursor.description}
-#     assert actual_column_names == expected_column_names
-#
-#     expected_data = {
-#         ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-#         ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-#     }
-#     assert actual_data == expected_data
+def test_coordinator_show_replication_cluster(connection):
+    cursor = connection(7690, "coordinator").cursor()
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
+
+    expected_column_names = {"name", "socket_address"}
+    actual_column_names = {x.name for x in cursor.description}
+    assert actual_column_names == expected_column_names
+
+    expected_data = {("replica_1", "127.0.0.1:10001"), ("replica_2", "127.0.0.1:10002"), ("main", "127.0.0.1:10003")}
+    assert actual_data == expected_data
+
+
+def test_coordinator_cannot_call_show_replicas(connection):
+    cursor = connection(7690, "coordinator").cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+    assert str(e.value) == "Coordinator cannot call SHOW REPLICAS! Use SHOW REPLICATION CLUSTER instead."
+
+
+@pytest.mark.parametrize(
+    "port, role",
+    [(7687, "main"), (7688, "replica"), (7689, "replica")],
+)
+def test_main_and_relicas_cannot_call_show_repl_cluster(port, role, connection):
+    cursor = connection(port, role).cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")
+    assert str(e.value) == "Only coordinator can call SHOW REPLICATION CLUSTER!"
 
 
 @pytest.mark.parametrize(
