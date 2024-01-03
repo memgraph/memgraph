@@ -129,7 +129,6 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
 
 auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
     -> memgraph::utils::BasicResult<RegisterReplicaError> {
-  // TODO: (andi) Coordinator is a main which cannot do anything atm?
   MG_ASSERT(dbms_handler_.ReplicationState().IsMain(), "Only main instance can register a replica!");
 
   auto instance_client = dbms_handler_.ReplicationState().RegisterReplica(config);
@@ -146,14 +145,6 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
       case memgraph::replication::RegisterReplicaError::SUCCESS:
         break;
     }
-#ifdef MG_ENTERPRISE
-  // Coordinator doesn't care about database specific clients
-  if (FLAGS_coordinator) {
-    // No client error, start instance level client
-    StartReplicaClient(dbms_handler_, *instance_client.GetValue());
-    return {};
-  }
-#endif
 
   if (!allow_mt_repl && dbms_handler_.All().size() > 1) {
     spdlog::warn("Multi-tenant replication is currently not supported!");
@@ -196,6 +187,53 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   StartReplicaClient(dbms_handler_, *instance_client.GetValue());
   return {};
 }
+
+#ifdef MG_ENTERPRISE
+auto ReplicationHandler::RegisterReplicaOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
+    -> utils::BasicResult<RegisterReplicaError> {
+  auto instance_client = dbms_handler_.Coordinator().RegisterReplica(config);
+  if (instance_client.HasError()) switch (instance_client.GetError()) {
+      case memgraph::replication::RegisterReplicaError::NOT_MAIN:
+        MG_ASSERT(false, "Only main instance can register a replica!");
+        return {};
+      case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
+        return memgraph::dbms::RegisterReplicaError::NAME_EXISTS;
+      case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
+        return memgraph::dbms::RegisterReplicaError::END_POINT_EXISTS;
+      case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+        return memgraph::dbms::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+      case memgraph::replication::RegisterReplicaError::SUCCESS:
+        break;
+    }
+
+  // No client error, start instance level client
+  StartReplicaClient(dbms_handler_, *instance_client.GetValue());
+  return {};
+}
+
+// TODO: (andi) RegisterMainError
+auto ReplicationHandler::RegisterMainOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
+    -> utils::BasicResult<RegisterReplicaError> {
+  auto instance_client = dbms_handler_.Coordinator().RegisterMain(config);
+  if (instance_client.HasError()) switch (instance_client.GetError()) {
+      case memgraph::replication::RegisterReplicaError::NOT_MAIN:
+        MG_ASSERT(false, "Only main instance can register a replica!");
+        return {};
+      case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
+        return memgraph::dbms::RegisterReplicaError::NAME_EXISTS;
+      case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
+        return memgraph::dbms::RegisterReplicaError::END_POINT_EXISTS;
+      case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+        return memgraph::dbms::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+      case memgraph::replication::RegisterReplicaError::SUCCESS:
+        break;
+    }
+
+  // No client error, start instance level client
+  StartReplicaClient(dbms_handler_, *instance_client.GetValue());
+  return {};
+}
+#endif
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterReplicaResult {
   auto const replica_handler = [](RoleReplicaData const &) -> UnregisterReplicaResult {

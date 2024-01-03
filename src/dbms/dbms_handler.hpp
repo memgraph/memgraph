@@ -29,6 +29,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #ifdef MG_ENTERPRISE
 #include "dbms/database_handler.hpp"
+#include "replication/coordinator.hpp"
 #endif
 #include "dbms/replication_client.hpp"
 #include "global.hpp"
@@ -212,7 +213,7 @@ class DbmsHandler {
    * @return std::vector<std::string>
    */
   std::vector<std::string> All() const {
-#ifdef MG_ENTERPRISEstorage.hpp
+#ifdef MG_ENTERPRISE
     std::shared_lock<LockT> rd(lock_);
     return db_handler_.All();
 #else
@@ -225,6 +226,10 @@ class DbmsHandler {
 
   bool IsMain() const { return repl_state_.IsMain(); }
   bool IsReplica() const { return repl_state_.IsReplica(); }
+
+#ifdef MG_ENTERPRISE
+  replication::Coordinator &Coordinator() { return coordinator_; }
+#endif
 
   /**
    * @brief Return the statistics all databases.
@@ -519,7 +524,8 @@ class DbmsHandler {
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;       //!< list of active dbs (pointer so we can postpone its creation)
   bool delete_on_drop_;                                //!< Flag defining if dropping storage also deletes its directory
-  std::set<std::string> defunct_dbs_;  //!< Databases that are in an unknown state due to various failures
+  std::set<std::string> defunct_dbs_;     //!< Databases that are in an unknown state due to various failures
+  replication::Coordinator coordinator_;  //!< Replication coordinator
 #endif
   replication::ReplicationState repl_state_;  //!< Global replication state
 #ifndef MG_ENTERPRISE

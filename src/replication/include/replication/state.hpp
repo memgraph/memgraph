@@ -15,6 +15,7 @@
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
 #include "replication/mode.hpp"
+#include "replication/register_replica_error.hpp"
 #include "replication/replication_client.hpp"
 #include "replication/role.hpp"
 #include "replication_server.hpp"
@@ -31,8 +32,6 @@
 namespace memgraph::replication {
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
-
-enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
 struct RoleMainData {
   // TODO: (andi) Currently, RoleMainData can exist without server and server_config_ in enterprise version of the code.
@@ -131,6 +130,7 @@ struct ReplicationState {
 
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
+  // CoordinatorState state;
   std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
 };
 

@@ -11,6 +11,8 @@ target_sources(mg-replication
         include/replication/status.hpp
         include/replication/replication_client.hpp
         include/replication/replication_server.hpp
+        include/replication/coordinator.hpp
+        include/replication/register_replica_error.hpp
 
         PRIVATE
         state.cpp
@@ -20,6 +22,7 @@ target_sources(mg-replication
         messages.cpp
         replication_client.cpp
         replication_server.cpp
+        coordinator.cpp
 )
 target_include_directories(mg-replication PUBLIC include)
 

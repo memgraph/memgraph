@@ -49,6 +49,15 @@ struct ReplicationHandler {
   auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterReplicaError>;
 
+#ifdef MG_ENTERPRISE
+  auto RegisterReplicaOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
+      -> utils::BasicResult<RegisterReplicaError>;
+
+  // TODO: (andi) RegisterMainError
+  auto RegisterMainOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
+      -> utils::BasicResult<RegisterReplicaError>;
+#endif
+
   // as MAIN, remove a REPLICA connection
   auto UnregisterReplica(std::string_view name) -> UnregisterReplicaResult;
 

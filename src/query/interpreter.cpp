@@ -334,27 +334,43 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   void RegisterReplica(const std::string &name, const std::string &socket_address,
                        const ReplicationQuery::SyncMode sync_mode,
                        const std::chrono::seconds replica_check_frequency) override {
+    // Coordinator is main by default so this check is OK although it should actually be nothing (neither main nor
+    // replica)
     if (handler_.IsReplica()) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
     }
 
-    auto repl_mode = convertToReplicationMode(sync_mode);
+    const auto repl_mode = convertToReplicationMode(sync_mode);
 
-    auto maybe_ip_and_port =
+    const auto maybe_ip_and_port =
         io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
-      auto [ip, port] = *maybe_ip_and_port;
-      auto config = replication::ReplicationClientConfig{.name = name,
-                                                         .mode = repl_mode,
-                                                         .ip_address = ip,
-                                                         .port = port,
-                                                         .replica_check_frequency = replica_check_frequency,
-                                                         .ssl = std::nullopt};
-      auto ret = handler_.RegisterReplica(config);
+      const auto [ip, port] = *maybe_ip_and_port;
+      const auto config = replication::ReplicationClientConfig{.name = name,
+                                                               .mode = repl_mode,
+                                                               .ip_address = ip,
+                                                               .port = port,
+                                                               .replica_check_frequency = replica_check_frequency,
+                                                               .ssl = std::nullopt};
+#ifdef MG_ENTERPRISE
+      const auto ret = std::invoke([&config, repl_handler = &this->handler_]() {
+        if (FLAGS_coordinator) {
+          if (!license::global_license_checker.IsEnterpriseValidFast()) {
+            throw QueryException("Trying to use enterprise feature without a valid license.");
+          }
+          return repl_handler->RegisterReplicaOnCoordinator(config);
+        }
+        return repl_handler->RegisterReplica(config);
+      });
+#else
+      const auto ret = handler_.RegisterReplica(config);
+#endif
+
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
+
     } else {
       throw QueryRuntimeException("Invalid socket address!");
     }
@@ -367,11 +383,11 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       throw QueryRuntimeException("Only coordinator can register main instance!");
     }
 
-    auto maybe_ip_and_port =
+    const auto maybe_ip_and_port =
         io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
-      auto [ip, port] = *maybe_ip_and_port;
-      auto config = replication::ReplicationClientConfig{
+      const auto [ip, port] = *maybe_ip_and_port;
+      const auto config = replication::ReplicationClientConfig{
           .name = memgraph::replication::kDefaultMainName,
           .mode = replication::ReplicationMode::ASYNC,  // MAIN is not using actually replication mode, TODO: (andi) Set
                                                         // it to optional
@@ -379,10 +395,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
           .port = port,
           .replica_check_frequency = main_check_frequency,  // TODO: (andi) better naming would be check_frequency
           .ssl = std::nullopt};
-      // auto ret = handler_.RegisterMain(config);
-      // if (ret.HasError()) {
-      //   throw QueryRuntimeException("Couldn't register main!");
-      // }
+
+      if (const auto ret = handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
+        throw QueryRuntimeException("Couldn't register main!");
+      }
     } else {
       throw QueryRuntimeException("Invalid socket address!");
     }
@@ -414,6 +430,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
     // TODO: Combine results? Have a single place with clients???
     //       Also authentication checks (replica + database visibility)
+
     std::vector<storage::ReplicaInfo> repl_infos{};
     dbms_handler_->ForOne([&repl_infos](dbms::Database *db) -> bool {
       auto infos = db->storage()->ReplicasInfo();
