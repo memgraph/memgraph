@@ -16,7 +16,6 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "dbms/replication_client.hpp"
-#include "flags/general.hpp"
 #include "replication/state.hpp"
 
 using memgraph::replication::ReplicationServer;
@@ -234,7 +233,6 @@ auto ReplicationHandler::RegisterMainOnCoordinator(const memgraph::replication::
   return {};
 }
 
-/// TODO: (andi) No need to go through replication_handler probably
 auto ReplicationHandler::ShowReplicasOnCoordinator() const -> std::vector<replication::CoordinatorEntityInfo> {
   return dbms_handler_.Coordinator().ShowReplicas();
 }

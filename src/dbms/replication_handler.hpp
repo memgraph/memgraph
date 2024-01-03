@@ -21,7 +21,6 @@ namespace memgraph::replication {
 struct ReplicationState;
 struct ReplicationServerConfig;
 struct ReplicationClientConfig;
-struct CoordinatorEntityInfo;
 }  // namespace memgraph::replication
 
 namespace memgraph::dbms {
