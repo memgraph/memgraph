@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -101,6 +101,8 @@ class InterpreterTest : public ::testing::Test {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
       disk_test_utils::RemoveRocksDbDirs(testSuiteCsv);
     }
+
+    std::filesystem::remove_all(data_directory);
   }
 
   InterpreterFaker default_interpreter{&interpreter_context, db};

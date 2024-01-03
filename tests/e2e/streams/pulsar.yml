@@ -1,8 +1,0 @@
-version: '3.7'
-services:
-  pulsar:
-    image: 'apachepulsar/pulsar:latest'
-    ports:
-      - '6652:8080'
-      - '6650:6650'
-    entrypoint: ['bin/pulsar', 'standalone']

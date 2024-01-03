@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -454,7 +454,6 @@ class InMemoryStorage final : public Storage {
   std::optional<CommitLog> commit_log_;
 
   utils::Scheduler gc_runner_;
-  utils::Scheduler gc_jemalloc_runner_;
   std::mutex gc_lock_;
 
   using BondPmrLd = Bond<utils::pmr::list<Delta>>;

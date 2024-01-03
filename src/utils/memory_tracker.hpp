@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,6 +49,7 @@ class MemoryTracker final {
 
   void Alloc(int64_t size);
   void Free(int64_t size);
+  void DoCheck();
 
   auto Amount() const { return amount_.load(std::memory_order_relaxed); }
 

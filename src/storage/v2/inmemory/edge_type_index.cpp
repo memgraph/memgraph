@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -74,12 +74,23 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
         continue;
       }
 
-      // TODO(gvolfing)
-      // Make sure we can detect entries that should be picked up by the gc.
-      // if ((next_it != edges_acc.end() && it->edge == next_it->edge) ||
-      //     !AnyVersionHasLabel(*it->edge, label_storage.first, oldest_active_start_timestamp)) {
-      //   edges_acc.remove(*it);
-      // }
+      // This can potentially make the garbage collection step extremely slow.
+      const bool edge_deleted = std::invoke([&]() {
+        for (const auto &edge : it->from_vertex->out_edges) {
+          auto *to_vertex = std::get<1>(edge);
+          if (to_vertex == it->to_vertex) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      if ((next_it != edges_acc.end() && it->from_vertex == next_it->from_vertex &&
+           it->to_vertex == next_it->to_vertex) ||
+          // This should be called before the vertex is actually deleted by the GC.
+          it->from_vertex->deleted || it->to_vertex->deleted || edge_deleted) {
+        edges_acc.remove(*it);
+      }
 
       it = next_it;
     }
@@ -130,6 +141,11 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
     auto *from_vertex = index_iterator_->from_vertex;
     auto *to_vertex = index_iterator_->to_vertex;
 
+    // We might have to check if the relationship itself have been deleted or not.
+    if (from_vertex->deleted || to_vertex->deleted) {
+      continue;
+    }
+
     auto [edge_ref, edge_type] =
         std::invoke([&, &from = from_vertex->out_edges, &to = to_vertex->in_edges]() -> std::pair<EdgeRef, EdgeTypeId> {
           for (const auto &from_entry : from) {
@@ -145,6 +161,9 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
         });
 
     if (edge_ref == EdgeRef(nullptr)) {
+      // This is a valid case if the edge has been deleted from the from and to vertices.
+      // Mark the entry as deleted? how?
+
       // TODO gvolfing - handle this properly:
       // It should not be possible to not find a matching from-to pair.
       MG_ASSERT(false, "gvolfing was lazy and it crashed your instance.");
@@ -163,10 +182,9 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
 }
 
 void InMemoryEdgeTypeIndex::RunGC() {
-  // Enable this once we get to the GC.
-  //   for (auto &index_entry : index_) {
-  //     index_entry.second.run_gc();
-  //   }
+  for (auto &index_entry : index_) {
+    index_entry.second.run_gc();
+  }
 }
 
 InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_type, View view, Storage *storage,
@@ -177,41 +195,5 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_typ
   auto debug_var_two = it->second.access().size();
   return {it->second.access(), edge_type, view, storage, transaction};
 }
-
-// TODO Implement indexstat metadata handling functions.
-// void InMemoryLabelIndex::SetIndexStats(const storage::LabelId &edge_type, const storage::LabelIndexStats &stats) {
-//   auto locked_stats = stats_.Lock();
-//   locked_stats->insert_or_assign(edge_type, stats);
-// }
-
-// std::optional<LabelIndexStats> InMemoryLabelIndex::GetIndexStats(const storage::LabelId &edge_type) const {
-//   auto locked_stats = stats_.ReadLock();
-//   if (auto it = locked_stats->find(edge_type); it != locked_stats->end()) {
-//     return it->second;
-//   }
-//   return {};
-// }
-
-// std::vector<LabelId> InMemoryLabelIndex::ClearIndexStats() {
-//   std::vector<LabelId> deleted_indexes;
-//   auto locked_stats = stats_.Lock();
-//   deleted_indexes.reserve(locked_stats->size());
-//   std::transform(locked_stats->begin(), locked_stats->end(), std::back_inserter(deleted_indexes),
-//                  [](const auto &elem) { return elem.first; });
-//   locked_stats->clear();
-//   return deleted_indexes;
-// }
-
-// // stats_ is a map with label as the key, so only one can exist at a time
-// bool InMemoryLabelIndex::DeleteIndexStats(const storage::LabelId &edge_type) {
-//   auto locked_stats = stats_.Lock();
-//   for (auto it = locked_stats->cbegin(); it != locked_stats->cend(); ++it) {
-//     if (it->first == edge_type) {
-//       locked_stats->erase(it);
-//       return true;
-//     }
-//   }
-//   return false;
-// }
 
 }  // namespace memgraph::storage

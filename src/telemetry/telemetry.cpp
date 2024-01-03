@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -110,7 +110,13 @@ void Telemetry::CollectData(const std::string &event) {
   {
     std::lock_guard<std::mutex> guard(lock_);
     for (auto &collector : collectors_) {
-      data[collector.first] = collector.second();
+      try {
+        data[collector.first] = collector.second();
+      } catch (std::exception &e) {
+        spdlog::warn(fmt::format(
+            "Unknwon exception occured on in telemetry server {}, please contact support on https://memgr.ph/unknown ",
+            e.what()));
+      }
     }
   }
   if (event == "") {

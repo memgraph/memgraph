@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,6 +38,7 @@ void Indices::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) cons
   static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp);
+  static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp);
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {

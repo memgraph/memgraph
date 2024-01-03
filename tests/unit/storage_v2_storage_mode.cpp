@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -74,6 +74,8 @@ class StorageModeMultiTxTest : public ::testing::Test {
     std::filesystem::remove_all(tmp);
     return tmp;
   }();  // iile
+
+  void TearDown() override { std::filesystem::remove_all(data_directory); }
 
   memgraph::storage::Config config{.durability.storage_directory = data_directory,
                                    .disk.main_storage_directory = data_directory / "disk"};
