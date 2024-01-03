@@ -22,5 +22,48 @@ def test_disable_cypher_queries(connection):
     assert str(e.value) == "Coordinator cannot accept Cypher queries."
 
 
+def test_coordinator_cannot_be_replica_role(connection):
+    cursor = connection(7690, "coordinator").cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+    assert str(e.value) == "Coordinator cannot become a replica!"
+
+
+def test_coordinator_cannot_be_main_role(connection):
+    cursor = connection(7690, "coordinator").cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO MAIN WITH PORT 10001;")
+    assert str(e.value) == "Coordinator cannot become main!"
+
+
+def test_coordinator_cannot_run_show_repl_role(connection):
+    cursor = connection(7690, "coordinator").cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(cursor, "SHOW REPLICATION ROLE;")
+    assert str(e.value) == "Coordinator doesn't have a replication role!"
+
+
+def test_coordinator_show_replicas(connection):
+    cursor = connection(7690, "coordinator").cursor()
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    expected_column_names = {
+        "name",
+        "socket_address",
+        "sync_mode",
+        "current_timestamp_of_replica",
+        "number_of_timestamp_behind_master",
+        "state",
+    }
+    actual_column_names = {x.name for x in cursor.description}
+    assert actual_column_names == expected_column_names
+
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+    }
+    assert actual_data == expected_data
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

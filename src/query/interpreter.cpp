@@ -38,6 +38,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
+#include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
@@ -743,6 +744,13 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   Callback callback;
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
+      if (FLAGS_coordinator) {
+        if (repl_query->role_ == ReplicationQuery::ReplicationRole::REPLICA) {
+          throw QueryRuntimeException("Coordinator cannot become a replica!");
+        }
+        throw QueryRuntimeException("Coordinator cannot become main!");
+      }
+
       auto port = EvaluateOptionalExpression(repl_query->port_, evaluator);
       std::optional<int64_t> maybe_port;
       if (port.IsInt()) {
@@ -763,6 +771,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
+      if (FLAGS_coordinator) {
+        throw QueryRuntimeException("Coordinator doesn't have a replication role!");
+      }
+
       callback.header = {"replication role"};
       callback.fn = [handler = ReplQueryHandler{dbms_handler}] {
         auto mode = handler.ShowReplicationRole();
