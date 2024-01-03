@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,14 +15,15 @@
 
 #include "query/db_accessor.hpp"
 #include "query/stream.hpp"
+#include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
 
 namespace memgraph::query {
 
-void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream);
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, query::TriggerStore *trigger_store);
 
 struct PullPlanDump {
-  explicit PullPlanDump(query::DbAccessor *dba);
+  explicit PullPlanDump(query::DbAccessor *dba, query::TriggerStore *trigger_store);
 
   /// Pull the dump results lazily
   /// @return true if all results were returned, false otherwise
@@ -30,6 +31,7 @@ struct PullPlanDump {
 
  private:
   query::DbAccessor *dba_ = nullptr;
+  query::TriggerStore *trigger_store_ = nullptr;
 
   std::optional<storage::IndicesInfo> indices_info_ = std::nullopt;
   std::optional<storage::ConstraintsInfo> constraints_info_ = std::nullopt;
@@ -62,5 +64,6 @@ struct PullPlanDump {
   PullChunk CreateEdgePullChunk();
   PullChunk CreateDropInternalIndexPullChunk();
   PullChunk CreateInternalIndexCleanupPullChunk();
+  PullChunk CreateTriggersPullChunk();
 };
 }  // namespace memgraph::query

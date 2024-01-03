@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include "query/dump.hpp"
 
+#include <algorithm>
 #include <iomanip>
 #include <limits>
 #include <map>
@@ -23,7 +24,10 @@
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
+#include "query/path.hpp"
 #include "query/stream.hpp"
+#include "query/stream/streams.hpp"
+#include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
@@ -260,10 +264,20 @@ void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba, storage::Lab
   *os << " IS UNIQUE;";
 }
 
+const char *triggerPhaseToString(TriggerPhase phase) {
+  switch (phase) {
+    case TriggerPhase::BEFORE_COMMIT:
+      return "BEFORE COMMIT EXECUTE";
+    case TriggerPhase::AFTER_COMMIT:
+      return "AFTER COMMIT EXECUTE";
+  }
+}
+
 }  // namespace
 
-PullPlanDump::PullPlanDump(DbAccessor *dba)
+PullPlanDump::PullPlanDump(DbAccessor *dba, TriggerStore *trigger_store)
     : dba_(dba),
+      trigger_store_(trigger_store),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
       pull_chunks_{// Dump all label indices
                    CreateLabelIndicesPullChunk(),
@@ -282,7 +296,9 @@ PullPlanDump::PullPlanDump(DbAccessor *dba)
                    // Drop the internal index
                    CreateDropInternalIndexPullChunk(),
                    // Internal index cleanup
-                   CreateInternalIndexCleanupPullChunk()} {}
+                   CreateInternalIndexCleanupPullChunk(),
+                   // Dump all triggers
+                   CreateTriggersPullChunk()} {}
 
 bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
@@ -536,6 +552,25 @@ PullPlanDump::PullChunk PullPlanDump::CreateInternalIndexCleanupPullChunk() {
   };
 }
 
-void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream) { PullPlanDump(dba).Pull(stream, {}); }
+PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
+  return [this](AnyStream *stream, std::optional<int>) {
+    if (trigger_store_->HasTriggers()) {
+      auto triggers = trigger_store_->GetTriggerInfo();
+      for (auto &trigger : triggers) {
+        std::ostringstream os;
+        std::replace(trigger.statement.begin(), trigger.statement.end(), '\n', ' ');
+        os << "CREATE TRIGGER " << trigger.name << " ON "
+           << memgraph::query::TriggerEventTypeToString(trigger.event_type) << " "
+           << triggerPhaseToString(trigger.phase) << " " << trigger.statement << ";";
+        stream->Result({TypedValue(os.str())});
+      }
+    }
+    return 0;
+  };
+}
+
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, query::TriggerStore *trigger_store) {
+  PullPlanDump(dba, trigger_store).Pull(stream, {});
+}
 
 }  // namespace memgraph::query
