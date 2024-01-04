@@ -50,8 +50,7 @@ bool ReplicationHandler::SetReplicationRoleMain(
   // TODO: (andi) In reality instance should be started as a default non-replication instance and then switched to MAIN
   auto const main_handler = [&config](RoleMainData &main_data) {
     if (config.has_value()) {
-      main_data.server_config_ = *config;
-      main_data.server_ = std::make_unique<ReplicationServer>(*config);
+      // TODO: (andi) Create a server in some kind of state.
       return true;
     }
     return false;
@@ -230,7 +229,7 @@ auto ReplicationHandler::RegisterMainOnCoordinator(const memgraph::replication::
     }
 
   // No client error, start instance level client
-  StartReplicaClient(dbms_handler_, *instance_client.GetValue());
+  // StartReplicaClient(dbms_handler_, *instance_client.GetValue());
   return {};
 }
 

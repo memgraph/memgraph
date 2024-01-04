@@ -127,7 +127,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
     return std::visit(
         utils::Overloaded{
             [&](durability::MainRole &&r) -> FetchReplicationResult_t {
-              auto res = RoleMainData{std::move(r.epoch), std::move(r.config)};
+              auto res = RoleMainData{std::move(r.epoch)};
               auto b = durability_->begin(durability::kReplicationReplicaPrefix);
               auto e = durability_->end(durability::kReplicationReplicaPrefix);
               for (; b != e; ++b) {
@@ -222,7 +222,7 @@ bool ReplicationState::SetReplicationRoleMain(const std::optional<ReplicationSer
   if (!TryPersistRoleMain(new_epoch, config)) {
     return false;
   }
-  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, config};
+  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}};
 
   return true;
 }

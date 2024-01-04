@@ -34,45 +34,21 @@ namespace memgraph::replication {
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 
 struct RoleMainData {
-  // TODO: (andi) Currently, RoleMainData can exist without server and server_config_ in enterprise version of the code.
-  // Introducing new role should solve this non-happy design decision.
-  // TODO: (andi) Remove this constructor
   RoleMainData() = default;
 
-  RoleMainData(ReplicationEpoch epoch, std::optional<ReplicationServerConfig> server_config)
-      : epoch_(std::move(epoch)) {
-    if (server_config.has_value()) {
-      server_config_ = std::move(*server_config);
-      server_ = std::make_unique<ReplicationServer>(*server_config_);
-    }
-  }
+  explicit RoleMainData(ReplicationEpoch epoch) : epoch_(std::move(epoch)) {}
 
   ~RoleMainData() = default;
 
   RoleMainData(RoleMainData const &) = delete;
   RoleMainData &operator=(RoleMainData const &) = delete;
 
-  RoleMainData(RoleMainData &&other) noexcept
-      : epoch_(std::move(other.epoch_)),
-        registered_replicas_(std::move(other.registered_replicas_)),
-        server_config_(std::move(other.server_config_)),
-        server_(std::move(other.server_)) {}
+  RoleMainData(RoleMainData &&other) noexcept = default;
 
-  RoleMainData &operator=(RoleMainData &&other) noexcept {
-    if (this != &other) {
-      epoch_ = std::move(other.epoch_);
-      registered_replicas_ = std::move(other.registered_replicas_);
-      server_config_ = std::move(other.server_config_);
-      server_ = std::move(other.server_);
-    }
-    return *this;
-  }
+  RoleMainData &operator=(RoleMainData &&other) noexcept = default;
 
   ReplicationEpoch epoch_;
   std::list<ReplicationClient> registered_replicas_{};
-  // TODO: (andi) When needed try to fetch server_config_ from ReplicationServer to avoid saving std::optional
-  std::optional<ReplicationServerConfig> server_config_;
-  std::unique_ptr<ReplicationServer> server_;
 };
 
 struct RoleReplicaData {
