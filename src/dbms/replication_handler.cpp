@@ -19,7 +19,6 @@
 #include "replication/state.hpp"
 
 using memgraph::replication::ReplicationClientConfig;
-using memgraph::replication::ReplicationServer;
 using memgraph::replication::ReplicationState;
 using memgraph::replication::RoleMainData;
 using memgraph::replication::RoleReplicaData;
@@ -48,12 +47,9 @@ ReplicationHandler::ReplicationHandler(DbmsHandler &dbms_handler) : dbms_handler
 bool ReplicationHandler::SetReplicationRoleMain(
     const std::optional<memgraph::replication::ReplicationServerConfig> &config) {
   // TODO: (andi) In reality instance should be started as a default non-replication instance and then switched to MAIN
-  auto const main_handler = [&config](RoleMainData &main_data) {
-    if (config.has_value()) {
-      // TODO: (andi) Create a server in some kind of state.
-      return true;
-    }
-    return false;
+  auto const main_handler = [&config](RoleMainData &) {
+    // TODO: (andi) Create a server in some kind of state.
+    return config.has_value();
   };
 
   auto const replica_handler = [this, &config](RoleReplicaData const &) {

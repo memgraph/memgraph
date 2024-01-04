@@ -350,14 +350,14 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetRepl
   return replication_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(MemgraphCypher::ShowReplicationRoleContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(MemgraphCypher::ShowReplicationRoleContext * /*ctx*/) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICATION_ROLE;
   return replication_query;
 }
 
 // License check is done in the interpreter
-antlrcpp::Any CypherMainVisitor::visitShowReplicationCluster(MemgraphCypher::ShowReplicationClusterContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitShowReplicationCluster(MemgraphCypher::ShowReplicationClusterContext * /*ctx*/) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICATION_CLUSTER;
   return replication_query;
