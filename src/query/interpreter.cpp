@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2176,11 +2176,17 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
           fmt::format("Created index on label {} on properties {}.", index_query->label_.name, properties_stringified);
 
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, label, properties_stringified = std::move(properties_stringified),
-                 label_name = index_query->label_.name, properties = std::move(properties),
+      handler = [dba, index_type = index_query->type_, label,
+                 properties_stringified = std::move(properties_stringified), label_name = index_query->label_.name,
+                 properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
+        utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error{};
+        if (index_type == IndexQuery::Type::LOOKUP) {
+          maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
+        } else if (index_type == IndexQuery::Type::TEXT) {
+          maybe_index_error = dba->CreateTextIndex(label);
+        }
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -2197,11 +2203,17 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       index_notification.title = fmt::format("Dropped index on label {} on properties {}.", index_query->label_.name,
                                              utils::Join(properties_string, ", "));
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, label, properties_stringified = std::move(properties_stringified),
-                 label_name = index_query->label_.name, properties = std::move(properties),
+      handler = [dba, index_type = index_query->type_, label,
+                 properties_stringified = std::move(properties_stringified), label_name = index_query->label_.name,
+                 properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
+        utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error{};
+        if (index_type == IndexQuery::Type::LOOKUP) {
+          maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
+        } else if (index_type == IndexQuery::Type::TEXT) {
+          maybe_index_error = dba->DropTextIndex(label);
+        }
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
