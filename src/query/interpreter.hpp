@@ -35,6 +35,7 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "replication/coordinator_entity_info.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -57,10 +58,6 @@ extern const Event FailedPrepare;
 extern const Event FailedPull;
 extern const Event SuccessfulQuery;
 }  // namespace memgraph::metrics
-
-namespace memgraph::replication {
-struct CoordinatorEntityInfo;
-}  // namespace memgraph::replication
 
 namespace memgraph::query {
 

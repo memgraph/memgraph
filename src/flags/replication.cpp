@@ -8,15 +8,10 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-#pragma once
 
-#include "flags/audit.hpp"
-#include "flags/bolt.hpp"
-#include "flags/general.hpp"
-#include "flags/isolation_level.hpp"
-#include "flags/log_level.hpp"
-#include "flags/memory_limit.hpp"
-#include "flags/query.hpp"
-#include "flags/replication.hpp"
-#include "flags/run_time_configurable.hpp"
-#include "flags/storage_mode.hpp"
+#include "replication.hpp"
+
+#ifdef MG_ENTERPRISE
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(coordinator, false, "Controls whether the instance is a replication coordinator.");
+#endif

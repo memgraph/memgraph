@@ -17,7 +17,6 @@
 #include "dbms/constants.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
-#include "flags/run_time_configurable.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
