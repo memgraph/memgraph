@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -59,8 +59,8 @@ class PostProcessor final {
   }
 
   template <class TVertexCounts>
-  std::pair<double, bool> EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts,
-                                           const SymbolTable &table) {
+  PlanCost EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts,
+                            const SymbolTable &table) {
     return query::plan::EstimatePlanCost(vertex_counts, table, parameters_, *plan, index_hints_);
   }
 };
@@ -111,14 +111,20 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
       // Plans are generated lazily and the current plan will disappear, so
       // it's ok to move it.
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-      auto cost_and_use_index_hints =
-          post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
-      if (curr_uses_index_hint && !cost_and_use_index_hints.second) continue;
-      if (!curr_plan || cost_and_use_index_hints.first < total_cost ||
-          (cost_and_use_index_hints.second && !curr_uses_index_hint)) {
-        curr_uses_index_hint = cost_and_use_index_hints.second;
+      auto plan_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
+      // if we have a plan that uses index hints, we want to use it no matter the cost
+      if (curr_uses_index_hint && !plan_cost.use_index_hints) continue;
+      if (plan_cost.use_index_hints && !curr_uses_index_hint) {
+        curr_uses_index_hint = plan_cost.use_index_hints;
         curr_plan.emplace(std::move(rewritten_plan));
-        total_cost = cost_and_use_index_hints.first;
+        total_cost = plan_cost.cost;
+        continue;
+      }
+      // if both plans either use or don't use index hints, we want to use the one with the least cost
+      if (!curr_plan || plan_cost.cost < total_cost) {
+        curr_uses_index_hint = plan_cost.use_index_hints;
+        curr_plan.emplace(std::move(rewritten_plan));
+        total_cost = plan_cost.cost;
       }
     }
   } else {

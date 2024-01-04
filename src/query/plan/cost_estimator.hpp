@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,6 +45,11 @@ struct CostEstimation {
 
   // expected number of rows
   double cardinality;
+};
+
+struct PlanCost {
+  double cost;
+  bool use_index_hints;
 };
 
 /**
@@ -471,11 +476,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
 /** Returns the estimated cost of the given plan. */
 template <class TDbAccessor>
-std::pair<double, bool> EstimatePlanCost(TDbAccessor *db, const SymbolTable &table, const Parameters &parameters,
-                                         LogicalOperator &plan, const IndexHints &index_hints) {
+PlanCost EstimatePlanCost(TDbAccessor *db, const SymbolTable &table, const Parameters &parameters,
+                          LogicalOperator &plan, const IndexHints &index_hints) {
   CostEstimator<TDbAccessor> estimator(db, table, parameters, index_hints);
   plan.Accept(estimator);
-  return std::make_pair(estimator.cost(), estimator.use_index_hints());
+  return PlanCost{.cost = estimator.cost(), .use_index_hints = estimator.use_index_hints()};
 }
 
 }  // namespace memgraph::query::plan
