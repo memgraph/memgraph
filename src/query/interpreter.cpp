@@ -490,7 +490,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   std::optional<replication::CoordinatorEntityInfo> ShowMainOnCoordinator() const override {
     return handler_.ShowMainOnCoordinator();
   }
-
 #endif
 
  private:
@@ -916,9 +915,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         return result;
       };
       return callback;
-    }
 #endif
-
+    }
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, name]() mutable {
@@ -984,7 +982,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
   }
-}
 }
 
 stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator) {
