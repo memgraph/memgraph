@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -563,8 +563,9 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   memgraph::query::test_common::OnCreate {                 \
     std::vector<memgraph::query::Clause *> { __VA_ARGS__ } \
   }
-#define CREATE_INDEX_ON(label, property)                                                            \
-  storage.Create<memgraph::query::IndexQuery>(memgraph::query::IndexQuery::Action::CREATE, (label), \
+#define CREATE_INDEX_ON(label, property)                                                          \
+  storage.Create<memgraph::query::IndexQuery>(memgraph::query::IndexQuery::Action::CREATE,        \
+                                              memgraph::query::IndexQuery::Type::LOOKUP, (label), \
                                               std::vector<memgraph::query::PropertyIx>{(property)})
 #define QUERY(...) memgraph::query::test_common::GetQuery(this->storage, __VA_ARGS__)
 #define SINGLE_QUERY(...) \
