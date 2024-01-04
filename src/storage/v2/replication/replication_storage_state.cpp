@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -86,7 +86,8 @@ std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo(const Storage *st
     std::vector<ReplicaInfo> replica_infos;
     replica_infos.reserve(clients.size());
     auto const asReplicaInfo = [storage](ReplicationClientPtr const &client) -> ReplicaInfo {
-      return {client->Name(), client->Mode(), client->Endpoint(), client->State(), client->GetTimestampInfo(storage)};
+      const auto ts = client->GetTimestampInfo(storage);
+      return {client->Name(), client->Mode(), client->Endpoint(), client->State(), ts};
     };
     std::transform(clients.begin(), clients.end(), std::back_inserter(replica_infos), asReplicaInfo);
     return replica_infos;

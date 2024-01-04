@@ -132,7 +132,11 @@ class ReplicationStorageClient {
       return;
     }
     if (!replica_stream_ || replica_stream_->IsDefunct()) {
-      replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
+      replica_state_.WithLock([this](auto &state) {
+        replica_stream_.reset();
+        state = replication::ReplicaState::MAYBE_BEHIND;
+      });
+      LogRpcFailure();
       return;
     }
     try {
@@ -140,6 +144,7 @@ class ReplicationStorageClient {
     } catch (const rpc::RpcFailedException &) {
       replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
+      return;
     }
   }
 

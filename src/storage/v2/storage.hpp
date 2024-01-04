@@ -139,6 +139,8 @@ class Storage {
 
   const std::string &name() const { return config_.salient.name; }
 
+  const utils::UUID &uuid() const { return config_.salient.uuid; }
+
   class Accessor {
    public:
     static constexpr struct SharedAccess {

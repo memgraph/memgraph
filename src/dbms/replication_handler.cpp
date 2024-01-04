@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -114,6 +114,11 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
                                            spdlog::debug("Received CreateDatabaseRpc");
                                            CreateDatabaseHandler(dbms_handler, req_reader, res_builder);
                                          });
+                                     data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
+                                         [ts = dbms_handler_.LastCommitedTS()](auto *req_reader, auto *res_builder) {
+                                           spdlog::debug("Received SystemHeartbeatRpc");
+                                           SystemHeartbeatHandler(ts, req_reader, res_builder);
+                                         });
 #endif
                                      if (!data.server->Start()) {
                                        spdlog::error("Unable to start the replication server.");
@@ -131,7 +136,8 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   MG_ASSERT(dbms_handler_.ReplicationState().IsMain(), "Only main instance can register a replica!");
 
   auto instance_client = dbms_handler_.ReplicationState().RegisterReplica(config);
-  if (instance_client.HasError()) switch (instance_client.GetError()) {
+  if (instance_client.HasError()) {
+    switch (instance_client.GetError()) {
       case memgraph::replication::RegisterReplicaError::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");
         return {};
@@ -144,9 +150,15 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
       case memgraph::replication::RegisterReplicaError::SUCCESS:
         break;
     }
+  }
 
   if (!allow_mt_repl && dbms_handler_.All().size() > 1) {
     spdlog::warn("Multi-tenant replication is currently not supported!");
+  } else {
+#ifdef MG_ENTERPRISE
+    // Update system before enabling individual storage <-> replica clients
+    dbms_handler_.SystemRestore(*instance_client.GetValue());
+#endif
   }
 
   bool all_clients_good = true;

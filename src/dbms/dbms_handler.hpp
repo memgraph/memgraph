@@ -12,22 +12,21 @@
 #pragma once
 
 #include <algorithm>
-#include <concepts>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <ostream>
-#include <stdexcept>
 #include <system_error>
-#include <unordered_map>
 
 #include "auth/auth.hpp"
 #include "constants.hpp"
 #include "dbms/database.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_handler.hpp"
+#include "kvstore/kvstore.hpp"
+#include "replication/replication_client.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/string.hpp"
 #ifdef MG_ENTERPRISE
@@ -157,8 +156,7 @@ class DbmsHandler {
       if (new_db.HasError() && new_db.GetError() == NewError::EXISTS) {
         spdlog::debug("Trying to create db '{}' on replica which already exists.", config.name);
         auto db = Get_(config.name);
-        const auto &conf = db->config();
-        if (conf.salient.uuid != config.uuid) {
+        if (db->uuid() != config.uuid) {
           spdlog::debug("Different UUIDs");
 
           // TODO: Fix this hack
@@ -195,6 +193,25 @@ class DbmsHandler {
     std::shared_lock<LockT> rd(lock_);
     return Get_(name);
   }
+
+  /**
+   * @brief Get the context associated with the UUID database
+   *
+   * @param uuid
+   * @return DatabaseAccess
+   * @throw UnknownDatabaseException if database not found
+   */
+  DatabaseAccess Get(const utils::UUID &uuid) {
+    std::shared_lock<LockT> rd(lock_);
+    for (auto &[_, db_gk] : db_handler_) {
+      auto acc = db_gk.access();
+      if (acc->get()->uuid() == uuid) {
+        return std::move(*acc);
+      }
+    }
+    throw UnknownDatabaseException("Tried to retrieve an unknown database with UUID \"{}\".", std::string{uuid});
+  }
+
 #else
   /**
    * @brief Get the context associated with the default database
@@ -431,7 +448,7 @@ class DbmsHandler {
         // Replication
         auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
           // TODO: data race issue? registered_replicas_ access not protected
-          // Replication
+          // This is sync in any case, as this is the startup
           for (auto &client : main_data.registered_replicas_) {
             try {
               auto stream = client.rpc_client_.Stream<storage::replication::CreateDatabaseRpc>(
@@ -439,9 +456,13 @@ class DbmsHandler {
               const auto response = stream.AwaitResponse();
               if (response.result == storage::replication::CreateDatabaseRes::Result::FAILURE) {
                 // TODO This replica needs SYSTEM recovery
+                client.behind_ = true;
+                return;
               }
             } catch (memgraph::rpc::GenericRpcFailedException const &e) {
               // TODO This replica needs SYSTEM recovery
+              client.behind_ = true;
+              return;
             }
           }
           // Sync database with REPLICAs
@@ -452,9 +473,70 @@ class DbmsHandler {
 #endif
       } break;
     }
-
+    last_commited_system_timestamp_ = system_transaction_->system_timestamp;
     ResetSystemTransaction();
   }
+
+  uint64_t LastCommitedTS() const { return last_commited_system_timestamp_; }
+
+  std::pair<kvstore::KVStore::iterator, kvstore::KVStore::iterator> SystemWAL(
+      const std::optional<uint64_t> first_ts) const {
+    auto itr = system_wal_->begin("delta:");
+    auto end = system_wal_->end("delta:");
+
+    if (first_ts) {
+      // Find the specific commit wanted by the user
+      for (; itr != end; ++itr) {
+        std::vector<std::string> out;
+        utils::Split(&out, itr->first, ":", 2);
+        const auto system_timestamp = std::stoul(out[1]);
+        if (system_timestamp >= *first_ts) break;
+      }
+    }
+
+    return std::make_pair(std::move(itr), std::move(end));
+  }
+
+#ifdef MG_ENTERPRISE
+  void SystemRestore(replication::ReplicationClient &client) {
+    // Check if system is up to date
+    if (!client.behind_) return;
+
+    uint64_t replica_ts = storage::kTimestampInitialId;
+    try {
+      auto stream{client.rpc_client_.Stream<memgraph::replication::SystemHeartbeatRpc>()};
+      const auto res = stream.AwaitResponse();
+      replica_ts = res.system_timestamp;
+    } catch (...) {
+      client.behind_ = true;
+    }
+
+    // TODO Check for branching....
+    const auto &epoch = std::get<replication::RoleMainData>(std::as_const(ReplicationState()).ReplicationData()).epoch_;
+
+    // Try to recover...
+    {
+      ForEach([&client, &epoch, ts = last_commited_system_timestamp_.load()](DatabaseAccess acc) {
+        try {
+          const auto &storage = acc->storage();
+          auto stream = client.rpc_client_.Stream<storage::replication::CreateDatabaseRpc>(std::string(epoch.id()), ts,
+                                                                                           storage->config_.salient);
+          const auto response = stream.AwaitResponse();
+          if (response.result == storage::replication::CreateDatabaseRes::Result::FAILURE) {
+            client.behind_ = true;
+            return;
+          }
+        } catch (memgraph::rpc::GenericRpcFailedException const &e) {
+          client.behind_ = true;
+          return;
+        }
+      });
+    }
+
+    // Successfully went through the deltas, we are up to date
+    client.behind_ = false;
+  }
+#endif
 
  private:
 #ifdef MG_ENTERPRISE
@@ -603,11 +685,13 @@ class DbmsHandler {
 #endif
   std::optional<SystemTransaction> system_transaction_;      //!< Current system transaction (only one at a time)
   uint64_t system_timestamp_{storage::kTimestampInitialId};  //!< System timestamp
-  std::unique_ptr<WAL> system_wal_;                          //!< System WAL
-  replication::ReplicationState repl_state_;                 //!< Global replication state
+  std::atomic_uint64_t last_commited_system_timestamp_{
+      storage::kTimestampInitialId};          //!< Last commited system timestamp
+  std::unique_ptr<WAL> system_wal_;           //!< System WAL
+  replication::ReplicationState repl_state_;  //!< Global replication state
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
 #endif
-};
+};  // namespace memgraph::dbms
 
 }  // namespace memgraph::dbms
