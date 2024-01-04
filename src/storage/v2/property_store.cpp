@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1023,7 +1023,7 @@ PropertyStore::~PropertyStore() {
 }
 
 PropertyValue PropertyStore::GetProperty(PropertyId property, const bool external,
-                                         ExternalStoreMock *external_store_mock) const {
+                                         ExternalStoreMockOld *external_store_mock) const {
   if (external) {
     int DUMMY_GRAPH_ELEMENT_ID = 1;
 
@@ -1050,15 +1050,7 @@ PropertyValue PropertyStore::GetProperty(PropertyId property, const bool externa
   return value;
 }
 
-bool PropertyStore::HasProperty(PropertyId property, const bool external,
-                                ExternalStoreMock *external_store_mock) const {
-  if (external) {
-    int DUMMY_GRAPH_ELEMENT_ID = 1;
-
-    auto properties = external_store_mock->GetDocument(DUMMY_GRAPH_ELEMENT_ID)["properties"];
-    return properties.contains(property.ToString());
-  }
-
+bool PropertyStore::HasProperty(PropertyId property) const {
   uint64_t size;
   const uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
@@ -1141,9 +1133,12 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
   return props;
 }
 
+/// NOTE: The external_store_mock argument will be removed after replacing the mock with the mgcxx Tantivy API
 bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value, const bool external,
-                                ExternalStoreMock *external_store_mock) {
+                                SearchableExternalStoreMock *external_store_mock) {
   if (external) {
+    // TODO @antepusic: assignment pending delete() in the mgcxx API
+
     int DUMMY_GRAPH_ELEMENT_ID = 1;
     nlohmann::json document;
     nlohmann::json property_map;

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,13 +20,61 @@
 
 namespace memgraph::storage {
 
+struct Context {
+  std::string tantivyContext;  // the actual type of tantivyContext is outside the mgcxx API
+};
+
+struct IndexConfig {
+  std::string mappings;
+};
+
+struct DocumentInput {
+  std::string data;
+};
+
+struct DocumentOutput {
+  std::string data;
+};
+
+struct SearchInput {
+  std::vector<std::string> search_fields;
+  std::string search_query;
+  std::vector<std::string> return_fields;
+  std::string aggregation_query;
+};
+
+struct SearchOutput {
+  std::vector<DocumentOutput> docs;
+};
+
+class SearchableExternalStoreMock {
+ public:
+  void init(std::string _log_level) {}
+
+  Context create_index(std::string path, IndexConfig config) { return Context(); }
+
+  void add(Context context, DocumentInput input, bool skip_commit) {}
+
+  void commit(Context context) {}
+
+  void rollback(Context context) {}
+
+  SearchOutput search(Context context, SearchInput input) { return SearchOutput(); }
+
+  DocumentOutput aggregate(Context context, SearchInput input) { return DocumentOutput(); }
+
+  void drop_index(std::string path) {}
+};
+
+// TODO @antepusic: remove (superseded by SearchOutput)
 struct SearchResult {
   std::uint64_t id;
   nlohmann::json document;
   double score;
 };
 
-class ExternalStoreMock {
+// TODO @antepusic: remove (superseded by SearchableExternalStoreMock)
+class ExternalStoreMockOld {
  private:
   std::string INDEX = "";  // placeholder (Tantivy supports multiple indices)
   std::map<std::string, std::map<std::uint64_t, nlohmann::json>> storage{};  // index_name: {document_id: document}
@@ -83,13 +131,11 @@ class PropertyStore {
   /// property doesn't exist a Null value is returned. The time complexity of
   /// this function is O(n).
   /// @throw std::bad_alloc
-  PropertyValue GetProperty(PropertyId property, const bool external = false,
-                            ExternalStoreMock *external_store_mock = nullptr) const;
+  PropertyValue GetProperty(PropertyId property) const;
 
   /// Checks whether the property `property` exists in the store. The time
   /// complexity of this function is O(n).
-  bool HasProperty(PropertyId property, const bool external = false,
-                   ExternalStoreMock *external_store_mock = nullptr) const;
+  bool HasProperty(PropertyId property) const;
 
   /// Checks whether all properties in the set `properties` exist in the store. The time
   /// complexity of this function is O(n^2).
@@ -119,8 +165,12 @@ class PropertyStore {
   /// returned if assignment took place. The time complexity of this function is
   /// O(n).
   /// @throw std::bad_alloc
+  /// NOTE: The external_store_mock argument will be removed after replacing the mock with the mgcxx Tantivy API
   bool SetProperty(PropertyId property, const PropertyValue &value, const bool external = false,
-                   ExternalStoreMock *external_store_mock = nullptr);
+                   SearchableExternalStoreMock *external_store_mock = nullptr);
+
+  bool SetProperty(PropertyId property, const PropertyValue &value, nlohmann::json metadata,
+                   SearchableExternalStoreMock *external_store_mock = nullptr);
 
   /// Init property values and return `true` if insertion took place. `false` is
   /// returned if there is any existing property in property store and insertion couldn't take place. The time
