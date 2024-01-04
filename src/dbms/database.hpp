@@ -84,6 +84,13 @@ class Database {
   const std::string &name() const { return storage_->name(); }
 
   /**
+   * @brief Unique storage identified (uuid)
+   *
+   * @return const utils::UUID&
+   */
+  const utils::UUID &uuid() const { return storage_->uuid(); }
+
+  /**
    * @brief Returns the storage configuration
    *
    * @return const storage::Config&

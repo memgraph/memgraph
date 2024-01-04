@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,7 @@
 
 #pragma once
 
-#include "storage/v2/storage.hpp"
-#include "utils/resource_lock.hpp"
+#include "storage/v2/config.hpp"
 
 namespace memgraph::dbms {
 struct SystemTransaction {

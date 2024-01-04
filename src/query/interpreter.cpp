@@ -4096,7 +4096,7 @@ void Interpreter::Commit() {
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
     // No database nor db transaction; check for system transaction
     if (!system_transaction) return;
-    // auto expected = TransactionStatus::SYSTEM;
+    // TODO auto expected = TransactionStatus::SYSTEM;
     auto expected = TransactionStatus::ACTIVE;
     if (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_COMMITTING))
       return;  // NOT SYSTEM

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,6 +43,14 @@ class GenericRpcFailedException : public RpcFailedException {
             "database administrator.") {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(GenericRpcFailedException);
+};
+
+class SlkRpcFailedException : public RpcFailedException {
+ public:
+  SlkRpcFailedException()
+      : RpcFailedException("Received malformed message from cluster. Please raise an issue with Memgraph developer.") {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(SlkRpcFailedException);
 };
 
 }  // namespace memgraph::rpc

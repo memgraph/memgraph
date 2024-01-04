@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "replication/replication_client.hpp"
-#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
@@ -18,7 +17,6 @@
 #include "utils/variant_helpers.hpp"
 
 #include <algorithm>
-#include <type_traits>
 
 namespace {
 template <typename>
@@ -39,31 +37,15 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, std::any gk)
   std::optional<rpc::Client::StreamHandler<replication::HeartbeatRpc>> hb_stream{};
 
   hb_stream.emplace(client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-      storage->name(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()}));
+      storage->uuid(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()}));
   replica = hb_stream->AwaitResponse();
 
-#ifdef MG_ENTERPRISE  // Multi-tenancy is only supported in enterprise
-  // TODO This should be recovery
-  auto uuid = std::string{storage->config_.salient.uuid};
-  bool db_exists = replica.success && replica.db_name == uuid;
-  if (!db_exists) {     // Replica is missing the current database
-    hb_stream.reset();  // Shutdown the current stream, update and restart the stream
-    {
-      auto stream{client_.rpc_client_.Stream<storage::replication::CreateDatabaseRpc>(
-          "",  // epoch id
-          0,   // current_group_clock,//TODO: make actual clock
-          storage->config_.salient)};
-      const auto response = stream.AwaitResponse();
-      if (response.result == storage::replication::CreateDatabaseRes::Result::FAILURE) {
-        // TODO: This replica needs SYSTEM recovery
-        spdlog::debug("{}", replica.db_name);
-        spdlog::debug("Replica '{}' missing database '{}' - '{}'", client_.name_, storage->name(), uuid);
-        return;
-      }
-    }
-    hb_stream.emplace(client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-        storage->name(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()}));
-    replica = hb_stream->AwaitResponse();
+#ifdef MG_ENTERPRISE       // Multi-tenancy is only supported in enterprise
+  if (!replica.success) {  // Replica is missing the current database
+    spdlog::debug("Replica '{}' missing database '{}' - '{}'", client_.name_, storage->name(),
+                  std::string{storage->uuid()});
+    client_.behind_ = true;
+    return;
   }
 #endif
 
@@ -113,16 +95,18 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
   info.current_number_of_timestamp_behind_master = 0;
 
   try {
-    auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(storage->name())};
+    auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(storage->uuid())};
     const auto response = stream.AwaitResponse();
     const auto is_success = response.success;
-    if (!is_success) {
-      replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
-      LogRpcFailure();
-    }
+
     auto main_time_stamp = storage->repl_storage_state_.last_commit_timestamp_.load();
     info.current_timestamp_of_replica = response.current_commit_timestamp;
     info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
+
+    if (!is_success || info.current_number_of_timestamp_behind_master != 0) {
+      replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
+      LogRpcFailure();
+    }
   } catch (const rpc::RpcFailedException &) {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
     LogRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably
@@ -207,7 +191,14 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
     return false;
   }
 
-  if (replica_stream_->IsDefunct()) return false;
+  if (!replica_stream_ || replica_stream_->IsDefunct()) {
+    replica_state_.WithLock([this](auto &state) {
+      replica_stream_.reset();
+      state = replication::ReplicaState::MAYBE_BEHIND;
+    });
+    LogRpcFailure();
+    return false;
+  }
 
   auto task = [storage, gk = std::move(gk), this]() mutable {
     MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
@@ -267,12 +258,12 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
         std::visit(utils::Overloaded{
                        [&replica_commit, mem_storage, &rpcClient](RecoverySnapshot const &snapshot) {
                          spdlog::debug("Sending the latest snapshot file: {}", snapshot);
-                         auto response = TransferSnapshot(mem_storage->name(), rpcClient, snapshot);
+                         auto response = TransferSnapshot(mem_storage->uuid(), rpcClient, snapshot);
                          replica_commit = response.current_commit_timestamp;
                        },
                        [&replica_commit, mem_storage, &rpcClient](RecoveryWals const &wals) {
                          spdlog::debug("Sending the latest wal files");
-                         auto response = TransferWalFiles(mem_storage->name(), rpcClient, wals);
+                         auto response = TransferWalFiles(mem_storage->uuid(), rpcClient, wals);
                          replica_commit = response.current_commit_timestamp;
                          spdlog::debug("Wal files successfully transferred.");
                        },
@@ -325,7 +316,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
 ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const uint64_t current_seq_num)
     : storage_{storage},
       stream_(rpc_client.Stream<replication::AppendDeltasRpc>(
-          storage->name(), storage->repl_storage_state_.last_commit_timestamp_.load(), current_seq_num)) {
+          storage->uuid(), storage->repl_storage_state_.last_commit_timestamp_.load(), current_seq_num)) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }

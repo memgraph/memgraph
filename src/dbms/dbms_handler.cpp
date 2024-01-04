@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 #include <filesystem>
 
 #include "dbms/constants.hpp"
+#include "replication/include/replication/messages.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/replication/rpc.hpp"
 #include "utils/exceptions.hpp"
@@ -164,6 +165,7 @@ DbmsHandler::DbmsHandler(
       utils::Split(&out, wal_it->first, ":", 2);
       system_timestamp_ = std::max(system_timestamp_, std::stoul(out[1]));
     }
+    last_commited_system_timestamp_ = system_timestamp_;
   } else {  // Clear databases from the durability list and auth
     auto locked_auth = auth->Lock();
     auto it = durability_->begin("database");
@@ -211,6 +213,11 @@ DbmsHandler::DbmsHandler(
           spdlog::debug("Received CreateDatabaseRpc");
           CreateDatabaseHandler(dbms_handler, req_reader, res_builder);
         });
+    data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
+        [ts = LastCommitedTS()](auto *req_reader, auto *res_builder) {
+          spdlog::debug("Received SystemHeartbeatRpc");
+          SystemHeartbeatHandler(ts, req_reader, res_builder);
+        });
     // TODO: Add more handlers -> system
     if (!data.server->Start()) {
       spdlog::error("Unable to start the replication server.");
@@ -220,6 +227,9 @@ DbmsHandler::DbmsHandler(
   };
   // Replication recovery and frequent check start
   auto main = [this](replication::RoleMainData &data) {
+    for (auto &client : data.registered_replicas_) {
+      SystemRestore(client);
+    }
     ForEach([this](DatabaseAccess db) { RecoverReplication(db); });
     for (auto &client : data.registered_replicas_) {
       StartReplicaClient(*this, client);
