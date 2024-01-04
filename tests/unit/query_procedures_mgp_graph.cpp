@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,6 +33,8 @@
 #include "test_utils.hpp"
 #include "utils/memory.hpp"
 #include "utils/variant_helpers.hpp"
+
+using memgraph::replication::ReplicationRole;
 
 #define EXPECT_SUCCESS(...) EXPECT_EQ(__VA_ARGS__, mgp_error::MGP_ERROR_NO_ERROR)
 
@@ -155,7 +157,7 @@ class MgpGraphTest : public ::testing::Test {
   }
 
   memgraph::query::DbAccessor &CreateDbAccessor(const memgraph::storage::IsolationLevel isolationLevel) {
-    accessors_.push_back(storage->Access(isolationLevel));
+    accessors_.push_back(storage->Access(ReplicationRole::MAIN, isolationLevel));
     db_accessors_.emplace_back(accessors_.back().get());
     return db_accessors_.back();
   }
@@ -194,7 +196,8 @@ TYPED_TEST(MgpGraphTest, CreateVertex) {
     return;
   }
   mgp_graph graph = this->CreateGraph();
-  auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+  auto read_uncommited_accessor =
+      this->storage->Access(ReplicationRole::MAIN, memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
   EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 0);
   MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_create_vertex, &graph, &this->memory)};
   EXPECT_NE(vertex, nullptr);
@@ -217,7 +220,8 @@ TYPED_TEST(MgpGraphTest, DeleteVertex) {
     ASSERT_FALSE(accessor.Commit().HasError());
   }
   mgp_graph graph = this->CreateGraph();
-  auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+  auto read_uncommited_accessor =
+      this->storage->Access(ReplicationRole::MAIN, memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
   EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 1);
   MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
                                           mgp_vertex_id{vertex_id.AsInt()}, &this->memory)};
@@ -233,7 +237,8 @@ TYPED_TEST(MgpGraphTest, DetachDeleteVertex) {
   }
   const auto vertex_ids = this->CreateEdge();
   auto graph = this->CreateGraph();
-  auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+  auto read_uncommited_accessor =
+      this->storage->Access(ReplicationRole::MAIN, memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
   EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 2);
   MgpVertexPtr vertex{EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph,
                                           mgp_vertex_id{vertex_ids.front().AsInt()}, &this->memory)};
@@ -255,7 +260,8 @@ TYPED_TEST(MgpGraphTest, CreateDeleteWithImmutableGraph) {
     vertex_id = vertex.Gid();
     ASSERT_FALSE(accessor.Commit().HasError());
   }
-  auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+  auto read_uncommited_accessor =
+      this->storage->Access(ReplicationRole::MAIN, memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
   EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 1);
 
   mgp_graph immutable_graph = this->CreateGraph(memgraph::storage::View::OLD);
@@ -326,7 +332,8 @@ TYPED_TEST(MgpGraphTest, VertexSetProperty) {
     ASSERT_TRUE(result.HasValue());
     ASSERT_FALSE(accessor.Commit().HasError());
   }
-  auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+  auto read_uncommited_accessor =
+      this->storage->Access(ReplicationRole::MAIN, memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
   EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 1);
 
   mgp_graph graph = this->CreateGraph(memgraph::storage::View::NEW);
@@ -396,7 +403,8 @@ TYPED_TEST(MgpGraphTest, VertexAddLabel) {
   auto check_label = [&]() {
     EXPECT_NE(EXPECT_MGP_NO_ERROR(int, mgp_vertex_has_label_named, vertex.get(), label.data()), 0);
 
-    auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+    auto read_uncommited_accessor =
+        this->storage->Access(ReplicationRole::MAIN, memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
     const auto maybe_vertex = read_uncommited_accessor->FindVertex(vertex_id, memgraph::storage::View::NEW);
     ASSERT_TRUE(maybe_vertex);
     const auto label_ids = maybe_vertex->Labels(memgraph::storage::View::NEW);
@@ -433,7 +441,8 @@ TYPED_TEST(MgpGraphTest, VertexRemoveLabel) {
   auto check_label = [&]() {
     EXPECT_EQ(EXPECT_MGP_NO_ERROR(int, mgp_vertex_has_label_named, vertex.get(), label.data()), 0);
 
-    auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+    auto read_uncommited_accessor =
+        this->storage->Access(ReplicationRole::MAIN, memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
     const auto maybe_vertex = read_uncommited_accessor->FindVertex(vertex_id, memgraph::storage::View::NEW);
     ASSERT_TRUE(maybe_vertex);
     const auto label_ids = maybe_vertex->Labels(memgraph::storage::View::NEW);
@@ -622,14 +631,15 @@ TYPED_TEST(MgpGraphTest, EdgeSetProperty) {
   {
     const auto vertex_ids = this->CreateEdge();
     from_vertex_id = vertex_ids[0];
-    auto accessor = this->storage->Access(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto accessor = this->storage->Access(ReplicationRole::MAIN, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
     auto edge = get_edge(accessor.get());
     const auto result =
         edge.SetProperty(accessor->NameToProperty(property_to_update), memgraph::storage::PropertyValue(42));
     ASSERT_TRUE(result.HasValue());
     ASSERT_FALSE(accessor->Commit().HasError());
   }
-  auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+  auto read_uncommited_accessor =
+      this->storage->Access(ReplicationRole::MAIN, memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
 
   mgp_graph graph = this->CreateGraph(memgraph::storage::View::NEW);
   MgpEdgePtr edge;

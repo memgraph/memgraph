@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -288,7 +288,7 @@ DiskStorage::~DiskStorage() {
 
 DiskStorage::DiskAccessor::DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level,
                                         StorageMode storage_mode)
-    : Accessor(tag, storage, isolation_level, storage_mode) {
+    : Accessor(tag, storage, isolation_level, storage_mode, memgraph::replication::ReplicationRole::MAIN) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
   transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
@@ -837,10 +837,10 @@ StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
   return info;
 }
 
-StorageInfo DiskStorage::GetInfo(bool force_dir) {
+StorageInfo DiskStorage::GetInfo(bool force_dir, memgraph::replication::ReplicationRole replication_role) {
   StorageInfo info = GetBaseInfo(force_dir);
   {
-    auto access = Access(std::nullopt);
+    auto access = Access(replication_role);
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
@@ -2005,7 +2005,8 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
-Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool /*is_main*/) {
+Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
+                                           memgraph::replication::ReplicationRole /*is_main*/) {
   /// We acquire the transaction engine lock here because we access (and
   /// modify) the transaction engine variables (`transaction_id` and
   /// `timestamp`) below.
@@ -2030,8 +2031,8 @@ uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_comm
   return *desired_commit_timestamp;
 }
 
-std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLevel> override_isolation_level,
-                                                       bool /*is_main*/) {
+std::unique_ptr<Storage::Accessor> DiskStorage::Access(memgraph::replication::ReplicationRole /*replication_role*/,
+                                                       std::optional<IsolationLevel> override_isolation_level) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
@@ -2039,8 +2040,9 @@ std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLe
   return std::unique_ptr<DiskAccessor>(
       new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_});
 }
-std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
-                                                             bool /*is_main*/) {
+std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(
+    memgraph::replication::ReplicationRole /*replication_role*/,
+    std::optional<IsolationLevel> override_isolation_level) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
