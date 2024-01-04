@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "utils/memcxx.hpp"
+
 namespace memgraph::storage {
 
 class TextIndex {
@@ -20,20 +22,42 @@ class TextIndex {
   TextIndex &operator=(const TextIndex &) = delete;
   TextIndex &operator=(TextIndex &&) = delete;
 
-  virtual ~TextIndex() = default;
+  ~TextIndex() = default;
 
-  virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
+  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) {}
 
-  // Not used for in-memory
-  virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
+  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) {}
 
-  virtual bool DropIndex(LabelId label) = 0;
+  /// @throw std::bad_alloc
+  bool CreateIndex(LabelId label, const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+    auto index_config = memcxx_mock::text_search::IndexConfig{.mappings = "TODO antepusic"};
+    auto new_index = memcxx_mock::text_search::Mock::create_index(label.ToString(), index_config);
+    index_[label] = new_index;
+    return true;
 
-  virtual bool IndexExists(LabelId label) const = 0;
+    // TODO add documents to index
+  }
 
-  virtual std::vector<LabelId> ListIndices() const = 0;
+  bool DropIndex(LabelId label) {
+    memcxx_mock::text_search::Mock::drop_index(label.ToString());
+    index_.erase(label);
+    return true;
+  }
 
-  virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
+  bool IndexExists(LabelId label) { return index_.contains(label); }
+
+  std::vector<LabelId> ListIndices() {
+    std::vector<LabelId> ret;
+    ret.reserve(index_.size());
+    for (const auto &item : index_) {
+      ret.push_back(item.first);
+    }
+    return ret;
+  }
+
+  uint64_t ApproximateVertexCount(LabelId label) { return 10; }
+
+  std::map<LabelId, memcxx_mock::text_search::IndexContext> index_;
 };
 
 }  // namespace memgraph::storage

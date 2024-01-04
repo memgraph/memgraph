@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -254,6 +254,17 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateTextIndex(LabelId label) {
+      // TODO: pass vertices to CreateIndex
+      storage_->indices_.text_index_->CreateIndex(label, std::nullopt);
+      return {};
+    }
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropTextIndex(LabelId label) {
+      storage_->indices_.text_index_->DropIndex(label);
+      return {};
+    }
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;

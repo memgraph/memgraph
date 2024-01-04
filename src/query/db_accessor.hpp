@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -626,6 +626,14 @@ class DbAccessor final {
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label,
                                                                            storage::PropertyId property) {
     return accessor_->DropIndex(label, property);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(storage::LabelId label) {
+    return accessor_->CreateTextIndex(label);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(storage::LabelId label) {
+    return accessor_->DropTextIndex(label);
   }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,6 +55,7 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &valu
 
 Indices::Indices(const Config &config, StorageMode storage_mode) {
   std::invoke([this, config, storage_mode]() {
+    text_index_ = std::make_unique<TextIndex>();
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>();
       label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>();
