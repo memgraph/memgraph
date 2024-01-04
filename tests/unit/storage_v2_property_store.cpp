@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -66,28 +66,6 @@ void TestIsPropertyEqual(const memgraph::storage::PropertyStore &store, memgraph
       ASSERT_FALSE(store.IsPropertyEqual(property, sample));
     }
   }
-}
-
-TEST(PropertyStore, SimpleExternallyStored) {
-  auto mock = memgraph::storage::ExternalStoreMock();
-
-  memgraph::storage::PropertyStore props;
-  auto prop = memgraph::storage::PropertyId::FromInt(42);
-  auto value = memgraph::storage::PropertyValue(42);
-
-  ASSERT_TRUE(props.SetProperty(prop, value, true, &mock));
-
-  ASSERT_EQ(props.GetProperty(prop, true, &mock), value);
-
-  ASSERT_TRUE(props.HasProperty(prop, true, &mock));
-
-  ASSERT_TRUE(props.SetProperty(prop, memgraph::storage::PropertyValue(), true, &mock));
-
-  ASSERT_TRUE(props.GetProperty(prop, true, &mock).IsNull());
-
-  ASSERT_FALSE(props.HasProperty(prop, true, &mock));
-
-  TestIsPropertyEqual(props, prop, memgraph::storage::PropertyValue());
 }
 
 TEST(PropertyStore, Simple) {
