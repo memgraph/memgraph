@@ -30,6 +30,6 @@ target_include_directories(mg-replication PUBLIC include)
 
 find_package(fmt REQUIRED)
 target_link_libraries(mg-replication
-    PUBLIC mg::utils mg::kvstore lib::json mg::rpc mg::slk
+    PUBLIC mg::utils mg::kvstore lib::json mg::rpc mg::slk mg::io
     PRIVATE fmt::fmt
 )

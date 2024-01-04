@@ -18,6 +18,7 @@
 #include "dbms/replication_client.hpp"
 #include "replication/state.hpp"
 
+using memgraph::replication::ReplicationClientConfig;
 using memgraph::replication::ReplicationServer;
 using memgraph::replication::ReplicationState;
 using memgraph::replication::RoleMainData;

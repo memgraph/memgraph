@@ -11,9 +11,6 @@
 
 #include "replication/coordinator.hpp"
 
-#include "replication/replication_client.hpp"
-#include "utils/result.hpp"
-
 namespace memgraph::replication {
 
 #ifdef MG_ENTERPRISE

@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "replication/coordinator_entity_info.hpp"
 #include "replication/role.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/result.hpp"
@@ -21,6 +20,7 @@ namespace memgraph::replication {
 struct ReplicationState;
 struct ReplicationServerConfig;
 struct ReplicationClientConfig;
+struct CoordinatorEntityInfo;
 }  // namespace memgraph::replication
 
 namespace memgraph::dbms {

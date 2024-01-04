@@ -38,7 +38,6 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
-#include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
@@ -122,6 +121,12 @@ extern const Event CommitedTransactions;
 extern const Event RollbackedTransactions;
 extern const Event ActiveTransactions;
 }  // namespace memgraph::metrics
+
+#ifdef MG_ENTERPRISE
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(coordinator);
+#endif
+
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit, bool unique) {
   auto &db_acc = *db_acc_;
@@ -3915,7 +3920,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // }
 
 #ifdef MG_ENTERPRISE
-    if (FLAGS_coordinator && !utils::Downcast<ReplicationQuery>(parsed_query.query)) {
+    if (FLAGS_coordinator && !utils::Downcast<ReplicationQuery>(parsed_query.query) &&
+        !utils::Downcast<SettingQuery>(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only replication queries!");
     }
 #endif
