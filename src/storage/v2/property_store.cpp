@@ -1022,19 +1022,18 @@ PropertyStore::~PropertyStore() {
   }
 }
 
-PropertyValue PropertyStore::GetProperty(PropertyId property, const bool external,
-                                         ExternalStoreMockOld *external_store_mock) const {
-  if (external) {
-    int DUMMY_GRAPH_ELEMENT_ID = 1;
+PropertyValue PropertyStore::GetProperty(PropertyId property) const {
+  // if (external) {
+  //   int DUMMY_GRAPH_ELEMENT_ID = 1;
 
-    auto key = property.ToString();
-    auto properties = external_store_mock->GetDocument(DUMMY_GRAPH_ELEMENT_ID)["properties"];
-    if (!properties.contains(key)) {
-      return PropertyValue();
-    }
+  //   auto key = property.ToString();
+  //   auto properties = external_store_mock->GetDocument(DUMMY_GRAPH_ELEMENT_ID)["properties"];
+  //   if (!properties.contains(key)) {
+  //     return PropertyValue();
+  //   }
 
-    return PropertyValue(properties.at(key).get<int64_t>());
-  }
+  //   return PropertyValue(properties.at(key).get<int64_t>());
+  // }
 
   uint64_t size;
   const uint8_t *data;
@@ -1134,24 +1133,23 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
 }
 
 /// NOTE: The external_store_mock argument will be removed after replacing the mock with the mgcxx Tantivy API
-bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value, const bool external,
-                                SearchableExternalStoreMock *external_store_mock) {
-  if (external) {
-    // TODO @antepusic: assignment pending delete() in the mgcxx API
+bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
+  // if (external) {
+  //   // TODO @antepusic: assignment pending delete() in the mgcxx API
 
-    int DUMMY_GRAPH_ELEMENT_ID = 1;
-    nlohmann::json document;
-    nlohmann::json property_map;
+  //   int DUMMY_GRAPH_ELEMENT_ID = 1;
+  //   nlohmann::json document;
+  //   nlohmann::json property_map;
 
-    if (!value.IsNull()) {
-      property_map[property.ToString()] = value.ValueInt();
-    }
+  //   if (!value.IsNull()) {
+  //     property_map[property.ToString()] = value.ValueInt();
+  //   }
 
-    document["id"] = DUMMY_GRAPH_ELEMENT_ID;
-    document["properties"] = property_map;
-    external_store_mock->AddDocument(DUMMY_GRAPH_ELEMENT_ID, document);
-    return true;
-  }
+  //   document["id"] = DUMMY_GRAPH_ELEMENT_ID;
+  //   document["properties"] = property_map;
+  //   external_store_mock->AddDocument(DUMMY_GRAPH_ELEMENT_ID, document);
+  //   return true;
+  // }
 
   uint64_t property_size = 0;
   if (!value.IsNull()) {

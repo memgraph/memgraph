@@ -20,93 +20,6 @@
 
 namespace memgraph::storage {
 
-struct Context {
-  std::string tantivyContext;  // the actual type of tantivyContext is outside the mgcxx API
-};
-
-struct IndexConfig {
-  std::string mappings;
-};
-
-struct DocumentInput {
-  std::string data;
-};
-
-struct DocumentOutput {
-  std::string data;
-};
-
-struct SearchInput {
-  std::vector<std::string> search_fields;
-  std::string search_query;
-  std::vector<std::string> return_fields;
-  std::string aggregation_query;
-};
-
-struct SearchOutput {
-  std::vector<DocumentOutput> docs;
-};
-
-class SearchableExternalStoreMock {
- public:
-  void init(std::string _log_level) {}
-
-  Context create_index(std::string path, IndexConfig config) { return Context(); }
-
-  void add(Context context, DocumentInput input, bool skip_commit) {}
-
-  void commit(Context context) {}
-
-  void rollback(Context context) {}
-
-  SearchOutput search(Context context, SearchInput input) { return SearchOutput(); }
-
-  DocumentOutput aggregate(Context context, SearchInput input) { return DocumentOutput(); }
-
-  void drop_index(std::string path) {}
-};
-
-// TODO @antepusic: remove (superseded by SearchOutput)
-struct SearchResult {
-  std::uint64_t id;
-  nlohmann::json document;
-  double score;
-};
-
-// TODO @antepusic: remove (superseded by SearchableExternalStoreMock)
-class ExternalStoreMockOld {
- private:
-  std::string INDEX = "";  // placeholder (Tantivy supports multiple indices)
-  std::map<std::string, std::map<std::uint64_t, nlohmann::json>> storage{};  // index_name: {document_id: document}
-
- public:
-  enum class Consistency : uint8_t { DEFAULT };
-
-  void CreateAllPropsIndex(std::string index_name, LabelId label, std::string tokenizer = "DUMMY_TOKENIZER",
-                           Consistency consistency = Consistency::DEFAULT);
-
-  void CreateIndex(std::string index_name, LabelId label, std::vector<PropertyId> properties,
-                   std::string tokenizer = "DUMMY_TOKENIZER", Consistency consistency = Consistency::DEFAULT);
-
-  void DropIndex(std::string index_name) { storage.erase(index_name); }
-
-  /// @brief Add document with given ID
-  /// @param id Id of graph element
-  /// @param document Document storing the properties
-  void AddDocument(std::uint64_t id, nlohmann::json document) { storage[INDEX][id] = document; }
-
-  nlohmann::json GetDocument(std::uint64_t id) { return storage[INDEX][id]; }
-
-  void DeleteDocument(std::uint64_t id) { storage[INDEX].erase(id); }
-
-  // storage::IndicesInfo ListAllTextIndices(); TODO make IndicesInfo visible here
-
-  SearchResult Search(std::string index_name, std::string search_query) {
-    auto mock_result = storage[index_name].begin();
-    return SearchResult{.id = mock_result->first, .document = mock_result->second, .score = 1.0};
-  }
-};
-
 class PropertyStore {
   static_assert(std::endian::native == std::endian::little,
                 "PropertyStore supports only architectures using little-endian.");
@@ -166,11 +79,9 @@ class PropertyStore {
   /// O(n).
   /// @throw std::bad_alloc
   /// NOTE: The external_store_mock argument will be removed after replacing the mock with the mgcxx Tantivy API
-  bool SetProperty(PropertyId property, const PropertyValue &value, const bool external = false,
-                   SearchableExternalStoreMock *external_store_mock = nullptr);
-
-  bool SetProperty(PropertyId property, const PropertyValue &value, nlohmann::json metadata,
-                   SearchableExternalStoreMock *external_store_mock = nullptr);
+  bool SetProperty(PropertyId property, const PropertyValue &value);
+  // , const bool external = false,
+  //  SearchableExternalStoreMock *external_store_mock = nullptr);
 
   /// Init property values and return `true` if insertion took place. `false` is
   /// returned if there is any existing property in property store and insertion couldn't take place. The time
