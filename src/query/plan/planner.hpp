@@ -130,7 +130,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
   } else {
     auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, context);
     auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-    total_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table).first;
+    total_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table).cost;
     curr_plan.emplace(std::move(rewritten_plan));
   }
 
