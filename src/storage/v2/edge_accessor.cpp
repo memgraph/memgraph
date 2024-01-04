@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/atomic_memory_block.hpp"
 #include "utils/memory_tracker.hpp"
 
 namespace memgraph::storage {
@@ -126,24 +127,28 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
-
-  auto current_value = edge_.ptr->properties.GetProperty(property);
-  // We could skip setting the value if the previous one is the same to the new
-  // one. This would save some memory as a delta would not be created as well as
-  // avoid copying the value. The reason we are not doing that is because the
-  // current code always follows the logical pattern of "create a delta" and
-  // "modify in-place". Additionally, the created delta will make other
-  // transactions get a SERIALIZATION_ERROR.
-
-  CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, current_value);
-  edge_.ptr->properties.SetProperty(property, value);
+  using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
+  std::optional<ReturnType> current_value;
+  utils::AtomicMemoryBlock atomic_memory_block{
+      [&current_value, &property, &value, transaction = transaction_, edge = edge_]() {
+        current_value.emplace(edge.ptr->properties.GetProperty(property));
+        // We could skip setting the value if the previous one is the same to the new
+        // one. This would save some memory as a delta would not be created as well as
+        // avoid copying the value. The reason we are not doing that is because the
+        // current code always follows the logical pattern of "create a delta" and
+        // "modify in-place". Additionally, the created delta will make other
+        // transactions get a SERIALIZATION_ERROR.
+        CreateAndLinkDelta(transaction, edge.ptr, Delta::SetPropertyTag(), property, *current_value);
+        edge.ptr->properties.SetProperty(property, value);
+      }};
+  std::invoke(atomic_memory_block);
 
   if (transaction_->IsDiskStorage()) {
     ModifiedEdgeInfo modified_edge(Delta::Action::SET_PROPERTY, from_vertex_->gid, to_vertex_->gid, edge_type_, edge_);
     transaction_->AddModifiedEdge(Gid(), modified_edge);
   }
 
-  return std::move(current_value);
+  return std::move(*current_value);
 }
 
 Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
@@ -157,9 +162,12 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
   if (!edge_.ptr->properties.InitProperties(properties)) return false;
-  for (const auto &[property, _] : properties) {
-    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, PropertyValue());
-  }
+  utils::AtomicMemoryBlock atomic_memory_block{[&properties, transaction_ = transaction_, edge_ = edge_]() {
+    for (const auto &[property, _] : properties) {
+      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, PropertyValue());
+    }
+  }};
+  std::invoke(atomic_memory_block);
 
   return true;
 }
@@ -175,13 +183,18 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
-  auto id_old_new_change = edge_.ptr->properties.UpdateProperties(properties);
+  using ReturnType = decltype(edge_.ptr->properties.UpdateProperties(properties));
+  std::optional<ReturnType> id_old_new_change;
+  utils::AtomicMemoryBlock atomic_memory_block{
+      [transaction_ = transaction_, edge_ = edge_, &properties, &id_old_new_change]() {
+        id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
+        for (auto &[property, old_value, new_value] : *id_old_new_change) {
+          CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
+        }
+      }};
+  std::invoke(atomic_memory_block);
 
-  for (auto &[property, old_value, new_value] : id_old_new_change) {
-    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
-  }
-
-  return id_old_new_change;
+  return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
@@ -193,14 +206,19 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
-  auto properties = edge_.ptr->properties.Properties();
-  for (const auto &property : properties) {
-    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property.first, property.second);
-  }
+  using ReturnType = decltype(edge_.ptr->properties.Properties());
+  std::optional<ReturnType> properties;
+  utils::AtomicMemoryBlock atomic_memory_block{[&properties, transaction_ = transaction_, edge_ = edge_]() {
+    properties.emplace(edge_.ptr->properties.Properties());
+    for (const auto &property : *properties) {
+      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property.first, property.second);
+    }
 
-  edge_.ptr->properties.ClearProperties();
+    edge_.ptr->properties.ClearProperties();
+  }};
+  std::invoke(atomic_memory_block);
 
-  return std::move(properties);
+  return properties.has_value() ? std::move(properties.value()) : ReturnType{};
 }
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {

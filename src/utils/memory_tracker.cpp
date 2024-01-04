@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -122,6 +122,19 @@ void MemoryTracker::Alloc(const int64_t size) {
                     GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(current_hard_limit)));
   }
   UpdatePeak(will_be);
+}
+
+void MemoryTracker::DoCheck() {
+  const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
+  const auto current_amount = amount_.load(std::memory_order_relaxed);
+  if (current_hard_limit && current_amount > current_hard_limit && MemoryTrackerCanThrow()) [[unlikely]] {
+    MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
+    throw OutOfMemoryException(
+        fmt::format("Memory limit exceeded! Current "
+                    "use is {}, while the maximum allowed size for allocation is set to {}.",
+                    GetReadableSize(static_cast<double>(current_amount)),
+                    GetReadableSize(static_cast<double>(current_hard_limit))));
+  }
 }
 
 void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }

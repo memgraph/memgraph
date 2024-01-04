@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -163,7 +163,7 @@ int main(int argc, char **argv) {
         // libstd.
         auto gil = memgraph::py::EnsureGIL();
         // NOLINTNEXTLINE(hicpp-signed-bitwise)
-        auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
+        auto *flag = PyLong_FromLong(RTLD_NOW);
         auto *setdl = PySys_GetObject("setdlopenflags");
         MG_ASSERT(setdl);
         auto *arg = PyTuple_New(1);
@@ -183,6 +183,10 @@ int main(int argc, char **argv) {
     spdlog::error(memgraph::utils::MessageWithLink("Unable to load support for embedded Python: {}.", e.what(),
                                                    "https://memgr.ph/python"));
   }
+
+  memgraph::utils::Scheduler python_gc_scheduler;
+  python_gc_scheduler.Run("Python GC", std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec),
+                          [] { memgraph::query::procedure::PyCollectGarbage(); });
 
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
@@ -318,6 +322,11 @@ int main(int argc, char **argv) {
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
       .storage_mode = memgraph::flags::ParseStorageMode()};
+
+  memgraph::utils::Scheduler jemalloc_purge_scheduler;
+  jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
+                               [] { memgraph::memory::PurgeUnusedMemory(); });
+
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(
