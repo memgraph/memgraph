@@ -46,7 +46,7 @@ jobs:
 
           # Build community binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DMG_ENTERPRISE=OFF ..
+          CC=clang CXX=clang++ cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DMG_ENTERPRISE=OFF ..
           make -j$THREADS
 
       - name: Run unit tests
@@ -84,7 +84,7 @@ jobs:
 
           # Build coverage binaries.
           cd build
-          cmake -DTEST_COVERAGE=ON ..
+          CC=clang CXX=clang++ cmake -DTEST_COVERAGE=ON ..
           make -j$THREADS memgraph__unit
 
       - name: Run unit tests
@@ -141,7 +141,7 @@ jobs:
 
           # Build debug binaries.
           cd build
-          cmake ..
+          CC=clang CXX=clang++ cmake ..
           make -j$THREADS
 
       - name: Run leftover CTest tests
@@ -207,7 +207,7 @@ jobs:
 
           # Build release binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          CC=clang CXX=clang++ cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
           make -j$THREADS
 
       - name: Create enterprise DEB package
