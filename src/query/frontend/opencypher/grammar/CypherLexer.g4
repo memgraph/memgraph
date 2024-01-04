@@ -129,6 +129,7 @@ SHOW           : S H O W ;
 SINGLE         : S I N G L E ;
 STARTS         : S T A R T S ;
 STORAGE        : S T O R A G E ;
+TEXT           : T E X T ;
 THEN           : T H E N ;
 TRUE           : T R U E ;
 UNION          : U N I O N ;

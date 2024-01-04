@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2195,17 +2195,21 @@ class IndexQuery : public memgraph::query::Query {
 
   enum class Action { CREATE, DROP };
 
+  enum class Type { LOOKUP, TEXT };
+
   IndexQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::IndexQuery::Action action_;
+  memgraph::query::IndexQuery::Type type_;
   memgraph::query::LabelIx label_;
   std::vector<memgraph::query::PropertyIx> properties_;
 
   IndexQuery *Clone(AstStorage *storage) const override {
     IndexQuery *object = storage->Create<IndexQuery>();
     object->action_ = action_;
+    object->type_ = type_;
     object->label_ = storage->GetLabelIx(label_.name);
     object->properties_.resize(properties_.size());
     for (auto i = 0; i < object->properties_.size(); ++i) {
@@ -2215,8 +2219,8 @@ class IndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  IndexQuery(Action action, LabelIx label, std::vector<PropertyIx> properties)
-      : action_(action), label_(label), properties_(properties) {}
+  IndexQuery(Action action, Type type, LabelIx label, std::vector<PropertyIx> properties)
+      : action_(action), type_(type), label_(label), properties_(properties) {}
 
  private:
   friend class AstStorage;

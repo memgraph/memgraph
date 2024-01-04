@@ -63,7 +63,7 @@ profileQuery : PROFILE cypherQuery ;
 
 cypherQuery : singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
-indexQuery : createIndex | dropIndex;
+indexQuery : createIndex | dropIndex | createTextIndex | dropTextIndex;
 
 singleQuery : clause ( clause )* ;
 
@@ -338,6 +338,10 @@ integerLiteral : DecimalLiteral
 createIndex : CREATE INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
 
 dropIndex : DROP INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
+
+createTextIndex : CREATE TEXT INDEX ON ':' labelName ;
+
+dropTextIndex : DROP TEXT INDEX ON ':' labelName ;
 
 doubleLiteral : FloatingLiteral ;
 
