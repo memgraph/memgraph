@@ -9,10 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <gtest/gtest-typed-test.h>
 #include <gtest/gtest.h>
 
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -24,6 +26,8 @@
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/stream/streams.hpp"
+#include "query/trigger.hpp"
+#include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -1094,4 +1098,32 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 
   check_next(kDropInternalIndex);
   check_next(kRemoveInternalLabelProperty);
+}
+
+TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
+  auto acc = this->db->storage()->Access();
+  memgraph::query::DbAccessor dba(acc.get());
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "test_trigger";
+    const std::string trigger_statement = "UNWIND createdVertices AS newNodes SET newNodes.created = timestamp()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_CREATE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
+    memgraph::utils::SkipList<memgraph::query::QueryCacheEntry> ast_cache;
+    memgraph::query::AllowEverythingAuthChecker auth_checker;
+    memgraph::query::InterpreterConfig::Query query_config;
+    auto acc = this->db->storage()->Access();
+    memgraph::query::DbAccessor dba(acc.get());
+    const std::map<std::string, memgraph::storage::PropertyValue> props;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, std::nullopt, &auth_checker);
+  }
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    { memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db.get()->trigger_store()); }
+    VerifyQueries(stream.GetResults(),
+                  "CREATE TRIGGER test_trigger ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices AS newNodes "
+                  "SET newNodes.created = timestamp();");
+  }
 }
