@@ -478,5 +478,44 @@ def test_nonexistent_label_property_index(memgraph):
         assert False
 
 
+def test_index_hint_on_expand(memgraph):
+    # Prefer expanding from the node with the given hint even if estimator estimates higher cost for that plan
+
+    memgraph.execute("FOREACH (i IN range(1, 1000) | CREATE (n:Label1 {id: i}));")
+    memgraph.execute("FOREACH (i IN range(1, 10) | CREATE (n:Label2 {id: i}));")
+    memgraph.execute("CREATE INDEX ON :Label1;")
+    memgraph.execute("CREATE INDEX ON :Label2;")
+
+    expected_explain_without_hint = [
+        " * Produce {n, m}",
+        " * Filter (n :Label1)",
+        " * Expand (m)<-[anon1:rel]-(n)",
+        " * ScanAllByLabel (m :Label2)",
+        " * Once",
+    ]
+
+    expected_explain_with_hint = [
+        " * Produce {n, m}",
+        " * Filter (m :Label2)",
+        " * Expand (n)-[anon1:rel]->(m)",
+        " * ScanAllByLabel (n :Label1)",
+        " * Once",
+    ]
+
+    explain_without_hint = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch("EXPLAIN MATCH (n:Label1)-[:rel]->(m:Label2) RETURN n, m;")
+    ]
+
+    explain_with_hint = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch(
+            "EXPLAIN USING INDEX :Label1 MATCH (n:Label1)-[:rel]->(m:Label2) RETURN n, m;"
+        )
+    ]
+
+    assert explain_without_hint == expected_explain_without_hint and explain_with_hint == expected_explain_with_hint
+
+
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA"]))
+    sys.exit(pytest.main([__file__, "-rA", "-vv"]))
