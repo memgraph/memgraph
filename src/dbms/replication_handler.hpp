@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,6 @@
 
 #include "dbms/database.hpp"
 #include "replication/role.hpp"
-#include "storage/v2/storage.hpp"
 #include "utils/result.hpp"
 
 // BEGIN fwd declares
@@ -64,5 +63,15 @@ struct ReplicationHandler {
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 /// TODO: extend to do multiple storages
 void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAccess db_acc);
+
+// System handlers
+#ifdef MG_ENTERPRISE
+void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
+void SystemHeartbeatHandler(uint64_t ts, slk::Reader *req_reader, slk::Builder *res_builder);
+void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
+#endif
+
+/// Register all DBMS level RPC handlers
+void RegisterSystemRPC(replication::RoleReplicaData const &data, DbmsHandler &dbms_handler);
 
 }  // namespace memgraph::dbms

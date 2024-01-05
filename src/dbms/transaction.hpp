@@ -52,49 +52,4 @@ struct SystemTransaction {
   uint64_t system_timestamp;
 };
 
-struct WAL {
-  enum class Version : uint8_t {
-    V0 = 0,
-  };
-
-  struct UnknownVersionException : public utils::BasicException {
-    UnknownVersionException() : utils::BasicException("Unable to parse the WAL version!") {}
-  };
-
-  static Version VersionCheck(std::optional<std::string_view> val) {
-    if (val && *val == "V0") return Version::V0;
-    throw UnknownVersionException();
-  };
-
-  WAL(const std::filesystem::path &dir) : store{dir} {
-    if (store.Size() == 0) {  // Fresh store
-      store.Put("version", "V0");
-      return;
-    }
-    const auto ver = store.Get("version");
-    VersionCheck(ver);
-  }
-
-  static auto GenKey(const SystemTransaction &transaction) -> std::string {
-    DMG_ASSERT(transaction.delta, "No delta in the system transaction");
-    return fmt::format("delta:{}:{}", transaction.system_timestamp, transaction.delta->action);
-  }
-
-  /*
-   * Delta specializations...
-   */
-  static auto GenVal(SystemTransaction::Delta::CreateDatabase /*tag*/, const SystemTransaction::Delta &delta) {
-    nlohmann::json json;
-    json["config"] = delta.config;
-    return json.dump();
-  }
-
-  std::optional<std::string> Get(const std::string &key = "") const { return store.Get(key); }
-  bool Put(const std::string &key, const std::string &val) { return store.Put(key, val); }
-  auto begin(const std::string &key = "") const { return store.begin(key); }
-  auto end(const std::string &key = "") const { return store.end(key); }
-
- private:
-  kvstore::KVStore store;
-};
 }  // namespace memgraph::dbms

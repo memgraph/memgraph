@@ -231,6 +231,35 @@ struct CreateDatabaseRes {
 
 using CreateDatabaseRpc = rpc::RequestResponse<CreateDatabaseReq, CreateDatabaseRes>;
 
+struct SystemRecoveryReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
+  static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
+  SystemRecoveryReq() = default;
+  SystemRecoveryReq(std::vector<storage::SalientConfig> database_configs)
+      : database_configs(std::move(database_configs)) {}
+
+  std::vector<storage::SalientConfig> database_configs;
+};
+
+struct SystemRecoveryRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE };
+
+  static void Load(SystemRecoveryRes *self, memgraph::slk::Reader *reader);
+  static void Save(const SystemRecoveryRes &self, memgraph::slk::Builder *builder);
+  SystemRecoveryRes() = default;
+  explicit SystemRecoveryRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using SystemRecoveryRpc = rpc::RequestResponse<SystemRecoveryReq, SystemRecoveryRes>;
+
 }  // namespace memgraph::storage::replication
 
 // SLK serialization declarations
@@ -291,5 +320,13 @@ void Load(memgraph::storage::replication::CreateDatabaseReq *self, memgraph::slk
 void Save(const memgraph::storage::replication::CreateDatabaseRes &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::CreateDatabaseRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::SystemRecoveryRes *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
