@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include "query/plan/operator.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+using memgraph::replication::ReplicationRole;
 
 template <typename StorageType>
 class QueryPlan : public testing::Test {
@@ -37,7 +38,7 @@ using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgra
 TYPED_TEST_CASE(QueryPlan, StorageTypes);
 
 TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
-  auto dba = this->db->Access();
+  auto dba = this->db->Access(ReplicationRole::MAIN);
 
   auto label = memgraph::storage::LabelId::FromInt(42);
   auto property = memgraph::storage::PropertyId::FromInt(1);
@@ -75,7 +76,7 @@ TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
 TYPED_TEST(QueryPlan, ScanAllEmpty) {
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
-  auto dba = this->db->Access();
+  auto dba = this->db->Access(ReplicationRole::MAIN);
   DbAccessor execution_dba(dba.get());
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   {
@@ -100,13 +101,13 @@ TYPED_TEST(QueryPlan, ScanAllEmpty) {
 
 TYPED_TEST(QueryPlan, ScanAll) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->db->Access(ReplicationRole::MAIN);
     for (int i = 0; i < 42; ++i) dba->CreateVertex();
     EXPECT_FALSE(dba->Commit().HasError());
   }
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
-  auto dba = this->db->Access();
+  auto dba = this->db->Access(ReplicationRole::MAIN);
   DbAccessor execution_dba(dba.get());
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   memgraph::query::plan::ScanAll scan_all(nullptr, node_symbol);
@@ -121,12 +122,12 @@ TYPED_TEST(QueryPlan, ScanAll) {
 TYPED_TEST(QueryPlan, ScanAllByLabel) {
   auto label = this->db->NameToLabel("label");
   {
-    auto unique_acc = this->db->UniqueAccess();
+    auto unique_acc = this->db->UniqueAccess(ReplicationRole::MAIN);
     ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto dba = this->db->Access();
+    auto dba = this->db->Access(ReplicationRole::MAIN);
     // Add some unlabeled vertices
     for (int i = 0; i < 12; ++i) dba->CreateVertex();
     // Add labeled vertices
@@ -136,7 +137,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
     }
     EXPECT_FALSE(dba->Commit().HasError());
   }
-  auto dba = this->db->Access();
+  auto dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
   auto node_symbol = symbol_table.CreateSymbol("n", true);
