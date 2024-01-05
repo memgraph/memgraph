@@ -141,6 +141,8 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
     auto *from_vertex = index_iterator_->from_vertex;
     auto *to_vertex = index_iterator_->to_vertex;
 
+    // We have to make sure that the correct view is called.
+
     // We might have to check if the relationship itself have been deleted or not.
     if (from_vertex->deleted || to_vertex->deleted) {
       continue;
@@ -166,6 +168,8 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
 
       // TODO gvolfing - handle this properly:
       // It should not be possible to not find a matching from-to pair.
+
+      // This is an issue for Views.
       MG_ASSERT(false, "gvolfing was lazy and it crashed your instance.");
     }
 
@@ -175,6 +179,9 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
     }
 
     auto accessor = EdgeAccessor{edge_ref, edge_type, from_vertex, to_vertex, self_->storage_, self_->transaction_};
+    if (!accessor.IsVisible(self_->view_)) {
+      continue;
+    }
     current_edge_accessor_ = accessor;
     current_edge_ = edge_ref;
     break;
