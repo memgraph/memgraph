@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,10 +31,7 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(storage::Config c
   // Connect replication state and storage
   storage->CreateSnapshotHandler(
       [storage = storage.get(), &repl_state]() -> utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError> {
-        if (repl_state.IsReplica()) {
-          return storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica;
-        }
-        return storage->CreateSnapshot();
+        return storage->CreateSnapshot(repl_state.GetRole());
       });
 
   if (allow_mt_repl || name == dbms::kDefaultDB) {

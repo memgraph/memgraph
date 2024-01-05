@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -107,7 +107,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
   void DoRead() {
     req_ = {};
 
-    ExecuteForStream([this](auto &&stream) {
+    ExecuteForStream([this](auto &stream) {
       boost::beast::get_lowest_layer(stream).expires_after(std::chrono::seconds(kSSLExpirySeconds));
 
       boost::beast::http::async_read(
@@ -129,7 +129,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
     }
 
     auto async_write = [this](boost::beast::http::response<boost::beast::http::string_body> msg) {
-      ExecuteForStream([this, &msg](auto &&stream) {
+      ExecuteForStream([this, &msg](auto &stream) {
         // The lifetime of the message has to extend
         // for the duration of the async operation so
         // we use a shared_ptr to manage it.
@@ -171,7 +171,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
   }
 
   auto GetExecutor() {
-    return std::visit(utils::Overloaded{[](auto &&stream) { return stream.get_executor(); }}, stream_);
+    return std::visit(utils::Overloaded{[](auto &stream) { return stream.get_executor(); }}, stream_);
   }
 
   template <typename F>
