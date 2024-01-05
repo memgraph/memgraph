@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,8 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "test_utils.hpp"
+
+using memgraph::replication::ReplicationRole;
 
 template <typename StorageType>
 class PyModule : public testing::Test {
@@ -116,7 +118,7 @@ static void AssertPickleAndCopyAreNotSupported(PyObject *py_obj) {
 TYPED_TEST(PyModule, PyVertex) {
   // Initialize the database with 2 vertices and 1 edge.
   {
-    auto dba = this->db->Access();
+    auto dba = this->db->Access(ReplicationRole::MAIN);
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
 
@@ -129,7 +131,7 @@ TYPED_TEST(PyModule, PyVertex) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   // Get the first vertex as an mgp_value.
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   mgp_graph graph{&dba, memgraph::storage::View::OLD, nullptr, dba.GetStorageMode()};
@@ -165,7 +167,7 @@ TYPED_TEST(PyModule, PyVertex) {
 TYPED_TEST(PyModule, PyEdge) {
   // Initialize the database with 2 vertices and 1 edge.
   {
-    auto dba = this->db->Access();
+    auto dba = this->db->Access(ReplicationRole::MAIN);
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
 
@@ -179,7 +181,7 @@ TYPED_TEST(PyModule, PyEdge) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   // Get the edge as an mgp_value.
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   mgp_graph graph{&dba, memgraph::storage::View::OLD, nullptr, dba.GetStorageMode()};
@@ -219,13 +221,13 @@ TYPED_TEST(PyModule, PyEdge) {
 
 TYPED_TEST(PyModule, PyPath) {
   {
-    auto dba = this->db->Access();
+    auto dba = this->db->Access(ReplicationRole::MAIN);
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
     ASSERT_TRUE(dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type")).HasValue());
     ASSERT_FALSE(dba->Commit().HasError());
   }
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   mgp_graph graph{&dba, memgraph::storage::View::OLD, nullptr, dba.GetStorageMode()};

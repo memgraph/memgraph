@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -117,11 +117,14 @@ class ReplicationStorageClient {
     if (State() != replication::ReplicaState::REPLICATING) {
       return;
     }
-    if (replica_stream_->IsDefunct()) return;
+    if (!replica_stream_ || replica_stream_->IsDefunct()) {
+      replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
+      return;
+    }
     try {
       callback(*replica_stream_);  // failure state what if not streaming (std::nullopt)
     } catch (const rpc::RpcFailedException &) {
-      return replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
+      replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
     }
   }
