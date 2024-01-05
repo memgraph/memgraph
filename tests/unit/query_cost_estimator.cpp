@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
-
+using memgraph::replication::ReplicationRole;
 using CardParam = CostEstimator<memgraph::query::DbAccessor>::CardParam;
 using CostParam = CostEstimator<memgraph::query::DbAccessor>::CostParam;
 using MiscParam = CostEstimator<memgraph::query::DbAccessor>::MiscParam;
@@ -51,16 +51,16 @@ class QueryCostEstimator : public ::testing::Test {
 
   void SetUp() override {
     {
-      auto unique_acc = db->UniqueAccess();
+      auto unique_acc = db->UniqueAccess(ReplicationRole::MAIN);
       ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto unique_acc = db->UniqueAccess();
+      auto unique_acc = db->UniqueAccess(ReplicationRole::MAIN);
       ASSERT_FALSE(unique_acc->CreateIndex(label, property).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
-    storage_dba.emplace(db->Access());
+    storage_dba.emplace(db->Access(ReplicationRole::MAIN));
     dba.emplace(storage_dba->get());
   }
 

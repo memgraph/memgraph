@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,6 +38,7 @@
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
+using memgraph::replication::ReplicationRole;
 
 template <typename StorageType>
 class QueryPlanTest : public testing::Test {
@@ -58,7 +59,7 @@ using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgra
 TYPED_TEST_CASE(QueryPlanTest, StorageTypes);
 
 TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label = dba.NameToLabel("Person");
@@ -102,7 +103,7 @@ TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
 TYPED_TEST(QueryPlanTest, FineGrainedCreateNodeWithAttributes) {
   memgraph::license::global_license_checker.EnableTesting();
   memgraph::query::SymbolTable symbol_table;
-  auto dba = this->db->Access();
+  auto dba = this->db->Access(ReplicationRole::MAIN);
   DbAccessor execution_dba(dba.get());
   const auto label = dba->NameToLabel("label1");
   const auto property = memgraph::storage::PropertyId::FromInt(1);
@@ -142,7 +143,7 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateNodeWithAttributes) {
 
 TYPED_TEST(QueryPlanTest, CreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label = dba.NameToLabel("Person");
@@ -182,7 +183,7 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateReturn) {
   memgraph::license::global_license_checker.EnableTesting();
 
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   const auto label = dba.NameToLabel("label");
@@ -237,7 +238,7 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateReturn) {
 #endif
 
 TYPED_TEST(QueryPlanTest, CreateExpand) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label_node_1 = dba.NameToLabel("Node1");
@@ -315,7 +316,7 @@ TYPED_TEST(QueryPlanTest, CreateExpand) {
 template <typename StorageType>
 class CreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(ReplicationRole::MAIN)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
 
@@ -445,7 +446,7 @@ TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithCycleWithEverythingGrant
 }
 
 TYPED_TEST(QueryPlanTest, MatchCreateNode) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add three nodes we'll match and expand-create from
@@ -473,7 +474,7 @@ TYPED_TEST(QueryPlanTest, MatchCreateNode) {
 template <typename StorageType>
 class MatchCreateNodeWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(ReplicationRole::MAIN)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
 
@@ -553,7 +554,7 @@ TYPED_TEST(MatchCreateNodeWithAuthFixture, MatchCreateWithOneLabelDeniedThrows) 
 #endif
 
 TYPED_TEST(QueryPlanTest, MatchCreateExpand) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add three nodes we'll match and expand-create from
@@ -601,7 +602,7 @@ TYPED_TEST(QueryPlanTest, MatchCreateExpand) {
 template <typename StorageType>
 class MatchCreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(ReplicationRole::MAIN)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
 
@@ -746,7 +747,7 @@ TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithCycleExecutesW
 #endif
 
 TYPED_TEST(QueryPlanTest, Delete) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
@@ -818,7 +819,7 @@ TYPED_TEST(QueryPlanTest, Delete) {
 template <typename StorageType>
 class DeleteOperatorWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(ReplicationRole::MAIN)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
 
@@ -978,7 +979,7 @@ TYPED_TEST(QueryPlanTest, DeleteTwiceDeleteBlockingEdge) {
   // MATCH (n)-[r]-(m) [DETACH] DELETE n, r, m
 
   auto test_delete = [this](bool detach) {
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
     memgraph::query::DbAccessor dba(storage_dba.get());
 
     auto v1 = dba.InsertVertex();
@@ -1013,7 +1014,7 @@ TYPED_TEST(QueryPlanTest, DeleteTwiceDeleteBlockingEdge) {
 
 TYPED_TEST(QueryPlanTest, DeleteReturn) {
   // MATCH (n) DETACH DELETE n RETURN n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // graph with 4 vertices
@@ -1047,7 +1048,7 @@ TYPED_TEST(QueryPlanTest, DeleteReturn) {
 
 TYPED_TEST(QueryPlanTest, DeleteNull) {
   // test (simplified) WITH Null as x delete x
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -1071,7 +1072,7 @@ TYPED_TEST(QueryPlanTest, DeleteAdvance) {
   auto advance = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, true);
   auto res_sym = symbol_table.CreateSymbol("res", true);
   {
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
     memgraph::query::DbAccessor dba(storage_dba.get());
     dba.InsertVertex();
     dba.AdvanceCommand();
@@ -1080,7 +1081,7 @@ TYPED_TEST(QueryPlanTest, DeleteAdvance) {
     EXPECT_EQ(1, PullAll(*produce, &context));
   }
   {
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
     memgraph::query::DbAccessor dba(storage_dba.get());
     dba.InsertVertex();
     dba.AdvanceCommand();
@@ -1092,7 +1093,7 @@ TYPED_TEST(QueryPlanTest, DeleteAdvance) {
 }
 
 TYPED_TEST(QueryPlanTest, SetProperty) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // graph with 4 vertices in connected pairs
@@ -1148,7 +1149,7 @@ TYPED_TEST(QueryPlanTest, SetProperty) {
 
 TYPED_TEST(QueryPlanTest, SetProperties) {
   auto test_set_properties = [this](bool update) {
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
     memgraph::query::DbAccessor dba(storage_dba.get());
 
     // graph: ({a: 0})-[:R {b:1}]->({c:2})
@@ -1221,7 +1222,7 @@ TYPED_TEST(QueryPlanTest, SetProperties) {
 }
 
 TYPED_TEST(QueryPlanTest, SetLabels) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto label1 = dba.NameToLabel("label1");
@@ -1271,7 +1272,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1288,7 +1289,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1307,7 +1308,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
     user.fine_grained_access_handler().label_permissions().Grant("label3",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1319,7 +1320,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
 #endif
 
 TYPED_TEST(QueryPlanTest, RemoveProperty) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // graph with 4 vertices in connected pairs
@@ -1381,7 +1382,7 @@ TYPED_TEST(QueryPlanTest, RemoveProperty) {
 }
 
 TYPED_TEST(QueryPlanTest, RemoveLabels) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto label1 = dba.NameToLabel("label1");
@@ -1442,7 +1443,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1459,7 +1460,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1478,7 +1479,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
     user.fine_grained_access_handler().label_permissions().Grant("label3",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1490,7 +1491,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
 #endif
 
 TYPED_TEST(QueryPlanTest, NodeFilterSet) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
@@ -1528,7 +1529,7 @@ TYPED_TEST(QueryPlanTest, NodeFilterSet) {
 }
 
 TYPED_TEST(QueryPlanTest, FilterRemove) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
@@ -1562,7 +1563,7 @@ TYPED_TEST(QueryPlanTest, FilterRemove) {
 }
 
 TYPED_TEST(QueryPlanTest, SetRemove) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto v = dba.InsertVertex();
   auto label1 = dba.NameToLabel("label1");
@@ -1591,7 +1592,7 @@ TYPED_TEST(QueryPlanTest, Merge) {
   //  - merge_match branch looks for an expansion (any direction)
   //    and sets some property (for result validation)
   //  - merge_create branch just sets some other property
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -1633,7 +1634,7 @@ TYPED_TEST(QueryPlanTest, Merge) {
 TYPED_TEST(QueryPlanTest, MergeNoInput) {
   // merge with no input, creates a single node
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -1651,7 +1652,7 @@ TYPED_TEST(QueryPlanTest, MergeNoInput) {
 
 TYPED_TEST(QueryPlanTest, SetPropertyWithCaching) {
   // SET (Null).prop = 42
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR(dba, "property");
@@ -1666,7 +1667,7 @@ TYPED_TEST(QueryPlanTest, SetPropertyWithCaching) {
 
 TYPED_TEST(QueryPlanTest, SetPropertyOnNull) {
   // SET (Null).prop = 42
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR(dba, "property");
@@ -1681,7 +1682,7 @@ TYPED_TEST(QueryPlanTest, SetPropertyOnNull) {
 
 TYPED_TEST(QueryPlanTest, SetPropertiesOnNull) {
   // OPTIONAL MATCH (n) SET n = n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto n = MakeScanAll(this->storage, symbol_table, "n");
@@ -1694,7 +1695,7 @@ TYPED_TEST(QueryPlanTest, SetPropertiesOnNull) {
 }
 
 TYPED_TEST(QueryPlanTest, UpdateSetPropertiesFromMap) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex. ( {property: 43})
   auto vertex_accessor = dba.InsertVertex();
@@ -1729,7 +1730,7 @@ TYPED_TEST(QueryPlanTest, UpdateSetPropertiesFromMap) {
 }
 
 TYPED_TEST(QueryPlanTest, SetPropertiesFromMapWithCaching) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // Add a single vertex. ({prop1: 43, prop2: 44})
@@ -1769,7 +1770,7 @@ TYPED_TEST(QueryPlanTest, SetPropertiesFromMapWithCaching) {
 
 TYPED_TEST(QueryPlanTest, SetLabelsOnNull) {
   // OPTIONAL MATCH (n) SET n :label
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("label");
   SymbolTable symbol_table;
@@ -1783,7 +1784,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsOnNull) {
 
 TYPED_TEST(QueryPlanTest, RemovePropertyOnNull) {
   // REMOVE (Null).prop
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR(dba, "property");
@@ -1797,7 +1798,7 @@ TYPED_TEST(QueryPlanTest, RemovePropertyOnNull) {
 
 TYPED_TEST(QueryPlanTest, RemoveLabelsOnNull) {
   // OPTIONAL MATCH (n) REMOVE n :label
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("label");
   SymbolTable symbol_table;
@@ -1812,7 +1813,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsOnNull) {
 
 TYPED_TEST(QueryPlanTest, DeleteSetProperty) {
   // MATCH (n) DELETE n SET n.property = 42 RETURN n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
@@ -1838,7 +1839,7 @@ TYPED_TEST(QueryPlanTest, DeleteSetProperty) {
 TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFromMap) {
   // MATCH (n) DELETE n SET n = {property: 42} return n
   // MATCH (n) DELETE n SET n += {property: 42} return n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
@@ -1866,7 +1867,7 @@ TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFromMap) {
 
 TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFrom) {
   // MATCH (n) DELETE n SET n = n RETURN n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   {
@@ -1895,7 +1896,7 @@ TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFrom) {
 
 TYPED_TEST(QueryPlanTest, DeleteRemoveLabels) {
   // MATCH (n) DELETE n REMOVE n :label return n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
@@ -1920,7 +1921,7 @@ TYPED_TEST(QueryPlanTest, DeleteRemoveLabels) {
 
 TYPED_TEST(QueryPlanTest, DeleteRemoveProperty) {
   // MATCH (n) DELETE n REMOVE n.property RETURN n
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
@@ -1950,7 +1951,7 @@ TYPED_TEST(QueryPlanTest, DeleteRemoveProperty) {
 template <typename StorageType>
 class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(ReplicationRole::MAIN)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
 
@@ -2587,7 +2588,7 @@ class DynamicExpandFixture : public testing::Test {
   const std::string testSuite = "query_plan_create_set_remove_delete_dynamic_expand";
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(ReplicationRole::MAIN)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
   AstStorage storage;
