@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include <mgp.hpp>
+// #include "query/procedure/mg_procedure_impl.hpp"
+#include "utils/memcxx.hpp"
 
 namespace TextSearch {
 constexpr std::string_view kProcedureSearch = "search";
@@ -29,9 +31,15 @@ void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
 
   // TODO antepusic:
   // 1. Match the label to the appropriate text index
+  // auto label_id = memgraph_graph->impl->NameToLabel(label);
+
   // 2. Run text search of that index
   //    * Add metadata to the return fields before search
+
+  // text_index.search(label, search_string);
+
   // 3. Get the graph elements from their IDs in the search results
+
   // 4. Return records (one per element)
 }
 

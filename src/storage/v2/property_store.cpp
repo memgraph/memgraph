@@ -1364,20 +1364,21 @@ std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore:
 }
 
 template bool PropertyStore::DoInitProperties<std::map<PropertyId, PropertyValue>>(
-    const std::map<PropertyId, PropertyValue> &);
+    const std::map<PropertyId, PropertyValue> &, bool external = false, std::optional<Gid> gid = std::nullopt);
 template bool PropertyStore::DoInitProperties<std::vector<std::pair<PropertyId, PropertyValue>>>(
-    const std::vector<std::pair<PropertyId, PropertyValue>> &);
+    const std::vector<std::pair<PropertyId, PropertyValue>> &, bool external = false,
+    std::optional<Gid> gid = std::nullopt);
 
 bool PropertyStore::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties,
                                    bool external, std::optional<Gid> gid) {
-  return DoInitProperties(properties, external, node_id);
+  return DoInitProperties(properties, external, gid);
 }
 
 bool PropertyStore::InitProperties(std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> properties,
                                    bool external, std::optional<Gid> gid) {
   std::sort(properties.begin(), properties.end());
 
-  return DoInitProperties(properties, external, node_id);
+  return DoInitProperties(properties, external, gid);
 }
 
 bool PropertyStore::ClearProperties(bool external, std::optional<Gid> gid) {
