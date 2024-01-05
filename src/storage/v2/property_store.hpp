@@ -78,8 +78,8 @@ class PropertyStore {
   /// returned if assignment took place. The time complexity of this function is
   /// O(n).
   /// @throw std::bad_alloc
-  /// NOTE: The external_store_mock argument will be removed after replacing the mock with the mgcxx Tantivy API
-  bool SetProperty(PropertyId property, const PropertyValue &value);
+  bool SetProperty(PropertyId property, const PropertyValue &value, bool external = false,
+                   std::optional<Gid> gid = std::nullopt);
   // , const bool external = false,
   //  SearchableExternalStoreMock *external_store_mock = nullptr);
 
@@ -87,13 +87,15 @@ class PropertyStore {
   /// returned if there is any existing property in property store and insertion couldn't take place. The time
   /// complexity of this function is O(n).
   /// @throw std::bad_alloc
-  bool InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  bool InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties, bool external = false,
+                      std::optional<Gid> gid = std::nullopt);
 
   /// Init property values and return `true` if insertion took place. `false` is
   /// returned if there is any existing property in property store and insertion couldn't take place. The time
   /// complexity of this function is O(n*log(n)):
   /// @throw std::bad_alloc
-  bool InitProperties(std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> properties);
+  bool InitProperties(std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> properties,
+                      bool external = false, std::optional<Gid> gid = std::nullopt);
 
   /// Update property values in property store with sent properties. Returns vector of changed
   /// properties. Each tuple inside vector consists of PropertyId of inserted property, together with old
@@ -101,13 +103,14 @@ class PropertyStore {
   /// The time complexity of this function is O(n*log(n)):
   /// @throw std::bad_alloc
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
-      std::map<storage::PropertyId, storage::PropertyValue> &properties);
+      std::map<storage::PropertyId, storage::PropertyValue> &properties, bool external = false,
+      std::optional<Gid> gid = std::nullopt);
 
   /// Remove all properties and return `true` if any removal took place.
   /// `false` is returned if there were no properties to remove. The time
   /// complexity of this function is O(1).
   /// @throw std::bad_alloc
-  bool ClearProperties();
+  bool ClearProperties(bool external = false, std::optional<Gid> gid = std::nullopt);
 
   /// Return property buffer as a string
   std::string StringBuffer() const;
@@ -117,7 +120,7 @@ class PropertyStore {
 
  private:
   template <typename TContainer>
-  bool DoInitProperties(const TContainer &properties);
+  bool DoInitProperties(const TContainer &properties, bool external = false, std::optional<Gid> gid = std::nullopt);
 
   uint8_t buffer_[sizeof(uint64_t) + sizeof(uint8_t *)];
 };

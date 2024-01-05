@@ -24,6 +24,7 @@
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
+#include "utils/memcxx.hpp"
 
 namespace memgraph::storage {
 
@@ -1133,7 +1134,8 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
 }
 
 /// NOTE: The external_store_mock argument will be removed after replacing the mock with the mgcxx Tantivy API
-bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
+bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value, bool external,
+                                std::optional<Gid> gid) {
   // if (external) {
   //   // TODO @antepusic: assignment pending delete() in the mgcxx API
 
@@ -1274,7 +1276,11 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 }
 
 template <typename TContainer>
-bool PropertyStore::DoInitProperties(const TContainer &properties) {
+bool PropertyStore::DoInitProperties(const TContainer &properties, bool external, std::optional<Gid> gid) {
+  if (external) {
+    // memcxx_mock::text_search::Mock::add()
+  }
+
   uint64_t size = 0;
   uint8_t *data = nullptr;
   std::tie(size, data) = GetSizeData(buffer_);
@@ -1333,7 +1339,7 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
 }
 
 std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
-    std::map<PropertyId, PropertyValue> &properties) {
+    std::map<PropertyId, PropertyValue> &properties, bool external, std::optional<Gid> gid) {
   auto old_properties = Properties();
   ClearProperties();
 
@@ -1362,17 +1368,19 @@ template bool PropertyStore::DoInitProperties<std::map<PropertyId, PropertyValue
 template bool PropertyStore::DoInitProperties<std::vector<std::pair<PropertyId, PropertyValue>>>(
     const std::vector<std::pair<PropertyId, PropertyValue>> &);
 
-bool PropertyStore::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  return DoInitProperties(properties);
+bool PropertyStore::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                                   bool external, std::optional<Gid> gid) {
+  return DoInitProperties(properties, external, node_id);
 }
 
-bool PropertyStore::InitProperties(std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> properties) {
+bool PropertyStore::InitProperties(std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> properties,
+                                   bool external, std::optional<Gid> gid) {
   std::sort(properties.begin(), properties.end());
 
-  return DoInitProperties(properties);
+  return DoInitProperties(properties, external, node_id);
 }
 
-bool PropertyStore::ClearProperties() {
+bool PropertyStore::ClearProperties(bool external, std::optional<Gid> gid) {
   bool in_local_buffer = false;
   uint64_t size;
   uint8_t *data;

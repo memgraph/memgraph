@@ -301,7 +301,13 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   bool result{false};
   utils::AtomicMemoryBlock atomic_memory_block{
       [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_]() {
-        if (!vertex->properties.InitProperties(properties)) {
+        if (std::ranges::any_of(vertex->labels,
+                                [storage](auto &label) { return storage->indices_.text_index_->IndexExists(label); })) {
+          if (!vertex->properties.InitProperties(properties, true, vertex->gid)) {
+            result = false;
+            return;
+          }
+        } else if (!vertex->properties.InitProperties(properties)) {
           result = false;
           return;
         }

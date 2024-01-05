@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <json/json.hpp>
 #include <string>
 
 #ifndef MEMCXX
