@@ -518,4 +518,4 @@ def test_index_hint_on_expand(memgraph):
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA", "-vv"]))
+    sys.exit(pytest.main([__file__, "-rA"]))
