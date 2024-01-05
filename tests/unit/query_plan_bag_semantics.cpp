@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,6 +31,7 @@
 
 #include "query_plan_common.hpp"
 
+using memgraph::replication::ReplicationRole;
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
@@ -53,7 +54,7 @@ using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgra
 TYPED_TEST_CASE(QueryPlanTest, StorageTypes);
 
 TYPED_TEST(QueryPlanTest, Skip) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -81,7 +82,7 @@ TYPED_TEST(QueryPlanTest, Skip) {
 }
 
 TYPED_TEST(QueryPlanTest, Limit) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -112,7 +113,7 @@ TYPED_TEST(QueryPlanTest, CreateLimit) {
   // CREATE (n), (m)
   // MATCH (n) CREATE (m) LIMIT 1
   // in the end we need to have 3 vertices in the db
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   dba.InsertVertex();
   dba.InsertVertex();
@@ -133,7 +134,7 @@ TYPED_TEST(QueryPlanTest, CreateLimit) {
 }
 
 TYPED_TEST(QueryPlanTest, OrderBy) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
@@ -204,7 +205,7 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
 }
 
 TYPED_TEST(QueryPlanTest, OrderByMultiple) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -256,7 +257,7 @@ TYPED_TEST(QueryPlanTest, OrderByMultiple) {
 }
 
 TYPED_TEST(QueryPlanTest, OrderByExceptions) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
