@@ -15,6 +15,7 @@
 #include <optional>
 
 #include "dbms/database.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "disk_test_utils.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpreter_context.hpp"
@@ -30,15 +31,30 @@ using namespace memgraph::storage;
 constexpr auto testSuite = "database_v2_get_info";
 const std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / testSuite};
 
-template <typename StorageType>
+struct TestConfig {};
+struct DefaultConfig : TestConfig {};
+struct TenantConfig : TestConfig {};
+
+template <typename TestType>
 class InfoTest : public testing::Test {
+  using StorageType = typename TestType::first_type;
+  using ConfigType = typename TestType::second_type;
+
  protected:
   void SetUp() {
-    repl_state.emplace(memgraph::storage::ReplicationStateRootPath(config));
-    db_gk.emplace(config, *repl_state);
-    auto db_acc_opt = db_gk->access();
-    MG_ASSERT(db_acc_opt, "Failed to access db");
-    auto &db_acc = *db_acc_opt;
+#ifdef MG_ENTERPRISE
+    dbms_handler_.emplace(config, &auth, false);
+    auto db_acc = dbms_handler_->Get();  // Default db
+    if (std::is_same_v<ConfigType, TenantConfig>) {
+      constexpr std::string_view db_name = "test_db";
+      MG_ASSERT(dbms_handler_->New(std::string{db_name}).HasValue(), "Failed to create database.");
+      db_acc = dbms_handler_->Get(db_name);
+    }
+#else
+    dbms_handler_.emplace(config);
+    auto db_acc = dbms_handler_->Get();
+#endif
+    MG_ASSERT(db_acc, "Failed to access db");
     MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
                                                ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
@@ -48,8 +64,7 @@ class InfoTest : public testing::Test {
 
   void TearDown() {
     db_acc_.reset();
-    db_gk.reset();
-    repl_state.reset();
+    dbms_handler_.reset();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
@@ -59,9 +74,10 @@ class InfoTest : public testing::Test {
   StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
                                                             : StorageMode::IN_MEMORY_TRANSACTIONAL};
 
-  std::optional<memgraph::replication::ReplicationState> repl_state;
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
-  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
+  std::optional<memgraph::dbms::DbmsHandler> dbms_handler_;
+  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth{
+      storage_directory, memgraph::auth::Auth::Config{}};
   memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
@@ -69,7 +85,6 @@ class InfoTest : public testing::Test {
         config.durability.snapshot_wal_mode =
             memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
         if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
           config.force_on_disk = true;
         }
         return config;
@@ -77,10 +92,17 @@ class InfoTest : public testing::Test {
   };
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using TestTypes = ::testing::Types<std::pair<memgraph::storage::InMemoryStorage, DefaultConfig>,
+                                   std::pair<memgraph::storage::DiskStorage, DefaultConfig>
 
-TYPED_TEST_CASE(InfoTest, StorageTypes);
-// TYPED_TEST_CASE(IndexTest, InMemoryStorageType);
+#ifdef MG_ENTERPRISE
+                                   ,
+                                   std::pair<memgraph::storage::InMemoryStorage, TenantConfig>,
+                                   std::pair<memgraph::storage::DiskStorage, TenantConfig>
+#endif
+                                   >;
+
+TYPED_TEST_CASE(InfoTest, TestTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(InfoTest, InfoCheck) {
@@ -166,13 +188,13 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
 
   const auto &info = db_acc->GetInfo(
-      true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);  // force to use configured directory
+      memgraph::replication_coordination_glue::ReplicationRole::MAIN);  // force to use configured directory
 
   ASSERT_EQ(info.storage_info.vertex_count, 5);
   ASSERT_EQ(info.storage_info.edge_count, 2);
   ASSERT_EQ(info.storage_info.average_degree, 0.8);
-  ASSERT_GT(info.storage_info.memory_res, 10'000'000);  // 200MB < > 10MB
-  ASSERT_LT(info.storage_info.memory_res, 200'000'000);
+  ASSERT_GT(info.storage_info.memory_res, 10'000'000);  // 250MB < > 10MB
+  ASSERT_LT(info.storage_info.memory_res, 250'000'000);
   ASSERT_GT(info.storage_info.disk_usage, 100);  // 1MB < > 100B
   ASSERT_LT(info.storage_info.disk_usage, 1000'000);
   ASSERT_EQ(info.storage_info.label_indices, 1);
