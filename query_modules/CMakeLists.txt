@@ -56,8 +56,8 @@ install(PROGRAMS $<TARGET_FILE:schema>
         DESTINATION lib/memgraph/query_modules
         RENAME schema.so)
 # Also install the source of the example, so user can read it.
+install(FILES schema.cpp DESTINATION lib/memgraph/query_modules/src)
 
-install(FILES text_search.cpp DESTINATION lib/memgraph/query_modules/src)
 add_library(text_search SHARED text_search.cpp)
 target_include_directories(text_search PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(text_search PRIVATE -Wall)
