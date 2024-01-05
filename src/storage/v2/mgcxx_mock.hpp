@@ -14,7 +14,7 @@
 #ifndef MEMCXX
 #define MEMCXX
 
-namespace memcxx_mock {
+namespace mgcxx_mock {
 namespace text_search {
 struct IndexContext {
   std::string tantivyContext;  // the actual type of tantivyContext is outside the mgcxx API
@@ -65,6 +65,6 @@ class Mock {
   static void drop_index(std::string path) {}
 };
 }  // namespace text_search
-}  // namespace memcxx_mock
+}  // namespace mgcxx_mock
 
 #endif

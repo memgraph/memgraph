@@ -11,7 +11,7 @@
 
 #include <mgp.hpp>
 // #include "query/procedure/mg_procedure_impl.hpp"
-#include "utils/memcxx.hpp"
+#include "storage/v2/mgcxx_mock.hpp"
 
 namespace TextSearch {
 constexpr std::string_view kProcedureSearch = "search";

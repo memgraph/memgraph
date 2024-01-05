@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "utils/memcxx.hpp"
+#include "storage/v2/mgcxx_mock.hpp"
 
 namespace memgraph::storage {
 
@@ -30,8 +30,8 @@ class TextIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
-    auto index_config = memcxx_mock::text_search::IndexConfig{.mappings = "TODO antepusic"};
-    auto new_index = memcxx_mock::text_search::Mock::create_index(label.ToString(), index_config);
+    auto index_config = mgcxx_mock::text_search::IndexConfig{.mappings = "TODO antepusic"};
+    auto new_index = mgcxx_mock::text_search::Mock::create_index(label.ToString(), index_config);
     index_[label] = new_index;
     return true;
 
@@ -39,7 +39,7 @@ class TextIndex {
   }
 
   bool DropIndex(LabelId label) {
-    memcxx_mock::text_search::Mock::drop_index(label.ToString());
+    mgcxx_mock::text_search::Mock::drop_index(label.ToString());
     index_.erase(label);
     return true;
   }
@@ -57,7 +57,7 @@ class TextIndex {
 
   uint64_t ApproximateVertexCount(LabelId label) { return 10; }
 
-  std::map<LabelId, memcxx_mock::text_search::IndexContext> index_;
+  std::map<LabelId, mgcxx_mock::text_search::IndexContext> index_;
 };
 
 }  // namespace memgraph::storage

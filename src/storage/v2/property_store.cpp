@@ -21,10 +21,10 @@
 #include <type_traits>
 #include <utility>
 
+#include "storage/v2/mgcxx_mock.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
-#include "utils/memcxx.hpp"
 
 namespace memgraph::storage {
 
@@ -1278,7 +1278,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value,
 template <typename TContainer>
 bool PropertyStore::DoInitProperties(const TContainer &properties, bool external, std::optional<Gid> gid) {
   if (external) {
-    // memcxx_mock::text_search::Mock::add()
+    // mgcxx_mock::text_search::Mock::add()
   }
 
   uint64_t size = 0;
