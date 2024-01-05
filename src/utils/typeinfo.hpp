@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -89,6 +89,8 @@ enum class TypeId : uint64_t {
   REP_CREATEDATABASE_RES,
   REP_SYSTEM_HEARTBEAT_REQ,
   REP_SYSTEM_HEARTBEAT_RES,
+  REP_SYSTEM_RECOVERY_REQ,
+  REP_SYSTEM_RECOVERY_RES,
 
   // AST
   AST_LABELIX = 3000,

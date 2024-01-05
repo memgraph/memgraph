@@ -61,7 +61,7 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
 #else
     auto acc = dbms_handler->Get();
     if (!acc) {
-      spdlog::warn("Failed to get default db.");
+      spdlog::warn("Failed to get access to the default db.");
       return std::nullopt;
     }
 #endif
@@ -77,42 +77,6 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
   }
 }
 }  // namespace
-
-#ifdef MG_ENTERPRISE
-void CreateDatabaseHandler(DbmsHandler *dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
-  memgraph::storage::replication::CreateDatabaseReq req;
-  memgraph::slk::Load(&req, req_reader);
-
-  namespace sr = memgraph::storage::replication;
-  sr::CreateDatabaseRes res(sr::CreateDatabaseRes::Result::FAILURE);
-
-  // TODO
-  // Check epoch
-  // Check ts
-
-  try {
-    // Create new
-    auto new_db = dbms_handler->New(req.config);
-    if (new_db.HasValue()) {
-      // Successfully create db
-      res = sr::CreateDatabaseRes(sr::CreateDatabaseRes::Result::SUCCESS);
-    }
-  } catch (...) {
-    // Failure
-  }
-
-  memgraph::slk::Save(res, res_builder);
-}
-
-void SystemHeartbeatHandler(const uint64_t ts, slk::Reader *req_reader, slk::Builder *res_builder) {
-  replication::SystemHeartbeatReq req;
-  replication::SystemHeartbeatReq::Load(&req, req_reader);
-  memgraph::slk::Load(&req, req_reader);
-  replication::SystemHeartbeatRes res(ts);
-  memgraph::slk::Save(res, res_builder);
-}
-
-#endif
 
 void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::ReplicationServer &server) {
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>([dbms_handler](auto *req_reader, auto *res_builder) {

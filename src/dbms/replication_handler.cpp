@@ -11,12 +11,15 @@
 
 #include "dbms/replication_handler.hpp"
 
+#include <algorithm>
+
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
-#include "dbms/inmemory/storage_helper.hpp"
 #include "dbms/replication_client.hpp"
 #include "replication/state.hpp"
+#include "spdlog/spdlog.h"
+#include "storage/v2/replication/rpc.hpp"
 
 using memgraph::replication::ReplicationClientConfig;
 using memgraph::replication::ReplicationState;
@@ -108,18 +111,7 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
                                    [this](RoleReplicaData const &data) {
                                      // Register handlers
                                      InMemoryReplicationHandlers::Register(&dbms_handler_, *data.server);
-#ifdef MG_ENTERPRISE
-                                     data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
-                                         [dbms_handler = &dbms_handler_](auto *req_reader, auto *res_builder) {
-                                           spdlog::debug("Received CreateDatabaseRpc");
-                                           CreateDatabaseHandler(dbms_handler, req_reader, res_builder);
-                                         });
-                                     data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
-                                         [ts = dbms_handler_.LastCommitedTS()](auto *req_reader, auto *res_builder) {
-                                           spdlog::debug("Received SystemHeartbeatRpc");
-                                           SystemHeartbeatHandler(ts, req_reader, res_builder);
-                                         });
-#endif
+                                     RegisterSystemRPC(data, dbms_handler_);
                                      if (!data.server->Start()) {
                                        spdlog::error("Unable to start the replication server.");
                                        return false;
@@ -190,7 +182,7 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
 
   // NOTE Currently if any databases fails, we revert back
   if (!all_clients_good) {
-    spdlog::error("Failed to register all databases to the REPLICA \"{}\"", config.name);
+    spdlog::error("Failed to register all databases on the REPLICA \"{}\"", config.name);
     UnregisterReplica(config.name);
     return RegisterReplicaError::CONNECTION_FAILED;
   }
@@ -285,4 +277,101 @@ void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAcces
       },
       repl_state.ReplicationData());
 }
+
+#ifdef MG_ENTERPRISE
+void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
+  memgraph::storage::replication::CreateDatabaseReq req;
+  memgraph::slk::Load(&req, req_reader);
+
+  namespace sr = memgraph::storage::replication;
+  sr::CreateDatabaseRes res(sr::CreateDatabaseRes::Result::FAILURE);
+
+  // TODO
+  // Check epoch
+  // Check ts
+
+  try {
+    // Create new
+    auto new_db = dbms_handler.New(req.config);
+    if (new_db.HasValue()) {
+      // Successfully create db
+      res = sr::CreateDatabaseRes(sr::CreateDatabaseRes::Result::SUCCESS);
+    }
+  } catch (...) {
+    // Failure
+  }
+
+  memgraph::slk::Save(res, res_builder);
+}
+
+void SystemHeartbeatHandler(const uint64_t ts, slk::Reader *req_reader, slk::Builder *res_builder) {
+  replication::SystemHeartbeatReq req;
+  replication::SystemHeartbeatReq::Load(&req, req_reader);
+  memgraph::slk::Load(&req, req_reader);
+  replication::SystemHeartbeatRes res(ts);
+  memgraph::slk::Save(res, res_builder);
+}
+
+void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
+  // TODO Speed up
+  memgraph::storage::replication::SystemRecoveryReq req;
+  memgraph::slk::Load(&req, req_reader);
+
+  namespace sr = memgraph::storage::replication;
+  sr::SystemRecoveryRes res(sr::SystemRecoveryRes::Result::FAILURE);
+
+  try {
+    // Get all current dbs
+    auto old = dbms_handler.All();
+    // Check/create the incoming dbs
+    for (const auto &config : req.database_configs) {
+      try {
+        dbms_handler.Get(config.uuid);
+      } catch (const UnknownDatabaseException &) {
+        // Missing db
+        if (dbms_handler.New(config).HasError()) {
+          spdlog::debug("Failed to create new database \"{}\".", config.name);
+          throw;
+        }
+      }
+      const auto it = std::find(old.begin(), old.end(), config.name);
+      if (it != old.end()) old.erase(it);
+    }
+    // Delete all the leftover old dbs
+    for (const auto &remove_db : old) {
+      if (dbms_handler.Delete(remove_db).HasError()) {
+        spdlog::debug("Failed to drop database \"{}\".", remove_db);
+        throw;
+      }
+    }
+    // Successfully recovered
+    res = sr::SystemRecoveryRes(sr::SystemRecoveryRes::Result::SUCCESS);
+  } catch (...) {
+    // Failure
+  }
+
+  memgraph::slk::Save(res, res_builder);
+}
+#endif
+
+void RegisterSystemRPC(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_handler) {
+#ifdef MG_ENTERPRISE
+  data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
+      [&dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received CreateDatabaseRpc");
+        CreateDatabaseHandler(dbms_handler, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
+      [&dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received SystemHeartbeatRpc");
+        SystemHeartbeatHandler(dbms_handler.LastCommitedTS(), req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::SystemRecoveryRpc>(
+      [&dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received SystemRecoveryRpc");
+        SystemRecoveryHandler(dbms_handler, req_reader, res_builder);
+      });
+#endif
+}
+
 }  // namespace memgraph::dbms

@@ -12,7 +12,6 @@
 #pragma once
 
 #include "replication/replication_server.hpp"
-#include "replication/state.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
 namespace memgraph::storage {
@@ -21,12 +20,6 @@ class InMemoryStorage;
 namespace memgraph::dbms {
 
 class DbmsHandler;
-
-// System handlers
-#ifdef MG_ENTERPRISE
-void CreateDatabaseHandler(DbmsHandler *dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
-void SystemHeartbeatHandler(uint64_t ts, slk::Reader *req_reader, slk::Builder *res_builder);
-#endif
 
 class InMemoryReplicationHandlers {
  public:

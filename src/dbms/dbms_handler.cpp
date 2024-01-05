@@ -17,9 +17,8 @@
 #include <filesystem>
 
 #include "dbms/constants.hpp"
-#include "replication/include/replication/messages.hpp"
+#include "dbms/replication_client.hpp"
 #include "spdlog/spdlog.h"
-#include "storage/v2/replication/rpc.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/uuid.hpp"
 
@@ -131,7 +130,6 @@ DbmsHandler::DbmsHandler(
   utils::EnsureDirOrDie(durability_dir);
   utils::EnsureDirOrDie(wal_dir);
   durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
-  system_wal_ = std::make_unique<WAL>(wal_dir);
 
   /*
    * DURABILITY
@@ -157,19 +155,15 @@ DbmsHandler::DbmsHandler(
       spdlog::info("Database {} restored.", name);
     }
     // Read the last timestamp
-    auto wal_it = system_wal_->begin("delta:");
-    auto wal_end = system_wal_->end("delta:");
-    for (; wal_it != wal_end; ++wal_it) {
-      if (!wal_it.IsValid()) continue;
-      std::vector<std::string> out;
-      utils::Split(&out, wal_it->first, ":", 2);
-      system_timestamp_ = std::max(system_timestamp_, std::stoul(out[1]));
+    auto lcst = durability_->Get(kLSCTSKey);
+    if (lcst) {
+      last_commited_system_timestamp_ = std::stoul(*lcst);
+      system_timestamp_ = last_commited_system_timestamp_;
     }
-    last_commited_system_timestamp_ = system_timestamp_;
   } else {  // Clear databases from the durability list and auth
     auto locked_auth = auth->Lock();
-    auto it = durability_->begin("database");
-    auto end = durability_->end("database");
+    auto it = durability_->begin(std::string{kDBPrefix});
+    auto end = durability_->end(std::string{kDBPrefix});
     for (; it != end; ++it) {
       const auto &[key, _] = *it;
       const auto name = key.substr(kDBPrefix.size());
@@ -177,6 +171,8 @@ DbmsHandler::DbmsHandler(
       locked_auth->DeleteDatabase(name);
       durability_->Delete(key);
     }
+    // Delete the last timestamp
+    durability_->Delete(kLSCTSKey);
   }
 
   /*
@@ -208,17 +204,7 @@ DbmsHandler::DbmsHandler(
   auto replica = [this](replication::RoleReplicaData const &data) {
     // Register handlers
     InMemoryReplicationHandlers::Register(this, *data.server);
-    data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
-        [dbms_handler = this](auto *req_reader, auto *res_builder) {
-          spdlog::debug("Received CreateDatabaseRpc");
-          CreateDatabaseHandler(dbms_handler, req_reader, res_builder);
-        });
-    data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
-        [ts = LastCommitedTS()](auto *req_reader, auto *res_builder) {
-          spdlog::debug("Received SystemHeartbeatRpc");
-          SystemHeartbeatHandler(ts, req_reader, res_builder);
-        });
-    // TODO: Add more handlers -> system
+    RegisterSystemRPC(data, *this);
     if (!data.server->Start()) {
       spdlog::error("Unable to start the replication server.");
       return false;
