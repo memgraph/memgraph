@@ -46,6 +46,10 @@ class TextIndex {
 
   bool IndexExists(LabelId label) { return index_.contains(label); }
 
+  mgcxx_mock::text_search::SearchOutput Search(LabelId label, mgcxx_mock::text_search::SearchInput input) {
+    return mgcxx_mock::text_search::Mock::search(index_.at(label), input);
+  }
+
   std::vector<LabelId> ListIndices() {
     std::vector<LabelId> ret;
     ret.reserve(index_.size());

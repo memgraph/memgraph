@@ -553,6 +553,8 @@ class DbAccessor final {
     return accessor_->LabelPropertyIndexExists(label, prop);
   }
 
+  bool TextIndexExists(storage::LabelId label) const { return accessor_->TextIndexExists(label); }
+
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
   }

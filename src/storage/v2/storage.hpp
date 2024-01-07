@@ -28,6 +28,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/mgcxx_mock.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -211,6 +212,8 @@ class Storage {
 
     virtual bool LabelPropertyIndexExists(LabelId label, PropertyId property) const = 0;
 
+    bool TextIndexExists(LabelId label) const { return storage_->indices_.text_index_->IndexExists(label); }
+
     virtual IndicesInfo ListAllIndices() const = 0;
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
@@ -246,6 +249,11 @@ class Storage {
     std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
+
+    mgcxx_mock::text_search::SearchOutput TextSearch(LabelId label,
+                                                     mgcxx_mock::text_search::SearchInput &search_input) const {
+      return storage_->indices_.text_index_->Search(label, search_input);
+    }
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
 
