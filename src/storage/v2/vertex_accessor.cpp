@@ -270,9 +270,14 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   // transactions get a SERIALIZATION_ERROR.
 
   utils::AtomicMemoryBlock atomic_memory_block{
-      [transaction = transaction_, vertex = vertex_, &value, &property, &current_value]() {
+      [transaction = transaction_, storage = storage_, vertex = vertex_, &value, &property, &current_value]() {
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
-        vertex->properties.SetProperty(property, value);
+        if (std::ranges::any_of(vertex->labels,
+                                [storage](auto &label) { return storage->indices_.text_index_->IndexExists(label); })) {
+          vertex->properties.SetProperty(property, value, true, vertex->gid);
+        } else {
+          vertex->properties.SetProperty(property, value);
+        }
       }};
   std::invoke(atomic_memory_block);
 
@@ -345,7 +350,13 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock atomic_memory_block{
       [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &id_old_new_change]() {
-        id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
+        if (std::ranges::any_of(vertex->labels,
+                                [storage](auto &label) { return storage->indices_.text_index_->IndexExists(label); })) {
+          id_old_new_change.emplace(vertex->properties.UpdateProperties(properties, true, vertex->gid));
+        } else {
+          id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
+        }
+
         if (!id_old_new_change.has_value()) {
           return;
         }
@@ -389,7 +400,12 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
           transaction->constraint_verification_info.RemovedProperty(vertex);
           transaction->manyDeltasCache.Invalidate(vertex, property);
         }
-        vertex->properties.ClearProperties();
+        if (std::ranges::any_of(vertex->labels,
+                                [storage](auto &label) { return storage->indices_.text_index_->IndexExists(label); })) {
+          vertex->properties.ClearProperties(true, vertex->gid);
+        } else {
+          vertex->properties.ClearProperties();
+        }
       }};
   std::invoke(atomic_memory_block);
 
