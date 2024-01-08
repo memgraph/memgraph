@@ -354,6 +354,13 @@ int main(int argc, char **argv) {
       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
 
+#ifdef MG_ENTERPRISE
+  spdlog::trace("Coordinator {} server port {}", FLAGS_coordinator, FLAGS_coordinator_server_port);
+  MG_ASSERT((FLAGS_coordinator && FLAGS_coordinator_server_port == 0) ||
+                (!FLAGS_coordinator && FLAGS_coordinator_server_port > 0),
+            "Instance must be a coordinator or have a registered coordinator server.");
+#endif
+
   auto auth_glue =
       [flag = FLAGS_auth_user_or_role_name_regex](
           memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
