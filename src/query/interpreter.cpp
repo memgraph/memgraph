@@ -379,7 +379,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
 #ifdef MG_ENTERPRISE
   /// @throw QueryRuntimeException if an error ocurred.
-  void RegisterMain(const std::string &socket_address, const std::chrono::seconds main_check_frequency) override {
+  void RegisterCoordinatorServer(const std::string &socket_address,
+                                 const std::chrono::seconds main_check_frequency) override {
     if (!FLAGS_coordinator) {
       throw QueryRuntimeException("Only coordinator can register main instance!");
     }
@@ -397,9 +398,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
           .replica_check_frequency = main_check_frequency,  // TODO: (andi) better naming would be check_frequency
           .ssl = std::nullopt};
 
-      if (const auto ret = handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
-        throw QueryRuntimeException("Couldn't register main!");
-      }
+      // if (const auto ret = handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
+      //   throw QueryRuntimeException("Couldn't register main!");
+      // }
     } else {
       throw QueryRuntimeException("Invalid socket address!");
     }
@@ -851,7 +852,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
-      const auto &name = repl_query->replica_name_;
+      const auto &name = repl_query->instance_name_;
       const auto &sync_mode = repl_query->sync_mode_;
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       const auto replica_check_frequency = config.replication_replica_check_frequency;
@@ -862,10 +863,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         return std::vector<std::vector<TypedValue>>();
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
-                                  fmt::format("Replica {} is registered.", repl_query->replica_name_));
+                                  fmt::format("Replica {} is registered.", repl_query->instance_name_));
       return callback;
     }
-    case ReplicationQuery::Action::REGISTER_MAIN: {
+    case ReplicationQuery::Action::REGISTER_COORDINATOR_SERVER: {
       if (!license::global_license_checker.IsEnterpriseValidFast()) {
         throw QueryException("Trying to use enterprise feature without a valid license.");
       }
@@ -878,12 +879,13 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, socket_address_tv,
                      main_check_frequency = config.replication_replica_check_frequency]() mutable {
-        handler.RegisterMain(std::string(socket_address_tv.ValueString()), main_check_frequency);
+        handler.RegisterCoordinatorServer(std::string(socket_address_tv.ValueString()), main_check_frequency);
         return std::vector<std::vector<TypedValue>>();
       };
 
-      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_MAIN,
-                                  "Coordinator has registered main instance.");
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_COORDINATOR_SERVER,
+                                  fmt::format("Coordinator has registered coordinator server on {} for instance {}.",
+                                              socket_address_tv.ValueString(), repl_query->instance_name_));
       return callback;
 #endif
     }
@@ -919,13 +921,13 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 #endif
     }
     case ReplicationQuery::Action::DROP_REPLICA: {
-      const auto &name = repl_query->replica_name_;
+      const auto &name = repl_query->instance_name_;
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, name]() mutable {
         handler.DropReplica(name);
         return std::vector<std::vector<TypedValue>>();
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::DROP_REPLICA,
-                                  fmt::format("Replica {} is dropped.", repl_query->replica_name_));
+                                  fmt::format("Replica {} is dropped.", repl_query->instance_name_));
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {

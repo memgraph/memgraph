@@ -229,7 +229,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return ReplicationQuery*
    */
-  antlrcpp::Any visitRegisterMain(MemgraphCypher::RegisterMainContext *ctx) override;
+  antlrcpp::Any visitRegisterCoordinatorServer(MemgraphCypher::RegisterCoordinatorServerContext *ctx) override;
 
   /**
    * @return ReplicationQuery*

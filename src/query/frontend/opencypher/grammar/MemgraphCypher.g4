@@ -179,7 +179,7 @@ authQuery : createRole
 replicationQuery : setReplicationRole
                  | showReplicationRole
                  | registerReplica
-                 | registerMain
+                 | registerCoordinatorServer
                  | dropReplica
                  | showReplicas
                  | showReplicationCluster
@@ -368,16 +368,16 @@ showReplicationRole : SHOW REPLICATION ROLE ;
 
 showReplicationCluster : SHOW REPLICATION CLUSTER ;
 
-replicaName : symbolicName ;
+instanceName : symbolicName ;
 
 socketAddress : literal ;
 
-registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
+registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
 
-registerMain : REGISTER MAIN TO socketAddress ;
+registerCoordinatorServer : REGISTER ( MAIN | REPLICA ) COORDINATOR SERVER ON instanceName TO socketAddress ;
 
-dropReplica : DROP REPLICA replicaName ;
+dropReplica : DROP REPLICA instanceName ;
 
 showReplicas : SHOW REPLICAS ;
 

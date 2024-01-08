@@ -67,8 +67,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
     case NotificationCode::REGISTER_REPLICA:
       return "RegisterReplica"sv;
 #ifdef MG_ENTERPRISE
-    case NotificationCode::REGISTER_MAIN:
-      return "RegisterMain"sv;
+    case NotificationCode::REGISTER_COORDINATOR_SERVER:
+      return "RegisterCoordinatorServer"sv;
 #endif
     case NotificationCode::REPLICA_PORT_WARNING:
       return "ReplicaPortWarning"sv;
