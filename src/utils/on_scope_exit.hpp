@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <concepts>
 #include <functional>
 
 namespace memgraph::utils {
@@ -37,7 +38,9 @@ namespace memgraph::utils {
 template <typename Callable>
 class [[nodiscard]] OnScopeExit {
  public:
-  explicit OnScopeExit(Callable &&function) : function_{std::forward<Callable>(function)}, doCall_{true} {}
+  template <typename U>
+  requires std::constructible_from<Callable, U>
+  explicit OnScopeExit(U &&function) : function_{std::forward<U>(function)}, doCall_{true} {}
   OnScopeExit(OnScopeExit const &) = delete;
   OnScopeExit(OnScopeExit &&) = delete;
   OnScopeExit &operator=(OnScopeExit const &) = delete;

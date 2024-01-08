@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,8 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/timer.hpp"
+
+using memgraph::replication::ReplicationRole;
 
 // This benchmark should be run for a fixed amount of time that is
 // large compared to GC interval to make the output relevant.
@@ -41,14 +43,14 @@ int main(int argc, char *argv[]) {
       std::array<memgraph::storage::Gid, 1> vertices;
       memgraph::storage::PropertyId pid;
       {
-        auto acc = storage->Access();
+        auto acc = storage->Access(ReplicationRole::MAIN);
         vertices[0] = acc->CreateVertex().Gid();
         pid = acc->NameToProperty("NEW_PROP");
         MG_ASSERT(!acc->Commit().HasError());
       }
 
       for (int iter = 0; iter != FLAGS_num_iterations; ++iter) {
-        auto acc = storage->Access();
+        auto acc = storage->Access(ReplicationRole::MAIN);
         auto vertex1 = acc->FindVertex(vertices[0], memgraph::storage::View::OLD);
         for (auto i = 0; i != FLAGS_num_poperties; ++i) {
           MG_ASSERT(!vertex1.value().SetProperty(pid, memgraph::storage::PropertyValue{i}).HasError());
