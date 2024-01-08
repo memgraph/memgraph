@@ -30,7 +30,7 @@ class CoordinatorServer {
 
  private:
   communication::ServerContext rpc_server_context_;
-  rpc::Server rpc_server_;  // TODO: Interface or something
+  rpc::Server rpc_server_;
 };
 
 }  // namespace memgraph::replication

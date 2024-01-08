@@ -22,8 +22,6 @@
 
 namespace memgraph::replication {
 
-// TODO: (andi) Deduplicate the code from ReplicationClient
-
 struct CoordinatorClient {
   explicit CoordinatorClient(const memgraph::replication::ReplicationClientConfig &config);
 

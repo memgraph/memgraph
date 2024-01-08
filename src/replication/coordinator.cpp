@@ -29,6 +29,11 @@ CoordinatorState::CoordinatorState() {
         .port = static_cast<uint16_t>(FLAGS_coordinator_server_port),
     };
     coordinator_server_ = std::make_unique<CoordinatorServer>(config);
+    // TODO: (andi) Register coordinator handlers
+    // InMemoryReplicationHandlers::Register(&dbms_handler_, *data.server);
+    if (!coordinator_server_->Start()) {
+      MG_ASSERT(false, "Failed to start coordinator server!");
+    }
   }
 }
 

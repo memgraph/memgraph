@@ -20,7 +20,6 @@ static auto CreateClientContext(const memgraph::replication::ReplicationClientCo
                       : communication::ClientContext{};
 }
 
-// TODO: (andi) ReplicationClientConfig..
 CoordinatorClient::CoordinatorClient(const memgraph::replication::ReplicationClientConfig &config)
     : name_{config.name},
       rpc_context_{CreateClientContext(config)},
