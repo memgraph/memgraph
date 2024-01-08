@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
-
+using memgraph::replication::ReplicationRole;
 constexpr auto testSuite = "storage_v2_get_info";
 const std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / testSuite};
 
@@ -63,22 +63,22 @@ TYPED_TEST(InfoTest, InfoCheck) {
 
   {
     {
-      auto unique_acc = this->storage->UniqueAccess();
+      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
       ASSERT_FALSE(unique_acc->CreateExistenceConstraint(lbl, prop).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
+      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
       ASSERT_FALSE(unique_acc->DropExistenceConstraint(lbl, prop).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto v3 = acc->CreateVertex();
     auto v4 = acc->CreateVertex();
-    auto v5 = acc->CreateVertex();
+    [[maybe_unused]] auto v5 = acc->CreateVertex();
 
     ASSERT_FALSE(v2.AddLabel(lbl).HasError());
     ASSERT_FALSE(v3.AddLabel(lbl).HasError());
@@ -93,49 +93,49 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
     ASSERT_FALSE(unique_acc->CreateIndex(lbl).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
     ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
     ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop2).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
     ASSERT_FALSE(unique_acc->DropIndex(lbl, prop).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl, {prop2}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl2, {prop}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl3, {prop}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
     ASSERT_EQ(unique_acc->DropUniqueConstraint(lbl, {prop2}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  StorageInfo info = this->storage->GetInfo(true);  // force to use configured directory
+  StorageInfo info = this->storage->GetInfo(true, ReplicationRole::MAIN);  // force to use configured directory
 
   ASSERT_EQ(info.vertex_count, 5);
   ASSERT_EQ(info.edge_count, 2);

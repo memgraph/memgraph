@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 
+using memgraph::replication::ReplicationRole;
 using memgraph::storage::Delta;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::EdgeRef;
@@ -380,9 +381,9 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
     if (!commit_timestamp_and_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
       if (unique) {
-        acc = storage->UniqueAccess(std::nullopt, false /*not main*/);
+        acc = storage->UniqueAccess(ReplicationRole::REPLICA);
       } else {
-        acc = storage->Access(std::nullopt, false /*not main*/);
+        acc = storage->Access(ReplicationRole::REPLICA);
       }
       auto inmem_acc = std::unique_ptr<storage::InMemoryStorage::InMemoryAccessor>(
           static_cast<storage::InMemoryStorage::InMemoryAccessor *>(acc.release()));

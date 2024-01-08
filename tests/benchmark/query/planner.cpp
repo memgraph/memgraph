@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,8 @@
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+
+using memgraph::replication::ReplicationRole;
 
 // Add chained MATCH (node1) -- (node2), MATCH (node2) -- (node3) ... clauses.
 static memgraph::query::CypherQuery *AddChainedMatches(int num_matches, memgraph::query::AstStorage &storage) {
@@ -45,7 +47,7 @@ static memgraph::query::CypherQuery *AddChainedMatches(int num_matches, memgraph
 
 static void BM_PlanChainedMatches(benchmark::State &state) {
   std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   while (state.KeepRunning()) {
     state.PauseTiming();
@@ -96,10 +98,10 @@ static auto CreateIndexedVertices(int index_count, int vertex_count, memgraph::s
   auto label = db->NameToLabel("label");
   auto prop = db->NameToProperty("prop");
   {
-    auto unique_acc = db->UniqueAccess();
+    auto unique_acc = db->UniqueAccess(ReplicationRole::MAIN);
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
   }
-  auto dba = db->Access();
+  auto dba = db->Access(ReplicationRole::MAIN);
   for (int vi = 0; vi < vertex_count; ++vi) {
     for (int index = 0; index < index_count; ++index) {
       auto vertex = dba->CreateVertex();
@@ -118,7 +120,7 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
   int index_count = state.range(0);
   int vertex_count = state.range(1);
   std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db.get());
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   memgraph::query::Parameters parameters;
   while (state.KeepRunning()) {
@@ -148,7 +150,7 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &
   int index_count = state.range(0);
   int vertex_count = state.range(1);
   std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db.get());
-  auto storage_dba = db->Access();
+  auto storage_dba = db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto vertex_counts = memgraph::query::plan::MakeVertexCountCache(&dba);
   memgraph::query::Parameters parameters;
