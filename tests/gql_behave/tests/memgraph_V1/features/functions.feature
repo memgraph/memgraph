@@ -60,6 +60,34 @@ Feature: Functions
             | false |
             | true  |
 
+    Scenario: ToBoolean test 03:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {prop: ToBoolean("t")});
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.prop;
+            """
+        Then the result should be:
+            | n.prop |
+            | true   |
+
+    Scenario: ToBoolean test 03:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {prop: ToBoolean("f")});
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.prop;
+            """
+        Then the result should be:
+            | n.prop |
+            | false  |
+
     Scenario: ToInteger test 01:
         Given an empty graph
         And having executed
