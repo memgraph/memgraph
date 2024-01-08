@@ -20,7 +20,6 @@ static auto CreateClientContext(const memgraph::replication::ReplicationClientCo
                       : communication::ClientContext{};
 }
 
-// TODO: (andi) ReplicationClientConfig..
 CoordinatorClient::CoordinatorClient(const memgraph::replication::ReplicationClientConfig &config)
     : name_{config.name},
       rpc_context_{CreateClientContext(config)},
@@ -36,6 +35,20 @@ CoordinatorClient::~CoordinatorClient() {
     // Logging can throw. Not a big deal, just ignore.
   }
   thread_pool_.Shutdown();
+}
+
+void CoordinatorClient::StartFrequentCheck() {
+  MG_ASSERT(replica_check_frequency_ > std::chrono::seconds(0), "Replica check frequency must be greater than 0");
+  replica_checker_.Run("Coord checker", replica_check_frequency_, [this] {
+    try {
+      {
+        auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
+        stream.AwaitResponse();
+      }
+    } catch (const rpc::RpcFailedException &) {
+      // Nothing to do...wait for a reconnect
+    }
+  });
 }
 
 }  // namespace memgraph::replication

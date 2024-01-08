@@ -22,11 +22,6 @@
 
 namespace memgraph::replication {
 
-// TODO: (andi) Deduplicate the code from ReplicationClient?
-
-template <typename F>
-concept InvocableWithStringView = std::invocable<F, std::string_view>;
-
 struct CoordinatorClient {
   explicit CoordinatorClient(const memgraph::replication::ReplicationClientConfig &config);
 
@@ -36,26 +31,7 @@ struct CoordinatorClient {
   CoordinatorClient(CoordinatorClient &&) noexcept = delete;
   CoordinatorClient &operator=(CoordinatorClient &&) noexcept = delete;
 
-  template <InvocableWithStringView F>
-  void StartFrequentCheck(F &&callback) {
-    // Help the user to get the most accurate replica state possible.
-    if (replica_check_frequency_ > std::chrono::seconds(0)) {
-      replica_checker_.Run("Replica Checker", replica_check_frequency_, [this, cb = std::forward<F>(callback)] {
-        try {
-          bool success = false;
-          {
-            auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
-            success = stream.AwaitResponse().success;
-          }
-          if (success) {
-            cb(name_);
-          }
-        } catch (const rpc::RpcFailedException &) {
-          // Nothing to do...wait for a reconnect
-        }
-      });
-    }
-  }
+  void StartFrequentCheck();
 
   std::string name_;
   communication::ClientContext rpc_context_;

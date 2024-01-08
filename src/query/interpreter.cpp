@@ -379,30 +379,35 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
 #ifdef MG_ENTERPRISE
   /// @throw QueryRuntimeException if an error ocurred.
-  void RegisterCoordinatorServer(const std::string &socket_address,
-                                 const std::chrono::seconds main_check_frequency) override {
+  void RegisterCoordinatorServer(const std::string &socket_address, const std::chrono::seconds instance_check_frequency,
+                                 const std::string &instance_name,
+                                 ReplicationQuery::ReplicationRole replication_role) override {
     if (!FLAGS_coordinator) {
       throw QueryRuntimeException("Only coordinator can register coordinator server!");
     }
 
     const auto maybe_ip_and_port =
         io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
-    if (maybe_ip_and_port) {
-      const auto [ip, port] = *maybe_ip_and_port;
-      const auto config = replication::ReplicationClientConfig{
-          .name = memgraph::replication::kDefaultMainName,
-          .mode = replication::ReplicationMode::ASYNC,  // MAIN is not using actually replication mode, TODO: (andi) Set
-                                                        // it to optional
-          .ip_address = ip,
-          .port = port,
-          .replica_check_frequency = main_check_frequency,  // TODO: (andi) better naming would be check_frequency
-          .ssl = std::nullopt};
-
-      // if (const auto ret = handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
-      //   throw QueryRuntimeException("Couldn't register main!");
-      // }
-    } else {
+    if (!maybe_ip_and_port) {
       throw QueryRuntimeException("Invalid socket address!");
+    }
+    const auto [ip, port] = *maybe_ip_and_port;
+    // TODO: (andi) What to do with mode
+    const auto config = replication::ReplicationClientConfig{
+        .name = instance_name,
+        .ip_address = ip,
+        .port = port,
+        .replica_check_frequency = instance_check_frequency,  // TODO: (andi) better naming would be check_frequency
+        .ssl = std::nullopt};
+
+    if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
+      if (const auto ret = handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
+        throw QueryRuntimeException("Couldn't register main on coordinator!");
+      }
+    } else {
+      if (const auto ret = handler_.RegisterReplicaOnCoordinator(config); ret.HasError()) {
+        throw QueryRuntimeException("Couldn't register replica on coordinator!");
+      }
     }
   }
 #endif
@@ -878,8 +883,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       auto socket_address_tv = repl_query->socket_address_->Accept(evaluator);
 
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, socket_address_tv,
-                     main_check_frequency = config.replication_replica_check_frequency]() mutable {
-        handler.RegisterCoordinatorServer(std::string(socket_address_tv.ValueString()), main_check_frequency);
+                     main_check_frequency = config.replication_replica_check_frequency,
+                     instance_name = repl_query->instance_name_, role = repl_query->role_]() mutable {
+        handler.RegisterCoordinatorServer(std::string(socket_address_tv.ValueString()), main_check_frequency,
+                                          instance_name, role);
         return std::vector<std::vector<TypedValue>>();
       };
 
