@@ -11,9 +11,10 @@
 
 #pragma once
 
+#include "replication/coordinator_client.hpp"
 #include "replication/coordinator_entity_info.hpp"
+#include "replication/coordinator_server.hpp"
 #include "replication/register_replica_error.hpp"
-#include "replication/replication_client.hpp"
 #include "utils/result.hpp"
 
 #include <list>
@@ -21,18 +22,18 @@
 namespace memgraph::replication {
 
 #ifdef MG_ENTERPRISE
-struct Coordinator {
-  Coordinator() = default;
-  ~Coordinator() = default;
+struct CoordinatorState {
+  CoordinatorState();
+  ~CoordinatorState() = default;
 
-  Coordinator(const Coordinator &) = delete;
-  Coordinator &operator=(const Coordinator &) = delete;
+  CoordinatorState(const CoordinatorState &) = delete;
+  CoordinatorState &operator=(const CoordinatorState &) = delete;
 
-  Coordinator(Coordinator &&other) noexcept
+  CoordinatorState(CoordinatorState &&other) noexcept
       : registered_replicas_(std::move(other.registered_replicas_)),
         registered_main_(std::move(other.registered_main_)) {}
 
-  Coordinator &operator=(Coordinator &&other) noexcept {
+  CoordinatorState &operator=(CoordinatorState &&other) noexcept {
     if (this == &other) {
       return *this;
     }
@@ -41,17 +42,18 @@ struct Coordinator {
     return *this;
   }
 
-  utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
+  utils::BasicResult<RegisterReplicaError, CoordinatorClient *> RegisterReplica(const ReplicationClientConfig &config);
 
   /// TODO: (andi) Introduce RegisterMainError
-  utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterMain(const ReplicationClientConfig &config);
+  utils::BasicResult<RegisterReplicaError, CoordinatorClient *> RegisterMain(const ReplicationClientConfig &config);
 
   std::vector<CoordinatorEntityInfo> ShowReplicas() const;
 
   std::optional<CoordinatorEntityInfo> ShowMain() const;
 
-  std::list<ReplicationClient> registered_replicas_;
-  std::unique_ptr<ReplicationClient> registered_main_;
+  std::list<CoordinatorClient> registered_replicas_;
+  std::unique_ptr<CoordinatorClient> registered_main_;
+  std::unique_ptr<CoordinatorServer> coordinator_server_;
 };
 #endif
 

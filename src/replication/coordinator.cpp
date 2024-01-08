@@ -11,12 +11,30 @@
 
 #include "replication/coordinator.hpp"
 
+#include "flags/replication.hpp"
+
 namespace memgraph::replication {
 
 #ifdef MG_ENTERPRISE
-utils::BasicResult<RegisterReplicaError, ReplicationClient *> Coordinator::RegisterReplica(
+
+CoordinatorState::CoordinatorState() {
+  MG_ASSERT((FLAGS_coordinator && FLAGS_coordinator_server_port == 0) ||
+                (!FLAGS_coordinator && FLAGS_coordinator_server_port > 0),
+            "Instance must be a coordinator or have a registered coordinator server.");
+
+  // MAIN or REPLICA instance
+  if (FLAGS_coordinator_server_port) {
+    auto const config = memgraph::replication::ReplicationServerConfig{
+        .ip_address = memgraph::replication::kDefaultReplicationServerIp,
+        .port = static_cast<uint16_t>(FLAGS_coordinator_server_port),
+    };
+    coordinator_server_ = std::make_unique<CoordinatorServer>(config);
+  }
+}
+
+utils::BasicResult<RegisterReplicaError, CoordinatorClient *> CoordinatorState::RegisterReplica(
     const ReplicationClientConfig &config) {
-  ReplicationClient *client{nullptr};
+  CoordinatorClient *client{nullptr};
 
   // TODO: (andi) Solve DRY by extracting
   auto name_check = [&config](auto const &replicas) {
@@ -46,7 +64,7 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> Coordinator::Regis
   return client;
 }
 
-utils::BasicResult<RegisterReplicaError, ReplicationClient *> Coordinator::RegisterMain(
+utils::BasicResult<RegisterReplicaError, CoordinatorClient *> CoordinatorState::RegisterMain(
     const ReplicationClientConfig &config) {
   // TODO: (andi) Solve DRY by extracting
   auto name_check = [&config](auto const &replicas) {
@@ -71,11 +89,11 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> Coordinator::Regis
     return RegisterReplicaError::END_POINT_EXISTS;
   }
 
-  registered_main_ = std::make_unique<ReplicationClient>(config);
+  registered_main_ = std::make_unique<CoordinatorClient>(config);
   return registered_main_.get();
 }
 
-std::vector<CoordinatorEntityInfo> Coordinator::ShowReplicas() const {
+std::vector<CoordinatorEntityInfo> CoordinatorState::ShowReplicas() const {
   std::vector<CoordinatorEntityInfo> result;
   result.reserve(registered_replicas_.size());
   std::transform(registered_replicas_.begin(), registered_replicas_.end(), std::back_inserter(result),
@@ -85,7 +103,7 @@ std::vector<CoordinatorEntityInfo> Coordinator::ShowReplicas() const {
   return result;
 }
 
-std::optional<CoordinatorEntityInfo> Coordinator::ShowMain() const {
+std::optional<CoordinatorEntityInfo> CoordinatorState::ShowMain() const {
   if (registered_main_) {
     return CoordinatorEntityInfo{registered_main_->name_, registered_main_->rpc_client_.Endpoint()};
   }

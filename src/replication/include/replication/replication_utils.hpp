@@ -16,6 +16,9 @@
 
 namespace memgraph::replication {
 
+template <typename F>
+concept InvocableWithStringView = std::invocable<F, std::string_view>;
+
 inline auto CreateServerContext(const memgraph::replication::ReplicationServerConfig &config)
     -> communication::ServerContext {
   return (config.ssl) ? communication::ServerContext{config.ssl->key_file, config.ssl->cert_file, config.ssl->ca_file,
