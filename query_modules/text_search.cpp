@@ -11,6 +11,7 @@
 
 #include <mgp.hpp>
 // #include "query/procedure/mg_procedure_impl.hpp"
+// #include "storage/v2/indices/mgcxx_mock.hpp"
 #include "storage/v2/mgcxx_mock.hpp"
 
 namespace TextSearch {
@@ -31,7 +32,11 @@ void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
 
   // TODO antepusic:
   // 1. Match the label to the appropriate text index
-  // auto label_id = memgraph_graph->impl->NameToLabel(label);
+  // auto label_id = memgraph_graph->impl->NameToLabel(label); <- needs API method
+
+  if (!mgp::graph_has_text_index(memgraph_graph, label.data())) {
+    return;
+  }
 
   // 2. Run text search of that index
   //    * Add metadata to the return fields before search
@@ -49,8 +54,8 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
 
     AddProcedure(TextSearch::Search, TextSearch::kProcedureSearch, mgp::ProcedureType::Read,
                  {
-                     mgp::Parameter(TextSearch::kParameterLabel, {mgp::Type::String}),
-                     mgp::Parameter(TextSearch::kParameterSearchString, {mgp::Type::String}),
+                     mgp::Parameter(TextSearch::kParameterLabel, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterSearchString, mgp::Type::String),
                  },
                  {mgp::Return(TextSearch::kReturnNode, mgp::Type::Node)}, module, memory);
   } catch (const std::exception &e) {

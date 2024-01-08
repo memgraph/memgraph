@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -3319,6 +3319,18 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
     if (ctx->trigger_context_collector) {
       ctx->trigger_context_collector->RegisterDeletedObject(**result);
     }
+  });
+}
+
+mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *label, int *result) {
+  return WrapExceptions([graph, label, result]() {
+    std::visit(
+        memgraph::utils::Overloaded{
+            [&](memgraph::query::DbAccessor *impl) { *result = impl->TextIndexExists(impl->NameToLabel(label)); },
+            [&](memgraph::query::SubgraphDbAccessor *impl) {
+              *result = impl->GetAccessor()->TextIndexExists(impl->GetAccessor()->NameToLabel(label));
+            }},
+        graph->impl);
   });
 }
 
