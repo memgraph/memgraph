@@ -287,23 +287,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     };
 
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
-      auto const config = std::invoke([&]() -> std::optional<memgraph::replication::ReplicationServerConfig> {
-        if (port.has_value()) {
-          if (!license::global_license_checker.IsEnterpriseValidFast()) {
-            throw QueryException("Trying to use enterprise feature without a valid license.");
-          }
-
-          ValidatePort(port);
-
-          return memgraph::replication::ReplicationServerConfig{
-              .ip_address = memgraph::replication::kDefaultReplicationServerIp,
-              .port = static_cast<uint16_t>(*port),
-          };
-        }
-        return {};
-      });
-
-      if (!handler_.SetReplicationRoleMain(config)) {
+      if (!handler_.SetReplicationRoleMain()) {
         throw QueryRuntimeException("Couldn't set replication role to main!");
       }
     } else {

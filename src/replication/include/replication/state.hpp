@@ -86,7 +86,7 @@ struct ReplicationState {
 
   bool ShouldPersist() const { return nullptr != durability_; }
 
-  bool TryPersistRoleMain(std::string new_epoch, const std::optional<ReplicationServerConfig> &config = {});
+  bool TryPersistRoleMain(std::string new_epoch);
 
   bool TryPersistRoleReplica(const ReplicationServerConfig &config);
   bool TryPersistUnregisterReplica(std::string_view name);
@@ -97,7 +97,7 @@ struct ReplicationState {
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
-  bool SetReplicationRoleMain(const std::optional<ReplicationServerConfig> &config = {});
+  bool SetReplicationRoleMain();
 
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
 

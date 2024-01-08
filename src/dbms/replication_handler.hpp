@@ -41,9 +41,8 @@ enum class UnregisterReplicaResult : uint8_t {
 struct ReplicationHandler {
   explicit ReplicationHandler(DbmsHandler &dbms_handler);
 
-  // As default main, add replication server to the main or
-  // As replica become main
-  bool SetReplicationRoleMain(const std::optional<memgraph::replication::ReplicationServerConfig> &config = {});
+  // as REPLICA, become MAIN
+  bool SetReplicationRoleMain();
 
   // as MAIN, become REPLICA
   bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config);

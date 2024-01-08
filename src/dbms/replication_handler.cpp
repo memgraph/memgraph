@@ -44,15 +44,14 @@ std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
 
 ReplicationHandler::ReplicationHandler(DbmsHandler &dbms_handler) : dbms_handler_(dbms_handler) {}
 
-bool ReplicationHandler::SetReplicationRoleMain(
-    const std::optional<memgraph::replication::ReplicationServerConfig> &config) {
+bool ReplicationHandler::SetReplicationRoleMain() {
   // TODO: (andi) In reality instance should be started as a default non-replication instance and then switched to MAIN
-  auto const main_handler = [&config](RoleMainData &) {
-    // TODO: (andi) Create a server in some kind of state.
-    return config.has_value();
+  auto const main_handler = [](RoleMainData &) {
+    // If we are already MAIN, we don't want to change anything
+    return false;
   };
 
-  auto const replica_handler = [this, &config](RoleReplicaData const &) {
+  auto const replica_handler = [this](RoleReplicaData const &) {
     // STEP 1) bring down all REPLICA servers
     dbms_handler_.ForEach([](Database *db) {
       auto *storage = db->storage();
@@ -62,7 +61,7 @@ bool ReplicationHandler::SetReplicationRoleMain(
 
     // STEP 2) Change to MAIN
     // TODO: restore replication servers if false?
-    if (!dbms_handler_.ReplicationState().SetReplicationRoleMain(config)) {
+    if (!dbms_handler_.ReplicationState().SetReplicationRoleMain()) {
       // TODO: Handle recovery on failure???
       return false;
     }

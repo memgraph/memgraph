@@ -327,16 +327,9 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetRepl
 
   if (ctx->MAIN()) {
     replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
-
-#ifdef MG_ENTERPRISE
-    if (ctx->WITH() && ctx->PORT()) {
-      set_replication_port();
-    }
-#else
     if (ctx->WITH() || ctx->PORT()) {
       throw SemanticException("Main can't set a port!");
     }
-#endif
 
   } else if (ctx->REPLICA()) {
     replication_query->role_ = ReplicationQuery::ReplicationRole::REPLICA;
