@@ -356,7 +356,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                                                                .ssl = std::nullopt};
 #ifdef MG_ENTERPRISE
       const auto ret = std::invoke([&config, repl_handler = &this->handler_]() {
-        if (FLAGS_coordinator) {
+        if (!FLAGS_coordinator_server_port) {
           if (!license::global_license_checker.IsEnterpriseValidFast()) {
             throw QueryException("Trying to use enterprise feature without a valid license.");
           }
@@ -381,7 +381,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   void RegisterCoordinatorServer(const std::string &socket_address,
                                  const std::chrono::seconds main_check_frequency) override {
-    if (!FLAGS_coordinator) {
+    if (FLAGS_coordinator_server_port) {
       throw QueryRuntimeException("Only coordinator can register main instance!");
     }
 
@@ -803,7 +803,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator) {
+      if (!FLAGS_coordinator_server_port) {
         if (repl_query->role_ == ReplicationQuery::ReplicationRole::REPLICA) {
           throw QueryRuntimeException("Coordinator cannot become a replica!");
         }
@@ -832,7 +832,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator) {
+      if (!FLAGS_coordinator_server_port) {
         throw QueryRuntimeException("Coordinator doesn't have a replication role!");
       }
 #endif
@@ -894,7 +894,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         throw QueryException("Trying to use enterprise feature without a valid license.");
       }
 #ifdef MG_ENTERPRISE
-      if (!FLAGS_coordinator) {
+      if (FLAGS_coordinator_server_port) {
         throw QueryRuntimeException("Only coordinator can call SHOW REPLICATION CLUSTER!");
       }
 
@@ -932,7 +932,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator) {
+      if (!FLAGS_coordinator_server_port) {
         throw QueryRuntimeException("Coordinator cannot call SHOW REPLICAS! Use SHOW REPLICATION CLUSTER instead.");
       }
 #endif
@@ -3918,7 +3918,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // }
 
 #ifdef MG_ENTERPRISE
-    if (FLAGS_coordinator && !utils::Downcast<ReplicationQuery>(parsed_query.query) &&
+    if (!FLAGS_coordinator_server_port && !utils::Downcast<ReplicationQuery>(parsed_query.query) &&
         !utils::Downcast<SettingQuery>(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only replication queries!");
     }
