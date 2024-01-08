@@ -22,6 +22,7 @@
 
 #include <fmt/format.h>
 
+#include "dbms/database.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/path.hpp"
@@ -275,9 +276,9 @@ const char *triggerPhaseToString(TriggerPhase phase) {
 
 }  // namespace
 
-PullPlanDump::PullPlanDump(DbAccessor *dba, TriggerStore *trigger_store)
+PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
     : dba_(dba),
-      trigger_store_(trigger_store),
+      db_acc_(db_acc),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
       pull_chunks_{// Dump all label indices
                    CreateLabelIndicesPullChunk(),
@@ -554,23 +555,21 @@ PullPlanDump::PullChunk PullPlanDump::CreateInternalIndexCleanupPullChunk() {
 
 PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
   return [this](AnyStream *stream, std::optional<int>) {
-    if (trigger_store_->HasTriggers()) {
-      auto triggers = trigger_store_->GetTriggerInfo();
-      for (auto &trigger : triggers) {
-        std::ostringstream os;
-        std::replace(trigger.statement.begin(), trigger.statement.end(), '\n', ' ');
-        os << "CREATE TRIGGER " << trigger.name << " ON "
-           << memgraph::query::TriggerEventTypeToString(trigger.event_type) << " "
-           << triggerPhaseToString(trigger.phase) << " " << trigger.statement << ";";
-        stream->Result({TypedValue(os.str())});
-      }
+    auto triggers = db_acc_->trigger_store()->GetTriggerInfo();
+    for (const auto &trigger : triggers) {
+      std::ostringstream os;
+      auto trigger_statement_copy = trigger.statement;
+      std::replace(trigger_statement_copy.begin(), trigger_statement_copy.end(), '\n', ' ');
+      os << "CREATE TRIGGER " << trigger.name << " ON " << memgraph::query::TriggerEventTypeToString(trigger.event_type)
+         << " " << triggerPhaseToString(trigger.phase) << " " << trigger_statement_copy << ";";
+      stream->Result({TypedValue(os.str())});
     }
     return 0;
   };
 }
 
-void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, query::TriggerStore *trigger_store) {
-  PullPlanDump(dba, trigger_store).Pull(stream, {});
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc) {
+  PullPlanDump(dba, db_acc).Pull(stream, {});
 }
 
 }  // namespace memgraph::query

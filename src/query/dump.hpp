@@ -13,6 +13,7 @@
 
 #include <ostream>
 
+#include "dbms/database.hpp"
 #include "query/db_accessor.hpp"
 #include "query/stream.hpp"
 #include "query/trigger.hpp"
@@ -20,10 +21,10 @@
 
 namespace memgraph::query {
 
-void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, query::TriggerStore *trigger_store);
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc);
 
 struct PullPlanDump {
-  explicit PullPlanDump(query::DbAccessor *dba, query::TriggerStore *trigger_store);
+  explicit PullPlanDump(query::DbAccessor *dba, dbms::DatabaseAccess db_acc);
 
   /// Pull the dump results lazily
   /// @return true if all results were returned, false otherwise
@@ -31,7 +32,7 @@ struct PullPlanDump {
 
  private:
   query::DbAccessor *dba_ = nullptr;
-  query::TriggerStore *trigger_store_ = nullptr;
+  dbms::DatabaseAccess db_acc_;
 
   std::optional<storage::IndicesInfo> indices_info_ = std::nullopt;
   std::optional<storage::ConstraintsInfo> constraints_info_ = std::nullopt;
