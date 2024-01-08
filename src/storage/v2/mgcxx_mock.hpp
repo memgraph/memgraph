@@ -52,6 +52,8 @@ class Mock {
 
   static void add(IndexContext context, DocumentInput input, bool skip_commit) {}
 
+  static void delete_document(IndexContext context, SearchInput input, bool skip_commit) {}
+
   static void commit(IndexContext context) {}
 
   static void rollback(IndexContext context) {}

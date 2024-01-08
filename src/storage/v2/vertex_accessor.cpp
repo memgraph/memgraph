@@ -15,11 +15,13 @@
 #include <tuple>
 #include <utility>
 
+#include "flags/run_time_configurable.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/mgcxx.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
@@ -272,12 +274,30 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   utils::AtomicMemoryBlock atomic_memory_block{
       [transaction = transaction_, storage = storage_, vertex = vertex_, &value, &property, &current_value]() {
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
+        // Option 1 (current)
         if (std::ranges::any_of(vertex->labels,
                                 [storage](auto &label) { return storage->indices_.text_index_->IndexExists(label); })) {
           vertex->properties.SetProperty(property, value, true, vertex->gid);
         } else {
           vertex->properties.SetProperty(property, value);
         }
+
+        // // Option 2 (proposed)
+        // if (flags::run_time::GetTextSearchEnabled()) {
+        //   for (auto label : vertex->labels) {
+        //     if (!storage->indices_.text_index_->IndexExists(label)) continue;
+
+        //     auto &context = storage->indices_.text_index_->index_.at(label);
+
+        //     // Calling the text search tool is done here and not inside a PropertyStore method
+        //     // make SearchInput
+        //     auto search_result = mgcxx_mock::text_search::Mock::search(context, search_this_node_document);
+        //     mgcxx_mock::text_search::Mock::delete_document(context, search_this_node_document);
+        //     // parse result to JSON, set property in JSON and convert to string
+        //     mgcxx_mock::text_search::Mock::add(context, DocumentInput{result_with_property_set.asString()});
+        //   }
+        // }
+        // vertex->properties.SetProperty(property, value);
       }};
   std::invoke(atomic_memory_block);
 
