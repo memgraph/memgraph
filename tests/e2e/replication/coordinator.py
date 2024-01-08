@@ -62,26 +62,26 @@ def test_coordinator_cannot_call_show_replicas(connection):
     assert str(e.value) == "Coordinator cannot call SHOW REPLICAS! Use SHOW REPLICATION CLUSTER instead."
 
 
-# @pytest.mark.parametrize(
-#     "port, role",
-#     [(7687, "main"), (7688, "replica"), (7689, "replica")],
-# )
-# def test_main_and_relicas_cannot_call_show_repl_cluster(port, role, connection):
-#     cursor = connection(port, role).cursor()
-#     with pytest.raises(Exception) as e:
-#         execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")
-#     assert str(e.value) == "Only coordinator can call SHOW REPLICATION CLUSTER!"
-#
-#
-# @pytest.mark.parametrize(
-#     "port, role",
-#     [(7687, "main"), (7688, "replica"), (7689, "replica")],
-# )
-# def test_main_and_replicas_cannot_register_main(port, role, connection):
-#     cursor = connection(port, role).cursor()
-#     with pytest.raises(Exception) as e:
-#         execute_and_fetch_all(cursor, "REGISTER MAIN TO '127.0.0.1:10005';")
-#     assert str(e.value) == "Only coordinator can register main instance!"
+@pytest.mark.parametrize(
+    "port, role",
+    [(7687, "main"), (7688, "replica"), (7689, "replica")],
+)
+def test_main_and_relicas_cannot_call_show_repl_cluster(port, role, connection):
+    cursor = connection(port, role).cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")
+    assert str(e.value) == "Only coordinator can call SHOW REPLICATION CLUSTER!"
+
+
+@pytest.mark.parametrize(
+    "port, role",
+    [(7687, "main"), (7688, "replica"), (7689, "replica")],
+)
+def test_main_and_replicas_cannot_register_coord_server(port, role, connection):
+    cursor = connection(port, role).cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(cursor, "REGISTER REPLICA COORDINATOR SERVER ON replica_1 TO '127.0.0.1:10005';")
+    assert str(e.value) == "Only coordinator can register coordinator server!"
 
 
 if __name__ == "__main__":

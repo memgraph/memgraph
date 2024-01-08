@@ -382,7 +382,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   void RegisterCoordinatorServer(const std::string &socket_address,
                                  const std::chrono::seconds main_check_frequency) override {
     if (FLAGS_coordinator_server_port) {
-      throw QueryRuntimeException("Only coordinator can register main instance!");
+      throw QueryRuntimeException("Only coordinator can register coordinator server!");
     }
 
     const auto maybe_ip_and_port =
