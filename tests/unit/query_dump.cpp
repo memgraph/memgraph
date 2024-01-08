@@ -1101,7 +1101,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 }
 
 TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
-  auto acc = this->db->storage()->Access();
+  auto acc = this->db->storage()->Access(memgraph::replication::ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(acc.get());
   {
     auto trigger_store = this->db.get()->trigger_store();
@@ -1112,7 +1112,6 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::utils::SkipList<memgraph::query::QueryCacheEntry> ast_cache;
     memgraph::query::AllowEverythingAuthChecker auth_checker;
     memgraph::query::InterpreterConfig::Query query_config;
-    auto acc = this->db->storage()->Access();
     memgraph::query::DbAccessor dba(acc.get());
     const std::map<std::string, memgraph::storage::PropertyValue> props;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
