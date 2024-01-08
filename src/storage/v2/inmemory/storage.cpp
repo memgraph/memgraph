@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -65,14 +65,14 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
-InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
-    : Storage(config, storage_mode),
+InMemoryStorage::InMemoryStorage(Config config)
+    : Storage(config, config.storage_mode),
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       uuid_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
-  MG_ASSERT(storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
+  MG_ASSERT(config.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
@@ -145,7 +145,6 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
     gc_runner_.Run("Storage GC", config_.gc.interval, [this] {
       this->FreeMemory(std::unique_lock<utils::ResourceLock>{main_lock_, std::defer_lock});
     });
-    gc_jemalloc_runner_.Run("Jemalloc GC", config_.gc.interval, [] { memory::PurgeUnusedMemory(); });
   }
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
@@ -154,12 +153,9 @@ InMemoryStorage::InMemoryStorage(Config config, StorageMode storage_mode)
   }
 }
 
-InMemoryStorage::InMemoryStorage(Config config) : InMemoryStorage(config, StorageMode::IN_MEMORY_TRANSACTIONAL) {}
-
 InMemoryStorage::~InMemoryStorage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
-    gc_jemalloc_runner_.Stop();
   }
   {
     // Stop replication (Stop all clients or stop the REPLICA server)
@@ -179,8 +175,9 @@ InMemoryStorage::~InMemoryStorage() {
 }
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                                                    StorageMode storage_mode, bool is_main)
-    : Accessor(tag, storage, isolation_level, storage_mode, is_main), config_(storage->config_.items) {}
+                                                    StorageMode storage_mode,
+                                                    memgraph::replication::ReplicationRole replication_role)
+    : Accessor(tag, storage, isolation_level, storage_mode, replication_role), config_(storage->config_.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -1305,7 +1302,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
       mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
-Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) {
+Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
+                                               memgraph::replication::ReplicationRole replication_role) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -1320,7 +1318,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    if (is_main) {
+    if (replication_role == memgraph::replication::ReplicationRole::MAIN) {
       start_timestamp = timestamp_++;
     } else {
       start_timestamp = timestamp_;
@@ -1704,10 +1702,10 @@ StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
   return info;
 }
 
-StorageInfo InMemoryStorage::GetInfo(bool force_directory) {
+StorageInfo InMemoryStorage::GetInfo(bool force_directory, memgraph::replication::ReplicationRole replication_role) {
   StorageInfo info = GetBaseInfo(force_directory);
   {
-    auto access = Access(std::nullopt);
+    auto access = Access(replication_role);  // TODO: override isolation level?
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
@@ -2034,11 +2032,16 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
   return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp);
 }
 
-utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot() {
+utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
+    memgraph::replication::ReplicationRole replication_role) {
+  if (replication_role == memgraph::replication::ReplicationRole::REPLICA) {
+    return InMemoryStorage::CreateSnapshotError::DisabledForReplica;
+  }
   auto const &epoch = repl_storage_state_.epoch_;
   auto snapshot_creator = [this, &epoch]() {
     utils::Timer timer;
-    auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
+    auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_,
+                                         memgraph::replication::ReplicationRole::MAIN);
     durability::CreateSnapshot(this, &transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
                                &edges_, uuid_, epoch, repl_storage_state_.history, &file_retainer_);
     // Finalize snapshot transaction.
@@ -2126,17 +2129,17 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level,
-                                                           bool is_main) {
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(memgraph::replication::ReplicationRole replication_role,
+                                                           std::optional<IsolationLevel> override_isolation_level) {
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
                                                                 override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, is_main});
+                                                                storage_mode_, replication_role});
 }
-std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
-                                                                 bool is_main) {
+std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
+    memgraph::replication::ReplicationRole replication_role, std::optional<IsolationLevel> override_isolation_level) {
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
                                                                 override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, is_main});
+                                                                storage_mode_, replication_role});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

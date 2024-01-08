@@ -169,7 +169,7 @@ class ModuleRegistry final {
   // mentioned library will be first performed in the already existing binded
   // libraries and then the global namespace.
   // RTLD_DEEPBIND => https://linux.die.net/man/3/dlopen
-  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND, kLibstdcppWarning};
+  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL, kLibstdcppWarning};
 #endif
   std::vector<std::filesystem::path> modules_dirs_;
   std::filesystem::path internal_module_dir_;

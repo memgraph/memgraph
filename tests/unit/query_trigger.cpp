@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,8 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
+
+using memgraph::replication::ReplicationRole;
 
 namespace {
 const std::unordered_set<memgraph::query::TriggerEventType> kAllEventTypes{
@@ -69,7 +71,7 @@ class TriggerContextTest : public ::testing::Test {
   }
 
   memgraph::storage::Storage::Accessor *StartTransaction() {
-    accessors.emplace_back(db->Access());
+    accessors.emplace_back(db->Access(ReplicationRole::MAIN));
     return accessors.back().get();
   }
 
@@ -902,7 +904,7 @@ class TriggerStoreTest : public ::testing::Test {
 
     config = disk_test_utils::GenerateOnDiskConfig(testSuite);
     storage = std::make_unique<StorageType>(config);
-    storage_accessor = storage->Access();
+    storage_accessor = storage->Access(ReplicationRole::MAIN);
     dba.emplace(storage_accessor.get());
   }
 

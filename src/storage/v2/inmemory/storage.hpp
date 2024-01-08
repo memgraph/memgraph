@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,7 +60,6 @@ class InMemoryStorage final : public Storage {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config());
-  InMemoryStorage(Config config, StorageMode storage_mode);
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;
@@ -74,7 +73,7 @@ class InMemoryStorage final : public Storage {
     friend class InMemoryStorage;
 
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode, bool is_main = true);
+                              StorageMode storage_mode, memgraph::replication::ReplicationRole replication_role);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -323,12 +322,11 @@ class InMemoryStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level,
-                                            bool is_main) override;
-
+  std::unique_ptr<Accessor> Access(memgraph::replication::ReplicationRole replication_role,
+                                   std::optional<IsolationLevel> override_isolation_level) override;
   using Storage::UniqueAccess;
-  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
-                                                  bool is_main) override;
+  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication::ReplicationRole replication_role,
+                                         std::optional<IsolationLevel> override_isolation_level) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) override;
 
@@ -336,12 +334,13 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot();
+  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
+      memgraph::replication::ReplicationRole replication_role);
 
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 
-  using Storage::CreateTransaction;
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) override;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
+                                memgraph::replication::ReplicationRole replication_role) override;
 
   void SetStorageMode(StorageMode storage_mode);
 
@@ -366,7 +365,7 @@ class InMemoryStorage final : public Storage {
   void FinalizeWalFile();
 
   StorageInfo GetBaseInfo(bool force_directory) override;
-  StorageInfo GetInfo(bool force_directory) override;
+  StorageInfo GetInfo(bool force_directory, memgraph::replication::ReplicationRole replication_role) override;
 
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
@@ -427,7 +426,6 @@ class InMemoryStorage final : public Storage {
   std::optional<CommitLog> commit_log_;
 
   utils::Scheduler gc_runner_;
-  utils::Scheduler gc_jemalloc_runner_;
   std::mutex gc_lock_;
 
   using BondPmrLd = Bond<utils::pmr::list<Delta>>;
