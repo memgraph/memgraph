@@ -275,25 +275,15 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       [transaction = transaction_, storage = storage_, vertex = vertex_, &value, &property, &current_value]() {
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
         if (flags::run_time::GetTextSearchEnabled()) {
-          // if (!storage->indices_.text_index_->IndexExists(storage->NameToLabel(name))) continue;
-          // TODO antepusic: check which text indices apply
-          // for (const auto index : GetApplicableTextIndices(vertex)) {
-          //
-          // }
-          for (auto label : vertex->labels) {
-            auto &context = storage->indices_.text_index_->index_.at("myIndex");
-
-            // Calling the text search tool is done here and not inside a PropertyStore method
-            // make SearchInput
-
+          for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
             auto search_input = mgcxx_mock::text_search::SearchInput{};
 
-            auto search_result = mgcxx_mock::text_search::Mock::search(context, search_input);
-            mgcxx_mock::text_search::Mock::delete_document(context, search_input, true);
+            auto search_result = mgcxx_mock::text_search::Mock::search(*index_context, search_input);
+            mgcxx_mock::text_search::Mock::delete_document(*index_context, search_input, true);
             // parse result to JSON, set property in JSON and convert to string
             auto new_properties = search_result.docs[0].data;
             auto new_properties_document = mgcxx_mock::text_search::DocumentInput{.data = new_properties};
-            mgcxx_mock::text_search::Mock::add(context, new_properties_document, true);
+            mgcxx_mock::text_search::Mock::add(*index_context, new_properties_document, true);
           }
         }
         vertex->properties.SetProperty(property, value);

@@ -28,6 +28,16 @@ class TextIndex {
 
   void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) {}
 
+  std::vector<mgcxx_mock::text_search::IndexContext *> GetApplicableTextIndices(Vertex *vertex, Storage *storage) {
+    std::vector<mgcxx_mock::text_search::IndexContext *> applicable_text_indices;
+    for (const auto &label : vertex->labels) {
+      if (label_to_index_.contains(label)) {
+        applicable_text_indices.push_back(&index_.at(label_to_index_.at(label)));
+      }
+    }
+    return applicable_text_indices;
+  }
+
   /// @throw std::bad_alloc
   bool CreateIndex(std::string index_name, LabelId label,
                    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
@@ -64,6 +74,7 @@ class TextIndex {
   uint64_t ApproximateVertexCount(std::string index_name) { return 10; }
 
   std::map<std::string, mgcxx_mock::text_search::IndexContext> index_;
+  std::map<LabelId, std::string> label_to_index_;
 };
 
 }  // namespace memgraph::storage
