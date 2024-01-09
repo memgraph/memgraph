@@ -53,7 +53,10 @@ set_target_properties(memgraph PROPERTIES
         OUTPUT_NAME "memgraph-${MEMGRAPH_VERSION}_${CMAKE_BUILD_TYPE}"
 
         # Output the executable in main binary dir.
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+
+        POSITION_INDEPENDENT_CODE ON
+        )
 
 # Create symlink to the built executable.
 add_custom_command(TARGET memgraph POST_BUILD
