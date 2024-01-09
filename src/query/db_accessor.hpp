@@ -555,6 +555,10 @@ class DbAccessor final {
 
   bool TextIndexExists(std::string index_name) const { return accessor_->TextIndexExists(index_name); }
 
+  mgcxx_mock::text_search::SearchOutput SearchTextIndex(std::string index_name, std::string search_string) const {
+    return accessor_->SearchTextIndex(index_name, search_string);
+  }
+
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
   }

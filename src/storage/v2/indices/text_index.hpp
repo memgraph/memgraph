@@ -57,8 +57,9 @@ class TextIndex {
 
   bool IndexExists(std::string index_name) { return index_.contains(index_name); }
 
-  mgcxx_mock::text_search::SearchOutput Search(std::string index_name, mgcxx_mock::text_search::SearchInput input) {
+  mgcxx_mock::text_search::SearchOutput Search(std::string index_name, std::string search_string) {
     // TODO antepusic: Add metadata to the return fields before search
+    auto input = mgcxx_mock::text_search::SearchInput{};
     return mgcxx_mock::text_search::Mock::search(index_.at(index_name), input);
   }
 

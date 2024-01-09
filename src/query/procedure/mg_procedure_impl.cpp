@@ -3333,7 +3333,8 @@ mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int
   });
 }
 
-mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, int *result) {
+mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_string,
+                                      int *result) {
   return WrapExceptions([graph, index_name, result]() { *result = 1; });
 }
 

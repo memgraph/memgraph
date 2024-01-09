@@ -894,7 +894,8 @@ enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex
 enum mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *label, int *result);
 
 // TODO antepusic change result type
-enum mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, int *result);
+enum mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_string,
+                                           int *result);
 
 /// Creates label index for given label.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.

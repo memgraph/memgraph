@@ -24,7 +24,7 @@ void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
 }  // namespace TextSearch
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  // CALL text_search.search("Label", "nekiQuery", searchFields, returnFields) RETURN node, score
+  // CALL text_search.search("Label", "someQuery", searchFields, returnFields) RETURN node, score
 
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
@@ -38,7 +38,7 @@ void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
   }
 
   // 2. Run text search of that index
-  mgp::graph_search_text_index(memgraph_graph, label.data());
+  mgp::graph_search_text_index(memgraph_graph, label.data(), search_string);
 
   // text_index.search(label, search_string);
 
