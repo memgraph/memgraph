@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -133,9 +133,9 @@ class Storage {
     } unique_access;
 
     Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-             bool is_main = true);
+             memgraph::replication::ReplicationRole replication_role);
     Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-             bool is_main = true);
+             memgraph::replication::ReplicationRole replication_role);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;
@@ -326,19 +326,17 @@ class Storage {
 
   void FreeMemory() { FreeMemory({}); }
 
-  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level, bool is_main) = 0;
-  std::unique_ptr<Accessor> Access(bool is_main = true) { return Access(std::optional<IsolationLevel>{}, is_main); }
-  std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) {
-    return Access(std::move(override_isolation_level), true);
+  virtual std::unique_ptr<Accessor> Access(memgraph::replication::ReplicationRole replication_role,
+                                           std::optional<IsolationLevel> override_isolation_level) = 0;
+
+  std::unique_ptr<Accessor> Access(memgraph::replication::ReplicationRole replication_role) {
+    return Access(replication_role, {});
   }
 
-  virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
-                                                 bool is_main) = 0;
-  std::unique_ptr<Accessor> UniqueAccess(bool is_main = true) {
-    return UniqueAccess(std::optional<IsolationLevel>{}, is_main);
-  }
-  std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) {
-    return UniqueAccess(std::move(override_isolation_level), true);
+  virtual std::unique_ptr<Accessor> UniqueAccess(memgraph::replication::ReplicationRole replication_role,
+                                                 std::optional<IsolationLevel> override_isolation_level) = 0;
+  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication::ReplicationRole replication_role) {
+    return UniqueAccess(replication_role, {});
   }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
@@ -356,21 +354,10 @@ class Storage {
     return GetBaseInfo(force_dir);
   }
 
-  virtual StorageInfo GetInfo(bool force_directory) = 0;
-  StorageInfo GetInfo() {
-#if MG_ENTERPRISE
-    const bool force_dir = false;
-#else
-    const bool force_dir = true;  //!< Use the configured directory (multi-tenancy reroutes to another dir)
-#endif
-    return GetInfo(force_dir);
-  }
+  virtual StorageInfo GetInfo(bool force_directory, memgraph::replication::ReplicationRole replication_role) = 0;
 
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
-    return CreateTransaction(isolation_level, storage_mode, true);
-  }
-
-  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode, bool is_main) = 0;
+  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
+                                        memgraph::replication::ReplicationRole replication_role) = 0;
 
   virtual void PrepareForNewEpoch() = 0;
 
