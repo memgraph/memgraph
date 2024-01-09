@@ -2585,28 +2585,12 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
     ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
   }
 
-#ifdef MG_ENTERPRISE
   {
     const std::string query = "SET REPLICATION ROLE TO MAIN";
     auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(query));
     EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SET_REPLICATION_ROLE);
     EXPECT_EQ(parsed_query->role_, ReplicationQuery::ReplicationRole::MAIN);
   }
-  {
-    const std::string query = "SET REPLICATION ROLE TO MAIN WITH PORT 10000";
-    auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(query));
-    EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SET_REPLICATION_ROLE);
-    EXPECT_EQ(parsed_query->role_, ReplicationQuery::ReplicationRole::MAIN);
-    ast_generator.CheckLiteral(parsed_query->port_, TypedValue(10000));
-  }
-#else
-  {
-    const std::string query = "SET REPLICATION ROLE TO MAIN";
-    auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(query));
-    EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SET_REPLICATION_ROLE);
-    EXPECT_EQ(parsed_query->role_, ReplicationQuery::ReplicationRole::MAIN);
-  }
-#endif
 
   {
     const std::string query = "SET REPLICATION ROLE TO REPLICA";
