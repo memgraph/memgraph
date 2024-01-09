@@ -212,7 +212,9 @@ class Storage {
 
     virtual bool LabelPropertyIndexExists(LabelId label, PropertyId property) const = 0;
 
-    bool TextIndexExists(LabelId label) const { return storage_->indices_.text_index_->IndexExists(label); }
+    bool TextIndexExists(std::string index_name) const {
+      return storage_->indices_.text_index_->IndexExists(index_name);
+    }
 
     virtual IndicesInfo ListAllIndices() const = 0;
 
@@ -250,9 +252,9 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    mgcxx_mock::text_search::SearchOutput TextSearch(LabelId label,
+    mgcxx_mock::text_search::SearchOutput TextSearch(std::string index_name,
                                                      mgcxx_mock::text_search::SearchInput &search_input) const {
-      return storage_->indices_.text_index_->Search(label, search_input);
+      return storage_->indices_.text_index_->Search(index_name, search_input);
     }
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
@@ -263,14 +265,15 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateTextIndex(LabelId label) {
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateTextIndex(std::string index_name,
+                                                                                  LabelId label) {
       // TODO: pass vertices to CreateIndex
-      storage_->indices_.text_index_->CreateIndex(label, std::nullopt);
+      storage_->indices_.text_index_->CreateIndex(index_name, label, std::nullopt);
       return {};
     }
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropTextIndex(LabelId label) {
-      storage_->indices_.text_index_->DropIndex(label);
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropTextIndex(std::string index_name) {
+      storage_->indices_.text_index_->DropIndex(index_name);
       return {};
     }
 

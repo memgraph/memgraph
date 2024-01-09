@@ -3322,16 +3322,19 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
   });
 }
 
-mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *label, int *result) {
-  return WrapExceptions([graph, label, result]() {
-    std::visit(
-        memgraph::utils::Overloaded{
-            [&](memgraph::query::DbAccessor *impl) { *result = impl->TextIndexExists(impl->NameToLabel(label)); },
-            [&](memgraph::query::SubgraphDbAccessor *impl) {
-              *result = impl->GetAccessor()->TextIndexExists(impl->GetAccessor()->NameToLabel(label));
-            }},
-        graph->impl);
+mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int *result) {
+  return WrapExceptions([graph, index_name, result]() {
+    std::visit(memgraph::utils::Overloaded{
+                   [&](memgraph::query::DbAccessor *impl) { *result = impl->TextIndexExists(index_name); },
+                   [&](memgraph::query::SubgraphDbAccessor *impl) {
+                     *result = impl->GetAccessor()->TextIndexExists(index_name);
+                   }},
+               graph->impl);
   });
+}
+
+mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, int *result) {
+  return WrapExceptions([graph, index_name, result]() { *result = 1; });
 }
 
 #ifdef MG_ENTERPRISE

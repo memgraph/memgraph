@@ -29,29 +29,31 @@ class TextIndex {
   void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) {}
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+  bool CreateIndex(std::string index_name, LabelId label,
+                   const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
     auto index_config = mgcxx_mock::text_search::IndexConfig{.mappings = "TODO antepusic"};
-    auto new_index = mgcxx_mock::text_search::Mock::create_index(label.ToString(), index_config);
-    index_[label] = new_index;
+    auto new_index = mgcxx_mock::text_search::Mock::create_index(index_name, index_config);
+    index_[index_name] = new_index;
     return true;
 
     // TODO add documents to index
   }
 
-  bool DropIndex(LabelId label) {
-    mgcxx_mock::text_search::Mock::drop_index(label.ToString());
-    index_.erase(label);
+  bool DropIndex(std::string index_name) {
+    mgcxx_mock::text_search::Mock::drop_index(index_name);
+    index_.erase(index_name);
     return true;
   }
 
-  bool IndexExists(LabelId label) { return index_.contains(label); }
+  bool IndexExists(std::string index_name) { return index_.contains(index_name); }
 
-  mgcxx_mock::text_search::SearchOutput Search(LabelId label, mgcxx_mock::text_search::SearchInput input) {
-    return mgcxx_mock::text_search::Mock::search(index_.at(label), input);
+  mgcxx_mock::text_search::SearchOutput Search(std::string index_name, mgcxx_mock::text_search::SearchInput input) {
+    // TODO antepusic: Add metadata to the return fields before search
+    return mgcxx_mock::text_search::Mock::search(index_.at(index_name), input);
   }
 
-  std::vector<LabelId> ListIndices() {
-    std::vector<LabelId> ret;
+  std::vector<std::string> ListIndices() {
+    std::vector<std::string> ret;
     ret.reserve(index_.size());
     for (const auto &item : index_) {
       ret.push_back(item.first);
@@ -59,9 +61,9 @@ class TextIndex {
     return ret;
   }
 
-  uint64_t ApproximateVertexCount(LabelId label) { return 10; }
+  uint64_t ApproximateVertexCount(std::string index_name) { return 10; }
 
-  std::map<LabelId, mgcxx_mock::text_search::IndexContext> index_;
+  std::map<std::string, mgcxx_mock::text_search::IndexContext> index_;
 };
 
 }  // namespace memgraph::storage

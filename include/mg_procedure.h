@@ -891,7 +891,10 @@ enum mgp_error mgp_edge_iter_properties(struct mgp_edge *e, struct mgp_memory *m
 enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex_id id, struct mgp_memory *memory,
                                           struct mgp_vertex **result);
 
-enum mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *label);
+enum mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *label, int *result);
+
+// TODO antepusic change result type
+enum mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, int *result);
 
 /// Creates label index for given label.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.

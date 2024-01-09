@@ -24,22 +24,21 @@ void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
 }  // namespace TextSearch
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  // CALL text_search.search("Label", "nekiQuery", searchFields, returnFields) RETURN node, score
+
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
   auto arguments = mgp::List(args);
   auto label = arguments[0].ValueString();
   auto search_string = arguments[1].ValueString();
 
-  // TODO antepusic:
-  // 1. Match the label to the appropriate text index
-  // auto label_id = memgraph_graph->impl->NameToLabel(label); <- needs API method
-
+  // 1. See if the given label is text-indexed
   if (!mgp::graph_has_text_index(memgraph_graph, label.data())) {
     return;
   }
 
   // 2. Run text search of that index
-  //    * Add metadata to the return fields before search
+  mgp::graph_search_text_index(memgraph_graph, label.data());
 
   // text_index.search(label, search_string);
 

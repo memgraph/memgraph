@@ -553,7 +553,7 @@ class DbAccessor final {
     return accessor_->LabelPropertyIndexExists(label, prop);
   }
 
-  bool TextIndexExists(storage::LabelId label) const { return accessor_->TextIndexExists(label); }
+  bool TextIndexExists(std::string index_name) const { return accessor_->TextIndexExists(index_name); }
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
@@ -630,12 +630,13 @@ class DbAccessor final {
     return accessor_->DropIndex(label, property);
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(storage::LabelId label) {
-    return accessor_->CreateTextIndex(label);
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(std::string index_name,
+                                                                                 storage::LabelId label) {
+    return accessor_->CreateTextIndex(index_name, label);
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(storage::LabelId label) {
-    return accessor_->DropTextIndex(label);
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(std::string index_name) {
+    return accessor_->DropTextIndex(index_name);
   }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(

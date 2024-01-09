@@ -339,9 +339,11 @@ createIndex : CREATE INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
 
 dropIndex : DROP INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
 
-createTextIndex : CREATE TEXT INDEX ON ':' labelName ;
+indexName : symbolicName ;
 
-dropTextIndex : DROP TEXT INDEX ON ':' labelName ;
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
+
+dropTextIndex : DROP TEXT INDEX indexName ;
 
 doubleLiteral : FloatingLiteral ;
 

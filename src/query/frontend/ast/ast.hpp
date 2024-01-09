@@ -2205,6 +2205,7 @@ class IndexQuery : public memgraph::query::Query {
   memgraph::query::IndexQuery::Type type_;
   memgraph::query::LabelIx label_;
   std::vector<memgraph::query::PropertyIx> properties_;
+  std::string index_name_;
 
   IndexQuery *Clone(AstStorage *storage) const override {
     IndexQuery *object = storage->Create<IndexQuery>();
@@ -2215,12 +2216,16 @@ class IndexQuery : public memgraph::query::Query {
     for (auto i = 0; i < object->properties_.size(); ++i) {
       object->properties_[i] = storage->GetPropertyIx(properties_[i].name);
     }
+    object->index_name_ = index_name_;
     return object;
   }
 
  protected:
   IndexQuery(Action action, Type type, LabelIx label, std::vector<PropertyIx> properties)
       : action_(action), type_(type), label_(label), properties_(properties) {}
+
+  IndexQuery(Action action, Type type, LabelIx label, std::vector<PropertyIx> properties, std::string index_name)
+      : action_(action), type_(type), label_(label), properties_(properties), index_name_(index_name) {}
 
  private:
   friend class AstStorage;

@@ -2153,6 +2153,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
   auto *storage = db_acc->storage();
   auto label = storage->NameToLabel(index_query->label_.name);
+  auto &index_name = index_query->index_name_;
 
   std::vector<storage::PropertyId> properties;
   std::vector<std::string> properties_string;
@@ -2176,7 +2177,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
           fmt::format("Created index on label {} on properties {}.", index_query->label_.name, properties_stringified);
 
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, index_type = index_query->type_, label,
+      handler = [dba, index_type = index_query->type_, label, index_name,
                  properties_stringified = std::move(properties_stringified), label_name = index_query->label_.name,
                  properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
@@ -2185,7 +2186,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         if (index_type == IndexQuery::Type::LOOKUP) {
           maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
         } else if (index_type == IndexQuery::Type::TEXT) {
-          maybe_index_error = dba->CreateTextIndex(label);
+          maybe_index_error = dba->CreateTextIndex(index_name, label);
         }
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
@@ -2203,7 +2204,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       index_notification.title = fmt::format("Dropped index on label {} on properties {}.", index_query->label_.name,
                                              utils::Join(properties_string, ", "));
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, index_type = index_query->type_, label,
+      handler = [dba, index_type = index_query->type_, label, index_name,
                  properties_stringified = std::move(properties_stringified), label_name = index_query->label_.name,
                  properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
@@ -2212,7 +2213,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         if (index_type == IndexQuery::Type::LOOKUP) {
           maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
         } else if (index_type == IndexQuery::Type::TEXT) {
-          maybe_index_error = dba->DropTextIndex(label);
+          maybe_index_error = dba->DropTextIndex(index_name);
         }
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 

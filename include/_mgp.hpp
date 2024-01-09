@@ -326,8 +326,13 @@ inline mgp_vertex *graph_get_vertex_by_id(mgp_graph *g, mgp_vertex_id id, mgp_me
   return MgInvoke<mgp_vertex *>(mgp_graph_get_vertex_by_id, g, id, memory);
 }
 
-inline bool graph_has_text_index(mgp_graph *graph, const char *label) {
-  return MgInvoke<int>(mgp_graph_has_text_index, graph, label);
+inline bool graph_has_text_index(mgp_graph *graph, const char *index_name) {
+  return MgInvoke<int>(mgp_graph_has_text_index, graph, index_name);
+}
+
+// TODO antepusic change result type
+inline bool graph_search_text_index(mgp_graph *graph, const char *index_name) {
+  return MgInvoke<int>(mgp_graph_has_text_index, graph, index_name);
 }
 
 inline mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memory) {
