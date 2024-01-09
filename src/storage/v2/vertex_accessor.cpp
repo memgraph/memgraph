@@ -274,31 +274,29 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   utils::AtomicMemoryBlock atomic_memory_block{
       [transaction = transaction_, storage = storage_, vertex = vertex_, &value, &property, &current_value]() {
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
-        // // Option 1 (current)
-        // if (std::ranges::any_of(vertex->labels,
-        //                         [storage](auto &label) { return storage->indices_.text_index_->IndexExists(label);
-        //                         })) {
-        //   vertex->properties.SetProperty(property, value, true, vertex->gid);
-        // } else {
-        //   vertex->properties.SetProperty(property, value);
-        // }
+        if (flags::run_time::GetTextSearchEnabled()) {
+          // if (!storage->indices_.text_index_->IndexExists(storage->NameToLabel(name))) continue;
+          // TODO antepusic: check which text indices apply
+          // for (const auto index : GetApplicableTextIndices(vertex)) {
+          //
+          // }
+          for (auto label : vertex->labels) {
+            auto &context = storage->indices_.text_index_->index_.at("myIndex");
 
-        // // Option 2 (proposed)
-        // if (flags::run_time::GetTextSearchEnabled()) {
-        //   for (auto label : vertex->labels) {
-        //     if (!storage->indices_.text_index_->IndexExists(label)) continue;
+            // Calling the text search tool is done here and not inside a PropertyStore method
+            // make SearchInput
 
-        //     auto &context = storage->indices_.text_index_->index_.at(label);
+            auto search_input = mgcxx_mock::text_search::SearchInput{};
 
-        //     // Calling the text search tool is done here and not inside a PropertyStore method
-        //     // make SearchInput
-        //     auto search_result = mgcxx_mock::text_search::Mock::search(context, search_this_node_document);
-        //     mgcxx_mock::text_search::Mock::delete_document(context, search_this_node_document);
-        //     // parse result to JSON, set property in JSON and convert to string
-        //     mgcxx_mock::text_search::Mock::add(context, DocumentInput{result_with_property_set.asString()});
-        //   }
-        // }
-        // vertex->properties.SetProperty(property, value);
+            auto search_result = mgcxx_mock::text_search::Mock::search(context, search_input);
+            mgcxx_mock::text_search::Mock::delete_document(context, search_input, true);
+            // parse result to JSON, set property in JSON and convert to string
+            auto new_properties = search_result.docs[0].data;
+            auto new_properties_document = mgcxx_mock::text_search::DocumentInput{.data = new_properties};
+            mgcxx_mock::text_search::Mock::add(context, new_properties_document, true);
+          }
+        }
+        vertex->properties.SetProperty(property, value);
       }};
   std::invoke(atomic_memory_block);
 
