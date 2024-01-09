@@ -315,17 +315,15 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   bool result{false};
   utils::AtomicMemoryBlock atomic_memory_block{
       [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_]() {
-        // if (std::ranges::any_of(vertex->labels,
-        //                         [storage](auto &label) { return storage->indices_.text_index_->IndexExists(label);
-        //                         })) {
-        //   if (!vertex->properties.InitProperties(properties, true, vertex->gid)) {
-        //     result = false;
-        //     return;
-        //   }
-        // } else
         if (!vertex->properties.InitProperties(properties)) {
           result = false;
           return;
+        }
+        if (flags::run_time::GetTextSearchEnabled()) {
+          for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
+            auto new_properties_document = mgcxx_mock::text_search::DocumentInput{};  // empty properties
+            mgcxx_mock::text_search::Mock::add(*index_context, new_properties_document, true);
+          }
         }
         for (const auto &[property, value] : properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
@@ -361,13 +359,19 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock atomic_memory_block{
       [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &id_old_new_change]() {
-        // if (std::ranges::any_of(vertex->labels,
-        //                         [storage](auto &label) { return storage->indices_.text_index_->IndexExists(label);
-        //                         })) {
-        //   id_old_new_change.emplace(vertex->properties.UpdateProperties(properties, true, vertex->gid));
-        // } else {
         id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
-        // }
+        if (flags::run_time::GetTextSearchEnabled()) {
+          for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
+            auto search_input = mgcxx_mock::text_search::SearchInput{};
+
+            auto search_result = mgcxx_mock::text_search::Mock::search(*index_context, search_input);
+            mgcxx_mock::text_search::Mock::delete_document(*index_context, search_input, true);
+            // parse result to JSON, set property in JSON and convert to string
+            auto new_properties = search_result.docs[0].data;
+            auto new_properties_document = mgcxx_mock::text_search::DocumentInput{.data = new_properties};
+            mgcxx_mock::text_search::Mock::add(*index_context, new_properties_document, true);
+          }
+        }
 
         if (!id_old_new_change.has_value()) {
           return;
@@ -412,13 +416,14 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
           transaction->constraint_verification_info.RemovedProperty(vertex);
           transaction->manyDeltasCache.Invalidate(vertex, property);
         }
-        // if (std::ranges::any_of(vertex->labels,
-        //                         [storage](auto &label) { return storage->indices_.text_index_->IndexExists(label);
-        //                         })) {
-        //   vertex->properties.ClearProperties(true, vertex->gid);
-        // } else {
+
         vertex->properties.ClearProperties();
-        // }
+        if (flags::run_time::GetTextSearchEnabled()) {
+          for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
+            auto search_input = mgcxx_mock::text_search::SearchInput{};
+            mgcxx_mock::text_search::Mock::delete_document(*index_context, search_input, true);
+          }
+        }
       }};
   std::invoke(atomic_memory_block);
 
