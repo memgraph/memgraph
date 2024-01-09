@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -373,12 +373,12 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool Visit(ParameterLookup &) override {
+  bool Visit(ParameterLookup & /*unused*/) override {
     has_aggregation_.emplace_back(false);
     return true;
   }
 
-  bool PostVisit(RegexMatch &) override {
+  bool PostVisit(RegexMatch & /*unused*/) override {
     MG_ASSERT(has_aggregation_.size() >= 2U, "Expected 2 has_aggregation_ flags for RegexMatch arguments");
     bool has_aggr = has_aggregation_.back();
     has_aggregation_.pop_back();
@@ -386,7 +386,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PostVisit(PatternComprehension &pattern_comprehension) override {
+  bool PostVisit(PatternComprehension & /*unused*/) override {
     throw utils::NotYetImplemented("Planner can not handle pattern comprehension.");
   }
 
