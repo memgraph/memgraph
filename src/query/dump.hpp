@@ -11,12 +11,9 @@
 
 #pragma once
 
-#include <ostream>
-
 #include "dbms/database.hpp"
 #include "query/db_accessor.hpp"
 #include "query/stream.hpp"
-#include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
 
 namespace memgraph::query {
