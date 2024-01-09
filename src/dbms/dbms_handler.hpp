@@ -19,6 +19,7 @@
 #include <mutex>
 #include <optional>
 #include <system_error>
+#include <utility>
 
 #include "auth/auth.hpp"
 #include "constants.hpp"
@@ -28,8 +29,10 @@
 #include "kvstore/kvstore.hpp"
 #include "replication/replication_client.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/transaction.hpp"
+#include "utils/thread_pool.hpp"
 #ifdef MG_ENTERPRISE
 #include "dbms/database_handler.hpp"
 #endif
@@ -46,8 +49,6 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
-
-constexpr std::string_view kLSCTSKey = "last_commited_system_ts";
 
 struct Statistics {
   uint64_t num_vertex;           //!< Sum of vertexes in every database
@@ -159,6 +160,10 @@ class DbmsHandler {
 
           // TODO: Fix this hack
           if (config.name == kDefaultDB) {
+            if (db->storage()->repl_storage_state_.last_commit_timestamp_ != storage::kTimestampInitialId) {
+              spdlog::debug("Default storage is not clean, cannot update UUID...");
+              return NewError::GENERIC;  // Update error
+            }
             spdlog::debug("Update default db's UUID");
             // Default db cannot be deleted and remade, have to just update the UUID
             db->storage()->config_.salient.uuid = config.uuid;
@@ -201,14 +206,7 @@ class DbmsHandler {
    */
   DatabaseAccess Get(const utils::UUID &uuid) {
     std::shared_lock<LockT> rd(lock_);
-    // TODO Speed up
-    for (auto &[_, db_gk] : db_handler_) {
-      auto acc = db_gk.access();
-      if (acc->get()->uuid() == uuid) {
-        return std::move(*acc);
-      }
-    }
-    throw UnknownDatabaseException("Tried to retrieve an unknown database with UUID \"{}\".", std::string{uuid});
+    return Get_(uuid);
   }
 
 #else
@@ -240,6 +238,14 @@ class DbmsHandler {
    * @return DeleteResult error on failure
    */
   DeleteResult Delete(std::string_view db_name);
+
+  /**
+   * @brief Delete or defer deletion of database.
+   *
+   * @param uuid database UUID
+   * @return DeleteResult error on failure
+   */
+  DeleteResult Delete(utils::UUID uuid);
 #endif
 
   /**
@@ -377,7 +383,7 @@ class DbmsHandler {
    *
    * @param f
    */
-  void ForEach(auto f) {
+  void ForEach(std::invocable<DatabaseAccess> auto f) {
 #ifdef MG_ENTERPRISE
     std::shared_lock<LockT> rd(lock_);
     for (auto &[_, db_gk] : db_handler_) {
@@ -387,39 +393,9 @@ class DbmsHandler {
 #endif
       auto db_acc = db_gk.access();
       if (db_acc) {  // This isn't an error, just a defunct db
-        if constexpr (std::is_invocable_v<decltype(f), DatabaseAccess>) {
-          f(*db_acc);
-        } else if constexpr (std::is_invocable_v<decltype(f), Database *>) {
-          f(db_acc->get());
-        }
+        f(*db_acc);
       }
     }
-  }
-
-  /**
-   * @brief todo
-   *
-   * @param f
-   */
-  void ForOne(auto f) {
-#ifdef MG_ENTERPRISE
-    std::shared_lock<LockT> rd(lock_);
-    for (auto &[_, db_gk] : db_handler_) {
-      auto db_acc = db_gk.access();
-      if (!db_acc) continue;  // This isn't an error, just a defunct db
-      if constexpr (std::is_invocable_v<decltype(f), DatabaseAccess>) {
-        if (f(*db_acc)) break;  // Run until the first successful one
-      } else if constexpr (std::is_invocable_v<decltype(f), Database *>) {
-        if (f(db_acc->get())) break;  // Run until the first successful one
-      }
-    }
-#else
-    {
-      auto db_acc = db_gatekeeper_.access();
-      MG_ASSERT(db_acc, "Should always have the database");
-      f(db_acc->get());
-    }
-#endif
   }
 
   void NewSystemTransaction() {
@@ -429,51 +405,44 @@ class DbmsHandler {
 
   void ResetSystemTransaction() { system_transaction_.reset(); }
 
-  void Commit() {
-    if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt) return;  // Nothing to commit
-    const auto &delta = *system_transaction_->delta;
-
-    // TODO Create a system client that can handle all of this automatically
-    switch (delta.action) {
-      using enum SystemTransaction::Delta::Action;
-      case CREATE_DATABASE: {
-#ifdef MG_ENTERPRISE
-        // Replication
-        auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-          // TODO: data race issue? registered_replicas_ access not protected
-          // This is sync in any case, as this is the startup
-          for (auto &client : main_data.registered_replicas_) {
-            try {
-              auto stream = client.rpc_client_.Stream<storage::replication::CreateDatabaseRpc>(
-                  std::string(main_data.epoch_.id()), system_transaction_->system_timestamp, delta.config);
-              const auto response = stream.AwaitResponse();
-              if (response.result == storage::replication::CreateDatabaseRes::Result::FAILURE) {
-                // This replica needs SYSTEM recovery
-                client.behind_ = true;
-                return;
-              }
-            } catch (memgraph::rpc::GenericRpcFailedException const &e) {
-              // This replica needs SYSTEM recovery
-              client.behind_ = true;
-              return;
-            }
+  template <typename RPC, typename... Args>
+  bool SteamAndFinalizeDelta(auto &client, auto &&check, Args &&...args) {
+    try {
+      auto stream = client.rpc_client_.template Stream<RPC>(std::forward<Args>(args)...);
+      auto task = [&client, check = std::forward<decltype(check)>(check), stream = std::move(stream)]() mutable {
+        if (stream.IsDefunct()) {
+          client.behind_ = true;
+          return false;
+        }
+        try {
+          const auto response = stream.AwaitResponse();
+          if (!check(response)) {
+            // This replica needs SYSTEM recovery
+            client.behind_ = true;
+            return false;
           }
-          // Sync database with REPLICAs
-          RecoverReplication(Get_(delta.config.name));
-        };
-        auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
-        std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-#endif
-      } break;
-    }
-    last_commited_system_timestamp_ = system_transaction_->system_timestamp;
+        } catch (memgraph::rpc::GenericRpcFailedException const &e) {
+          // This replica needs SYSTEM recovery
+          client.behind_ = true;
+          return false;
+        }
+        return true;
+      };
 
-#ifdef MG_ENTERPRISE
-    // TODO Move out of enterprise once there are community system queries to replicate
-    durability_->Put(kLSCTSKey, std::to_string(last_commited_system_timestamp_));
-#endif
-    ResetSystemTransaction();
-  }
+      if (client.mode_ == memgraph::replication::ReplicationMode::ASYNC) {
+        client.thread_pool_.AddTask([task = utils::CopyMovableFunctionWrapper{std::move(task)}]() mutable { task(); });
+        return true;
+      }
+
+      return task();
+    } catch (memgraph::rpc::GenericRpcFailedException const &e) {
+      // This replica needs SYSTEM recovery
+      client.behind_ = true;
+      return false;
+    }
+  };
+
+  void Commit();
 
   uint64_t LastCommitedTS() const { return last_commited_system_timestamp_; }
 
@@ -628,6 +597,24 @@ class DbmsHandler {
     }
     throw UnknownDatabaseException("Tried to retrieve an unknown database \"{}\".", name);
   }
+
+  /**
+   * @brief Get the context associated with the UUID database
+   *
+   * @param uuid
+   * @return DatabaseAccess
+   * @throw UnknownDatabaseException if database not found
+   */
+  DatabaseAccess Get_(const utils::UUID &uuid) {
+    // TODO Speed up
+    for (auto &[_, db_gk] : db_handler_) {
+      auto acc = db_gk.access();
+      if (acc->get()->uuid() == uuid) {
+        return std::move(*acc);
+      }
+    }
+    throw UnknownDatabaseException("Tried to retrieve an unknown database with UUID \"{}\".", std::string{uuid});
+  }
 #endif
 
   void RecoverReplication(DatabaseAccess db_acc) {
@@ -649,6 +636,10 @@ class DbmsHandler {
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;       //!< list of active dbs (pointer so we can postpone its creation)
 #endif
+  // TODO: Make an api
+ public:
+  utils::ResourceLock system_lock_{};  //!> Ensure exclusive access for system queries
+ private:
   std::optional<SystemTransaction> system_transaction_;      //!< Current system transaction (only one at a time)
   uint64_t system_timestamp_{storage::kTimestampInitialId};  //!< System timestamp
   std::atomic_uint64_t last_commited_system_timestamp_{

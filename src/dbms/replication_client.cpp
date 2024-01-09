@@ -18,7 +18,7 @@ void StartReplicaClient(DbmsHandler &dbms_handler, replication::ReplicationClien
   // No client error, start instance level client
   auto const &endpoint = client.rpc_client_.Endpoint();
   spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
-  client.StartFrequentCheck([&client, &dbms_handler](std::string_view name, bool reconnect) {
+  client.StartFrequentCheck([&dbms_handler](bool reconnect, replication::ReplicationClient &client) {
     // Working connection
     // Check if system needs restoration
     if (reconnect) client.behind_ = true;
@@ -26,7 +26,7 @@ void StartReplicaClient(DbmsHandler &dbms_handler, replication::ReplicationClien
     dbms_handler.SystemRestore(client);
 #endif
     // Check if any database has been left behind
-    dbms_handler.ForEach([name, reconnect](dbms::DatabaseAccess db_acc) {
+    dbms_handler.ForEach([&name = client.name_, reconnect](dbms::DatabaseAccess db_acc) {
       // Specific database <-> replica client
       db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient *client) {
         if (reconnect || client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {

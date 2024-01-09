@@ -18,13 +18,17 @@ struct SystemTransaction {
   struct Delta {
     enum class Action {
       CREATE_DATABASE,
+      DROP_DATABASE,
     };
 
     static constexpr struct CreateDatabase {
     } create_database;
+    static constexpr struct DropDatabase {
+    } drop_database;
 
     Delta(CreateDatabase /*tag*/, storage::SalientConfig config)
         : action(Action::CREATE_DATABASE), config(std::move(config)) {}
+    Delta(DropDatabase /*tag*/, const utils::UUID &uuid) : action(Action::DROP_DATABASE), uuid(uuid) {}
 
     Delta(const Delta &) = delete;
     Delta(Delta &&) = delete;
@@ -34,6 +38,7 @@ struct SystemTransaction {
     ~Delta() {
       switch (action) {
         case Action::CREATE_DATABASE:
+        case Action::DROP_DATABASE:
           break;
           // Some deltas might have special destructor handling
       }
@@ -42,6 +47,7 @@ struct SystemTransaction {
     Action action;
     union {
       storage::SalientConfig config;
+      utils::UUID uuid;
     };
   };
 

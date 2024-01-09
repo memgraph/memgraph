@@ -54,8 +54,8 @@ bool ReplicationHandler::SetReplicationRoleMain() {
   };
   auto const replica_handler = [this](RoleReplicaData const &) {
     // STEP 1) bring down all REPLICA servers
-    dbms_handler_.ForEach([](Database *db) {
-      auto *storage = db->storage();
+    dbms_handler_.ForEach([](DatabaseAccess db_acc) {
+      auto *storage = db_acc->storage();
       // Remember old epoch + storage timestamp association
       storage->PrepareForNewEpoch();
     });
@@ -70,8 +70,8 @@ bool ReplicationHandler::SetReplicationRoleMain() {
     // STEP 3) We are now MAIN, update storage local epoch
     const auto &epoch =
         std::get<RoleMainData>(std::as_const(dbms_handler_.ReplicationState()).ReplicationData()).epoch_;
-    dbms_handler_.ForEach([&](Database *db) {
-      auto *storage = db->storage();
+    dbms_handler_.ForEach([&](DatabaseAccess db_acc) {
+      auto *storage = db_acc->storage();
       storage->repl_storage_state_.epoch_ = epoch;
     });
 
@@ -92,8 +92,8 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
   // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
   //      deleting the replica.
   // Remove database specific clients
-  dbms_handler_.ForEach([&](Database *db) {
-    auto *storage = db->storage();
+  dbms_handler_.ForEach([&](DatabaseAccess db_acc) {
+    auto *storage = db_acc->storage();
     storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
   });
   // Remove instance level clients
@@ -108,16 +108,7 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
                                      // ASSERT
                                      return false;
                                    },
-                                   [this](RoleReplicaData const &data) {
-                                     // Register handlers
-                                     InMemoryReplicationHandlers::Register(&dbms_handler_, *data.server);
-                                     RegisterSystemRPC(data, dbms_handler_);
-                                     if (!data.server->Start()) {
-                                       spdlog::error("Unable to start the replication server.");
-                                       return false;
-                                     }
-                                     return true;
-                                   }},
+                                   [this](RoleReplicaData const &data) { return StartRpcServer(dbms_handler_, data); }},
                  dbms_handler_.ReplicationState().ReplicationData());
   // TODO Handle error (restore to main?)
   return success;
@@ -146,12 +137,12 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
 
   if (!allow_mt_repl && dbms_handler_.All().size() > 1) {
     spdlog::warn("Multi-tenant replication is currently not supported!");
-  } else {
-#ifdef MG_ENTERPRISE
-    // Update system before enabling individual storage <-> replica clients
-    dbms_handler_.SystemRestore(*instance_client.GetValue());
-#endif
   }
+
+#ifdef MG_ENTERPRISE
+  // Update system before enabling individual storage <-> replica clients
+  dbms_handler_.SystemRestore(*instance_client.GetValue());
+#endif
 
   bool all_clients_good = true;
 
@@ -201,8 +192,8 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterR
       return UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
     }
     // Remove database specific clients
-    dbms_handler_.ForEach([name](Database *db) {
-      db->storage()->repl_storage_state_.replication_clients_.WithLock([&name](auto &clients) {
+    dbms_handler_.ForEach([name](DatabaseAccess db_acc) {
+      db_acc->storage()->repl_storage_state_.replication_clients_.WithLock([&name](auto &clients) {
         std::erase_if(clients, [name](const auto &client) { return client->Name() == name; });
       });
     });
@@ -235,14 +226,8 @@ void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAcces
     // client
     for (auto &instance_client : mainData.registered_replicas_) {
       spdlog::info("Replica {} restoration started for {}.", instance_client.name_, db_acc->name());
-
-      // Phase 1: ensure DB exists
-      // auto s = instance_client.rpc_client_.Stream<memgraph::replication::????>();
-
-      // Phase 2: ensure storage is in sync
       const auto &ret = db_acc->storage()->repl_storage_state_.replication_clients_.WithLock(
           [&, db_acc](auto &storage_clients) mutable -> utils::BasicResult<RegisterReplicaError> {
-            // ONLY VALID if storage.id() exists on REPLICA
             auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client);
             auto *storage = db_acc->storage();
             client->Start(storage, std::move(db_acc));
@@ -278,7 +263,16 @@ void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAcces
       repl_state.ReplicationData());
 }
 
+namespace system_replication {
 #ifdef MG_ENTERPRISE
+void SystemHeartbeatHandler(const uint64_t ts, slk::Reader *req_reader, slk::Builder *res_builder) {
+  replication::SystemHeartbeatReq req;
+  replication::SystemHeartbeatReq::Load(&req, req_reader);
+  memgraph::slk::Load(&req, req_reader);
+  replication::SystemHeartbeatRes res(ts);
+  memgraph::slk::Save(res, res_builder);
+}
+
 void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
   memgraph::storage::replication::CreateDatabaseReq req;
   memgraph::slk::Load(&req, req_reader);
@@ -304,11 +298,33 @@ void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
   memgraph::slk::Save(res, res_builder);
 }
 
-void SystemHeartbeatHandler(const uint64_t ts, slk::Reader *req_reader, slk::Builder *res_builder) {
-  replication::SystemHeartbeatReq req;
-  replication::SystemHeartbeatReq::Load(&req, req_reader);
+void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
+  memgraph::storage::replication::DropDatabaseReq req;
   memgraph::slk::Load(&req, req_reader);
-  replication::SystemHeartbeatRes res(ts);
+
+  namespace sr = memgraph::storage::replication;
+  sr::DropDatabaseRes res(sr::DropDatabaseRes::Result::FAILURE);
+
+  // TODO
+  // Check epoch
+  // Check ts
+
+  try {
+    // NOTE: Single communication channel can exist at a time, no other database can be deleted/created aat the moment.
+    auto new_db = dbms_handler.Delete(req.uuid);
+    if (new_db.HasError()) {
+      if (new_db.GetError() == DeleteError::NON_EXISTENT) {
+        // Nothing to drop
+        res = sr::DropDatabaseRes(sr::DropDatabaseRes::Result::NO_NEED);
+      }
+    } else {
+      // Successfully drop db
+      res = sr::DropDatabaseRes(sr::DropDatabaseRes::Result::SUCCESS);
+    }
+  } catch (...) {
+    // Failure
+  }
+
   memgraph::slk::Save(res, res_builder);
 }
 
@@ -354,17 +370,22 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
 }
 #endif
 
-void RegisterSystemRPC(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_handler) {
+void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_handler) {
 #ifdef MG_ENTERPRISE
+  data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
+      [&dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received SystemHeartbeatRpc");
+        SystemHeartbeatHandler(dbms_handler.LastCommitedTS(), req_reader, res_builder);
+      });
   data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
       [&dbms_handler](auto *req_reader, auto *res_builder) {
         spdlog::debug("Received CreateDatabaseRpc");
         CreateDatabaseHandler(dbms_handler, req_reader, res_builder);
       });
-  data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
+  data.server->rpc_server_.Register<storage::replication::DropDatabaseRpc>(
       [&dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received SystemHeartbeatRpc");
-        SystemHeartbeatHandler(dbms_handler.LastCommitedTS(), req_reader, res_builder);
+        spdlog::debug("Received DropDatabaseRpc");
+        DropDatabaseHandler(dbms_handler, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::SystemRecoveryRpc>(
       [&dbms_handler](auto *req_reader, auto *res_builder) {
@@ -373,5 +394,17 @@ void RegisterSystemRPC(replication::RoleReplicaData const &data, dbms::DbmsHandl
       });
 #endif
 }
+}  // namespace system_replication
 
+bool StartRpcServer(DbmsHandler &dbms_handler, const replication::RoleReplicaData &data) {
+  // Register handlers
+  InMemoryReplicationHandlers::Register(&dbms_handler, *data.server);
+  system_replication::Register(data, dbms_handler);
+  // Start server
+  if (!data.server->Start()) {
+    spdlog::error("Unable to start the replication server.");
+    return false;
+  }
+  return true;
+}
 }  // namespace memgraph::dbms

@@ -64,6 +64,7 @@ struct ReplicationHandler {
 /// TODO: extend to do multiple storages
 void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAccess db_acc);
 
+namespace system_replication {
 // System handlers
 #ifdef MG_ENTERPRISE
 void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
@@ -72,6 +73,9 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
 #endif
 
 /// Register all DBMS level RPC handlers
-void RegisterSystemRPC(replication::RoleReplicaData const &data, DbmsHandler &dbms_handler);
+void Register(replication::RoleReplicaData const &data, DbmsHandler &dbms_handler);
+}  // namespace system_replication
+
+bool StartRpcServer(DbmsHandler &dbms_handler, const replication::RoleReplicaData &data);
 
 }  // namespace memgraph::dbms

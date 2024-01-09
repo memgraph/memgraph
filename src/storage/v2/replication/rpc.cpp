@@ -69,6 +69,14 @@ void CreateDatabaseRes::Save(const CreateDatabaseRes &self, memgraph::slk::Build
 void CreateDatabaseRes::Load(CreateDatabaseRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
+void DropDatabaseReq::Save(const DropDatabaseReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+void DropDatabaseReq::Load(DropDatabaseReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+void DropDatabaseRes::Save(const DropDatabaseRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+void DropDatabaseRes::Load(DropDatabaseRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 void SystemRecoveryReq::Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
@@ -120,11 +128,17 @@ constexpr utils::TypeInfo storage::replication::TimestampReq::kType{utils::TypeI
 constexpr utils::TypeInfo storage::replication::TimestampRes::kType{utils::TypeId::REP_TIMESTAMP_RES, "TimestampRes",
                                                                     nullptr};
 
-constexpr utils::TypeInfo storage::replication::CreateDatabaseReq::kType{utils::TypeId::REP_CREATEDATABASE_REQ,
+constexpr utils::TypeInfo storage::replication::CreateDatabaseReq::kType{utils::TypeId::REP_CREATE_DATABASE_REQ,
                                                                          "CreateDatabaseReq", nullptr};
 
-constexpr utils::TypeInfo storage::replication::CreateDatabaseRes::kType{utils::TypeId::REP_CREATEDATABASE_RES,
+constexpr utils::TypeInfo storage::replication::CreateDatabaseRes::kType{utils::TypeId::REP_CREATE_DATABASE_RES,
                                                                          "CreateDatabaseRes", nullptr};
+
+constexpr utils::TypeInfo storage::replication::DropDatabaseReq::kType{utils::TypeId::REP_DROP_DATABASE_REQ,
+                                                                       "DropDatabaseReq", nullptr};
+
+constexpr utils::TypeInfo storage::replication::DropDatabaseRes::kType{utils::TypeId::REP_DROP_DATABASE_RES,
+                                                                       "DropDatabaseRes", nullptr};
 
 constexpr utils::TypeInfo storage::replication::SystemRecoveryReq::kType{utils::TypeId::REP_SYSTEM_RECOVERY_REQ,
                                                                          "SystemRecoveryReq", nullptr};
@@ -322,6 +336,32 @@ void Load(memgraph::storage::replication::CreateDatabaseRes *self, memgraph::slk
   uint8_t res = 0;
   memgraph::slk::Load(&res, reader);
   self->result = static_cast<memgraph::storage::replication::CreateDatabaseRes::Result>(res);
+}
+
+// Serialize code for DropDatabaseReq
+
+void Save(const memgraph::storage::replication::DropDatabaseReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.epoch_id, builder);
+  memgraph::slk::Save(self.group_timestamp, builder);
+  memgraph::slk::Save(self.uuid, builder);
+}
+
+void Load(memgraph::storage::replication::DropDatabaseReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->epoch_id, reader);
+  memgraph::slk::Load(&self->group_timestamp, reader);
+  memgraph::slk::Load(&self->uuid, reader);
+}
+
+// Serialize code for DropDatabaseRes
+
+void Save(const memgraph::storage::replication::DropDatabaseRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(static_cast<uint8_t>(self.result), builder);
+}
+
+void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::Reader *reader) {
+  uint8_t res = 0;
+  memgraph::slk::Load(&res, reader);
+  self->result = static_cast<memgraph::storage::replication::DropDatabaseRes::Result>(res);
 }
 
 // Serialize code for SystemRecoveryReq

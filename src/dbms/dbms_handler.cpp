@@ -9,23 +9,26 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
-
 #include "dbms/dbms_handler.hpp"
 
 #include <cstdint>
 #include <filesystem>
 
 #include "dbms/constants.hpp"
+#include "dbms/global.hpp"
 #include "dbms/replication_client.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/uuid.hpp"
 
-namespace {
-constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
-}  // namespace
 namespace memgraph::dbms {
+
+#ifdef MG_ENTERPRISE
+
+namespace {
+constexpr std::string_view kDBPrefix = "database:";                               // Key prefix for database durability
+constexpr std::string_view kLastCommitedSystemTsKey = "last_commited_system_ts";  // Key for timestamp durability
+}  // namespace
 
 struct Durability {
   enum class DurabilityVersion : uint8_t {
@@ -155,7 +158,7 @@ DbmsHandler::DbmsHandler(
       spdlog::info("Database {} restored.", name);
     }
     // Read the last timestamp
-    auto lcst = durability_->Get(kLSCTSKey);
+    auto lcst = durability_->Get(kLastCommitedSystemTsKey);
     if (lcst) {
       last_commited_system_timestamp_ = std::stoul(*lcst);
       system_timestamp_ = last_commited_system_timestamp_;
@@ -172,7 +175,7 @@ DbmsHandler::DbmsHandler(
       durability_->Delete(key);
     }
     // Delete the last timestamp
-    durability_->Delete(kLSCTSKey);
+    durability_->Delete(kLastCommitedSystemTsKey);
   }
 
   /*
@@ -201,16 +204,7 @@ DbmsHandler::DbmsHandler(
    * REPLICATION RECOVERY AND STARTUP
    */
   // Startup replication state (if recovered at startup)
-  auto replica = [this](replication::RoleReplicaData const &data) {
-    // Register handlers
-    InMemoryReplicationHandlers::Register(this, *data.server);
-    RegisterSystemRPC(data, *this);
-    if (!data.server->Start()) {
-      spdlog::error("Unable to start the replication server.");
-      return false;
-    }
-    return true;
-  };
+  auto replica = [this](replication::RoleReplicaData const &data) { return StartRpcServer(*this, data); };
   // Replication recovery and frequent check start
   auto main = [this](replication::RoleMainData &data) {
     for (auto &client : data.registered_replicas_) {
@@ -237,19 +231,6 @@ DbmsHandler::DbmsHandler(
   }
 }
 
-DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config) {
-  auto new_db = db_handler_.New(storage_config, repl_state_);
-
-  if (new_db.HasValue()) {  // Success
-                            // Save delta
-    if (system_transaction_) {
-      system_transaction_->delta.emplace(SystemTransaction::Delta::create_database, storage_config.salient);
-    }
-    UpdateDurability(storage_config);
-    return new_db.GetValue();
-  }
-  return new_db.GetError();
-}
 DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name) {
   std::lock_guard<LockT> wr(lock_);
   if (db_name == kDefaultDB) {
@@ -257,8 +238,13 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name) {
     return DeleteError::DEFAULT_DB;
   }
 
-  const auto storage_path = StorageDir_(db_name);
-  if (!storage_path) return DeleteError::NON_EXISTENT;
+  // Get DB config for the UUID and disk clean up
+  const auto conf = db_handler_.GetConfig(db_name);
+  if (!conf) {
+    return DeleteError::NON_EXISTENT;
+  }
+  const auto &storage_path = conf->durability.storage_directory;
+  const auto &uuid = conf->salient.uuid;
 
   // Check if db exists
   try {
@@ -275,16 +261,48 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name) {
 
   // Delete disk storage
   std::error_code ec;
-  (void)std::filesystem::remove_all(*storage_path, ec);
+  (void)std::filesystem::remove_all(storage_path, ec);
   if (ec) {
-    spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, *storage_path);
+    spdlog::error(R"(Failed to clean disk while deleting database "{}" stored in {})", db_name, storage_path);
   }
-  return {};  // Success
+
+  // Success
+  // Save delta
+  if (system_transaction_) {
+    system_transaction_->delta.emplace(SystemTransaction::Delta::drop_database, uuid);
+  }
+  return {};
 }
 
 DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name) {
   auto wr = std::lock_guard(lock_);
   return Delete_(db_name);
+}
+
+DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
+  auto wr = std::lock_guard(lock_);
+  std::string db_name;
+  try {
+    const auto db = Get_(uuid);
+    db_name = db->name();
+  } catch (const UnknownDatabaseException &) {
+    return DeleteError::NON_EXISTENT;
+  }
+  return Delete_(db_name);
+}
+
+DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config) {
+  auto new_db = db_handler_.New(storage_config, repl_state_);
+
+  if (new_db.HasValue()) {  // Success
+                            // Save delta
+    if (system_transaction_) {
+      system_transaction_->delta.emplace(SystemTransaction::Delta::create_database, storage_config.salient);
+    }
+    UpdateDurability(storage_config);
+    return new_db.GetValue();
+  }
+  return new_db.GetError();
 }
 
 DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
@@ -315,7 +333,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
 
   // Check if db exists
   // Low level handlers
-  db_handler_.DeferDelete(db_name, [storage_path = *storage_path, db_name]() {
+  db_handler_.DeferDelete(db_name, [storage_path = *storage_path, db_name = std::string{db_name}]() {
     // Delete disk storage
     std::error_code ec;
     (void)std::filesystem::remove_all(storage_path, ec);
@@ -326,6 +344,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
 
   return {};  // Success
 }
+
 void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir) {
   if (!durability_) return;
   // Save database in a list of active databases
@@ -336,6 +355,76 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
   const auto &val = Durability::GenVal(config.salient.uuid, *rel_dir);
   durability_->Put(key, val);
 }
-}  // namespace memgraph::dbms
+
+void DbmsHandler::Commit() {
+  if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt) return;  // Nothing to commit
+  const auto &delta = *system_transaction_->delta;
+
+  // TODO Create a system client that can handle all of this automatically
+  switch (delta.action) {
+    using enum SystemTransaction::Delta::Action;
+    case CREATE_DATABASE: {
+      // Replication
+      auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
+        // TODO: data race issue? registered_replicas_ access not protected
+        // This is sync in any case, as this is the startup
+        for (auto &client : main_data.registered_replicas_) {
+          SteamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
+              client,
+              [](const storage::replication::CreateDatabaseRes &response) {
+                return response.result == storage::replication::CreateDatabaseRes::Result::FAILURE;
+              },
+              std::string(main_data.epoch_.id()), system_transaction_->system_timestamp, delta.config);
+        }
+        // Sync database with REPLICAs
+        RecoverReplication(Get_(delta.config.name));
+      };
+      auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
+      std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
+    } break;
+    case DROP_DATABASE: {
+      // Replication
+      auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
+        // TODO: data race issue? registered_replicas_ access not protected
+        // This is sync in any case, as this is the startup
+        for (auto &client : main_data.registered_replicas_) {
+          SteamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
+              client,
+              [](const storage::replication::DropDatabaseRes &response) {
+                return response.result == storage::replication::DropDatabaseRes::Result::FAILURE;
+              },
+              std::string(main_data.epoch_.id()), system_transaction_->system_timestamp, delta.uuid);
+        }
+      };
+      auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
+      std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
+    } break;
+  }
+
+  last_commited_system_timestamp_ = system_transaction_->system_timestamp;
+  durability_->Put(kLastCommitedSystemTsKey, std::to_string(last_commited_system_timestamp_));
+  ResetSystemTransaction();
+}
+
+#else  // not MG_ENTERPRISE
+
+void DbmsHandler::Commit() {
+  if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt) return;  // Nothing to commit
+  const auto &delta = *system_transaction_->delta;
+
+  // TODO Create a system client that can handle all of this automatically
+  switch (delta.action) {
+    using enum SystemTransaction::Delta::Action;
+    case CREATE_DATABASE:
+    case DROP_DATABASE:
+      /* Community edition doesn't support multi-tenant replication */
+      break;
+  }
+
+  last_commited_system_timestamp_ = system_transaction_->system_timestamp;
+  // TODO Durability once community needs it
+  ResetSystemTransaction();
+}
 
 #endif
+}  // namespace memgraph::dbms
