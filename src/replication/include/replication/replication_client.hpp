@@ -22,8 +22,10 @@
 
 namespace memgraph::replication {
 
+struct ReplicationClient;
+
 template <typename F>
-concept FrequentCheckCB = std::invocable<F, std::string_view, bool>;
+concept FrequentCheckCB = std::invocable<F, bool, ReplicationClient &>;
 
 struct ReplicationClient {
   explicit ReplicationClient(const memgraph::replication::ReplicationClientConfig &config);
@@ -45,7 +47,7 @@ struct ReplicationClient {
                                  auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
                                  stream.AwaitResponse();
                                }
-                               cb(name_, reconnect);
+                               cb(reconnect, *this);
                                reconnect = false;
                              } catch (const rpc::RpcFailedException &) {
                                // Nothing to do...wait for a reconnect

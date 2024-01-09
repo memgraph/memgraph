@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/result.hpp"
+#include "utils/thread_pool.hpp"
 
 namespace memgraph::dbms {
 
@@ -92,6 +93,7 @@ class Handler {
       }
       return false;
     }
+    // TODO: Change to return enum
     throw utils::BasicException("Unknown item \"{}\".", name);
   }
 
@@ -116,10 +118,12 @@ class Handler {
     } else {
       // Defer deletion
       db_acc->reset();
-      std::thread([gk = std::move(itr->second), post_delete_func = std::forward<Func>(post_delete_func)] {
+      // TODO: Make sure this shuts down correctly
+      auto task = [gk = std::move(itr->second), post_delete_func = std::forward<Func>(post_delete_func)]() mutable {
         gk.~Gatekeeper<T>();
         post_delete_func();
-      }).detach();
+      };
+      defer_pool_.AddTask(utils::CopyMovableFunctionWrapper{std::move(task)});
     }
     // In any case remove from handled map
     items_.erase(itr);
@@ -150,6 +154,7 @@ class Handler {
  private:
   std::unordered_map<std::string, utils::Gatekeeper<T>, string_hash, std::equal_to<>>
       items_;  //!< map to all active items
+  utils::ThreadPool defer_pool_{1};
 };
 
 }  // namespace memgraph::dbms

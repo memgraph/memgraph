@@ -3762,7 +3762,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
     if (system_queries) {
       // Start a system transaction
-      auto system_unique = std::unique_lock{interpreter_context_->system_lock, std::defer_lock};
+      auto system_unique = std::unique_lock{interpreter_context_->dbms_handler->system_lock_, std::defer_lock};
       if (!system_unique.try_lock()) {
         throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
       }
