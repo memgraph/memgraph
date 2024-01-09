@@ -88,11 +88,6 @@ class IndexTest : public testing::Test {
   std::vector<int64_t> GetIds(TIterable iterable, View view = View::OLD) {
     std::vector<int64_t> ret;
     for (auto item : iterable) {
-      if (item.GetProperty(this->prop_id, view).HasError()) {
-        auto qwe = item.GetProperty(this->prop_id, view).GetError();
-        auto qwe2 = 2;
-      }
-      auto asd2 = item.GetProperty(this->prop_id, view)->ValueInt();
       ret.push_back(item.GetProperty(this->prop_id, view)->ValueInt());
     }
     return ret;
@@ -1512,9 +1507,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexBasic) {
   // each step:
   // 1. Create 10 edges numbered from 0 to 9.
   // 2. Add EdgeType1 to odd numbered, and EdgeType2 to even numbered edges.
-  // 3. Remove EdgeType1 from odd numbered edges, and add it to even numbered
-  //    edges.
-  // 4. Delete even numbered edges.
+  // 3. Delete even numbered edges.
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto unique_acc = this->storage->UniqueAccess();
@@ -1557,25 +1550,6 @@ TYPED_TEST(IndexTest, EdgeTypeIndexBasic) {
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, View::NEW), View::NEW),
                 UnorderedElementsAre(0, 2, 4, 6, 8));
 
-    // edge types can not be removed.
-    // for (auto vertex : acc->Vertices(View::OLD)) {
-    //   for(auto edge : vertex.OutEdges(View::OLD)->edges)
-    //   {
-    //     int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
-    //     if (id % 2) {
-    //         ASSERT_NO_ERROR(edge.RemoveEdgeType(this->edge_type_id1));
-    //       } else {
-    //         ASSERT_NO_ERROR(edge.AddEdgeType(this->edge_type_id1));
-    //     }
-    //   }
-    // }
-
-    // EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7,
-    // 9)); EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::OLD), View::OLD), UnorderedElementsAre(0, 2, 4,
-    // 6, 8)); EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 2,
-    // 4, 6, 8)); EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::NEW), View::NEW), UnorderedElementsAre(0,
-    // 2, 4, 6, 8));
-
     for (auto vertex : acc->Vertices(View::OLD)) {
       for (auto edge : vertex.OutEdges(View::OLD)->edges) {
         int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
@@ -1585,25 +1559,92 @@ TYPED_TEST(IndexTest, EdgeTypeIndexBasic) {
       }
     }
 
-    // for (auto vertex : acc->Vertices(View::OLD)) {
-    //   int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
-    //   if (id % 2 == 0) {
-    //     ASSERT_NO_ERROR(acc->DeleteVertex(&vertex));
-    //   }
-    // }
-
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 2, 4, 6, 8));
-    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW), IsEmpty());
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, View::NEW), View::NEW), IsEmpty());
 
-    // acc->AdvanceCommand();
+    acc->AdvanceCommand();
 
-    // EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), IsEmpty());
-    // EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::OLD), View::OLD), IsEmpty());
-    // EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), IsEmpty());
-    // EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::NEW), View::NEW), IsEmpty());
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, View::OLD), View::OLD), IsEmpty());
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, View::NEW), View::NEW), IsEmpty());
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    // Check that transactions only see entries they are supposed to see.
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
+    }
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
+    }
+
+    auto acc_before = this->storage->Access();
+    auto acc = this->storage->Access();
+    auto acc_after = this->storage->Access();
+
+    for (int i = 0; i < 5; ++i) {
+      auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+      auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+      this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+    }
+
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
+
+    EXPECT_THAT(this->GetIds(acc_before->Edges(this->edge_type_id1, View::NEW), View::NEW), IsEmpty());
+
+    EXPECT_THAT(this->GetIds(acc_after->Edges(this->edge_type_id1, View::NEW), View::NEW), IsEmpty());
+
+    ASSERT_NO_ERROR(acc->Commit());
+
+    auto acc_after_commit = this->storage->Access();
+
+    EXPECT_THAT(this->GetIds(acc_before->Edges(this->edge_type_id1, View::NEW), View::NEW), IsEmpty());
+
+    EXPECT_THAT(this->GetIds(acc_after->Edges(this->edge_type_id1, View::NEW), View::NEW), IsEmpty());
+
+    EXPECT_THAT(this->GetIds(acc_after_commit->Edges(this->edge_type_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgeTypeIndexCountEstimate) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
+    }
+    {
+      auto unique_acc = this->storage->UniqueAccess();
+      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
+    }
+
+    auto acc = this->storage->Access();
+    for (int i = 0; i < 20; ++i) {
+      auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+      auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+      this->CreateEdge(&vertex_from, &vertex_to, i % 3 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
+    }
+
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 13);
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id2), 7);
   }
 }

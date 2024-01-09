@@ -350,7 +350,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
         transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
         // Update indices if they exist.
-        storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge_type, transaction_);
+        // TODO enforce the presence of config_.properties_on_edges
+        storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
 
         // Increment edge count.
         storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
@@ -1675,6 +1676,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
   {
+    // Maybe get rid of vertex-respresented edges here?
+
     auto edge_acc = edges_.access();
     for (auto edge : current_deleted_edges) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");

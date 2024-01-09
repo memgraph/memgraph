@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,7 +36,8 @@ class EdgeTypeIndex {
 
   virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const = 0;
 
-  virtual void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeTypeId edge_type, const Transaction &tx) = 0;
+  virtual void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                                    const Transaction &tx) = 0;
 };
 
 }  // namespace memgraph::storage

@@ -30,7 +30,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Vertex *from_vertex;
     Vertex *to_vertex;
 
-    // Edge* edge;
+    // We might or might not need this. We might have to make use of the deltachain.
+    Edge *edge;
 
     uint64_t timestamp;
 
@@ -60,7 +61,12 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override;
 
-  void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeTypeId edge_type, const Transaction &tx) override;
+  void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                            const Transaction &tx) override;
+
+  static constexpr std::size_t kEdgeTypeIdPos = 0U;
+  static constexpr std::size_t kVertexPos = 1U;
+  static constexpr std::size_t kEdgeRefPos = 2U;
 
   class Iterable {
    public:
@@ -80,6 +86,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
      private:
       void AdvanceUntilValid();
+      std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> GetEdgeInfo(Vertex *from_vertex, Vertex *to_vertex,
+                                                                      bool edge_deleted);
 
       Iterable *self_;
       utils::SkipList<Entry>::Iterator index_iterator_;
@@ -111,6 +119,10 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
  private:
   std::map<EdgeTypeId, utils::SkipList<Entry>> index_;
+  // Todo gvolfing deal with this.
+  // We might need this member to get hold of "deleted" edges temporarily.
+  // std::set<EdgeAccessor> deleted_edges;
+
   // utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 

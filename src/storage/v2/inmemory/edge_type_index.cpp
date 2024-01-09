@@ -13,6 +13,87 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 
+namespace {
+
+using Delta = memgraph::storage::Delta;
+using Vertex = memgraph::storage::Vertex;
+using Edge = memgraph::storage::Edge;
+using EdgeRef = memgraph::storage::EdgeRef;
+using EdgeTypeId = memgraph::storage::EdgeTypeId;
+using Transaction = memgraph::storage::Transaction;
+using View = memgraph::storage::View;
+
+bool IsIndexEntryVisible(Edge *edge, const Transaction *transaction, View view) {
+  bool exists = true;
+  bool deleted = true;
+  Delta *delta = nullptr;
+  {
+    auto guard = std::shared_lock{edge->lock};
+    deleted = edge->deleted;
+    delta = edge->delta;
+  }
+  ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT: {
+        exists = false;
+        break;
+      }
+    }
+  });
+  return exists && !deleted;
+}
+
+using ReturnType = std::optional<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
+ReturnType VertexDeletedConnectedEdges(Vertex *vertex, const Transaction *transaction, View view) {
+  ReturnType link;
+  Delta *delta = nullptr;
+  {
+    auto guard = std::shared_lock{vertex->lock};
+    delta = vertex->delta;
+  }
+  ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE: {
+        link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
+        auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
+        MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
+        break;
+      }
+      case Delta::Action::ADD_OUT_EDGE: {
+        link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
+        auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
+        MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
+        break;
+      }
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+      case Delta::Action::RECREATE_OBJECT:
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT:
+        break;
+    }
+  });
+  return link;
+}
+
+}  // namespace
+
 namespace memgraph::storage {
 
 bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices) {
@@ -20,7 +101,7 @@ bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Ve
   if (!emplaced) {
     return false;
   }
-  // TODO make this more readable.
+
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
     auto edge_acc = it->second.access();
@@ -28,15 +109,15 @@ bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Ve
       if (from_vertex.deleted) {
         continue;
       }
-      // Verify if it is enough to loop over only the outgoing edges.
+
       for (const auto &edge : from_vertex.out_edges) {
-        const auto type = std::get<0>(edge);
+        const auto type = std::get<kEdgeTypeIdPos>(edge);
         if (type == edge_type) {
-          auto *to_vertex = std::get<1>(edge);
+          auto *to_vertex = std::get<kVertexPos>(edge);
           if (to_vertex->deleted) {
             continue;
           }
-          edge_acc.insert({&from_vertex, to_vertex, 0});
+          edge_acc.insert({&from_vertex, to_vertex, std::get<kEdgeRefPos>(edge).ptr, 0});
         }
       }
     }
@@ -77,7 +158,7 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
       // This can potentially make the garbage collection step extremely slow.
       const bool edge_deleted = std::invoke([&]() {
         for (const auto &edge : it->from_vertex->out_edges) {
-          auto *to_vertex = std::get<1>(edge);
+          auto *to_vertex = std::get<InMemoryEdgeTypeIndex::kVertexPos>(edge);
           if (to_vertex == it->to_vertex) {
             return false;
           }
@@ -87,7 +168,6 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
 
       if ((next_it != edges_acc.end() && it->from_vertex == next_it->from_vertex &&
            it->to_vertex == next_it->to_vertex) ||
-          // This should be called before the vertex is actually deleted by the GC.
           it->from_vertex->deleted || it->to_vertex->deleted || edge_deleted) {
         edges_acc.remove(*it);
       }
@@ -104,14 +184,14 @@ uint64_t InMemoryEdgeTypeIndex::ApproximateEdgeCount(EdgeTypeId edge_type) const
   return 0;
 }
 
-void InMemoryEdgeTypeIndex::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeTypeId edge_type,
+void InMemoryEdgeTypeIndex::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                                                  const Transaction &tx) {
   auto it = index_.find(edge_type);
   if (it == index_.end()) {
     return;
   }
   auto acc = it->second.access();
-  acc.insert(Entry{from, to, tx.start_timestamp});
+  acc.insert(Entry{from, to, edge_ref.ptr, tx.start_timestamp});
 }
 
 InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type,
@@ -141,51 +221,67 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
     auto *from_vertex = index_iterator_->from_vertex;
     auto *to_vertex = index_iterator_->to_vertex;
 
-    // We have to make sure that the correct view is called.
-
-    // We might have to check if the relationship itself have been deleted or not.
-    if (from_vertex->deleted || to_vertex->deleted) {
+    if (!IsIndexEntryVisible(index_iterator_->edge, self_->transaction_, self_->view_) || from_vertex->deleted ||
+        to_vertex->deleted) {
       continue;
     }
 
-    auto [edge_ref, edge_type] =
-        std::invoke([&, &from = from_vertex->out_edges, &to = to_vertex->in_edges]() -> std::pair<EdgeRef, EdgeTypeId> {
-          for (const auto &from_entry : from) {
-            const auto from_edge = std::get<2>(from_entry);
-            for (const auto &to_entry : to) {
-              const auto to_edge = std::get<2>(to_entry);
-              if (from_edge == to_edge) {
-                return std::make_pair(from_edge, std::get<0>(from_entry));
-              }
-            }
-          }
-          return {EdgeRef(nullptr), EdgeTypeId::FromUint(0)};
-        });
-
+    const bool edge_was_deleted = index_iterator_->edge->deleted;
+    auto [edge_ref, edge_type, deleted_from_vertex, deleted_to_vertex] =
+        GetEdgeInfo(from_vertex, to_vertex, edge_was_deleted);
     if (edge_ref == EdgeRef(nullptr)) {
-      // This is a valid case if the edge has been deleted from the from and to vertices.
-      // Mark the entry as deleted? how?
-
-      // TODO gvolfing - handle this properly:
-      // It should not be possible to not find a matching from-to pair.
-
-      // This is an issue for Views.
-      MG_ASSERT(false, "gvolfing was lazy and it crashed your instance.");
+      MG_ASSERT(false, "Invalid database state!");
     }
 
-    // verify if this is the correct logic
     if (edge_ref == current_edge_) {
       continue;
+    }
+
+    if (edge_was_deleted) {
+      from_vertex = deleted_from_vertex;
+      to_vertex = deleted_to_vertex;
     }
 
     auto accessor = EdgeAccessor{edge_ref, edge_type, from_vertex, to_vertex, self_->storage_, self_->transaction_};
     if (!accessor.IsVisible(self_->view_)) {
       continue;
     }
+
     current_edge_accessor_ = accessor;
     current_edge_ = edge_ref;
     break;
   }
+}
+
+std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> InMemoryEdgeTypeIndex::Iterable::Iterator::GetEdgeInfo(
+    Vertex *from_vertex, Vertex *to_vertex, bool edge_deleted) {
+  if (edge_deleted) {
+    const auto missing_in_edge = VertexDeletedConnectedEdges(from_vertex, self_->transaction_, self_->view_);
+    const auto missing_out_edge = VertexDeletedConnectedEdges(to_vertex, self_->transaction_, self_->view_);
+    if (missing_in_edge && missing_out_edge &&
+        std::get<kEdgeRefPos>(*missing_in_edge) == std::get<kEdgeRefPos>(*missing_out_edge)) {
+      return std::make_tuple(std::get<kEdgeRefPos>(*missing_in_edge), std::get<kEdgeTypeIdPos>(*missing_in_edge),
+                             to_vertex, from_vertex);
+    }
+  }
+
+  const auto &from_edges = from_vertex->out_edges;
+  const auto &to_edges = to_vertex->in_edges;
+
+  auto it = std::find_if(from_edges.begin(), from_edges.end(), [&](const auto &from_entry) {
+    const auto &from_edge = std::get<kEdgeRefPos>(from_entry);
+    return std::any_of(to_edges.begin(), to_edges.end(), [&](const auto &to_entry) {
+      const auto &to_edge = std::get<kEdgeRefPos>(to_entry);
+      return from_edge == to_edge;
+    });
+  });
+
+  if (it != from_edges.end()) {
+    const auto &from_edge = std::get<kEdgeRefPos>(*it);
+    return std::make_tuple(from_edge, std::get<kEdgeTypeIdPos>(*it), from_vertex, to_vertex);
+  }
+
+  return {EdgeRef(nullptr), EdgeTypeId::FromUint(0U), nullptr, nullptr};
 }
 
 void InMemoryEdgeTypeIndex::RunGC() {
@@ -196,10 +292,8 @@ void InMemoryEdgeTypeIndex::RunGC() {
 
 InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_type, View view, Storage *storage,
                                                              Transaction *transaction) {
-  auto debug_var = index_.size();
   const auto it = index_.find(edge_type);
   MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", edge_type.AsUint());
-  auto debug_var_two = it->second.access().size();
   return {it->second.access(), edge_type, view, storage, transaction};
 }
 

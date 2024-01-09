@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2841,6 +2841,8 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
     }
   }
+
+  // TODO gvolfing update edge-type indices
 
   delete_executed_ = true;
 
