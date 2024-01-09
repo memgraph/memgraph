@@ -17,10 +17,9 @@
 #include <string>
 #include "replication/mode.hpp"
 
-#ifdef MG_ENTERPRISE
-
 namespace memgraph::replication {
 
+#ifdef MG_ENTERPRISE
 struct CoordinatorClientConfig {
   std::string name;
   // Used for replica only
