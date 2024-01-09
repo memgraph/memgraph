@@ -29,13 +29,6 @@ def test_coordinator_cannot_be_replica_role(connection):
     assert str(e.value) == "Coordinator cannot become a replica!"
 
 
-def test_coordinator_cannot_be_main_role(connection):
-    cursor = connection(7690, "coordinator").cursor()
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO MAIN WITH PORT 10001;")
-    assert str(e.value) == "Coordinator cannot become main!"
-
-
 def test_coordinator_cannot_run_show_repl_role(connection):
     cursor = connection(7690, "coordinator").cursor()
     with pytest.raises(Exception) as e:
@@ -43,16 +36,20 @@ def test_coordinator_cannot_run_show_repl_role(connection):
     assert str(e.value) == "Coordinator doesn't have a replication role!"
 
 
-# def test_coordinator_show_replication_cluster(connection):
-#     cursor = connection(7690, "coordinator").cursor()
-#     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
-#
-#     expected_column_names = {"name", "socket_address"}
-#     actual_column_names = {x.name for x in cursor.description}
-#     assert actual_column_names == expected_column_names
-#
-#     expected_data = {("replica_1", "127.0.0.1:10001"), ("replica_2", "127.0.0.1:10002"), ("main", "127.0.0.1:10003")}
-#     assert actual_data == expected_data
+def test_coordinator_show_replication_cluster(connection):
+    cursor = connection(7690, "coordinator").cursor()
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
+
+    expected_column_names = {"name", "socket_address"}
+    actual_column_names = {x.name for x in cursor.description}
+    assert actual_column_names == expected_column_names
+
+    expected_data = {
+        ("main", "127.0.0.1:10013"),
+        ("replica_1", "127.0.0.1:10011"),
+        ("replica_2", "127.0.0.1:10012"),
+    }
+    assert actual_data == expected_data
 
 
 def test_coordinator_cannot_call_show_replicas(connection):

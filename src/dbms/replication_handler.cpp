@@ -184,7 +184,7 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
 }
 
 #ifdef MG_ENTERPRISE
-auto ReplicationHandler::RegisterReplicaOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
+auto ReplicationHandler::RegisterReplicaOnCoordinator(const memgraph::replication::CoordinatorClientConfig &config)
     -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus> {
   auto instance_client = dbms_handler_.CoordinatorState().RegisterReplica(config);
   if (instance_client.HasError()) switch (instance_client.GetError()) {
@@ -206,7 +206,7 @@ auto ReplicationHandler::RegisterReplicaOnCoordinator(const memgraph::replicatio
 }
 
 // TODO: (andi) RegisterMainError
-auto ReplicationHandler::RegisterMainOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
+auto ReplicationHandler::RegisterMainOnCoordinator(const memgraph::replication::CoordinatorClientConfig &config)
     -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus> {
   auto instance_client = dbms_handler_.CoordinatorState().RegisterMain(config);
   if (instance_client.HasError()) switch (instance_client.GetError()) {

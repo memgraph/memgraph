@@ -10,17 +10,17 @@
 // licenses/APL.txt.
 
 #include "replication/coordinator_client.hpp"
+#include "replication/coordinator_config.hpp"
 
 namespace memgraph::replication {
 
-// TODO: (andi) Deduplicate the code from ReplicationClient?
-static auto CreateClientContext(const memgraph::replication::ReplicationClientConfig &config)
+static auto CreateClientContext(const memgraph::replication::CoordinatorClientConfig &config)
     -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
                       : communication::ClientContext{};
 }
 
-CoordinatorClient::CoordinatorClient(const memgraph::replication::ReplicationClientConfig &config)
+CoordinatorClient::CoordinatorClient(const memgraph::replication::CoordinatorClientConfig &config)
     : name_{config.name},
       rpc_context_{CreateClientContext(config)},
       rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),

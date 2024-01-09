@@ -42,11 +42,11 @@ class CoordinatorState {
   }
 
   utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> RegisterReplica(
-      const ReplicationClientConfig &config);
+      const CoordinatorClientConfig &config);
 
   /// TODO: (andi) Introduce RegisterMainError
   utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> RegisterMain(
-      const ReplicationClientConfig &config);
+      const CoordinatorClientConfig &config);
 
   std::vector<CoordinatorEntityInfo> ShowReplicas() const;
 

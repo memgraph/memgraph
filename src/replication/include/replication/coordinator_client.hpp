@@ -12,6 +12,7 @@
 #pragma once
 
 #include "replication/config.hpp"
+#include "replication/coordinator_config.hpp"
 #include "replication/messages.hpp"
 #include "rpc/client.hpp"
 #include "utils/scheduler.hpp"
@@ -23,7 +24,7 @@
 namespace memgraph::replication {
 
 struct CoordinatorClient {
-  explicit CoordinatorClient(const memgraph::replication::ReplicationClientConfig &config);
+  explicit CoordinatorClient(const memgraph::replication::CoordinatorClientConfig &config);
 
   ~CoordinatorClient();
   CoordinatorClient(CoordinatorClient const &) = delete;

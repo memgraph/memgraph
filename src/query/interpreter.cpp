@@ -332,24 +332,33 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       const auto [ip, port] = *maybe_ip_and_port;
-      const auto config = replication::ReplicationClientConfig{.name = name,
-                                                               .mode = repl_mode,
-                                                               .ip_address = ip,
-                                                               .port = port,
-                                                               .replica_check_frequency = replica_check_frequency,
-                                                               .ssl = std::nullopt};
+      const auto replication_config =
+          replication::ReplicationClientConfig{.name = name,
+                                               .mode = repl_mode,
+                                               .ip_address = ip,
+                                               .port = port,
+                                               .replica_check_frequency = replica_check_frequency,
+                                               .ssl = std::nullopt};
+      const replication::CoordinatorClientConfig coordinator_config =
+          replication::CoordinatorClientConfig{.name = name,
+                                               .mode = repl_mode,
+                                               .ip_address = ip,
+                                               .port = port,
+                                               .replica_check_frequency = replica_check_frequency,
+                                               .ssl = std::nullopt};
 #ifdef MG_ENTERPRISE
-      const auto error = std::invoke([&config, repl_handler = &this->handler_]() {
+      const auto error = std::invoke([&coordinator_config, &replication_config, repl_handler = &this->handler_]() {
         if (FLAGS_coordinator) {
           if (!license::global_license_checker.IsEnterpriseValidFast()) {
             throw QueryException("Trying to use enterprise feature without a valid license.");
           }
-          return repl_handler->RegisterReplicaOnCoordinator(config).HasError();
+
+          return repl_handler->RegisterReplicaOnCoordinator(coordinator_config).HasError();
         }
-        return repl_handler->RegisterReplica(config).HasError();
+        return repl_handler->RegisterReplica(replication_config).HasError();
       });
 #else
-      const auto error = handler_.RegisterReplica(config).HasError();
+      const auto error = handler_.RegisterReplica(replication_config).HasError();
 #endif
 
       if (error) {
@@ -377,7 +386,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     }
     const auto [ip, port] = *maybe_ip_and_port;
     // TODO: (andi) What to do with mode
-    const auto config = replication::ReplicationClientConfig{
+    const auto config = replication::CoordinatorClientConfig{
         .name = instance_name,
         .ip_address = ip,
         .port = port,

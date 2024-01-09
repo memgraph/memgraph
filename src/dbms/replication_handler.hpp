@@ -22,6 +22,7 @@ struct ReplicationServerConfig;
 struct ReplicationClientConfig;
 #ifdef MG_ENTERPRISE
 struct CoordinatorEntityInfo;
+struct CoordinatorClientConfig;
 #endif
 }  // namespace memgraph::replication
 
@@ -60,11 +61,11 @@ struct ReplicationHandler {
       -> utils::BasicResult<RegisterReplicaError>;
 
 #ifdef MG_ENTERPRISE
-  auto RegisterReplicaOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
+  auto RegisterReplicaOnCoordinator(const memgraph::replication::CoordinatorClientConfig &config)
       -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
 
   // TODO: (andi) RegisterMainError
-  auto RegisterMainOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
+  auto RegisterMainOnCoordinator(const memgraph::replication::CoordinatorClientConfig &config)
       -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
 
   auto ShowReplicasOnCoordinator() const -> std::vector<memgraph::replication::CoordinatorEntityInfo>;

@@ -13,6 +13,7 @@
 #include <variant>
 
 #include "flags/replication.hpp"
+#include "replication/coordinator_config.hpp"
 #include "replication/register_replica_error.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -33,14 +34,14 @@ CoordinatorState::CoordinatorState() {
     data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(config)};
     // TODO: (andi) Register coordinator handlers
     // InMemoryReplicationHandlers::Register(&dbms_handler_, *data.server);
-    if (std::get<CoordinatorMainReplicaData>(data_).coordinator_server_->Start()) {
+    if (!std::get<CoordinatorMainReplicaData>(data_).coordinator_server_->Start()) {
       MG_ASSERT(false, "Failed to start coordinator server!");
     }
   }
 }
 
 utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> CoordinatorState::RegisterReplica(
-    const ReplicationClientConfig &config) {
+    const CoordinatorClientConfig &config) {
   // TODO: (andi) Solve DRY by extracting
   auto name_check = [&config](auto const &replicas) {
     auto name_matches = [&name = config.name](auto const &replica) { return replica.name_ == name; };
@@ -57,7 +58,7 @@ utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> Co
   };
 
   const auto name_endpoint_status =
-      std::visit(memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData &coordinator_main_replica_data) {
+      std::visit(memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
                                                return RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR;
                                              },
                                              [&name_check, &endpoint_check](const CoordinatorData &coordinator_data) {
@@ -80,7 +81,7 @@ utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> Co
 }
 
 utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> CoordinatorState::RegisterMain(
-    const ReplicationClientConfig &config) {
+    const CoordinatorClientConfig &config) {
   // endpoint check
   auto endpoint_check = [&](auto const &replicas) {
     auto endpoint_matches = [&config](auto const &replica) {
