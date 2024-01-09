@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/atomic_memory_block.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
@@ -49,26 +50,26 @@ Storage::Storage(Config config, StorageMode storage_mode)
 }
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, bool is_main)
+                            StorageMode storage_mode, memgraph::replication::ReplicationRole replication_role)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(storage_->main_lock_),
       unique_guard_(storage_->main_lock_, std::defer_lock),
-      transaction_(storage->CreateTransaction(isolation_level, storage_mode, is_main)),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode, replication_role)),
       is_transaction_active_(true),
       creation_storage_mode_(storage_mode) {}
 
 Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, bool is_main)
+                            StorageMode storage_mode, memgraph::replication::ReplicationRole replication_role)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(storage_->main_lock_, std::defer_lock),
       unique_guard_(storage_->main_lock_),
-      transaction_(storage->CreateTransaction(isolation_level, storage_mode, is_main)),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode, replication_role)),
       is_transaction_active_(true),
       creation_storage_mode_(storage_mode) {}
 
@@ -390,22 +391,29 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
       if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
       MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
-      attached_edges_to_vertex->pop_back();
-      if (storage_->config_.items.properties_on_edges) {
-        auto *edge_ptr = edge_ref.ptr;
-        MarkEdgeAsDeleted(edge_ptr);
-      }
+      // MarkEdgeAsDeleted allocates additional memory
+      // and CreateAndLinkDelta needs memory
+      utils::AtomicMemoryBlock atomic_memory_block{[&attached_edges_to_vertex, &deleted_edge_ids, &reverse_vertex_order,
+                                                    &vertex_ptr, &deleted_edges, deletion_delta = deletion_delta,
+                                                    edge_type = edge_type, opposing_vertex = opposing_vertex,
+                                                    edge_ref = edge_ref, this]() {
+        attached_edges_to_vertex->pop_back();
+        if (this->storage_->config_.items.properties_on_edges) {
+          auto *edge_ptr = edge_ref.ptr;
+          MarkEdgeAsDeleted(edge_ptr);
+        }
 
-      auto const edge_gid = storage_->config_.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
-      auto const [_, was_inserted] = deleted_edge_ids.insert(edge_gid);
-      bool const edge_cleared_from_both_directions = !was_inserted;
-      if (edge_cleared_from_both_directions) {
-        auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
-        auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
-      }
-
-      CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
+        auto const edge_gid = storage_->config_.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+        auto const [_, was_inserted] = deleted_edge_ids.insert(edge_gid);
+        bool const edge_cleared_from_both_directions = !was_inserted;
+        if (edge_cleared_from_both_directions) {
+          auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
+          auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
+          deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
+        }
+        CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
+      }};
+      std::invoke(atomic_memory_block);
     }
 
     return std::make_optional<ReturnType>();
@@ -449,30 +457,37 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
           return !set_for_erasure.contains(edge_gid);
         });
 
-    for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
-      auto const &[edge_type, opposing_vertex, edge_ref] = *it;
-      std::unique_lock<utils::RWSpinLock> guard;
-      if (storage_->config_.items.properties_on_edges) {
-        auto edge_ptr = edge_ref.ptr;
-        guard = std::unique_lock{edge_ptr->lock};
-        // this can happen only if we marked edges for deletion with no nodes,
-        // so the method detaching nodes will not do anything
-        MarkEdgeAsDeleted(edge_ptr);
+    // Creating deltas and erasing edge only at the end -> we might have incomplete state as
+    // delta might cause OOM, so we don't remove edges from edges_attached_to_vertex
+    utils::AtomicMemoryBlock atomic_memory_block{[&mid, &edges_attached_to_vertex, &deleted_edges,
+                                                  &partially_detached_edge_ids, this, vertex_ptr, deletion_delta,
+                                                  reverse_vertex_order]() {
+      for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
+        auto const &[edge_type, opposing_vertex, edge_ref] = *it;
+        std::unique_lock<utils::RWSpinLock> guard;
+        if (storage_->config_.items.properties_on_edges) {
+          auto edge_ptr = edge_ref.ptr;
+          guard = std::unique_lock{edge_ptr->lock};
+          // this can happen only if we marked edges for deletion with no nodes,
+          // so the method detaching nodes will not do anything
+          MarkEdgeAsDeleted(edge_ptr);
+        }
+
+        CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
+
+        auto const edge_gid = storage_->config_.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+        auto const [_, was_inserted] = partially_detached_edge_ids.insert(edge_gid);
+        bool const edge_cleared_from_both_directions = !was_inserted;
+        if (edge_cleared_from_both_directions) {
+          auto *from_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
+          auto *to_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
+          deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
+        }
       }
+      edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
+    }};
 
-      CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
-
-      auto const edge_gid = storage_->config_.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
-      auto const [_, was_inserted] = partially_detached_edge_ids.insert(edge_gid);
-      bool const edge_cleared_from_both_directions = !was_inserted;
-      if (edge_cleared_from_both_directions) {
-        auto *from_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-        auto *to_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
-        deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
-      }
-    }
-
-    edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
+    std::invoke(atomic_memory_block);
 
     return std::make_optional<ReturnType>();
   };
