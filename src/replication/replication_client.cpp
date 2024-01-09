@@ -13,7 +13,6 @@
 
 namespace memgraph::replication {
 
-// TODO: (andi) Deduplicate the code from ReplicationClient
 static auto CreateClientContext(const memgraph::replication::ReplicationClientConfig &config)
     -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}

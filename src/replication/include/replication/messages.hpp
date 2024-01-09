@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,8 +17,8 @@
 namespace memgraph::replication {
 
 struct FrequentHeartbeatReq {
-  static const utils::TypeInfo kType;                            // TODO: make constexpr?
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }  // WHAT?
+  static const utils::TypeInfo kType;  // TODO: make constexpr?
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
   static void Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);

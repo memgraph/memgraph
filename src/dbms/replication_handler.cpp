@@ -231,8 +231,16 @@ auto ReplicationHandler::ShowReplicasOnCoordinator() const -> std::vector<replic
   return dbms_handler_.CoordinatorState().ShowReplicas();
 }
 
+auto ReplicationHandler::PingReplicasOnCoordinator() const -> std::vector<replication::CoordinatorEntityHealthInfo> {
+  return dbms_handler_.CoordinatorState().PingReplicas();
+}
+
 auto ReplicationHandler::ShowMainOnCoordinator() const -> std::optional<replication::CoordinatorEntityInfo> {
   return dbms_handler_.CoordinatorState().ShowMain();
+}
+
+auto ReplicationHandler::PingMainOnCoordinator() const -> std::optional<replication::CoordinatorEntityHealthInfo> {
+  return dbms_handler_.CoordinatorState().PingMain();
 }
 
 #endif

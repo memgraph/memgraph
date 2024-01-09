@@ -34,9 +34,11 @@ struct CoordinatorClient {
 
   void StartFrequentCheck();
 
+  bool DoHealthCheck() const;
+
   std::string name_;
   communication::ClientContext rpc_context_;
-  rpc::Client rpc_client_;
+  mutable rpc::Client rpc_client_;
   std::chrono::seconds replica_check_frequency_;
 
   // TODO: (andi) Do I need this?

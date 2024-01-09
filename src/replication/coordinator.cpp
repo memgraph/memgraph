@@ -13,7 +13,9 @@
 #include <variant>
 
 #include "flags/replication.hpp"
+#include "replication/coordinator_client.hpp"
 #include "replication/coordinator_config.hpp"
+#include "replication/coordinator_entity_info.hpp"
 #include "replication/register_replica_error.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -133,6 +135,31 @@ std::optional<CoordinatorEntityInfo> CoordinatorState::ShowMain() const {
   const auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
   if (registered_main) {
     return CoordinatorEntityInfo{registered_main->name_, registered_main->rpc_client_.Endpoint()};
+  }
+  return std::nullopt;
+}
+
+std::vector<CoordinatorEntityHealthInfo> CoordinatorState::PingReplicas() const {
+  if (!std::holds_alternative<CoordinatorData>(data_)) {
+    MG_ASSERT(false, "Can't call ping replicas on data_, as variant holds wrong alternative");
+  }
+  std::vector<CoordinatorEntityHealthInfo> result;
+  const auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
+  result.reserve(registered_replicas.size());
+  for (const CoordinatorClient &replica_client : registered_replicas) {
+    result.emplace_back(CoordinatorEntityHealthInfo{replica_client.name_, replica_client.DoHealthCheck()});
+  }
+
+  return result;
+}
+
+std::optional<CoordinatorEntityHealthInfo> CoordinatorState::PingMain() const {
+  if (!std::holds_alternative<CoordinatorData>(data_)) {
+    MG_ASSERT(false, "Can't call show main on data_, as variant holds wrong alternative");
+  }
+  const auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
+  if (registered_main) {
+    return CoordinatorEntityHealthInfo{registered_main->name_, registered_main->DoHealthCheck()};
   }
   return std::nullopt;
 }

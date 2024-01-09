@@ -24,6 +24,11 @@ struct CoordinatorEntityInfo {
   std::string name;
   io::network::Endpoint endpoint;
 };
+
+struct CoordinatorEntityHealthInfo {
+  std::string name;
+  bool alive;
+};
 #endif
 
 }  // namespace memgraph::replication

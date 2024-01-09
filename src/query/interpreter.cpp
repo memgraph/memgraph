@@ -72,6 +72,7 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "replication/config.hpp"
+#include "replication/coordinator_entity_info.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
@@ -487,8 +488,16 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     return handler_.ShowReplicasOnCoordinator();
   }
 
+  std::vector<replication::CoordinatorEntityHealthInfo> PingReplicasOnCoordinator() const override {
+    return handler_.PingReplicasOnCoordinator();
+  }
+
   std::optional<replication::CoordinatorEntityInfo> ShowMainOnCoordinator() const override {
     return handler_.ShowMainOnCoordinator();
+  }
+
+  std::optional<replication::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const override {
+    return handler_.PingMainOnCoordinator();
   }
 #endif
 
@@ -895,13 +904,14 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       }
 #ifdef MG_ENTERPRISE
       if (!FLAGS_coordinator) {
-        throw QueryRuntimeException("Only coordinator can call SHOW REPLICATION CLUSTER!");
+        throw QueryRuntimeException("Only on coordinator you can call SHOW REPLICATION CLUSTER.");
       }
 
       // TODO: (andi) Exact order of this checks
       // TODO: (andi) Bunch of details missing atm
       callback.header = {"name", "socket_address"};
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, replica_nfields = callback.header.size()]() mutable {
+        const auto health_checks_replicas = handler.PingReplicasOnCoordinator();
         const auto replicas = handler.ShowReplicasOnCoordinator();
         std::vector<std::vector<TypedValue>> result{};
         result.reserve(replicas.size() + 1);  // replicas + 1 main

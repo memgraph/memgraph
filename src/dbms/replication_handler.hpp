@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "replication/coordinator_entity_info.hpp"
 #include "replication/role.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/result.hpp"
@@ -71,6 +72,10 @@ struct ReplicationHandler {
   auto ShowReplicasOnCoordinator() const -> std::vector<memgraph::replication::CoordinatorEntityInfo>;
 
   auto ShowMainOnCoordinator() const -> std::optional<memgraph::replication::CoordinatorEntityInfo>;
+
+  auto PingReplicasOnCoordinator() const -> std::vector<memgraph::replication::CoordinatorEntityHealthInfo>;
+
+  auto PingMainOnCoordinator() const -> std::optional<memgraph::replication::CoordinatorEntityHealthInfo>;
 
 #endif
 

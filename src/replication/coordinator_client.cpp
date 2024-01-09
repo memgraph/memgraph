@@ -51,4 +51,19 @@ void CoordinatorClient::StartFrequentCheck() {
   });
 }
 
+bool CoordinatorClient::DoHealthCheck() const {
+  try {
+    {
+      // this should be different RPC message?
+      // doesn't have to be because there is lock taken in RPC request but we can do it
+      auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
+      stream.AwaitResponse();
+      return true;
+    }
+  } catch (const rpc::RpcFailedException &) {
+    // Nothing to do...wait for a reconnect
+  }
+  return false;
+}
+
 }  // namespace memgraph::replication

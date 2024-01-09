@@ -50,7 +50,11 @@ class CoordinatorState {
 
   std::vector<CoordinatorEntityInfo> ShowReplicas() const;
 
+  std::vector<CoordinatorEntityHealthInfo> PingReplicas() const;
+
   std::optional<CoordinatorEntityInfo> ShowMain() const;
+
+  std::optional<CoordinatorEntityHealthInfo> PingMain() const;
 
  private:
   struct CoordinatorData {
