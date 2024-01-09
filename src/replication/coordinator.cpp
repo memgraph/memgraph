@@ -10,17 +10,19 @@
 // licenses/APL.txt.
 
 #include "replication/coordinator.hpp"
+#include <variant>
 
 #include "flags/replication.hpp"
+#include "replication/register_replica_error.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::replication {
 
 #ifdef MG_ENTERPRISE
 
 CoordinatorState::CoordinatorState() {
-  MG_ASSERT((FLAGS_coordinator && FLAGS_coordinator_server_port == 0) ||
-                (!FLAGS_coordinator && FLAGS_coordinator_server_port > 0),
-            "Instance must be a coordinator or have a registered coordinator server.");
+  MG_ASSERT(!(FLAGS_coordinator && FLAGS_coordinator_server_port),
+            "Instance cannot be a coordinator and have registered coordinator server.");
 
   // MAIN or REPLICA instance
   if (FLAGS_coordinator_server_port) {
@@ -28,28 +30,22 @@ CoordinatorState::CoordinatorState() {
         .ip_address = memgraph::replication::kDefaultReplicationServerIp,
         .port = static_cast<uint16_t>(FLAGS_coordinator_server_port),
     };
-    coordinator_server_ = std::make_unique<CoordinatorServer>(config);
+    data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(config)};
     // TODO: (andi) Register coordinator handlers
     // InMemoryReplicationHandlers::Register(&dbms_handler_, *data.server);
-    if (!coordinator_server_->Start()) {
+    if (std::get<CoordinatorMainReplicaData>(data_).coordinator_server_->Start()) {
       MG_ASSERT(false, "Failed to start coordinator server!");
     }
   }
 }
 
-utils::BasicResult<RegisterReplicaError, CoordinatorClient *> CoordinatorState::RegisterReplica(
+utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> CoordinatorState::RegisterReplica(
     const ReplicationClientConfig &config) {
-  CoordinatorClient *client{nullptr};
-
   // TODO: (andi) Solve DRY by extracting
   auto name_check = [&config](auto const &replicas) {
     auto name_matches = [&name = config.name](auto const &replica) { return replica.name_ == name; };
     return std::any_of(replicas.begin(), replicas.end(), name_matches);
   };
-
-  if (name_check(registered_replicas_)) {
-    return RegisterReplicaError::NAME_EXISTS;
-  }
 
   // endpoint check
   auto endpoint_check = [&](auto const &replicas) {
@@ -60,27 +56,31 @@ utils::BasicResult<RegisterReplicaError, CoordinatorClient *> CoordinatorState::
     return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
   };
 
-  if (endpoint_check(registered_replicas_)) {
-    return RegisterReplicaError::END_POINT_EXISTS;
+  const auto name_endpoint_status =
+      std::visit(memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData &coordinator_main_replica_data) {
+                                               return RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR;
+                                             },
+                                             [&name_check, &endpoint_check](const CoordinatorData &coordinator_data) {
+                                               if (name_check(coordinator_data.registered_replicas_)) {
+                                                 return RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
+                                               }
+                                               if (endpoint_check(coordinator_data.registered_replicas_)) {
+                                                 return RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS;
+                                               }
+                                               return RegisterMainReplicaCoordinatorStatus::SUCCESS;
+                                             }},
+                 data_);
+
+  if (name_endpoint_status != RegisterMainReplicaCoordinatorStatus::SUCCESS) {
+    return name_endpoint_status;
   }
 
   // Maybe no need to return client if you can start replica client here
-  client = &registered_replicas_.emplace_back(config);
-  return client;
+  return &std::get<CoordinatorData>(data_).registered_replicas_.emplace_back(config);
 }
 
-utils::BasicResult<RegisterReplicaError, CoordinatorClient *> CoordinatorState::RegisterMain(
+utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> CoordinatorState::RegisterMain(
     const ReplicationClientConfig &config) {
-  // TODO: (andi) Solve DRY by extracting
-  auto name_check = [&config](auto const &replicas) {
-    auto name_matches = [&name = config.name](auto const &replica) { return replica.name_ == name; };
-    return std::any_of(replicas.begin(), replicas.end(), name_matches);
-  };
-
-  if (name_check(registered_replicas_)) {
-    return RegisterReplicaError::NAME_EXISTS;
-  }
-
   // endpoint check
   auto endpoint_check = [&](auto const &replicas) {
     auto endpoint_matches = [&config](auto const &replica) {
@@ -90,18 +90,35 @@ utils::BasicResult<RegisterReplicaError, CoordinatorClient *> CoordinatorState::
     return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
   };
 
-  if (endpoint_check(registered_replicas_)) {
-    return RegisterReplicaError::END_POINT_EXISTS;
+  const auto endpoint_status =
+      std::visit(memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+                                               return RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR;
+                                             },
+                                             [&endpoint_check](const CoordinatorData &coordinator_data) {
+                                               if (endpoint_check(coordinator_data.registered_replicas_)) {
+                                                 return RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS;
+                                               }
+                                               return RegisterMainReplicaCoordinatorStatus::SUCCESS;
+                                             }},
+                 data_);
+
+  if (endpoint_status != RegisterMainReplicaCoordinatorStatus::SUCCESS) {
+    return endpoint_status;
   }
 
-  registered_main_ = std::make_unique<CoordinatorClient>(config);
-  return registered_main_.get();
+  auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
+  registered_main = std::make_unique<CoordinatorClient>(config);
+  return registered_main.get();
 }
 
 std::vector<CoordinatorEntityInfo> CoordinatorState::ShowReplicas() const {
+  if (!std::holds_alternative<CoordinatorData>(data_)) {
+    MG_ASSERT(false, "Can't call show replicas on data_, as variant holds wrong alternative");
+  }
   std::vector<CoordinatorEntityInfo> result;
-  result.reserve(registered_replicas_.size());
-  std::transform(registered_replicas_.begin(), registered_replicas_.end(), std::back_inserter(result),
+  const auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
+  result.reserve(registered_replicas.size());
+  std::transform(registered_replicas.begin(), registered_replicas.end(), std::back_inserter(result),
                  [](const auto &replica) {
                    return CoordinatorEntityInfo{replica.name_, replica.rpc_client_.Endpoint()};
                  });
@@ -109,8 +126,12 @@ std::vector<CoordinatorEntityInfo> CoordinatorState::ShowReplicas() const {
 }
 
 std::optional<CoordinatorEntityInfo> CoordinatorState::ShowMain() const {
-  if (registered_main_) {
-    return CoordinatorEntityInfo{registered_main_->name_, registered_main_->rpc_client_.Endpoint()};
+  if (!std::holds_alternative<CoordinatorData>(data_)) {
+    MG_ASSERT(false, "Can't call show main on data_, as variant holds wrong alternative");
+  }
+  const auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
+  if (registered_main) {
+    return CoordinatorEntityInfo{registered_main->name_, registered_main->rpc_client_.Endpoint()};
   }
   return std::nullopt;
 }

@@ -339,20 +339,20 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                                                                .replica_check_frequency = replica_check_frequency,
                                                                .ssl = std::nullopt};
 #ifdef MG_ENTERPRISE
-      const auto ret = std::invoke([&config, repl_handler = &this->handler_]() {
+      const auto error = std::invoke([&config, repl_handler = &this->handler_]() {
         if (FLAGS_coordinator) {
           if (!license::global_license_checker.IsEnterpriseValidFast()) {
             throw QueryException("Trying to use enterprise feature without a valid license.");
           }
-          return repl_handler->RegisterReplicaOnCoordinator(config);
+          return repl_handler->RegisterReplicaOnCoordinator(config).HasError();
         }
-        return repl_handler->RegisterReplica(config);
+        return repl_handler->RegisterReplica(config).HasError();
       });
 #else
-      const auto ret = handler_.RegisterReplica(config);
+      const auto error = handler_.RegisterReplica(config).HasError();
 #endif
 
-      if (ret.HasError()) {
+      if (error) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
 

@@ -35,6 +35,14 @@ enum class UnregisterReplicaResult : uint8_t {
   CAN_NOT_UNREGISTER,
   SUCCESS,
 };
+enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
+  NAME_EXISTS,
+  END_POINT_EXISTS,
+  COULD_NOT_BE_PERSISTED,
+  NOT_COORDINATOR,
+  SUCCESS
+};
+;
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 /// TODO: extend to do multiple storages
@@ -53,11 +61,11 @@ struct ReplicationHandler {
 
 #ifdef MG_ENTERPRISE
   auto RegisterReplicaOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
-      -> utils::BasicResult<RegisterReplicaError>;
+      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
 
   // TODO: (andi) RegisterMainError
   auto RegisterMainOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
-      -> utils::BasicResult<RegisterReplicaError>;
+      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
 
   auto ShowReplicasOnCoordinator() const -> std::vector<memgraph::replication::CoordinatorEntityInfo>;
 

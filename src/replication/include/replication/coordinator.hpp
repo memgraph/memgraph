@@ -18,42 +18,51 @@
 #include "utils/result.hpp"
 
 #include <list>
+#include <variant>
 
 namespace memgraph::replication {
 
 #ifdef MG_ENTERPRISE
-struct CoordinatorState {
+class CoordinatorState {
+ public:
   CoordinatorState();
   ~CoordinatorState() = default;
 
   CoordinatorState(const CoordinatorState &) = delete;
   CoordinatorState &operator=(const CoordinatorState &) = delete;
 
-  CoordinatorState(CoordinatorState &&other) noexcept
-      : registered_replicas_(std::move(other.registered_replicas_)),
-        registered_main_(std::move(other.registered_main_)) {}
+  CoordinatorState(CoordinatorState &&other) noexcept : data_(std::move(other.data_)) {}
 
   CoordinatorState &operator=(CoordinatorState &&other) noexcept {
     if (this == &other) {
       return *this;
     }
-    registered_replicas_ = std::move(other.registered_replicas_);
-    registered_main_ = std::move(other.registered_main_);
+    data_ = std::move(other.data_);
     return *this;
   }
 
-  utils::BasicResult<RegisterReplicaError, CoordinatorClient *> RegisterReplica(const ReplicationClientConfig &config);
+  utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> RegisterReplica(
+      const ReplicationClientConfig &config);
 
   /// TODO: (andi) Introduce RegisterMainError
-  utils::BasicResult<RegisterReplicaError, CoordinatorClient *> RegisterMain(const ReplicationClientConfig &config);
+  utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> RegisterMain(
+      const ReplicationClientConfig &config);
 
   std::vector<CoordinatorEntityInfo> ShowReplicas() const;
 
   std::optional<CoordinatorEntityInfo> ShowMain() const;
 
-  std::list<CoordinatorClient> registered_replicas_;
-  std::unique_ptr<CoordinatorClient> registered_main_;
-  std::unique_ptr<CoordinatorServer> coordinator_server_;
+ private:
+  struct CoordinatorData {
+    std::list<CoordinatorClient> registered_replicas_;
+    std::unique_ptr<CoordinatorClient> registered_main_;
+  };
+
+  struct CoordinatorMainReplicaData {
+    std::unique_ptr<CoordinatorServer> coordinator_server_;
+  };
+
+  std::variant<CoordinatorData, CoordinatorMainReplicaData> data_;
 };
 #endif
 

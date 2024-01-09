@@ -17,4 +17,12 @@ namespace memgraph::replication {
 
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
+enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
+  NAME_EXISTS,
+  END_POINT_EXISTS,
+  COULD_NOT_BE_PERSISTED,
+  NOT_COORDINATOR,
+  SUCCESS
+};
+
 }  // namespace memgraph::replication

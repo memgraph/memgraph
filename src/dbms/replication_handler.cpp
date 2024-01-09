@@ -16,6 +16,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "dbms/replication_client.hpp"
+#include "replication/register_replica_error.hpp"
 #include "replication/state.hpp"
 
 using memgraph::replication::ReplicationClientConfig;
@@ -184,19 +185,19 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
 
 #ifdef MG_ENTERPRISE
 auto ReplicationHandler::RegisterReplicaOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
-    -> utils::BasicResult<RegisterReplicaError> {
+    -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus> {
   auto instance_client = dbms_handler_.CoordinatorState().RegisterReplica(config);
   if (instance_client.HasError()) switch (instance_client.GetError()) {
-      case memgraph::replication::RegisterReplicaError::NOT_MAIN:
-        MG_ASSERT(false, "Only main instance can register a replica!");
+      case memgraph::replication::RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR:
+        MG_ASSERT(false, "Only coordinator instance can register main and replica!");
         return {};
-      case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
-        return memgraph::dbms::RegisterReplicaError::NAME_EXISTS;
-      case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
-        return memgraph::dbms::RegisterReplicaError::END_POINT_EXISTS;
-      case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-        return memgraph::dbms::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
-      case memgraph::replication::RegisterReplicaError::SUCCESS:
+      case memgraph::replication::RegisterMainReplicaCoordinatorStatus::NAME_EXISTS:
+        return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
+      case memgraph::replication::RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS:
+        return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS;
+      case memgraph::replication::RegisterMainReplicaCoordinatorStatus::COULD_NOT_BE_PERSISTED:
+        return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::COULD_NOT_BE_PERSISTED;
+      case memgraph::replication::RegisterMainReplicaCoordinatorStatus::SUCCESS:
         break;
     }
 
@@ -206,19 +207,19 @@ auto ReplicationHandler::RegisterReplicaOnCoordinator(const memgraph::replicatio
 
 // TODO: (andi) RegisterMainError
 auto ReplicationHandler::RegisterMainOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
-    -> utils::BasicResult<RegisterReplicaError> {
+    -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus> {
   auto instance_client = dbms_handler_.CoordinatorState().RegisterMain(config);
   if (instance_client.HasError()) switch (instance_client.GetError()) {
-      case memgraph::replication::RegisterReplicaError::NOT_MAIN:
-        MG_ASSERT(false, "Only main instance can register a replica!");
+      case memgraph::replication::RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR:
+        MG_ASSERT(false, "Only coordinator instance can register main and replica!");
         return {};
-      case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
-        return memgraph::dbms::RegisterReplicaError::NAME_EXISTS;
-      case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
-        return memgraph::dbms::RegisterReplicaError::END_POINT_EXISTS;
-      case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-        return memgraph::dbms::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
-      case memgraph::replication::RegisterReplicaError::SUCCESS:
+      case memgraph::replication::RegisterMainReplicaCoordinatorStatus::NAME_EXISTS:
+        return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
+      case memgraph::replication::RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS:
+        return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS;
+      case memgraph::replication::RegisterMainReplicaCoordinatorStatus::COULD_NOT_BE_PERSISTED:
+        return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::COULD_NOT_BE_PERSISTED;
+      case memgraph::replication::RegisterMainReplicaCoordinatorStatus::SUCCESS:
         break;
     }
 
