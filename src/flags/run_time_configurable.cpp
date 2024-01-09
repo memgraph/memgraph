@@ -54,6 +54,9 @@ DEFINE_double(query_execution_timeout_sec, 600,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(text_search_enabled, true, "Enable text search.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
