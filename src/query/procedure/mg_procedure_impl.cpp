@@ -3333,9 +3333,56 @@ mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int
   });
 }
 
-mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_string,
-                                      int *result) {
-  return WrapExceptions([graph, index_name, result]() { *result = 1; });
+mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memory *memory) {
+  std::optional<memgraph::query::VertexAccessor> maybe_vertex =
+      std::visit([graph, id](auto *impl) { return impl->FindVertex(id, graph->view); }, graph->impl);
+  if (maybe_vertex) {
+    return std::visit(memgraph::utils::Overloaded{
+                          [memory, graph, maybe_vertex](memgraph::query::DbAccessor *) {
+                            return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
+                          },
+                          [memory, graph, maybe_vertex](memgraph::query::SubgraphDbAccessor *impl) {
+                            return NewRawMgpObject<mgp_vertex>(
+                                memory, memgraph::query::SubgraphVertexAccessor(*maybe_vertex, impl->getGraph()),
+                                graph);
+                          }},
+                      graph->impl);
+  }
+  return nullptr;
+}
+
+void WrapIntoVertexList(std::vector<memgraph::storage::Gid> vertex_ids, mgp_graph *graph, mgp_memory *memory,
+                        mgp_list **result) {
+  if (const auto err = mgp_list_make_empty(vertex_ids.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a mgp_vertex");
+  }
+
+  for (const auto &vertex_id : vertex_ids) {
+    mgp_value *vertex;
+    if (const auto err = mgp_value_make_vertex(GetVertexByGid(graph, vertex_id, memory), &vertex);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving text search results failed during creation of a vertex mgp_value");
+    }
+    if (const auto err_list = mgp_list_append(*result, vertex); err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Retrieving text search results failed during insertion of the mgp_value into the result list");
+    }
+  }
+}
+
+mgp_error mgp_graph_search_text_index(mgp_graph *graph, mgp_memory *memory, const char *index_name,
+                                      const char *search_query, mgp_list **result) {
+  return WrapExceptions([graph, memory, index_name, search_query, result]() {
+    std::visit(memgraph::utils::Overloaded{
+                   [&](memgraph::query::DbAccessor *impl) {
+                     WrapIntoVertexList(impl->SearchTextIndex(index_name, search_query), graph, memory, result);
+                   },
+                   [&](memgraph::query::SubgraphDbAccessor *impl) {
+                     WrapIntoVertexList(impl->GetAccessor()->SearchTextIndex(index_name, search_query), graph, memory,
+                                        result);
+                   }},
+               graph->impl);
+  });
 }
 
 #ifdef MG_ENTERPRISE

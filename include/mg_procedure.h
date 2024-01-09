@@ -891,11 +891,15 @@ enum mgp_error mgp_edge_iter_properties(struct mgp_edge *e, struct mgp_memory *m
 enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex_id id, struct mgp_memory *memory,
                                           struct mgp_vertex **result);
 
-enum mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *label, int *result);
+/// Result is non-zero if the index with the given name exists.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int *result);
 
-// TODO antepusic change result type
-enum mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_string,
-                                           int *result);
+/// Search the named text index for the given query. The result is a list of the vertices whose text properties match
+/// the given query.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate search result vertices.
+enum mgp_error mgp_graph_search_text_index(mgp_graph *graph, mgp_memory *memory, const char *index_name,
+                                           const char *search_query, struct mgp_list **result);
 
 /// Creates label index for given label.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.

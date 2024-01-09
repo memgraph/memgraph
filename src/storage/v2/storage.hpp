@@ -216,8 +216,8 @@ class Storage {
       return storage_->indices_.text_index_->IndexExists(index_name);
     }
 
-    mgcxx_mock::text_search::SearchOutput SearchTextIndex(std::string index_name, std::string search_string) const {
-      return storage_->indices_.text_index_->Search(index_name, search_string);
+    std::vector<Gid> SearchTextIndex(std::string index_name, std::string search_query) const {
+      return storage_->indices_.text_index_->Search(index_name, search_query);
     }
 
     virtual IndicesInfo ListAllIndices() const = 0;
@@ -256,8 +256,8 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    mgcxx_mock::text_search::SearchOutput TextSearch(std::string index_name, std::string &search_string) const {
-      return storage_->indices_.text_index_->Search(index_name, search_string);
+    std::vector<Gid> TextSearch(std::string index_name, std::string &search_query) const {
+      return storage_->indices_.text_index_->Search(index_name, search_query);
     }
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;

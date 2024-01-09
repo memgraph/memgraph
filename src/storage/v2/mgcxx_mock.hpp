@@ -43,7 +43,9 @@ struct SearchOutput {
   std::vector<DocumentOutput> docs;
 };
 
-// NOTE: The function names don't follow the style guide in order to be uniform with the mgcxx API
+// NOTE:
+// * The function names don't follow the style guide in order to be uniform with the mgcxx API
+// * All methods are static in order to avoid having to make a Mock object that's globally available
 class Mock {
  public:
   static void init(std::string _log_level) {}
@@ -59,7 +61,7 @@ class Mock {
   static void rollback(IndexContext context) {}
 
   static SearchOutput search(IndexContext context, SearchInput input) {
-    return SearchOutput{.docs = {DocumentOutput{.data = ""}}};
+    return SearchOutput{.docs = {DocumentOutput{.data = "0"}}};
   }
 
   static DocumentOutput aggregate(IndexContext context, SearchInput input) { return DocumentOutput(); }

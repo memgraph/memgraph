@@ -57,10 +57,18 @@ class TextIndex {
 
   bool IndexExists(std::string index_name) { return index_.contains(index_name); }
 
-  mgcxx_mock::text_search::SearchOutput Search(std::string index_name, std::string search_string) {
-    // TODO antepusic: Add metadata to the return fields before search
-    auto input = mgcxx_mock::text_search::SearchInput{};
-    return mgcxx_mock::text_search::Mock::search(index_.at(index_name), input);
+  std::vector<Gid> Search(std::string index_name, std::string search_query) {
+    auto input = mgcxx_mock::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata.gid"}};
+    // Basic check for search fields in the query (Tantivy syntax delimits them with `:` to the right)
+    if (search_query.find(":") == std::string::npos) {
+      input.search_fields = {"data"};
+    }
+
+    std::vector<Gid> found_nodes;
+    for (const auto &doc : mgcxx_mock::text_search::Mock::search(index_.at(index_name), input).docs) {
+      found_nodes.push_back(storage::Gid::FromString(doc.data));
+    }
+    return found_nodes;
   }
 
   std::vector<std::string> ListIndices() {
