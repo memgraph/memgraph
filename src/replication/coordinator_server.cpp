@@ -47,5 +47,4 @@ CoordinatorServer::~CoordinatorServer() {
 
 // TODO: (andi) Do I need this method
 bool CoordinatorServer::Start() { return rpc_server_.Start(); }
-
 }  // namespace memgraph::replication

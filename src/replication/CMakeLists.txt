@@ -11,12 +11,14 @@ target_sources(mg-replication
         include/replication/status.hpp
         include/replication/replication_client.hpp
         include/replication/replication_server.hpp
-        include/replication/coordinator.hpp
+        include/replication/coordinator_state.hpp
         include/replication/coordinator_client.hpp
         include/replication/coordinator_server.hpp
+        include/replication/coordinator_handlers.hpp
+        include/replication/coordinator_entity_info.hpp
+        include/replication/coordinator_rpc.hpp
         include/replication/replication_utils.hpp
         include/replication/register_replica_error.hpp
-        include/replication/coordinator_entity_info.hpp
 
 
         PRIVATE
@@ -27,9 +29,11 @@ target_sources(mg-replication
         messages.cpp
         replication_client.cpp
         replication_server.cpp
-        coordinator.cpp
+        coordinator_rpc.cpp
+        coordinator_state.cpp
         coordinator_client.cpp
         coordinator_server.cpp
+        coordinator_handlers.cpp
 )
 target_include_directories(mg-replication PUBLIC include)
 
