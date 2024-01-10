@@ -28,6 +28,9 @@ class CoordinatorServer {
 
   bool Start();
 
+  template <typename F, typename TRequestResponse>
+  void Register(F &&callback);
+
  private:
   communication::ServerContext rpc_server_context_;
   rpc::Server rpc_server_;

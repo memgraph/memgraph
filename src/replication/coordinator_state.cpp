@@ -9,15 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "replication/coordinator.hpp"
-#include <variant>
+#include "replication/coordinator_state.hpp"
 
 #include "flags/replication.hpp"
 #include "replication/coordinator_client.hpp"
 #include "replication/coordinator_config.hpp"
 #include "replication/coordinator_entity_info.hpp"
+#include "replication/coordinator_handlers.hpp"
 #include "replication/register_replica_error.hpp"
 #include "utils/variant_helpers.hpp"
+
+#include <variant>
 
 namespace memgraph::replication {
 
@@ -33,9 +35,10 @@ CoordinatorState::CoordinatorState() {
         .ip_address = memgraph::replication::kDefaultReplicationServerIp,
         .port = static_cast<uint16_t>(FLAGS_coordinator_server_port),
     };
+
     data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(config)};
-    // TODO: (andi) Register coordinator handlers
-    // InMemoryReplicationHandlers::Register(&dbms_handler_, *data.server);
+    CoordinatorHandlers::Register(*std::get<CoordinatorMainReplicaData>(data_).coordinator_server_);
+
     if (!std::get<CoordinatorMainReplicaData>(data_).coordinator_server_->Start()) {
       MG_ASSERT(false, "Failed to start coordinator server!");
     }
