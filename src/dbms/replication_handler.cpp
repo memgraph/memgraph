@@ -15,10 +15,12 @@
 
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "dbms/global.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_client.hpp"
 #include "replication/state.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/config.hpp"
 #include "storage/v2/replication/rpc.hpp"
 
 using memgraph::replication::ReplicationClientConfig;
@@ -286,7 +288,7 @@ void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
 
   try {
     // Create new
-    auto new_db = dbms_handler.New(req.config);
+    auto new_db = dbms_handler.Update(req.config);
     if (new_db.HasValue()) {
       // Successfully create db
       res = sr::CreateDatabaseRes(sr::CreateDatabaseRes::Result::SUCCESS);
@@ -345,7 +347,7 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
         dbms_handler.Get(config.uuid);
       } catch (const UnknownDatabaseException &) {
         // Missing db
-        if (dbms_handler.New(config).HasError()) {
+        if (dbms_handler.Update(config).HasError()) {
           spdlog::debug("Failed to create new database \"{}\".", config.name);
           throw;
         }

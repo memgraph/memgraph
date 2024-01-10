@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -203,6 +203,70 @@ TEST_F(MultiTenantTest, DbmsNewTryDelete) {
   ASSERT_TRUE(dbms.TryDelete("db2").HasError());
   ASSERT_FALSE(dbms.TryDelete("db3").HasError());
   ASSERT_TRUE(dbms.TryDelete("db4").HasError());
+}
+
+TEST_F(MultiTenantTest, DbmsUpdate) {
+  // 1) Create multiple interpreters with the default db
+  // 2) Create multiple databases using dbms
+  // 3) Try to update databases
+
+  auto &dbms = DBMS();
+  auto interpreter1 = this->NewInterpreter();
+
+  // Update clean default db
+  auto default_db = dbms.Get();
+  const auto old_uuid = default_db->config().salient.uuid;
+  const memgraph::utils::UUID new_uuid{/* random */};
+  const memgraph::storage::SalientConfig &config{.name = "memgraph", .uuid = new_uuid};
+  auto new_default = dbms.Update(config);
+  ASSERT_TRUE(new_default.HasValue());
+  ASSERT_NE(new_uuid, old_uuid);
+  ASSERT_EQ(default_db->storage(), new_default.GetValue()->storage());
+
+  // Add node to default
+  RunQuery(interpreter1, "CREATE (:Node)");
+
+  // Fail to update dirty default db
+  const memgraph::storage::SalientConfig &failing_config{.name = "memgraph", .uuid = {}};
+  auto failed_update = dbms.Update(failing_config);
+  ASSERT_TRUE(failed_update.HasError());
+
+  // Succeed when updating with the same config
+  auto same_update = dbms.Update(config);
+  ASSERT_TRUE(same_update.HasValue());
+  ASSERT_EQ(new_default.GetValue()->storage(), same_update.GetValue()->storage());
+
+  // Create new db
+  auto db1 = dbms.New("db1");
+  ASSERT_FALSE(db1.HasError());
+  RunMtQuery(interpreter1, "USE DATABASE db1", "Using db1");
+  RunQuery(interpreter1, "CREATE (:NewNode)");
+  RunQuery(interpreter1, "CREATE (:NewNode)");
+  const auto db1_config_old = db1.GetValue()->config();
+
+  // Begin a transaction on db1
+  auto interpreter2 = this->NewInterpreter();
+  RunMtQuery(interpreter2, "USE DATABASE db1", "Using db1");
+  ASSERT_EQ(RunQuery(interpreter2, "SHOW DATABASE")[0][0].ValueString(), "db1");
+  RunQuery(interpreter2, "BEGIN");
+
+  // Update and check the new db in clean
+  auto interpreter3 = this->NewInterpreter();
+  const memgraph::storage::SalientConfig &db1_config_new{.name = "db1", .uuid = {}};
+  auto new_db1 = dbms.Update(db1_config_new);
+  ASSERT_TRUE(new_db1.HasValue());
+  ASSERT_NE(db1_config_new.uuid, db1_config_old.salient.uuid);
+  RunMtQuery(interpreter3, "USE DATABASE db1", "Using db1");
+  ASSERT_EQ(RunQuery(interpreter3, "MATCH(n) RETURN count(*)")[0][0].ValueInt(), 0);
+
+  // Check that the interpreter1 is still valid, but lacking a db
+  ASSERT_THROW(RunQuery(interpreter1, "CREATE (:Node)"), memgraph::query::DatabaseContextRequiredException);
+
+  // Check that the interpreter2 is still valid and pointing to the old db1 (until commit)
+  RunQuery(interpreter2, "CREATE (:NewNode)");
+  ASSERT_EQ(RunQuery(interpreter2, "MATCH(n) RETURN count(*)")[0][0].ValueInt(), 3);
+  RunQuery(interpreter2, "COMMIT");
+  ASSERT_THROW(RunQuery(interpreter2, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
 }
 
 TEST_F(MultiTenantTest, DbmsNewDelete) {

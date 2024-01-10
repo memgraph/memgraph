@@ -92,8 +92,8 @@ struct Durability {
         auto path = root;
         if (key != kDefaultDB) {  // Special case for non-default DBs
           // Move directory to new UUID dir
-          path = root / "databases" / std::string{uuid};
-          std::filesystem::path old_dir(root / "databases" / key);
+          path = root / kMultiTenantDir / std::string{uuid};
+          std::filesystem::path old_dir(root / kMultiTenantDir / key);
           std::filesystem::rename(old_dir, path);
         }
         // Generate json and update value
@@ -125,13 +125,11 @@ DbmsHandler::DbmsHandler(
    */
   const auto &root = default_config_.durability.storage_directory;
   storage::UpdatePaths(default_config_, root);
-  const auto &db_dir = default_config_.durability.storage_directory / "databases";
+  const auto &db_dir = default_config_.durability.storage_directory / kMultiTenantDir;
   // TODO: Unify durability and wal
   const auto durability_dir = db_dir / ".durability";
-  const auto wal_dir = db_dir / ".wal";
   utils::EnsureDirOrDie(db_dir);
   utils::EnsureDirOrDie(durability_dir);
-  utils::EnsureDirOrDie(wal_dir);
   durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
 
   /*

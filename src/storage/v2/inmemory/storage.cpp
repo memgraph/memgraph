@@ -1668,7 +1668,7 @@ StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
         --it;
         if (it != end && *it != "databases") {
           // Default DB points to the root (for back-compatibility); update to the "database" dir
-          return dir / "databases" / dbms::kDefaultDB;
+          return dir / dbms::kMultiTenantDir / dbms::kDefaultDB;
         }
       }
     }
