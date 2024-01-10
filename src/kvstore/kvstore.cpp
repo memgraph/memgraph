@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -128,7 +128,7 @@ KVStore::iterator::iterator(const KVStore *kvstore, const std::string &prefix, b
 
 KVStore::iterator::iterator(KVStore::iterator &&other) { pimpl_ = std::move(other.pimpl_); }
 
-KVStore::iterator::~iterator() {}
+KVStore::iterator::~iterator() = default;
 
 KVStore::iterator &KVStore::iterator::operator=(KVStore::iterator &&other) {
   pimpl_ = std::move(other.pimpl_);

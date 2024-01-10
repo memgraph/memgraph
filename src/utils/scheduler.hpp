@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,7 +28,7 @@ namespace memgraph::utils {
  */
 class Scheduler {
  public:
-  Scheduler() {}
+  Scheduler() = default;
   /**
    * @param pause - Duration between two function executions. If function is
    * still running when it should be ran again, it will run right after it
@@ -62,7 +62,7 @@ class Scheduler {
         auto now = std::chrono::system_clock::now();
         start_time += pause;
         if (start_time > now) {
-          condition_variable_.wait_for(lk, start_time - now, [&] { return is_working_.load() == false; });
+          condition_variable_.wait_until(lk, start_time, [&] { return is_working_.load() == false; });
         } else {
           start_time = now;
         }
@@ -80,10 +80,7 @@ class Scheduler {
    */
   void Stop() {
     is_working_.store(false);
-    {
-      std::unique_lock<std::mutex> lk(mutex_);
-      condition_variable_.notify_one();
-    }
+    condition_variable_.notify_one();
     if (thread_.joinable()) thread_.join();
   }
 

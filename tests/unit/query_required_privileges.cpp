@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -153,7 +153,7 @@ TEST_F(TestPrivilegeExtractor, DumpDatabase) {
 }
 
 TEST_F(TestPrivilegeExtractor, ReadFile) {
-  auto load_csv = storage.Create<LoadCsv>();
+  auto *load_csv = storage.Create<LoadCsv>();
   load_csv->row_var_ = IDENT("row");
   auto *query = QUERY(SINGLE_QUERY(load_csv));
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::READ_FILE));

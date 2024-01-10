@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,8 +25,12 @@ namespace memgraph::io::network {
  * connection address.
  */
 struct Endpoint {
+  static const struct needs_resolving_t {
+  } needs_resolving;
+
   Endpoint() = default;
   Endpoint(std::string ip_address, uint16_t port);
+  Endpoint(needs_resolving_t, std::string hostname, uint16_t port);
   Endpoint(Endpoint const &) = default;
   Endpoint(Endpoint &&) noexcept = default;
   Endpoint &operator=(Endpoint const &) = default;
@@ -44,6 +48,9 @@ struct Endpoint {
   uint16_t port{0};
   IpFamily family{IpFamily::NONE};
 
+  static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrAddress(const std::string &address,
+                                                                              std::optional<uint16_t> default_port);
+
   /**
    * Tries to parse the given string as either a socket address or ip address.
    * Expected address format:
@@ -54,10 +61,29 @@ struct Endpoint {
    * it into an ip address and a port number; even if a default port is given,
    * it won't be used, as we expect that it is given in the address string.
    */
-  static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(
-      const std::string &address, const std::optional<uint16_t> default_port);
+  static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(const std::string &address,
+                                                                                std::optional<uint16_t> default_port);
 
-  static IpFamily GetIpFamily(const std::string &ip_address);
+  /**
+   * Tries to parse given string as either socket address or hostname.
+   * Expected address format:
+   *    - "hostname:port_number"
+   *    - "hostname"
+   * After we parse hostname and port we try to resolve the hostname into an ip_address.
+   */
+  static std::optional<std::pair<std::string, uint16_t>> ParseHostname(const std::string &address,
+                                                                       std::optional<uint16_t> default_port);
+
+  static IpFamily GetIpFamily(const std::string &address);
+
+  static bool IsResolvableAddress(const std::string &address, uint16_t port);
+
+  /**
+   * Tries to resolve hostname to its corresponding IP address.
+   * Given a DNS hostname, this function performs resolution and returns
+   * the IP address associated with the hostname.
+   */
+  static std::string ResolveHostnameIntoIpAddress(const std::string &address, uint16_t port);
 };
 
 }  // namespace memgraph::io::network

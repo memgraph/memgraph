@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,13 +19,16 @@
 #include <variant>
 
 #include "replication/epoch.hpp"
+#include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
@@ -92,29 +95,50 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
                                                           std::string_view uuid = "",
                                                           std::optional<size_t> current_seq_num = {});
 
-using ParallelizedIndexCreationInfo =
-    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
-
-// Helper function used to recover all discovered indices and constraints. The
-// indices and constraints must be recovered after the data recovery is done
-// to ensure that the indices and constraints are consistent at the end of the
+// Helper function used to recover all discovered indices. The
+// indices must be recovered after the data recovery is done
+// to ensure that the indices consistent at the end of the
 // recovery process.
 /// @throw RecoveryFailure
-void RecoverIndicesAndConstraints(
-    const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices, Constraints *constraints,
-    utils::SkipList<Vertex> *vertices,
-    const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info = std::nullopt);
+void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
+                            utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                            const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
 
-/// Recovers data either from a snapshot and/or WAL files.
+// Helper function used to recover all discovered constraints. The
+// constraints must be recovered after the data recovery is done
+// to ensure that the constraints are consistent at the end of the
+// recovery process.
 /// @throw RecoveryFailure
-/// @throw std::bad_alloc
-std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
-                                        const std::filesystem::path &wal_directory, std::string *uuid,
-                                        memgraph::replication::ReplicationEpoch &epoch,
-                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                        Indices *indices, Constraints *constraints, const Config &config,
-                                        uint64_t *wal_seq_num);
+void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
+                        Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                        const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
+
+std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
+                                                                  const Config &config);
+
+std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
+                                                                         const Config &config);
+
+void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                                 utils::SkipList<Vertex> *, NameIdMapper *,
+                                 const std::optional<ParallelizedSchemaCreationInfo> &);
+
+void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                              utils::SkipList<Vertex> *, NameIdMapper *,
+                              const std::optional<ParallelizedSchemaCreationInfo> &);
+struct Recovery {
+ public:
+  /// Recovers data either from a snapshot and/or WAL files.
+  /// @throw RecoveryFailure
+  /// @throw std::bad_alloc
+  std::optional<RecoveryInfo> RecoverData(std::string *uuid, ReplicationStorageState &repl_storage_state,
+                                          utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                          std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
+                                          Indices *indices, Constraints *constraints, const Config &config,
+                                          uint64_t *wal_seq_num);
+
+  const std::filesystem::path snapshot_directory_;
+  const std::filesystem::path wal_directory_;
+};
 
 }  // namespace memgraph::storage::durability

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,15 +43,9 @@ class Telemetry final {
   void AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func);
 
   // Specialized collectors
-#ifdef MG_ENTERPRISE
   void AddStorageCollector(
       dbms::DbmsHandler &dbms_handler,
       memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> &auth);
-#else
-  void AddStorageCollector(
-      memgraph::utils::Gatekeeper<memgraph::dbms::Database> &db_gatekeeper,
-      memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> &auth);
-#endif
 
 #ifdef MG_ENTERPRISE
   void AddDatabaseCollector(dbms::DbmsHandler &dbms_handler);

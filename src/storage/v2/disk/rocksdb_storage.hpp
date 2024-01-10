@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,7 +32,7 @@ namespace memgraph::storage {
 /// Wraps RocksDB objects inside a struct. Vertex_chandle and edge_chandle are column family handles that may be
 /// nullptr. In that case client should take care about them.
 struct RocksDBStorage {
-  explicit RocksDBStorage() {}
+  explicit RocksDBStorage() = default;
 
   RocksDBStorage(const RocksDBStorage &) = delete;
   RocksDBStorage &operator=(const RocksDBStorage &) = delete;

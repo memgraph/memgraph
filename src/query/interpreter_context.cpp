@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,12 @@
 
 #include "query/interpreter.hpp"
 namespace memgraph::query {
+
+InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
+                                       replication::ReplicationState *rs, query::AuthQueryHandler *ah,
+                                       query::AuthChecker *ac)
+    : dbms_handler(dbms_handler), config(interpreter_config), repl_state(rs), auth(ah), auth_checker(ac) {}
+
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
     std::vector<std::string> maybe_kill_transaction_ids, const std::optional<std::string> &username,
     std::function<bool(std::string const &)> privilege_checker) {

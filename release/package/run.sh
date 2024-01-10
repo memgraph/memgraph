@@ -11,6 +11,12 @@ SUPPORTED_OS=(
     amzn-2
 )
 
+SUPPORTED_BUILD_TYPES=(
+    Debug
+    Release
+    RelWithDebInfo
+)
+
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 TOOLCHAIN_VERSION="toolchain-v4"
 ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
@@ -18,14 +24,16 @@ HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
     # TODO(gitbuda): Update the release/package/run.sh help
-    echo "$0 init|package|docker|test {os} [--for-docker|--for-platform]"
+    echo "$0 init|package|docker|test {os} {build_type} [--for-docker|--for-platform]"
     echo ""
     echo "    OSs: ${SUPPORTED_OS[*]}"
+    echo "    Build types: ${SUPPORTED_BUILD_TYPES[*]}"
     exit 1
 }
 
 make_package () {
     os="$1"
+    build_type="$2"
 
     build_container="mgbuild_$os"
     echo "Building Memgraph for $os on $build_container..."
@@ -44,10 +52,10 @@ make_package () {
         package_command=" cpack -G DEB --config ../CPackConfig.cmake "
     fi
     telemetry_id_override_flag=""
-    if [[ "$#" -gt 1 ]]; then
-        if [[ "$2" == "--for-docker" ]]; then
+    if [[ "$#" -gt 2 ]]; then
+        if [[ "$3" == "--for-docker" ]]; then
             telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER "
-        elif [[ "$2" == "--for-platform" ]]; then
+        elif [[ "$3" == "--for-platform" ]]; then
             telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM"
         else
           print_help
@@ -64,6 +72,10 @@ make_package () {
     if [[ "$(git rev-parse --abbrev-ref HEAD)" != "master" ]]; then
         git fetch origin master:master
     fi
+
+    # Ensure we have a clean build directory
+    docker exec "$build_container" rm -rf /memgraph
+    
     docker exec "$build_container" mkdir -p /memgraph
     # TODO(gitbuda): Revisit copying the whole repo -> makese sense under CI.
     docker cp "$PROJECT_ROOT/." "$build_container:/memgraph/"
@@ -89,9 +101,9 @@ make_package () {
     docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
     # TODO(gitbuda): cmake fails locally if remote is clone via ssh because of the key -> FIX
     if [[ "$os" =~ "-arm" ]]; then
-        docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release -DMG_ARCH="ARM64" $telemetry_id_override_flag .."
+        docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=$build_type -DMG_ARCH="ARM64" $telemetry_id_override_flag .."
     else
-        docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=release $telemetry_id_override_flag .."
+        docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=$build_type $telemetry_id_override_flag .."
     fi
     # ' is used instead of " because we need to run make within the allowed
     # container resources.
@@ -141,20 +153,34 @@ case "$1" in
 
     package)
         shift 1
-        if [[ "$#" -lt 1 ]]; then
+        if [[ "$#" -lt 2 ]]; then
             print_help
         fi
         os="$1"
-        shift 1
+        build_type="$2"
+        shift 2
         is_os_ok=false
         for supported_os in "${SUPPORTED_OS[@]}"; do
             if [[ "$supported_os" == "${os}" ]]; then
                 is_os_ok=true
+                break
             fi
         done
-        if [[ "$is_os_ok" == true ]]; then
-            make_package "$os" "$@"
+        is_build_type_ok=false
+        for supported_build_type in "${SUPPORTED_BUILD_TYPES[@]}"; do
+            if [[ "$supported_build_type" == "${build_type}" ]]; then
+                is_build_type_ok=true
+                break
+            fi
+        done
+        if [[ "$is_os_ok" == true && "$is_build_type_ok" == true ]]; then
+            make_package "$os" "$build_type" "$@"
         else
+            if [[ "$is_os_ok" == false ]]; then
+                echo "Unsupported OS: $os"
+            elif [[ "$is_build_type_ok" == false ]]; then
+                echo "Unsupported build type: $build_type"
+            fi
             print_help
         fi
     ;;

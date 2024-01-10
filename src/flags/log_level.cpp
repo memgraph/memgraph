@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,6 @@ using namespace std::string_view_literals;
 
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
 inline constexpr std::array log_level_mappings{
@@ -34,11 +33,8 @@ inline constexpr std::array log_level_mappings{
     std::pair{"INFO"sv, spdlog::level::info},   std::pair{"WARNING"sv, spdlog::level::warn},
     std::pair{"ERROR"sv, spdlog::level::err},   std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
-const std::string log_level_help_string = fmt::format("Minimum log level. Allowed values: {}",
-                                                      memgraph::utils::GetAllowedEnumValuesString(log_level_mappings));
-
-DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(),
-                        { return memgraph::flags::ValidLogLevel(value); });
+const std::string memgraph::flags::log_level_help_string = fmt::format(
+    "Minimum log level. Allowed values: {}", memgraph::utils::GetAllowedEnumValuesString(log_level_mappings));
 
 bool memgraph::flags::ValidLogLevel(std::string_view value) {
   if (const auto result = memgraph::utils::IsValidEnumValueString(value, log_level_mappings); result.HasError()) {
@@ -65,7 +61,9 @@ std::optional<spdlog::level::level_enum> memgraph::flags::LogLevelToEnum(std::st
 }
 
 spdlog::level::level_enum ParseLogLevel() {
-  const auto log_level = memgraph::flags::LogLevelToEnum(FLAGS_log_level);
+  std::string ll;
+  gflags::GetCommandLineOption("log_level", &ll);
+  const auto log_level = memgraph::flags::LogLevelToEnum(ll);
   MG_ASSERT(log_level, "Invalid log level");
   return *log_level;
 }
@@ -77,10 +75,6 @@ void CreateLoggerFromSink(const auto &sinks, const auto log_level) {
   logger->set_level(log_level);
   logger->flush_on(spdlog::level::trace);
   spdlog::set_default_logger(std::move(logger));
-  // Enable stderr sink
-  if (FLAGS_also_log_to_stderr) {
-    memgraph::flags::LogToStderr(log_level);
-  }
 }
 
 void memgraph::flags::InitializeLogger() {
@@ -117,6 +111,14 @@ void memgraph::flags::AddLoggerSink(spdlog::sink_ptr new_sink) {
 // NOTE: default_logger is not thread-safe and shouldn't be changed during application lifetime
 void memgraph::flags::LogToStderr(spdlog::level::level_enum log_level) {
   auto default_logger = spdlog::default_logger();
-  auto sink = default_logger->sinks().front();
-  sink->set_level(log_level);
+  auto stderr = default_logger->sinks().front();
+  stderr->set_level(log_level);
+}
+
+void memgraph::flags::UpdateStderr(spdlog::level::level_enum log_level) {
+  auto default_logger = spdlog::default_logger();
+  auto stderr = default_logger->sinks().front();
+  if (stderr->level() != spdlog::level::off) {
+    stderr->set_level(log_level);
+  }
 }

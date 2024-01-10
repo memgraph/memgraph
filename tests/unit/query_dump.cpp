@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,10 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <gtest/gtest-typed-test.h>
 #include <gtest/gtest.h>
 
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -24,7 +26,10 @@
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/stream/streams.hpp"
+#include "query/trigger.hpp"
+#include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -45,7 +50,7 @@ const char *kRemoveInternalLabelProperty = "MATCH (u) REMOVE u:__mg_vertex__, u.
 struct DatabaseState {
   struct Vertex {
     int64_t id;
-    std::set<std::string> labels;
+    std::set<std::string, std::less<>> labels;
     std::map<std::string, memgraph::storage::PropertyValue> props;
   };
 
@@ -66,7 +71,7 @@ struct DatabaseState {
 
   struct LabelPropertiesItem {
     std::string label;
-    std::set<std::string> properties;
+    std::set<std::string, std::less<>> properties;
   };
 
   std::set<Vertex> vertices;
@@ -136,9 +141,9 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   // Capture all vertices
   std::map<memgraph::storage::Gid, int64_t> gid_mapping;
   std::set<DatabaseState::Vertex> vertices;
-  auto dba = db->Access();
+  auto dba = db->Access(memgraph::replication::ReplicationRole::MAIN);
   for (const auto &vertex : dba->Vertices(memgraph::storage::View::NEW)) {
-    std::set<std::string> labels;
+    std::set<std::string, std::less<>> labels;
     auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
     MG_ASSERT(maybe_labels.HasValue());
     for (const auto &label : *maybe_labels) {
@@ -197,7 +202,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
       existence_constraints.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
     }
     for (const auto &item : info.unique) {
-      std::set<std::string> properties;
+      std::set<std::string, std::less<>> properties;
       for (const auto &property : item.second) {
         properties.insert(dba->PropertyToName(property));
       }
@@ -282,7 +287,7 @@ class DumpTest : public ::testing::Test {
   const std::string testSuite = "query_dump";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump_class"};
 
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+  memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
         config.durability.storage_directory = data_directory;
@@ -295,6 +300,8 @@ class DumpTest : public ::testing::Test {
       }()  // iile
   };
 
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -308,7 +315,7 @@ class DumpTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr};
+  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr, &repl_state};
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -326,9 +333,9 @@ TYPED_TEST(DumpTest, EmptyGraph) {
   ResultStreamFaker stream(this->db->storage());
   memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
   {
-    auto acc = this->db->storage()->Access();
+    auto acc = this->db->Access();
     memgraph::query::DbAccessor dba(acc.get());
-    memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+    memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
   }
   ASSERT_EQ(stream.GetResults().size(), 0);
 }
@@ -336,7 +343,7 @@ TYPED_TEST(DumpTest, EmptyGraph) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, SingleVertex) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
@@ -345,9 +352,9 @@ TYPED_TEST(DumpTest, SingleVertex) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
@@ -357,7 +364,7 @@ TYPED_TEST(DumpTest, SingleVertex) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, VertexWithSingleLabel) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     CreateVertex(dba.get(), {"Label1"}, {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
@@ -366,9 +373,9 @@ TYPED_TEST(DumpTest, VertexWithSingleLabel) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1` {__mg_id__: 0});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
@@ -378,7 +385,7 @@ TYPED_TEST(DumpTest, VertexWithSingleLabel) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, VertexWithMultipleLabels) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
@@ -387,9 +394,9 @@ TYPED_TEST(DumpTest, VertexWithMultipleLabels) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex,
                   "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0});", kDropInternalIndex,
@@ -400,7 +407,7 @@ TYPED_TEST(DumpTest, VertexWithMultipleLabels) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, VertexWithSingleProperty) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     CreateVertex(dba.get(), {}, {{"prop", memgraph::storage::PropertyValue(42)}}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
@@ -409,9 +416,9 @@ TYPED_TEST(DumpTest, VertexWithSingleProperty) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0, `prop`: 42});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
@@ -421,7 +428,7 @@ TYPED_TEST(DumpTest, VertexWithSingleProperty) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, MultipleVertices) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
     CreateVertex(dba.get(), {}, {}, false);
     CreateVertex(dba.get(), {}, {}, false);
@@ -432,9 +439,9 @@ TYPED_TEST(DumpTest, MultipleVertices) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
                   "CREATE (:__mg_vertex__ {__mg_id__: 1});", "CREATE (:__mg_vertex__ {__mg_id__: 2});",
@@ -444,7 +451,7 @@ TYPED_TEST(DumpTest, MultipleVertices) {
 
 TYPED_TEST(DumpTest, PropertyValue) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     auto null_value = memgraph::storage::PropertyValue();
     auto int_value = memgraph::storage::PropertyValue(13);
     auto bool_value = memgraph::storage::PropertyValue(true);
@@ -470,9 +477,9 @@ TYPED_TEST(DumpTest, PropertyValue) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex,
                   "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
@@ -486,7 +493,7 @@ TYPED_TEST(DumpTest, PropertyValue) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, SingleEdge) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     CreateEdge(dba.get(), &u, &v, "EdgeType", {}, false);
@@ -497,9 +504,9 @@ TYPED_TEST(DumpTest, SingleEdge) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
                   "CREATE (:__mg_vertex__ {__mg_id__: 1});",
@@ -512,7 +519,7 @@ TYPED_TEST(DumpTest, SingleEdge) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, MultipleEdges) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     auto w = CreateVertex(dba.get(), {}, {}, false);
@@ -526,9 +533,9 @@ TYPED_TEST(DumpTest, MultipleEdges) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
                   "CREATE (:__mg_vertex__ {__mg_id__: 1});", "CREATE (:__mg_vertex__ {__mg_id__: 2});",
@@ -545,7 +552,7 @@ TYPED_TEST(DumpTest, MultipleEdges) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, EdgeWithProperties) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     CreateEdge(dba.get(), &u, &v, "EdgeType", {{"prop", memgraph::storage::PropertyValue(13)}}, false);
@@ -556,9 +563,9 @@ TYPED_TEST(DumpTest, EdgeWithProperties) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex, "CREATE (:__mg_vertex__ {__mg_id__: 0});",
                   "CREATE (:__mg_vertex__ {__mg_id__: 1});",
@@ -571,7 +578,7 @@ TYPED_TEST(DumpTest, EdgeWithProperties) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, IndicesKeys) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     CreateVertex(dba.get(), {"Label1", "Label 2"}, {{"p", memgraph::storage::PropertyValue(1)}}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
@@ -596,9 +603,9 @@ TYPED_TEST(DumpTest, IndicesKeys) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop`);", "CREATE INDEX ON :`Label 2`(`prop ```);",
                   kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
@@ -609,7 +616,7 @@ TYPED_TEST(DumpTest, IndicesKeys) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, ExistenceConstraints) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     CreateVertex(dba.get(), {"L`abel 1"}, {{"prop", memgraph::storage::PropertyValue(1)}}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
@@ -625,9 +632,9 @@ TYPED_TEST(DumpTest, ExistenceConstraints) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(), "CREATE CONSTRAINT ON (u:`L``abel 1`) ASSERT EXISTS (u.`prop`);",
                   kCreateInternalIndex, "CREATE (:__mg_vertex__:`L``abel 1` {__mg_id__: 0, `prop`: 1});",
@@ -637,7 +644,7 @@ TYPED_TEST(DumpTest, ExistenceConstraints) {
 
 TYPED_TEST(DumpTest, UniqueConstraints) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     CreateVertex(dba.get(), {"Label"},
                  {{"prop", memgraph::storage::PropertyValue(1)}, {"prop2", memgraph::storage::PropertyValue(2)}},
                  false);
@@ -660,9 +667,9 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     VerifyQueries(stream.GetResults(),
                   "CREATE CONSTRAINT ON (u:`Label`) ASSERT u.`prop`, u.`prop2` "
@@ -679,7 +686,7 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     std::map<std::string, memgraph::storage::PropertyValue> prop1 = {
         {"nested1", memgraph::storage::PropertyValue(1337)}, {"nested2", memgraph::storage::PropertyValue(3.14)}};
 
@@ -697,8 +704,14 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s1").disk;
     config.force_on_disk = true;
   }
+  auto on_exit_s1 = memgraph::utils::OnScopeExit{[&]() {
+    if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+      disk_test_utils::RemoveRocksDbDirs("query-dump-s1");
+    }
+  }};
+  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(config));
 
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config);
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config, repl_state);
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
   auto &db_acc = *db_acc_opt;
@@ -707,15 +720,15 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
       << "Wrong storage mode!";
 
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state);
 
   {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     const auto &results = stream.GetResults();
     ASSERT_GE(results.size(), 1);
@@ -730,7 +743,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     auto u = CreateVertex(dba.get(), {"Person"}, {{"name", memgraph::storage::PropertyValue("Ivan")}});
     auto v = CreateVertex(dba.get(), {"Person"}, {{"name", memgraph::storage::PropertyValue("Josko")}});
     auto w = CreateVertex(
@@ -810,8 +823,13 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s2").disk;
     config.force_on_disk = true;
   }
-
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config);
+  auto on_exit_s2 = memgraph::utils::OnScopeExit{[&]() {
+    if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+      disk_test_utils::RemoveRocksDbDirs("query-dump-s2");
+    }
+  }};
+  memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
   auto &db_acc = *db_acc_opt;
@@ -820,14 +838,14 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
       << "Wrong storage mode!";
 
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr);
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state);
   {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->storage()->Access();
+      auto acc = this->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
     }
     const auto &results = stream.GetResults();
     // Indices and constraints are 4 queries and there must be at least one more
@@ -848,7 +866,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, ExecuteDumpDatabase) {
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
@@ -911,7 +929,7 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
 
   // Create the vertex.
   {
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     CreateVertex(dba.get(), {}, {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
@@ -1009,7 +1027,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
-    auto dba = this->db->storage()->Access();
+    auto dba = this->db->Access();
     auto p1 = CreateVertex(dba.get(), {"PERSON"},
                            {{"name", memgraph::storage::PropertyValue("Person1")},
                             {"surname", memgraph::storage::PropertyValue("Unique1")}},
@@ -1039,10 +1057,10 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 
   ResultStreamFaker stream(this->db->storage());
   memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
-  auto acc = this->db->storage()->Access();
+  auto acc = this->db->Access();
   memgraph::query::DbAccessor dba(acc.get());
 
-  memgraph::query::PullPlanDump pullPlan{&dba};
+  memgraph::query::PullPlanDump pullPlan{&dba, this->db};
 
   auto offset_index = 0U;
   auto check_next = [&](const std::string &expected_row) mutable {
@@ -1080,4 +1098,31 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 
   check_next(kDropInternalIndex);
   check_next(kRemoveInternalLabelProperty);
+}
+
+TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
+  auto acc = this->db->storage()->Access(memgraph::replication::ReplicationRole::MAIN);
+  memgraph::query::DbAccessor dba(acc.get());
+  {
+    auto trigger_store = this->db.get()->trigger_store();
+    const std::string trigger_name = "test_trigger";
+    const std::string trigger_statement = "UNWIND createdVertices AS newNodes SET newNodes.created = timestamp()";
+    memgraph::query::TriggerEventType trigger_event_type = memgraph::query::TriggerEventType::VERTEX_CREATE;
+    memgraph::query::TriggerPhase trigger_phase = memgraph::query::TriggerPhase::AFTER_COMMIT;
+    memgraph::utils::SkipList<memgraph::query::QueryCacheEntry> ast_cache;
+    memgraph::query::AllowEverythingAuthChecker auth_checker;
+    memgraph::query::InterpreterConfig::Query query_config;
+    memgraph::query::DbAccessor dba(acc.get());
+    const std::map<std::string, memgraph::storage::PropertyValue> props;
+    trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
+                              &dba, query_config, std::nullopt, &auth_checker);
+  }
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    { memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db); }
+    VerifyQueries(stream.GetResults(),
+                  "CREATE TRIGGER test_trigger ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices AS newNodes "
+                  "SET newNodes.created = timestamp();");
+  }
 }

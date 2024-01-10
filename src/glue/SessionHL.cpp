@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <optional>
+#include <utility>
 #include "gflags/gflags.h"
 
 #include "audit/log.hpp"
@@ -122,8 +123,8 @@ std::string SessionHL::GetCurrentDB() const {
 }
 
 std::optional<std::string> SessionHL::GetServerNameForInit() {
-  auto locked_name = flags::run_time::bolt_server_name_.Lock();
-  return locked_name->empty() ? std::nullopt : std::make_optional(*locked_name);
+  const auto &name = flags::run_time::GetServerName();
+  return name.empty() ? std::nullopt : std::make_optional(name);
 }
 
 bool SessionHL::Authenticate(const std::string &username, const std::string &password) {
@@ -177,6 +178,11 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(Sess
     // Wrap QueryException into ClientError, because we want to allow the
     // client to fix their query.
     throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const utils::BasicException &) {
+    // Exceptions inheriting from BasicException will result in a TransientError
+    // i. e. client will be encouraged to retry execution because it
+    // could succeed if executed again.
+    throw;
   }
 }
 
@@ -228,11 +234,55 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
     throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
-void SessionHL::RollbackTransaction() { interpreter_.RollbackTransaction(); }
-void SessionHL::CommitTransaction() { interpreter_.CommitTransaction(); }
-void SessionHL::BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
-  interpreter_.BeginTransaction(ToQueryExtras(extra));
+
+void SessionHL::RollbackTransaction() {
+  try {
+    interpreter_.RollbackTransaction();
+  } catch (const memgraph::query::QueryException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    // Wrap QueryException into ClientError, because we want to allow the
+    // client to fix their query.
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::query::ReplicationException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  }
 }
+
+void SessionHL::CommitTransaction() {
+  try {
+    interpreter_.CommitTransaction();
+  } catch (const memgraph::query::QueryException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    // Wrap QueryException into ClientError, because we want to allow the
+    // client to fix their query.
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::query::ReplicationException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  }
+}
+
+void SessionHL::BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
+  try {
+    interpreter_.BeginTransaction(ToQueryExtras(extra));
+  } catch (const memgraph::query::QueryException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    // Wrap QueryException into ClientError, because we want to allow the
+    // client to fix their query.
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::query::ReplicationException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  }
+}
+
 void SessionHL::Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) {
 #ifdef MG_ENTERPRISE
   std::string db;
@@ -267,7 +317,7 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
 #endif
 }
 SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
-                     const memgraph::communication::v2::ServerEndpoint &endpoint,
+                     memgraph::communication::v2::ServerEndpoint endpoint,
                      memgraph::communication::v2::InputStream *input_stream,
                      memgraph::communication::v2::OutputStream *output_stream,
                      memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
@@ -284,7 +334,7 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
       audit_log_(audit_log),
 #endif
       auth_(auth),
-      endpoint_(endpoint),
+      endpoint_(std::move(endpoint)),
       implicit_db_(dbms::kDefaultDB) {
   // Metrics update
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);

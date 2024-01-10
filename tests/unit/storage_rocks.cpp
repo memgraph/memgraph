@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,6 +30,8 @@
 #include "storage/v2/view.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
+using memgraph::replication::ReplicationRole;
+
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
 
@@ -49,7 +51,7 @@ class RocksDBStorageTest : public ::testing::TestWithParam<bool> {
     disk_test_utils::RemoveRocksDbDirs(testSuite);
   }
 
-  ~RocksDBStorageTest() override {}
+  ~RocksDBStorageTest() override = default;
 
  protected:
   std::unique_ptr<Storage> storage;
@@ -57,14 +59,14 @@ class RocksDBStorageTest : public ::testing::TestWithParam<bool> {
 };
 
 TEST_F(RocksDBStorageTest, SerializeVertexGID) {
-  auto acc = storage->Access();
+  auto acc = storage->Access(ReplicationRole::MAIN);
   auto vertex = acc->CreateVertex();
   auto gid = vertex.Gid();
   ASSERT_EQ(memgraph::utils::SerializeVertex(*vertex.vertex_), "|" + gid.ToString());
 }
 
 TEST_F(RocksDBStorageTest, SerializeVertexGIDLabels) {
-  auto acc = storage->Access();
+  auto acc = storage->Access(ReplicationRole::MAIN);
   auto vertex = acc->CreateVertex();
   auto ser_player_label = acc->NameToLabel("Player");
   auto ser_user_label = acc->NameToLabel("User");

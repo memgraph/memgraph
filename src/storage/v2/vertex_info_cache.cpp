@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,8 +51,6 @@ void Store(Value &&value, VertexInfoCache &caches, Func &&getCache, View view, K
   cache.emplace(key_type{std::forward<Keys>(keys)...}, std::forward<Value>(value));
 }
 
-VertexInfoCache::VertexInfoCache() = default;
-VertexInfoCache::~VertexInfoCache() = default;
 VertexInfoCache::VertexInfoCache(VertexInfoCache &&) noexcept = default;
 VertexInfoCache &VertexInfoCache::operator=(VertexInfoCache &&) noexcept = default;
 

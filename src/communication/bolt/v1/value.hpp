@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -91,7 +91,7 @@ struct UnboundedEdge {
  * The decoder writes data into this structure.
  */
 struct Path {
-  Path() {}
+  Path() = default;
 
   Path(const std::vector<Vertex> &vertices, const std::vector<Edge> &edges) {
     // Helper function. Looks for the given element in the collection. If found,

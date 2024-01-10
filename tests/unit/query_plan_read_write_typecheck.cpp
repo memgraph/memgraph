@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,7 +36,8 @@ class ReadWriteTypeCheckTest : public ::testing::Test {
 
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> dba_storage{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> dba_storage{
+      db->Access(memgraph::replication::ReplicationRole::MAIN)};
   memgraph::query::DbAccessor dba{dba_storage.get()};
 
   void TearDown() override {
@@ -248,7 +249,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, CallReadProcedureBeforeUpdate) {
   std::vector<Symbol> result_symbols{this->GetSymbol("name_alias"), this->GetSymbol("signature_alias")};
 
   last_op = std::make_shared<plan::CallProcedure>(last_op, procedure_name, arguments, result_fields, result_symbols,
-                                                  nullptr, 0, false);
+                                                  nullptr, 0, false, 1);
 
   this->CheckPlanType(last_op.get(), RWType::RW);
 }

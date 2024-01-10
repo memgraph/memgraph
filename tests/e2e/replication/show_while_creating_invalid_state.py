@@ -123,6 +123,143 @@ def test_show_replicas(connection):
     assert actual_data == expected_data
 
 
+def test_drop_replicas(connection):
+    # Goal of this test is to check the DROP REPLICAS command.
+    # 0/ Manually start main and all replicas
+    # 1/ Check status of the replicas
+    # 2/ Kill replica 3
+    # 3/ Drop replica 3 and check status
+    # 4/ Stop replica 4
+    # 5/ Drop replica 4 and check status
+    # 6/ Kill replica 1
+    # 7/ Drop replica 1 and check status
+    # 8/ Stop replica 2
+    # 9/ Drop replica 2 and check status
+    # 10/ Restart all replicas
+    # 11/ Register them
+    # 12/ Drop all and check status
+
+    def retrieve_data():
+        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    cursor = connection(7687, "main").cursor()
+
+    # 1/
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    EXPECTED_COLUMN_NAMES = {
+        "name",
+        "socket_address",
+        "sync_mode",
+        "current_timestamp_of_replica",
+        "number_of_timestamp_behind_master",
+        "state",
+    }
+
+    actual_column_names = {x.name for x in cursor.description}
+    assert actual_column_names == EXPECTED_COLUMN_NAMES
+
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
+    }
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+    # 2/
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_3")
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "invalid"),
+        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
+    }
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+    # 3/
+    execute_and_fetch_all(cursor, "DROP REPLICA replica_3")
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
+    }
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+    # 4/
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_4")
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "invalid"),
+    }
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+    # 5/
+    execute_and_fetch_all(cursor, "DROP REPLICA replica_4")
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+    }
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+    # 6/
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+    }
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+    # 7/
+    execute_and_fetch_all(cursor, "DROP REPLICA replica_1")
+    expected_data = {
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+    }
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+    # 8/
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
+    expected_data = {
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "invalid"),
+    }
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+    # 9/
+    execute_and_fetch_all(cursor, "DROP REPLICA replica_2")
+    expected_data = set()
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+    # 10/
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_3")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_4")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';")
+
+    # 11/
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
+    }
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+    # 12/
+    execute_and_fetch_all(cursor, "DROP REPLICA replica_1")
+    execute_and_fetch_all(cursor, "DROP REPLICA replica_2")
+    execute_and_fetch_all(cursor, "DROP REPLICA replica_3")
+    execute_and_fetch_all(cursor, "DROP REPLICA replica_4")
+    expected_data = set()
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+
 def test_basic_recovery(connection):
     # Goal of this test is to check the recovery of main.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
@@ -348,7 +485,7 @@ def test_basic_recovery(connection):
 def test_replication_role_recovery(connection):
     # Goal of this test is to check the recovery of main and replica role.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
-    # 1/ We try to add a replica with reserved name which results in an exception
+    # 1/ We try to add a replica with reserved name which results in an exception <- Schema changed, there are no reserved names now
     # 2/ We check that all replicas have the correct state: they should all be ready.
     # 3/ We kill main.
     # 4/ We re-start main. We check that main indeed has the role main and replicas still have the correct state.
@@ -411,9 +548,9 @@ def test_replication_role_recovery(connection):
             "data_directory": f"{data_directory.name}/main",
         },
     }
-    # 1/
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "REGISTER REPLICA __replication_role SYNC TO '127.0.0.1:10002';")
+    # 1/ Obsolete, schema change, no longer a reserved name
+    # with pytest.raises(mgclient.DatabaseError):
+    #     execute_and_fetch_all(cursor, "REGISTER REPLICA __replication_role SYNC TO '127.0.0.1:10002';")
 
     # 2/
     expected_data = {
@@ -630,10 +767,26 @@ def test_async_replication_when_main_is_killed():
         )
 
         # 2/
-        for index in range(50):
+        # First make sure that anything has been replicated
+        for index in range(0, 5):
+            interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
+        expected_data = [("async_replica", "127.0.0.1:10001", "async", "ready")]
+
+        def retrieve_data():
+            replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+            return [
+                (replica_name, ip, mode, status)
+                for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+            ]
+
+        actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+        assert actual_data == expected_data
+
+        for index in range(5, 50):
             interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
             if random.randint(0, 100) > 95:
                 main_killed = f"Main was killed at index={index}"
+                print(main_killed)
                 interactive_mg_runner.kill(CONFIGURATION, "main")
                 break
 
@@ -697,7 +850,7 @@ def test_sync_replication_when_main_is_killed():
         )
 
         # 2/
-        QUERY_TO_CHECK = "MATCH (n) RETURN COLLECT(n.name);"
+        QUERY_TO_CHECK = "MATCH (n) RETURN COUNT(n.name);"
         last_result_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)[0][0]
         for index in range(50):
             interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
@@ -1052,7 +1205,7 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
     # 5/
     expected_data = {
         ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 5, 0, "ready"),
+        ("sync_replica2", "127.0.0.1:10002", "sync", 6, 0, "ready"),
     }
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
@@ -1599,6 +1752,75 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica():
     assert len(res_from_main) == 3
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+
+
+def test_replication_not_messed_up_by_CreateSnapshot(connection):
+    # Goal of this test is to check the replica can not run CreateSnapshot
+    # 1/ CREATE SNAPSHOT should raise a DatabaseError
+
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    cursor = connection(7688, "replica_1").cursor()
+
+    # 1/
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+
+
+def test_replication_not_messed_up_by_ShowIndexInfo(connection):
+    # Goal of this test is to check the replicas timestamp and hence ability to recieve MAINs writes
+    # is uneffected by SHOW INDEX INFO
+
+    # 1/ Run SHOW INDEX INFO; multiple times on REPLICA
+    # 2/ Send a write from MAIN
+    # 3/ Check REPLICA processed the write
+
+    BASIC_MEMGRAPH_INSTANCES_DESCRIPTION = {
+        "replica_1": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": "replica1.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "log_file": "main.log",
+            "setup_queries": [
+                "REGISTER REPLICA replica_1 ASYNC TO '127.0.0.1:10001';",
+            ],
+        },
+    }
+
+    interactive_mg_runner.start_all(BASIC_MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    cursor = connection(7688, "replica_1").cursor()
+
+    # 1/
+    # This query use to incorrectly change REPLICA storage timestamp
+    # run this multiple times to try and get into error case of MAIN timestamp < REPLICA timestamp
+    for _ in range(20):
+        execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # 2/
+    execute_and_fetch_all(cursor, "CREATE ();")
+
+    def retrieve_data():
+        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+        return replicas
+
+    expected_data = [
+        ("replica_1", "127.0.0.1:10001", "async", 2, 0, "ready"),
+    ]
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    assert actual_data == expected_data
+
+    # 3/
+    cursor = connection(7688, "replica_1").cursor()
+    result = execute_and_fetch_all(cursor, "MATCH () RETURN count(*);")
+
+    assert len(result) == 1
+    assert result[0][0] == 1  # The one node was replicated from MAIN to REPLICA
 
 
 if __name__ == "__main__":

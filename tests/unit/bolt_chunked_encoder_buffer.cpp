@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -87,7 +87,7 @@ TEST_F(BoltChunkedEncoderBuffer, TwoSmallChunks) {
   // the output array should look like this:
   // [0, 100, first 100 bytes of test data] +
   // [0, 100, second 100 bytes of test data]
-  auto data = output_stream.output.data();
+  auto *data = output_stream.output.data();
   VerifyChunkOfTestData(data, size1);
   VerifyChunkOfTestData(data + kChunkHeaderSize + size1, size2, size1);
 }
@@ -105,7 +105,7 @@ TEST_F(BoltChunkedEncoderBuffer, OneAndAHalfOfMaxChunk) {
   // the output array should look like this:
   // [0xFF, 0xFF, first 65535 bytes of test data,
   //  0x86, 0xA1, 34465 bytes of test data after the first 65535 bytes]
-  auto output = output_stream.output.data();
+  auto *output = output_stream.output.data();
   VerifyChunkOfTestData(output, kChunkMaxDataSize);
   VerifyChunkOfTestData(output + kChunkWholeSize, kTestDataSize - kChunkMaxDataSize, kChunkMaxDataSize);
 }

@@ -1,19 +1,18 @@
 ---
 name: Bug report
 about: Create a report to help us improve
-title: "[BUG] "
+title: ""
 labels: bug
-assignees: gitbuda, antonio2368
-
+assignees: gitbuda
 ---
-
 
 **Memgraph version**
 Which version did you use?
 
 **Environment**
 Some information about the environment you are using Memgraph on: operating
-system, how do you connect, with or without docker, which driver etc.
+system, architecture (ARM, x86), how do you connect, with or without docker,
+which driver etc.
 
 **Describe the bug**
 A clear and concise description of what the bug is.
@@ -22,6 +21,7 @@ A clear and concise description of what the bug is.
 Steps to reproduce the behavior:
 1. Run the following query '...'
 2. Click on '....'
+3. ... IDEALLY: link to the workload info (DATASET & QUERIES) ...
 
 **Expected behavior**
 A clear and concise description of what you expected to happen.
@@ -32,3 +32,11 @@ your problem.
 
 **Additional context**
 Add any other context about the problem here.
+
+**Verification Environment**
+Once we fix it, what do you need to verify the fix?
+Do you need:
+* Plain memgraph package -> for which Linux?
+* Plain memgraph Docker image?
+* Which architecture do you use ARM | x86?
+* Full Memgraph platform?

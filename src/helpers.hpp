@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,7 @@ inline void LoadConfig(const std::string &product_name) {
   std::vector<fs::path> configs = {fs::path("/etc/memgraph/memgraph.conf")};
   if (getenv("HOME") != nullptr) configs.emplace_back(fs::path(getenv("HOME")) / fs::path(".memgraph/config"));
   {
-    auto memgraph_config = getenv("MEMGRAPH_CONFIG");
+    auto *memgraph_config = getenv("MEMGRAPH_CONFIG");
     if (memgraph_config != nullptr) {
       auto path = fs::path(memgraph_config);
       MG_ASSERT(fs::exists(path), "MEMGRAPH_CONFIG environment variable set to nonexisting path: {}",

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -670,7 +670,7 @@ TEST(PropertyStore, SetMultipleProperties) {
   const std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> data_in_map{data.begin(), data.end()};
 
   auto check_store = [data](const memgraph::storage::PropertyStore &store) {
-    for (auto &[key, value] : data) {
+    for (const auto &[key, value] : data) {
       ASSERT_TRUE(store.IsPropertyEqual(key, value));
     }
   };

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,6 +52,8 @@ DECLARE_bool(allow_load_csv);
 // Storage flags.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_gc_cycle_sec);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(storage_python_gc_cycle_sec);
 // NOTE: The `storage_properties_on_edges` flag must be the same here and in
 // `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -73,10 +75,15 @@ DECLARE_uint64(storage_wal_file_flush_every_n_tx);
 DECLARE_bool(storage_snapshot_on_exit);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_items_per_batch);
+// storage_parallel_index_recovery deprecated; use storage_parallel_schema_recovery instead
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_parallel_index_recovery);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_parallel_schema_recovery);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_recovery_thread_count);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_enable_schema_metadata);
 #ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_delete_on_drop);
@@ -100,7 +107,7 @@ DECLARE_string(pulsar_service_url);
 // Query flags.
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_double(query_execution_timeout_sec);
+// DECLARE_double(query_execution_timeout_sec); Moved to run_time_configurable
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(query_modules_directory);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)

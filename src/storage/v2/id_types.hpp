@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,7 +42,7 @@ namespace memgraph::storage {
    private:                                                                                                   \
     uint64_t id_;                                                                                             \
   };                                                                                                          \
-  static_assert(std::is_trivially_copyable<name>::value, "storage::" #name " must be trivially copyable!");   \
+  static_assert(std::is_trivially_copyable_v<name>, "storage::" #name " must be trivially copyable!");        \
   inline bool operator==(const name &first, const name &second) { return first.AsUint() == second.AsUint(); } \
   inline bool operator!=(const name &first, const name &second) { return first.AsUint() != second.AsUint(); } \
   inline bool operator<(const name &first, const name &second) { return first.AsUint() < second.AsUint(); }   \

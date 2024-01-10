@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,7 +35,7 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
   CURLcode res = CURLE_UNSUPPORTED_PROTOCOL;
 
   long response_code = 0;
-  struct curl_slist *headers = NULL;
+  struct curl_slist *headers = nullptr;
   std::string payload = data.dump();
   std::string user_agent = fmt::format("memgraph/{}", gflags::VersionString());
 

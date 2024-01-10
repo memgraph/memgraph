@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,9 +18,7 @@
 
 #include "query/typed_value.hpp"
 
-namespace memgraph::query {
-
-namespace plan {
+namespace memgraph::query::plan {
 
 /**
  * Stores profiling statistics for a single logical operator.
@@ -43,5 +41,4 @@ std::vector<std::vector<TypedValue>> ProfilingStatsToTable(const ProfilingStatsW
 
 nlohmann::json ProfilingStatsToJson(const ProfilingStatsWithTotalTime &stats);
 
-}  // namespace plan
-}  // namespace memgraph::query
+}  // namespace memgraph::query::plan

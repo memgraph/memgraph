@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -401,11 +401,11 @@ class Decoder {
     }
     auto &labels = dv.ValueList();
     vertex.labels.reserve(labels.size());
-    for (size_t i = 0; i < labels.size(); ++i) {
-      if (labels[i].type() != Value::Type::String) {
+    for (auto &label : labels) {
+      if (label.type() != Value::Type::String) {
         return false;
       }
-      vertex.labels.emplace_back(std::move(labels[i].ValueString()));
+      vertex.labels.emplace_back(std::move(label.ValueString()));
     }
 
     // read properties

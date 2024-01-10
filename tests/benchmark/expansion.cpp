@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,23 +17,30 @@
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/typed_value.hpp"
+#include "replication/status.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "utils/logging.hpp"
+
+std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
 
 class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
   std::optional<memgraph::query::InterpreterContext> interpreter_context;
   std::optional<memgraph::query::Interpreter> interpreter;
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
-  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk{memgraph::storage::Config{
-      .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"}};
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
+  std::optional<memgraph::replication::ReplicationState> repl_state;
 
   void SetUp(const benchmark::State &state) override {
+    repl_state.emplace(std::nullopt);  // No need for a storage directory, since we are not replicating or restoring
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory;
+    config.disk.main_storage_directory = data_directory / "disk";
+    db_gk.emplace(std::move(config), *repl_state);
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;
-    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr);
+    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value());
 
     auto label = db_acc->storage()->NameToLabel("Starting");
 

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,8 @@
 #include "query_plan_common.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+
+using memgraph::replication::ReplicationRole;
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
@@ -95,7 +97,7 @@ TYPED_TEST(QueryPlanTest, Accumulate) {
     this->db.reset(nullptr);
     this->CleanStorageDirs();
     this->db = std::make_unique<TypeParam>(this->config);
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto prop = dba.NameToProperty("x");
 
@@ -148,7 +150,7 @@ TYPED_TEST(QueryPlanTest, AccumulateAdvance) {
     this->db.reset();
     this->CleanStorageDirs();
     this->db = std::make_unique<TypeParam>(this->config);
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
     memgraph::query::DbAccessor dba(storage_dba.get());
     SymbolTable symbol_table;
     NodeCreationInfo node;
@@ -167,7 +169,7 @@ TYPED_TEST(QueryPlanTest, AccumulateAdvance) {
 template <typename StorageType>
 class QueryPlanAggregateOps : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(ReplicationRole::MAIN)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   memgraph::storage::PropertyId prop = this->db->NameToProperty("prop");
 
@@ -250,40 +252,31 @@ TYPED_TEST(QueryPlanAggregateOps, WithData) {
 TYPED_TEST(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
   {
     auto results = this->AggregationResults(true, false, {Aggregation::Op::COUNT});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
-    EXPECT_EQ(results[0][0].ValueInt(), 0);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, false, {Aggregation::Op::SUM});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
-    EXPECT_EQ(results[0][0].ValueInt(), 0);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, false, {Aggregation::Op::AVG});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, false, {Aggregation::Op::MIN});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, false, {Aggregation::Op::MAX});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, false, {Aggregation::Op::COLLECT_LIST});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::List);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, false, {Aggregation::Op::COLLECT_MAP});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Map);
+    EXPECT_EQ(results.size(), 0);
   }
 }
 
@@ -317,7 +310,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
   // Tests that distinct groups are aggregated properly for values of all types.
   // Also test the "remember" part of the Aggregation API as final results are
   // obtained via a property lookup of a remembered node.
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // a vector of memgraph::storage::PropertyValue to be set as property values on vertices
@@ -379,7 +372,7 @@ TYPED_TEST(QueryPlanTest, AggregateMultipleGroupBy) {
   // in this test we have 3 different properties that have different values
   // for different records and assert that we get the correct combination
   // of values in our groups
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto prop1 = dba.NameToProperty("prop1");
@@ -410,7 +403,7 @@ TYPED_TEST(QueryPlanTest, AggregateMultipleGroupBy) {
 }
 
 TYPED_TEST(QueryPlanTest, AggregateNoInput) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -433,7 +426,7 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCases) {
   //  - 2 vertices in database, property set on one
   //  - 2 vertices in database, property set on both
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop = dba.NameToProperty("prop");
 
@@ -485,7 +478,7 @@ TYPED_TEST(QueryPlanTest, AggregateFirstValueTypes) {
   // testing exceptions that get emitted by the first-value
   // type check
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
@@ -537,7 +530,7 @@ TYPED_TEST(QueryPlanTest, AggregateTypes) {
   // does not check all combinations that can result in an exception
   // (that logic is defined and tested by TypedValue)
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto p1 = dba.NameToProperty("p1");  // has only string props
@@ -590,7 +583,7 @@ TYPED_TEST(QueryPlanTest, AggregateTypes) {
 }
 
 TYPED_TEST(QueryPlanTest, Unwind) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -668,40 +661,31 @@ TYPED_TEST(QueryPlanAggregateOps, WithDataDistinct) {
 TYPED_TEST(QueryPlanAggregateOps, WithoutDataWithDistinctAndWithGroupBy) {
   {
     auto results = this->AggregationResults(true, true, {Aggregation::Op::COUNT});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
-    EXPECT_EQ(results[0][0].ValueInt(), 0);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, true, {Aggregation::Op::SUM});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
-    EXPECT_EQ(results[0][0].ValueInt(), 0);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, true, {Aggregation::Op::AVG});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, true, {Aggregation::Op::MIN});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, true, {Aggregation::Op::MAX});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, true, {Aggregation::Op::COLLECT_LIST});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::List);
+    EXPECT_EQ(results.size(), 0);
   }
   {
     auto results = this->AggregationResults(true, true, {Aggregation::Op::COLLECT_MAP});
-    EXPECT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Map);
+    EXPECT_EQ(results.size(), 0);
   }
 }
 
@@ -735,7 +719,7 @@ TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
   // Tests that distinct groups are aggregated properly for values of all types.
   // Also test the "remember" part of the Aggregation API as final results are
   // obtained via a property lookup of a remembered node.
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // a vector of memgraph::storage::PropertyValue to be set as property values on vertices
@@ -800,7 +784,7 @@ TYPED_TEST(QueryPlanTest, AggregateMultipleGroupByWithDistinct) {
   // in this test we have 3 different properties that have different values
   // for different records and assert that we get the correct combination
   // of values in our groups
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto prop1 = dba.NameToProperty("prop1");
@@ -832,7 +816,7 @@ TYPED_TEST(QueryPlanTest, AggregateMultipleGroupByWithDistinct) {
 }
 
 TYPED_TEST(QueryPlanTest, AggregateNoInputWithDistinct) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -855,7 +839,7 @@ TYPED_TEST(QueryPlanTest, AggregateCountEdgeCasesWithDistinct) {
   //  - 2 vertices in database, property set on one
   //  - 2 vertices in database, property set on both
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop = dba.NameToProperty("prop");
 
@@ -907,7 +891,7 @@ TYPED_TEST(QueryPlanTest, AggregateFirstValueTypesWithDistinct) {
   // testing exceptions that get emitted by the first-value
   // type check
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
@@ -959,7 +943,7 @@ TYPED_TEST(QueryPlanTest, AggregateTypesWithDistinct) {
   // does not check all combinations that can result in an exception
   // (that logic is defined and tested by TypedValue)
 
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto p1 = dba.NameToProperty("p1");  // has only string props

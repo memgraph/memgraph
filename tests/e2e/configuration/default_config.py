@@ -56,8 +56,8 @@ startup_config_dict = {
     ),
     "bolt_port": ("7687", "7687", "Port on which the Bolt server should listen."),
     "bolt_server_name_for_init": (
-        "",
-        "",
+        "Neo4j/v5.11.0 compatible graph database server - Memgraph",
+        "Neo4j/v5.11.0 compatible graph database server - Memgraph",
         "Server name which the database should send to the client in the Bolt INIT message.",
     ),
     "bolt_session_inactivity_timeout": (
@@ -65,6 +65,7 @@ startup_config_dict = {
         "1800",
         "Time in seconds after which inactive Bolt sessions will be closed.",
     ),
+    "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_recovery_on_startup": (
         "false",
@@ -114,11 +115,21 @@ startup_config_dict = {
         "false",
         "Controls whether the index creation can be done in a multithreaded fashion.",
     ),
+    "storage_parallel_schema_recovery": (
+        "false",
+        "false",
+        "Controls whether the indices and constraints creation can be done in a multithreaded fashion.",
+    ),
+    "storage_enable_schema_metadata": (
+        "false",
+        "false",
+        "Controls whether metadata should be collected about the resident labels and edge types.",
+    ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
-        "-1",
-        "-1",
+        "600",
+        "600",
         "Maximum allowed query execution time. Queries exceeding this limit will be aborted. Value of 0 means no limit.",
     ),
     "query_modules_directory": (
@@ -132,6 +143,7 @@ startup_config_dict = {
         "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: The MAIN instance allocates a new thread for each REPLICA.",
     ),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
+    "storage_python_gc_cycle_sec": ("180", "180", "Storage python full garbage collection interval (in seconds)."),
     "storage_items_per_batch": (
         "1000000",
         "1000000",
@@ -183,7 +195,7 @@ startup_config_dict = {
         "Set to true to enable telemetry. We collect information about the running system (CPU and memory information) and information about the database runtime (vertex and edge counts and resource usage) to allow for easier improvement of the product.",
     ),
     "query_cost_planner": ("true", "true", "Use the cost-estimating query planner."),
-    "query_plan_cache_ttl": ("60", "60", "Time to live for cached query plans, in seconds."),
+    "query_plan_cache_max_size": ("1000", "1000", "Maximum number of query plans to cache."),
     "query_vertex_count_to_expand_existing": (
         "10",
         "10",

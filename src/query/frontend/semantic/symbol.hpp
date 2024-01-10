@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,12 +12,11 @@
 #pragma once
 
 #include <string>
+#include <utility>
 
 #include "utils/typeinfo.hpp"
 
-namespace memgraph {
-
-namespace query {
+namespace memgraph::query {
 
 class Symbol {
  public:
@@ -34,9 +33,13 @@ class Symbol {
     return enum_string[static_cast<int>(type)];
   }
 
-  Symbol() {}
-  Symbol(const std::string &name, int position, bool user_declared, Type type = Type::ANY, int token_position = -1)
-      : name_(name), position_(position), user_declared_(user_declared), type_(type), token_position_(token_position) {}
+  Symbol() = default;
+  Symbol(std::string name, int position, bool user_declared, Type type = Type::ANY, int token_position = -1)
+      : name_(std::move(name)),
+        position_(position),
+        user_declared_(user_declared),
+        type_(type),
+        token_position_(token_position) {}
 
   bool operator==(const Symbol &other) const {
     return position_ == other.position_ && name_ == other.name_ && type_ == other.type_;
@@ -57,8 +60,8 @@ class Symbol {
   int64_t token_position_{-1};
 };
 
-}  // namespace query
-}  // namespace memgraph
+}  // namespace memgraph::query
+
 namespace std {
 
 template <>

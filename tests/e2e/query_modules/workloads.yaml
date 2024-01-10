@@ -1,0 +1,35 @@
+bolt_port: &bolt_port "7687"
+args: &args
+  - "--bolt_port"
+  - *bolt_port
+  - "--log-level=TRACE"
+
+in_memory_cluster: &in_memory_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "query_modules-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Convert query module test"
+    pre_set_workload: "tests/e2e/x.sh"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["query_modules/convert_test.py"]
+    <<: *in_memory_cluster
+
+  - name: "Mgps query module test"
+    pre_set_workload: "tests/e2e/x.sh"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["query_modules/mgps_test.py"]
+    <<: *in_memory_cluster
+
+  - name: "Schema test"
+    pre_set_workload: "tests/e2e/x.sh"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["query_modules/schema_test.py"]
+    <<: *in_memory_cluster

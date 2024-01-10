@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,12 +13,9 @@
 
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
-
-/// TODO: andi. Too many copies, extract at one place
-using ParallelizedIndexCreationInfo =
-    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:

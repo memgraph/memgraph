@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -91,7 +91,7 @@ void SwitchToSameDB(std::unique_ptr<mg::Client> &main, std::unique_ptr<mg::Clien
   auto dbs = main->FetchAll();
   MG_ASSERT(dbs, "Failed to show databases");
   for (const auto &elem : *dbs) {
-    MG_ASSERT(elem.size(), "Show databases wrong output");
+    MG_ASSERT(!elem.empty(), "Show databases wrong output");
     const auto &active = elem[1].ValueString();
     if (active == "*") {
       const auto &name = elem[0].ValueString();

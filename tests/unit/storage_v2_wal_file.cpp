@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -231,7 +231,7 @@ class DeltaGenerator final {
   }
 
   void AppendOperation(memgraph::storage::durability::StorageMetadataOperation operation, const std::string &label,
-                       const std::set<std::string> properties = {}, const std::string &stats = {}) {
+                       const std::set<std::string, std::less<>> properties = {}, const std::string &stats = {}) {
     auto label_id = memgraph::storage::LabelId::FromUint(mapper_.NameToId(label));
     std::set<memgraph::storage::PropertyId> property_ids;
     for (const auto &property : properties) {
@@ -378,7 +378,7 @@ void AssertWalDataEqual(const DeltaGenerator::DataT &data, const std::filesystem
 
 class WalFileTest : public ::testing::TestWithParam<bool> {
  public:
-  WalFileTest() {}
+  WalFileTest() = default;
 
   void SetUp() override { Clear(); }
 
@@ -710,7 +710,7 @@ TEST_P(WalFileTest, PartialData) {
 
 class StorageModeWalFileTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
  public:
-  StorageModeWalFileTest() {}
+  StorageModeWalFileTest() = default;
 
   void SetUp() override { Clear(); }
 

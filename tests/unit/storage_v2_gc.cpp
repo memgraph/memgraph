@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 
+using memgraph::replication::ReplicationRole;
 using testing::UnorderedElementsAre;
 
 // TODO: The point of these is not to test GC fully, these are just simple
@@ -31,7 +32,7 @@ TEST(StorageV2Gc, Sanity) {
   std::vector<memgraph::storage::Gid> vertices;
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(ReplicationRole::MAIN);
     // Create some vertices, but delete some of them immediately.
     for (uint64_t i = 0; i < 1000; ++i) {
       auto vertex = acc->CreateVertex();
@@ -63,7 +64,7 @@ TEST(StorageV2Gc, Sanity) {
 
   // Verify existing vertices and add labels to some of them.
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(ReplicationRole::MAIN);
     for (uint64_t i = 0; i < 1000; ++i) {
       auto vertex = acc->FindVertex(vertices[i], memgraph::storage::View::OLD);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
@@ -101,7 +102,7 @@ TEST(StorageV2Gc, Sanity) {
 
   // Add and remove some edges.
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(ReplicationRole::MAIN);
     for (uint64_t i = 0; i < 1000; ++i) {
       auto from_vertex = acc->FindVertex(vertices[i], memgraph::storage::View::OLD);
       auto to_vertex = acc->FindVertex(vertices[(i + 1) % 1000], memgraph::storage::View::OLD);
@@ -171,13 +172,13 @@ TEST(StorageV2Gc, Indices) {
       std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
           .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}}));
   {
-    auto unique_acc = storage->UniqueAccess();
+    auto unique_acc = storage->UniqueAccess(ReplicationRole::MAIN);
     ASSERT_FALSE(unique_acc->CreateIndex(storage->NameToLabel("label")).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
-    auto acc0 = storage->Access();
+    auto acc0 = storage->Access(ReplicationRole::MAIN);
     for (uint64_t i = 0; i < 1000; ++i) {
       auto vertex = acc0->CreateVertex();
       ASSERT_TRUE(*vertex.AddLabel(acc0->NameToLabel("label")));
@@ -185,9 +186,9 @@ TEST(StorageV2Gc, Indices) {
     ASSERT_FALSE(acc0->Commit().HasError());
   }
   {
-    auto acc1 = storage->Access();
+    auto acc1 = storage->Access(ReplicationRole::MAIN);
 
-    auto acc2 = storage->Access();
+    auto acc2 = storage->Access(ReplicationRole::MAIN);
     for (auto vertex : acc2->Vertices(memgraph::storage::View::OLD)) {
       ASSERT_TRUE(*vertex.RemoveLabel(acc2->NameToLabel("label")));
     }

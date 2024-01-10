@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "communication/bolt/v1/codes.hpp"
@@ -34,8 +35,8 @@ class FailureResponseException : public utils::BasicException {
 
   explicit FailureResponseException(const std::string &message) : utils::BasicException{message} {}
 
-  FailureResponseException(const std::string &code, const std::string &message)
-      : utils::BasicException{message}, code_{code} {}
+  FailureResponseException(std::string code, const std::string &message)
+      : utils::BasicException{message}, code_{std::move(code)} {}
 
   const std::string &code() const { return code_; }
   SPECIALIZE_GET_EXCEPTION_NAME(FailureResponseException)

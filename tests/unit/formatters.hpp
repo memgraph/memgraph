@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -137,6 +137,8 @@ inline std::string ToString(const memgraph::query::TypedValue &value, const TAcc
       os << ToString(value.ValueDuration());
       break;
     case memgraph::query::TypedValue::Type::Graph:
+      throw std::logic_error{"Not implemented"};
+    case memgraph::query::TypedValue::Type::Function:
       throw std::logic_error{"Not implemented"};
   }
   return os.str();

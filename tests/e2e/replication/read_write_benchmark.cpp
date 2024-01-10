@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -138,7 +138,7 @@ int main(int argc, char **argv) {
       auto client = mg::e2e::replication::Connect(database_endpoint);
       client->Execute("SHOW INDEX INFO;");
       if (const auto data = client->FetchAll()) {
-        if ((*data).size() != 0) {
+        if (!(*data).empty()) {
           LOG_FATAL("{} still have some indexes.", database_endpoint.SocketAddress());
         }
       } else {

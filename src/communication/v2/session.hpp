@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -77,7 +77,7 @@ using tcp = boost::asio::ip::tcp;
 class OutputStream final {
  public:
   explicit OutputStream(std::function<bool(const uint8_t *, size_t, bool)> write_function)
-      : write_function_(write_function) {}
+      : write_function_(std::move(write_function)) {}
 
   OutputStream(const OutputStream &) = delete;
   OutputStream(OutputStream &&) = delete;

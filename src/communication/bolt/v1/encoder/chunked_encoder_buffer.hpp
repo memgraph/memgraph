@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,7 +48,7 @@ namespace memgraph::communication::bolt {
 template <class TOutputStream>
 class ChunkedEncoderBuffer {
  public:
-  ChunkedEncoderBuffer(TOutputStream &output_stream) : output_stream_(output_stream) {}
+  explicit ChunkedEncoderBuffer(TOutputStream &output_stream) : output_stream_(output_stream) {}
 
   /**
    * Writes n values into the buffer. If n is bigger than whole chunk size

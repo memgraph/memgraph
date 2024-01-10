@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include "query/dump.hpp"
 
+#include <algorithm>
 #include <iomanip>
 #include <limits>
 #include <map>
@@ -21,9 +22,11 @@
 
 #include <fmt/format.h>
 
+#include "dbms/database.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/stream.hpp"
+#include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
@@ -159,7 +162,7 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
   *os << "{";
   if (property_id) {
     *os << kInternalPropertyId << ": " << *property_id;
-    if (store.size() > 0) *os << ", ";
+    if (!store.empty()) *os << ", ";
   }
   utils::PrintIterable(*os, store, ", ", [&dba](auto &os, const auto &kv) {
     os << EscapeName(dba->PropertyToName(kv.first)) << ": ";
@@ -228,7 +231,7 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
         throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
   }
-  if (maybe_props->size() > 0) {
+  if (!maybe_props->empty()) {
     *os << " ";
     DumpProperties(os, dba, *maybe_props);
   }
@@ -260,10 +263,20 @@ void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba, storage::Lab
   *os << " IS UNIQUE;";
 }
 
+const char *triggerPhaseToString(TriggerPhase phase) {
+  switch (phase) {
+    case TriggerPhase::BEFORE_COMMIT:
+      return "BEFORE COMMIT EXECUTE";
+    case TriggerPhase::AFTER_COMMIT:
+      return "AFTER COMMIT EXECUTE";
+  }
+}
+
 }  // namespace
 
-PullPlanDump::PullPlanDump(DbAccessor *dba)
+PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
     : dba_(dba),
+      db_acc_(db_acc),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
       pull_chunks_{// Dump all label indices
                    CreateLabelIndicesPullChunk(),
@@ -282,7 +295,9 @@ PullPlanDump::PullPlanDump(DbAccessor *dba)
                    // Drop the internal index
                    CreateDropInternalIndexPullChunk(),
                    // Internal index cleanup
-                   CreateInternalIndexCleanupPullChunk()} {}
+                   CreateInternalIndexCleanupPullChunk(),
+                   // Dump all triggers
+                   CreateTriggersPullChunk()} {}
 
 bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
@@ -536,6 +551,23 @@ PullPlanDump::PullChunk PullPlanDump::CreateInternalIndexCleanupPullChunk() {
   };
 }
 
-void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream) { PullPlanDump(dba).Pull(stream, {}); }
+PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
+  return [this](AnyStream *stream, std::optional<int>) {
+    auto triggers = db_acc_->trigger_store()->GetTriggerInfo();
+    for (const auto &trigger : triggers) {
+      std::ostringstream os;
+      auto trigger_statement_copy = trigger.statement;
+      std::replace(trigger_statement_copy.begin(), trigger_statement_copy.end(), '\n', ' ');
+      os << "CREATE TRIGGER " << trigger.name << " ON " << memgraph::query::TriggerEventTypeToString(trigger.event_type)
+         << " " << triggerPhaseToString(trigger.phase) << " " << trigger_statement_copy << ";";
+      stream->Result({TypedValue(os.str())});
+    }
+    return 0;
+  };
+}
+
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc) {
+  PullPlanDump(dba, db_acc).Pull(stream, {});
+}
 
 }  // namespace memgraph::query

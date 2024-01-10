@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -169,7 +169,7 @@ Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std
 std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor,
                                                        const query::AuthChecker *auth_checker) const {
   std::lock_guard plan_guard{plan_lock_};
-  if (!parsed_statements_.is_cacheable || !trigger_plan_ || trigger_plan_->cached_plan.IsExpired()) {
+  if (!parsed_statements_.is_cacheable || !trigger_plan_) {
     auto identifiers = GetPredefinedIdentifiers(event_type_);
 
     AstStorage ast_storage;

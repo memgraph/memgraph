@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,7 +42,7 @@ void LicenseInfoSender::SendData() {
   license_info_.WithLock([&data, this](const auto &license_info) mutable {
     if (license_info && !license_info->organization_name.empty()) {
       const auto memory_info = utils::GetMemoryInfo();
-      const auto memory_usage = utils::GetMemoryUsage();
+      const auto memory_res = utils::GetMemoryRES();
       data = {{"run_id", uuid_},
               {"machine_id", machine_id_},
               {"type", "license-check"},
@@ -52,7 +52,7 @@ void LicenseInfoSender::SendData() {
               {"valid", license_info->is_valid},
               {"physical_memory_size", memory_info.memory},
               {"swap_memory_size", memory_info.swap},
-              {"memory_used", memory_usage},
+              {"memory_used", memory_res},
               {"runtime_memory_limit", memory_limit_},
               {"license_memory_limit", license_info->license.memory_limit},
               {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()}};

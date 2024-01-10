@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,8 +45,8 @@ class PropertyValue;
  * - only for View::OLD
  */
 struct VertexInfoCache final {
-  VertexInfoCache();
-  ~VertexInfoCache();
+  VertexInfoCache() = default;
+  ~VertexInfoCache() = default;
 
   // By design would be a mistake to copy the cache
   VertexInfoCache(VertexInfoCache const &) = delete;

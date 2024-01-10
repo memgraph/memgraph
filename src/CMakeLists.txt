@@ -53,7 +53,10 @@ set_target_properties(memgraph PROPERTIES
         OUTPUT_NAME "memgraph-${MEMGRAPH_VERSION}_${CMAKE_BUILD_TYPE}"
 
         # Output the executable in main binary dir.
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+
+        POSITION_INDEPENDENT_CODE ON
+        )
 
 # Create symlink to the built executable.
 add_custom_command(TARGET memgraph POST_BUILD
@@ -143,7 +146,7 @@ install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
 # Memgraph CSV Import Tool Executable
 # ----------------------------------------------------------------------------
 add_executable(mg_import_csv mg_import_csv.cpp)
-target_link_libraries(mg_import_csv mg-storage-v2)
+target_link_libraries(mg_import_csv mg-storage-v2 mg-dbms)
 
 # Strip the executable in release build.
 if(lower_build_type STREQUAL "release")

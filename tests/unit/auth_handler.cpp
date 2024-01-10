@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,12 +36,12 @@ class AuthQueryHandlerFixture : public testing::Test {
 #ifdef MG_ENTERPRISE
   memgraph::auth::FineGrainedAccessHandler handler{};
 #endif
-  virtual void SetUp() {
+  void SetUp() override {
     memgraph::utils::EnsureDir(test_folder_);
     memgraph::license::global_license_checker.EnableTesting();
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     std::filesystem::remove_all(test_folder_);
     perms = memgraph::auth::Permissions{};
 #ifdef MG_ENTERPRISE

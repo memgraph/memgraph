@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -234,7 +234,57 @@ inline mgp_type *type_duration() { return MgInvoke<mgp_type *>(mgp_type_duration
 
 inline mgp_type *type_nullable(mgp_type *type) { return MgInvoke<mgp_type *>(mgp_type_nullable, type); }
 
+inline bool create_label_index(mgp_graph *graph, const char *label) {
+  return MgInvoke<int>(mgp_create_label_index, graph, label);
+}
+
+inline bool drop_label_index(mgp_graph *graph, const char *label) {
+  return MgInvoke<int>(mgp_drop_label_index, graph, label);
+}
+
+inline mgp_list *list_all_label_indices(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_label_indices, graph, memory);
+}
+
+inline bool create_label_property_index(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_create_label_property_index, graph, label, property);
+}
+
+inline bool drop_label_property_index(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_drop_label_property_index, graph, label, property);
+}
+
+inline mgp_list *list_all_label_property_indices(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_label_property_indices, graph, memory);
+}
+
+inline bool create_existence_constraint(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_create_existence_constraint, graph, label, property);
+}
+
+inline bool drop_existence_constraint(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_drop_existence_constraint, graph, label, property);
+}
+
+inline mgp_list *list_all_existence_constraints(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_existence_constraints, graph, memory);
+}
+
+inline bool create_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_value *properties) {
+  return MgInvoke<int>(mgp_create_unique_constraint, memgraph_graph, label, properties);
+}
+
+inline bool drop_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_value *properties) {
+  return MgInvoke<int>(mgp_drop_unique_constraint, memgraph_graph, label, properties);
+}
+
+inline mgp_list *list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_unique_constraints, graph, memory);
+}
+
 // mgp_graph
+
+inline bool graph_is_transactional(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_transactional, graph); }
 
 inline bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }
 
@@ -263,6 +313,11 @@ inline mgp_edge *graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e
 inline mgp_edge *graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
                                    mgp_memory *memory) {
   return MgInvoke<mgp_edge *>(mgp_graph_edge_set_to, graph, e, new_to, memory);
+}
+
+inline mgp_edge *graph_edge_change_type(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_edge_type new_type,
+                                        mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_change_type, graph, e, new_type, memory);
 }
 
 inline void graph_delete_edge(mgp_graph *graph, mgp_edge *edge) { MgInvokeVoid(mgp_graph_delete_edge, graph, edge); }
@@ -323,6 +378,8 @@ inline mgp_list *list_copy(mgp_list *list, mgp_memory *memory) {
 
 inline void list_destroy(mgp_list *list) { mgp_list_destroy(list); }
 
+inline bool list_contains_deleted(mgp_list *list) { return MgInvoke<int>(mgp_list_contains_deleted, list); }
+
 inline void list_append(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append, list, val); }
 
 inline void list_append_extend(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append_extend, list, val); }
@@ -341,6 +398,8 @@ inline mgp_map *map_copy(mgp_map *map, mgp_memory *memory) { return MgInvoke<mgp
 
 inline void map_destroy(mgp_map *map) { mgp_map_destroy(map); }
 
+inline bool map_contains_deleted(mgp_map *map) { return MgInvoke<int>(mgp_map_contains_deleted, map); }
+
 inline void map_insert(mgp_map *map, const char *key, mgp_value *value) {
   MgInvokeVoid(mgp_map_insert, map, key, value);
 }
@@ -354,6 +413,8 @@ inline void map_erase(mgp_map *map, const char *key) { MgInvokeVoid(mgp_map_eras
 inline size_t map_size(mgp_map *map) { return MgInvoke<size_t>(mgp_map_size, map); }
 
 inline mgp_value *map_at(mgp_map *map, const char *key) { return MgInvoke<mgp_value *>(mgp_map_at, map, key); }
+
+inline bool key_exists(mgp_map *map, const char *key) { return MgInvoke<int>(mgp_key_exists, map, key); }
 
 inline const char *map_item_key(mgp_map_item *item) { return MgInvoke<const char *>(mgp_map_item_key, item); }
 
@@ -386,6 +447,8 @@ inline mgp_vertex *vertex_copy(mgp_vertex *v, mgp_memory *memory) {
 }
 
 inline void vertex_destroy(mgp_vertex *v) { mgp_vertex_destroy(v); }
+
+inline bool vertex_is_deleted(mgp_vertex *v) { return MgInvoke<int>(mgp_vertex_is_deleted, v); }
 
 inline bool vertex_equal(mgp_vertex *v1, mgp_vertex *v2) { return MgInvoke<int>(mgp_vertex_equal, v1, v2); }
 
@@ -439,6 +502,8 @@ inline mgp_edge *edge_copy(mgp_edge *e, mgp_memory *memory) { return MgInvoke<mg
 
 inline void edge_destroy(mgp_edge *e) { mgp_edge_destroy(e); }
 
+inline bool edge_is_deleted(mgp_edge *e) { return MgInvoke<int>(mgp_edge_is_deleted, e); }
+
 inline bool edge_equal(mgp_edge *e1, mgp_edge *e2) { return MgInvoke<int>(mgp_edge_equal, e1, e2); }
 
 inline mgp_edge_type edge_get_type(mgp_edge *e) { return MgInvoke<mgp_edge_type>(mgp_edge_get_type, e); }
@@ -474,6 +539,8 @@ inline mgp_path *path_copy(mgp_path *path, mgp_memory *memory) {
 }
 
 inline void path_destroy(mgp_path *path) { mgp_path_destroy(path); }
+
+inline bool path_contains_deleted(mgp_path *path) { return MgInvoke<int>(mgp_path_contains_deleted, path); }
 
 inline void path_expand(mgp_path *path, mgp_edge *edge) { MgInvokeVoid(mgp_path_expand, path, edge); }
 

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -13,6 +13,7 @@
 
 #include <fmt/format.h>
 #include <json/json.hpp>
+#include <utility>
 
 #include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
@@ -87,8 +88,8 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
   return ret;
 }
 
-Log::Log(const std::filesystem::path &storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis)
-    : storage_directory_(storage_directory),
+Log::Log(std::filesystem::path storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis)
+    : storage_directory_(std::move(storage_directory)),
       buffer_size_(buffer_size),
       buffer_flush_interval_millis_(buffer_flush_interval_millis),
       started_(false) {}

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,9 @@
 #pragma once
 
 #include <memory>
+#include <span>
+
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -31,6 +34,20 @@ struct Indices {
   /// index.
   /// TODO: unused in disk indices
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) const;
+
+  /// Surgical removal of entries that was inserted this transaction
+  /// TODO: unused in disk indices
+  void AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp) const;
+  void AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                    uint64_t exact_start_timestamp) const;
+  void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                    uint64_t exact_start_timestamp) const;
+
+  struct IndexStats {
+    std::vector<LabelId> label;
+    LabelPropertyIndex::IndexStats property_label;
+  };
+  IndexStats Analysis() const;
 
   // Indices are updated whenever an update occurs, instead of only on commit or
   // advance command. This is necessary because we want indices to support `NEW`

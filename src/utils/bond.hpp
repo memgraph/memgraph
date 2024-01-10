@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,15 +26,20 @@ struct Bond {
       : res_(std::make_unique<resource>(initial_size)),
         container_(memgraph::utils::Allocator<Container>(res_.get()).template new_object<Container>()){};
 
-  Bond(Bond &&other) noexcept : res_(std::exchange(other.res_, nullptr)), container_(other.container_) {
-    other.container_ = nullptr;
-  }
+  Bond(Bond &&other) noexcept
+      : res_(std::exchange(other.res_, nullptr)), container_(std::exchange(other.container_, nullptr)) {}
 
   Bond(const Bond &other) = delete;
 
   Bond &operator=(const Bond &other) = delete;
 
-  Bond &operator=(Bond &&other) = delete;
+  Bond &operator=(Bond &&other) {
+    if (this != &other) {
+      res_ = std::exchange(other.res_, nullptr);
+      container_ = std::exchange(other.container_, nullptr);
+    }
+    return *this;
+  };
 
   auto use() -> Container & { return *container_; }
 

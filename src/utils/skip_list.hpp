@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1091,8 +1091,8 @@ class SkipList final : detail::SkipListNode_base {
     if (lower) {
       layer_found = find_node(lower->value(), preds, succs);
     } else {
-      for (int i = 0; i < kSkipListMaxHeight; ++i) {
-        preds[i] = head_;
+      for (auto &pred : preds) {
+        pred = head_;
       }
       layer_found = kSkipListMaxHeight - 1;
     }

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,9 +42,10 @@ class EdgeImportModeCache final {
                                                 View view, Storage *storage, Transaction *transaction) const;
 
   bool CreateIndex(LabelId label, PropertyId property,
-                   const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info = {});
+                   const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = {});
 
-  bool CreateIndex(LabelId label, const std::optional<ParallelizedIndexCreationInfo> &parallel_exec_info = {});
+  bool CreateIndex(LabelId label,
+                   const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = {});
 
   bool VerticesWithLabelPropertyScanned(LabelId label, PropertyId property) const;
 

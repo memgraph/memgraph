@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@ namespace memgraph::query::plan {
 template <class TDbAccessor>
 class VertexCountCache {
  public:
-  VertexCountCache(TDbAccessor *db) : db_(db) {}
+  explicit VertexCountCache(TDbAccessor *db) : db_(db) {}
 
   auto NameToLabel(const std::string &name) { return db_->NameToLabel(name); }
   auto NameToProperty(const std::string &name) { return db_->NameToProperty(name); }
@@ -88,7 +88,7 @@ class VertexCountCache {
   }
 
  private:
-  typedef std::pair<storage::LabelId, storage::PropertyId> LabelPropertyKey;
+  using LabelPropertyKey = std::pair<storage::LabelId, storage::PropertyId>;
 
   struct LabelPropertyHash {
     size_t operator()(const LabelPropertyKey &key) const {
@@ -96,9 +96,8 @@ class VertexCountCache {
     }
   };
 
-  typedef std::pair<std::optional<utils::Bound<storage::PropertyValue>>,
-                    std::optional<utils::Bound<storage::PropertyValue>>>
-      BoundsKey;
+  using BoundsKey = std::pair<std::optional<utils::Bound<storage::PropertyValue>>,
+                              std::optional<utils::Bound<storage::PropertyValue>>>;
 
   struct BoundsHash {
     size_t operator()(const BoundsKey &key) const {

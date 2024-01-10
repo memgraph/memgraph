@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,7 +45,7 @@ class BadAlloc final : public std::bad_alloc {
   std::string msg_;
 
  public:
-  explicit BadAlloc(const std::string &msg) : msg_(msg) {}
+  explicit BadAlloc(std::string msg) : msg_(std::move(msg)) {}
 
   const char *what() const noexcept override { return msg_.c_str(); }
 };
@@ -53,7 +53,7 @@ class BadAlloc final : public std::bad_alloc {
 /// Abstract class for writing custom memory management, i.e. allocators.
 class MemoryResource {
  public:
-  virtual ~MemoryResource() {}
+  virtual ~MemoryResource() = default;
 
   /// Allocate storage with a size of at least `bytes` bytes.
   ///
@@ -539,9 +539,9 @@ class SynchronizedPoolResource final : public MemoryResource {
   bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
 };
 
-class LimitedMemoryResource final : public utils::MemoryResource {
+class MemoryTrackingResource final : public utils::MemoryResource {
  public:
-  explicit LimitedMemoryResource(utils::MemoryResource *memory, size_t max_allocated_bytes)
+  explicit MemoryTrackingResource(utils::MemoryResource *memory, size_t max_allocated_bytes)
       : memory_(memory), max_allocated_bytes_(max_allocated_bytes) {}
 
   size_t GetAllocatedBytes() const noexcept { return max_allocated_bytes_ - available_bytes_; }
@@ -552,13 +552,11 @@ class LimitedMemoryResource final : public utils::MemoryResource {
   size_t available_bytes_{max_allocated_bytes_};
 
   void *DoAllocate(size_t bytes, size_t alignment) override {
-    if (bytes > available_bytes_) throw utils::BadAlloc("Memory allocation limit exceeded!");
     available_bytes_ -= bytes;
     return memory_->Allocate(bytes, alignment);
   }
 
   void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
-    MG_ASSERT(available_bytes_ + bytes > available_bytes_, "Failed deallocation");
     available_bytes_ += bytes;
     return memory_->Deallocate(p, bytes, alignment);
   }

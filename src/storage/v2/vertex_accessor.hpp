@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -126,6 +126,9 @@ class VertexAccessor final {
   // return an error if it's called for a deleted vertex.
   bool for_deleted_{false};
 };
+
+static_assert(std::is_trivially_copyable_v<memgraph::storage::VertexAccessor>,
+              "storage::VertexAccessor must be trivially copyable!");
 
 struct EdgesVertexAccessorResult {
   std::vector<EdgeAccessor> edges;

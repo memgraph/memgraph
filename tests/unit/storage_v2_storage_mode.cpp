@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,9 +43,9 @@ TEST_P(StorageModeTest, Mode) {
       std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
           .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
 
-  storage->SetStorageMode(storage_mode);
-  auto creator = storage->Access();
-  auto other_analytics_mode_reader = storage->Access();
+  static_cast<memgraph::storage::InMemoryStorage *>(storage.get())->SetStorageMode(storage_mode);
+  auto creator = storage->Access(memgraph::replication::ReplicationRole::MAIN);
+  auto other_analytics_mode_reader = storage->Access(memgraph::replication::ReplicationRole::MAIN);
 
   ASSERT_EQ(CountVertices(*creator, memgraph::storage::View::OLD), 0);
   ASSERT_EQ(CountVertices(*other_analytics_mode_reader, memgraph::storage::View::OLD), 0);
@@ -75,9 +75,13 @@ class StorageModeMultiTxTest : public ::testing::Test {
     return tmp;
   }();  // iile
 
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{memgraph::storage::Config{
-      .durability.storage_directory = data_directory, .disk.main_storage_directory = data_directory / "disk"}};
+  void TearDown() override { std::filesystem::remove_all(data_directory); }
 
+  memgraph::storage::Config config{.durability.storage_directory = data_directory,
+                                   .disk.main_storage_directory = data_directory / "disk"};
+
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -86,8 +90,7 @@ class StorageModeMultiTxTest : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
-
-  memgraph::query::InterpreterContext interpreter_context{{}, nullptr};
+  memgraph::query::InterpreterContext interpreter_context{{}, nullptr, &repl_state};
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
 };
 

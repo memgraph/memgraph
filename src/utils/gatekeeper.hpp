@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -81,7 +81,7 @@ EvalResult(run_t, Func &&, T &) -> EvalResult<std::invoke_result_t<Func, T &>>;
 template <typename T>
 struct Gatekeeper {
   template <typename... Args>
-  explicit Gatekeeper(Args &&...args) : value_{std::forward<Args>(args)...} {}
+  explicit Gatekeeper(Args &&...args) : value_{std::in_place, std::forward<Args>(args)...} {}
 
   Gatekeeper(Gatekeeper const &) = delete;
   Gatekeeper(Gatekeeper &&) noexcept = delete;

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,7 @@ PRE_VISIT(CreateNode);
 
 bool PlanPrinter::PreVisit(CreateExpand &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
@@ -39,59 +39,59 @@ bool PlanPrinter::PreVisit(CreateExpand &op) {
 PRE_VISIT(Delete);
 
 bool PlanPrinter::PreVisit(query::plan::ScanAll &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabel &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyValue &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyRange &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelProperty &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(ScanAllById &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::Expand &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ExpandVariable &op) {
   op.dba_ = dba_;
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::Produce &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -101,13 +101,12 @@ PRE_VISIT(SetProperties);
 PRE_VISIT(SetLabels);
 PRE_VISIT(RemoveProperty);
 PRE_VISIT(RemoveLabels);
-PRE_VISIT(EdgeUniquenessFilter);
 PRE_VISIT(Accumulate);
 PRE_VISIT(EmptyResult);
 PRE_VISIT(EvaluatePatternFilter);
 
 bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -115,7 +114,7 @@ PRE_VISIT(Skip);
 PRE_VISIT(Limit);
 
 bool PlanPrinter::PreVisit(query::plan::OrderBy &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -138,19 +137,19 @@ PRE_VISIT(Unwind);
 PRE_VISIT(Distinct);
 
 bool PlanPrinter::PreVisit(query::plan::Union &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   Branch(*op.right_op_);
   op.left_op_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::CallProcedure &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::LoadCsv &op) {
-  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -172,6 +171,13 @@ bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
   return false;
 }
 
+bool PlanPrinter::PreVisit(query::plan::HashJoin &op) {
+  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  Branch(*op.right_op_);
+  op.left_op_->Accept(*this);
+  return false;
+}
+
 bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
   WithPrintLn([](auto &out) { out << "* Foreach"; });
   Branch(*op.update_clauses_);
@@ -180,7 +186,7 @@ bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::Filter &op) {
-  WithPrintLn([](auto &out) { out << "* Filter"; });
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   for (const auto &pattern_filter : op.pattern_filters_) {
     Branch(*pattern_filter);
   }
@@ -188,10 +194,22 @@ bool PlanPrinter::PreVisit(query::plan::Filter &op) {
   return false;
 }
 
+bool PlanPrinter::PreVisit(query::plan::EdgeUniquenessFilter &op) {
+  WithPrintLn([&](auto &out) { out << "* " << op.ToString(); });
+  return true;
+}
+
 bool PlanPrinter::PreVisit(query::plan::Apply &op) {
   WithPrintLn([](auto &out) { out << "* Apply"; });
   Branch(*op.subquery_);
   op.input_->Accept(*this);
+  return false;
+}
+
+bool PlanPrinter::PreVisit(query::plan::IndexedJoin &op) {
+  WithPrintLn([](auto &out) { out << "* IndexedJoin"; });
+  Branch(*op.sub_branch_);
+  op.main_branch_->Accept(*this);
   return false;
 }
 #undef PRE_VISIT
@@ -879,6 +897,20 @@ bool PlanToJsonVisitor::PreVisit(Cartesian &op) {
   return false;
 }
 
+bool PlanToJsonVisitor::PreVisit(HashJoin &op) {
+  json self;
+  self["name"] = "HashJoin";
+
+  op.left_op_->Accept(*this);
+  self["left_op"] = PopOutput();
+
+  op.right_op_->Accept(*this);
+  self["right_op"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
 bool PlanToJsonVisitor::PreVisit(Foreach &op) {
   json self;
   self["name"] = "Foreach";
@@ -916,6 +948,20 @@ bool PlanToJsonVisitor::PreVisit(Apply &op) {
 
   op.subquery_->Accept(*this);
   self["subquery"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(IndexedJoin &op) {
+  json self;
+  self["name"] = "IndexedJoin";
+
+  op.main_branch_->Accept(*this);
+  self["left"] = PopOutput();
+
+  op.sub_branch_->Accept(*this);
+  self["right"] = PopOutput();
 
   output_ = std::move(self);
   return false;

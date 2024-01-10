@@ -2,6 +2,15 @@ name: Release Debian 10
 
 on:
   workflow_dispatch:
+    inputs:
+      build_type:
+        type: choice
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
+        options:
+          - Release
+          - RelWithDebInfo
+
   schedule:
     - cron: "0 22 * * *"
 
@@ -31,9 +40,13 @@ jobs:
           # Initialize dependencies.
           ./init
 
+          # Set default build_type to Release
+          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
+          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
+
           # Build community binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=release -DMG_ENTERPRISE=OFF ..
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DMG_ENTERPRISE=OFF ..
           make -j$THREADS
 
       - name: Run unit tests
@@ -165,7 +178,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Debian10, BigMemory]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -188,9 +201,13 @@ jobs:
           # Initialize dependencies.
           ./init
 
+          # Set default build_type to Release
+          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
+          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
+
           # Build release binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
           make -j$THREADS
 
       - name: Create enterprise DEB package
@@ -242,7 +259,9 @@ jobs:
 
       - name: Run GQL Behave tests
         run: |
-          cd tests/gql_behave
+          cd tests
+          ./setup.sh /opt/toolchain-v4/activate
+          cd gql_behave
           ./continuous_integration
 
       - name: Save quality assurance status
@@ -320,9 +339,14 @@ jobs:
           source /opt/toolchain-v4/activate
           # Initialize dependencies.
           ./init
+
+          # Set default build_type to Release
+          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
+          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
+
           # Build only memgraph release binary.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
           make -j$THREADS memgraph
 
       - name: Run Jepsen tests

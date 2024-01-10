@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,7 +10,13 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/unique_constraints.hpp"
-
+#include <memory>
+#include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/constraints/utils.hpp"
+#include "storage/v2/durability/recovery_type.hpp"
+#include "storage/v2/id_types.hpp"
+#include "utils/logging.hpp"
+#include "utils/skip_list.hpp"
 namespace memgraph::storage {
 
 namespace {
@@ -256,11 +262,12 @@ bool InMemoryUniqueConstraints::Entry::operator==(const std::vector<PropertyValu
 
 void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
   for (const auto &label : vertex->labels) {
-    if (!constraints_by_label_.contains(label)) {
+    const auto &constraint = constraints_by_label_.find(label);
+    if (constraint == constraints_by_label_.end()) {
       continue;
     }
 
-    for (auto &[props, storage] : constraints_by_label_.at(label)) {
+    for (auto &[props, storage] : constraint->second) {
       auto values = vertex->properties.ExtractPropertyValues(props);
 
       if (!values) {
@@ -273,9 +280,101 @@ void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const T
   }
 }
 
+std::variant<InMemoryUniqueConstraints::MultipleThreadsConstraintValidation,
+             InMemoryUniqueConstraints::SingleThreadConstraintValidation>
+InMemoryUniqueConstraints::GetCreationFunction(
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
+  if (par_exec_info.has_value()) {
+    return InMemoryUniqueConstraints::MultipleThreadsConstraintValidation{par_exec_info.value()};
+  }
+  return InMemoryUniqueConstraints::SingleThreadConstraintValidation{};
+}
+
+bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
+    const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
+    const LabelId &label, const std::set<PropertyId> &properties) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
+  MG_ASSERT(!vertex_batches.empty(),
+            "The size of batches should always be greater than zero if you want to use the parallel version of index "
+            "creation!");
+  const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
+
+  std::atomic<uint64_t> batch_counter = 0;
+  memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> has_error;
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(thread_count);
+    for (auto i{0U}; i < thread_count; ++i) {
+      threads.emplace_back(
+          [&has_error, &vertex_batches, &batch_counter, &vertex_accessor, &constraint_accessor, &label, &properties]() {
+            do_per_thread_validation(has_error, DoValidate, vertex_batches, batch_counter, vertex_accessor,
+                                     constraint_accessor, label, properties);
+          });
+    }
+  }
+  return has_error.Lock()->has_value();
+}
+
+bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
+    const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
+    const LabelId &label, const std::set<PropertyId> &properties) {
+  for (const Vertex &vertex : vertex_accessor) {
+    if (const auto violation = DoValidate(vertex, constraint_accessor, label, properties); violation.has_value()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::optional<ConstraintViolation> InMemoryUniqueConstraints::DoValidate(
+    const Vertex &vertex, utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
+    const std::set<PropertyId> &properties) {
+  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+    return std::nullopt;
+  }
+  auto values = vertex.properties.ExtractPropertyValues(properties);
+  if (!values) {
+    return std::nullopt;
+  }
+
+  // Check whether there already is a vertex with the same values for the
+  // given label and property.
+  auto it = constraint_accessor.find_equal_or_greater(*values);
+  if (it != constraint_accessor.end() && it->values == *values) {
+    return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
+  }
+
+  constraint_accessor.insert(Entry{std::move(*values), &vertex, 0});
+  return std::nullopt;
+}
+
+void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp) {
+  for (const auto &vertex : vertices) {
+    for (const auto &label : vertex->labels) {
+      const auto &constraint = constraints_by_label_.find(label);
+      if (constraint == constraints_by_label_.end()) {
+        return;
+      }
+
+      for (auto &[props, storage] : constraint->second) {
+        auto values = vertex->properties.ExtractPropertyValues(props);
+
+        if (!values) {
+          continue;
+        }
+
+        auto acc = storage->access();
+        acc.remove(Entry{std::move(*values), vertex, exact_start_timestamp});
+      }
+    }
+  }
+}
+
 utils::BasicResult<ConstraintViolation, InMemoryUniqueConstraints::CreationStatus>
-InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                            utils::SkipList<Vertex>::Accessor vertices) {
+InMemoryUniqueConstraints::CreateConstraint(
+    LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
   if (properties.empty()) {
     return CreationStatus::EMPTY_PROPERTIES;
   }
@@ -283,49 +382,28 @@ InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<Proper
     return CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED;
   }
 
-  auto [constraint, emplaced] =
-      constraints_.emplace(std::piecewise_construct, std::forward_as_tuple(label, properties), std::forward_as_tuple());
-
-  if (!emplaced) {
-    // Constraint already exists.
+  if (constraints_.contains({label, properties})) {
     return CreationStatus::ALREADY_EXISTS;
   }
+  memgraph::utils::SkipList<Entry> constraints_skip_list;
+  utils::SkipList<Entry>::Accessor constraint_accessor{constraints_skip_list.access()};
 
-  bool violation_found = false;
+  auto multi_single_thread_processing = GetCreationFunction(par_exec_info);
 
-  {
-    auto acc = constraint->second.access();
-
-    for (const Vertex &vertex : vertices) {
-      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
-        continue;
-      }
-      auto values = vertex.properties.ExtractPropertyValues(properties);
-      if (!values) {
-        continue;
-      }
-
-      // Check whether there already is a vertex with the same values for the
-      // given label and property.
-      auto it = acc.find_equal_or_greater(*values);
-      if (it != acc.end() && it->values == *values) {
-        violation_found = true;
-        break;
-      }
-
-      acc.insert(Entry{std::move(*values), &vertex, 0});
-    }
-  }
+  bool violation_found = std::visit(
+      [&vertex_accessor, &constraint_accessor, &label, &properties](auto &multi_single_thread_processing) {
+        return multi_single_thread_processing(vertex_accessor, constraint_accessor, label, properties);
+      },
+      multi_single_thread_processing);
 
   if (violation_found) {
-    // In the case of the violation, storage for the current constraint has to
-    // be removed.
-    constraints_.erase(constraint);
     return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
   }
 
+  auto [it, _] = constraints_.emplace(std::make_pair(label, properties), std::move(constraints_skip_list));
+
   // Add the new constraint to the optimized structure only if there are no violations.
-  constraints_by_label_[label].insert({properties, &constraints_.at({label, properties})});
+  constraints_by_label_[label].insert({properties, &it->second});
   return CreationStatus::SUCCESS;
 }
 
@@ -364,12 +442,14 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
   if (vertex.deleted) {
     return std::nullopt;
   }
+
   for (const auto &label : vertex.labels) {
-    if (!constraints_by_label_.contains(label)) {
+    const auto &constraint = constraints_by_label_.find(label);
+    if (constraint == constraints_by_label_.end()) {
       continue;
     }
 
-    for (const auto &[properties, storage] : constraints_by_label_.at(label)) {
+    for (const auto &[properties, storage] : constraint->second) {
       auto value_array = vertex.properties.ExtractPropertyValues(properties);
 
       if (!value_array) {

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <regex>
+#include <utility>
 
 #include <gflags/gflags.h>
 
@@ -560,20 +561,20 @@ Databases Databases::Deserialize(const nlohmann::json &data) {
 }
 #endif
 
-User::User() {}
+User::User() = default;
 
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
-User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions)
-    : username_(utils::ToLowerCase(username)), password_hash_(password_hash), permissions_(permissions) {}
+User::User(const std::string &username, std::string password_hash, const Permissions &permissions)
+    : username_(utils::ToLowerCase(username)), password_hash_(std::move(password_hash)), permissions_(permissions) {}
 
 #ifdef MG_ENTERPRISE
-User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
+User::User(const std::string &username, std::string password_hash, const Permissions &permissions,
            FineGrainedAccessHandler fine_grained_access_handler, Databases db_access)
     : username_(utils::ToLowerCase(username)),
-      password_hash_(password_hash),
+      password_hash_(std::move(password_hash)),
       permissions_(permissions),
       fine_grained_access_handler_(std::move(fine_grained_access_handler)),
-      database_access_(db_access) {}
+      database_access_(std::move(db_access)) {}
 #endif
 
 bool User::CheckPassword(const std::string &password) {

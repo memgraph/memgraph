@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,7 +39,7 @@ auto ParseDatabaseEndpoints(const std::string &database_endpoints_str) {
   for (const auto &db_endpoint_str : db_endpoints_strs) {
     const auto maybe_host_port = memgraph::io::network::Endpoint::ParseSocketOrIpAddress(db_endpoint_str, 7687);
     MG_ASSERT(maybe_host_port);
-    database_endpoints.emplace_back(memgraph::io::network::Endpoint(maybe_host_port->first, maybe_host_port->second));
+    database_endpoints.emplace_back(maybe_host_port->first, maybe_host_port->second);
   }
   return database_endpoints;
 }

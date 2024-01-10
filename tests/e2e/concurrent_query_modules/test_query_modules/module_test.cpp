@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,11 +16,11 @@
 #include <list>
 #include <thread>
 
-constexpr char *kProcedureHackerNews = "hacker_news";
-constexpr char *kArgumentHackerNewsVotes = "votes";
-constexpr char *kArgumentHackerNewsItemHourAge = "item_hour_age";
-constexpr char *kArgumentHackerNewsGravity = "gravity";
-constexpr char *kReturnHackerNewsScore = "score";
+constexpr char const *kProcedureHackerNews = "hacker_news";
+constexpr char const *kArgumentHackerNewsVotes = "votes";
+constexpr char const *kArgumentHackerNewsItemHourAge = "item_hour_age";
+constexpr char const *kArgumentHackerNewsGravity = "gravity";
+constexpr char const *kReturnHackerNewsScore = "score";
 
 void HackerNews(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);

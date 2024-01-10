@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,11 @@ namespace memgraph::storage {
 
 class LabelPropertyIndex {
  public:
+  struct IndexStats {
+    std::map<LabelId, std::vector<PropertyId>> l2p;
+    std::map<PropertyId, std::vector<LabelId>> p2l;
+  };
+
   LabelPropertyIndex() = default;
   LabelPropertyIndex(const LabelPropertyIndex &) = delete;
   LabelPropertyIndex(LabelPropertyIndex &&) = delete;

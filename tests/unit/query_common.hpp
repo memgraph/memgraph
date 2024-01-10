@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,9 +46,7 @@
 #include "storage/v2/id_types.hpp"
 #include "utils/string.hpp"
 
-namespace memgraph::query {
-
-namespace test_common {
+namespace memgraph::query::test_common {
 
 auto ToIntList(const TypedValue &t) {
   std::vector<int64_t> list;
@@ -189,7 +187,7 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name, EdgeAtom::Typ
   for (const auto &type : edge_types) {
     types.push_back(storage.GetEdgeTypeIx(type));
   }
-  auto r_val = storage.Create<EdgeAtom>(storage.Create<Identifier>(name), type, dir, types);
+  auto *r_val = storage.Create<EdgeAtom>(storage.Create<Identifier>(name), type, dir, types);
 
   r_val->filter_lambda_.inner_edge =
       flambda_inner_edge ? flambda_inner_edge : storage.Create<Identifier>(memgraph::utils::RandomString(20));
@@ -215,14 +213,14 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name, EdgeAtom::Typ
 /// Name is used to create the Identifier which is assigned to the node.
 auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::string> label = std::nullopt,
              const bool user_declared = true) {
-  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
+  auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
   if (label) node->labels_.emplace_back(storage.GetLabelIx(*label));
   return node;
 }
 
 /// Create a Pattern with given atoms.
 auto GetPattern(AstStorage &storage, std::vector<PatternAtom *> atoms) {
-  auto pattern = storage.Create<Pattern>();
+  auto *pattern = storage.Create<Pattern>();
   pattern->identifier_ = storage.Create<Identifier>(memgraph::utils::RandomString(20), false);
   pattern->atoms_.insert(pattern->atoms_.begin(), atoms.begin(), atoms.end());
   return pattern;
@@ -230,7 +228,7 @@ auto GetPattern(AstStorage &storage, std::vector<PatternAtom *> atoms) {
 
 /// Create a Pattern with given name and atoms.
 auto GetPattern(AstStorage &storage, const std::string &name, std::vector<PatternAtom *> atoms) {
-  auto pattern = storage.Create<Pattern>();
+  auto *pattern = storage.Create<Pattern>();
   pattern->identifier_ = storage.Create<Identifier>(name, true);
   pattern->atoms_.insert(pattern->atoms_.begin(), atoms.begin(), atoms.end());
   return pattern;
@@ -377,7 +375,7 @@ void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &na
 /// @sa GetWith
 template <class... T>
 auto GetReturn(AstStorage &storage, bool distinct, T... exprs) {
-  auto ret = storage.Create<Return>();
+  auto *ret = storage.Create<Return>();
   ret->body_.distinct = distinct;
   FillReturnBody(storage, ret->body_, exprs...);
   return ret;
@@ -390,7 +388,7 @@ auto GetReturn(AstStorage &storage, bool distinct, T... exprs) {
 /// @sa GetReturn
 template <class... T>
 auto GetWith(AstStorage &storage, bool distinct, T... exprs) {
-  auto with = storage.Create<With>();
+  auto *with = storage.Create<With>();
   with->body_.distinct = distinct;
   FillReturnBody(storage, with->body_, exprs...);
   return with;
@@ -407,7 +405,7 @@ auto GetUnwind(AstStorage &storage, Expression *expr, NamedExpression *as) {
 
 /// Create the delete clause with given named expressions.
 auto GetDelete(AstStorage &storage, std::vector<Expression *> exprs, bool detach = false) {
-  auto del = storage.Create<Delete>();
+  auto *del = storage.Create<Delete>();
   del->expressions_.insert(del->expressions_.begin(), exprs.begin(), exprs.end());
   del->detach_ = detach;
   return del;
@@ -495,9 +493,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   return storage.Create<query::Foreach>(named_expr, clauses);
 }
 
-}  // namespace test_common
-
-}  // namespace memgraph::query
+}  // namespace memgraph::query::test_common
 
 /// All the following macros implicitly pass `storage` variable to functions.
 /// You need to have `AstStorage storage;` somewhere in scope to use them.
@@ -529,16 +525,17 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define MAP(...)                                              \
   this->storage.template Create<memgraph::query::MapLiteral>( \
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{__VA_ARGS__})
-#define PROPERTY_PAIR(dba, property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
-#define PROPERTY_LOOKUP(dba, ...) memgraph::query::test_common::GetPropertyLookup(this->storage, dba, __VA_ARGS__)
-#define PARAMETER_LOOKUP(token_position) \
-  this->storage.template Create<memgraph::query::ParameterLookup>((token_position))
-#define NEXPR(name, expr) this->storage.template Create<memgraph::query::NamedExpression>((name), (expr))
 #define MAP_PROJECTION(map_variable, elements)                          \
   this->storage.template Create<memgraph::query::MapProjectionLiteral>( \
       (memgraph::query::Expression *){map_variable},                    \
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{elements})
+#define LABELS_TEST(expr, labels) this->storage.template Create<memgraph::query::LabelsTest>(expr, labels)
+#define PROPERTY_PAIR(dba, property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
+#define PROPERTY_LOOKUP(dba, ...) memgraph::query::test_common::GetPropertyLookup(this->storage, dba, __VA_ARGS__)
 #define ALL_PROPERTIES_LOOKUP(expr) memgraph::query::test_common::GetAllPropertiesLookup(this->storage, expr)
+#define PARAMETER_LOOKUP(token_position) \
+  this->storage.template Create<memgraph::query::ParameterLookup>((token_position))
+#define NEXPR(name, expr) this->storage.template Create<memgraph::query::NamedExpression>((name), (expr))
 // AS is alternative to NEXPR which does not initialize NamedExpression with
 // Expression. It should be used with RETURN or WITH. For example:
 // RETURN(IDENT("n"), AS("n")) vs. RETURN(NEXPR("n", IDENT("n"))).

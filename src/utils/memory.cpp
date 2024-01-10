@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -303,6 +303,7 @@ void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
                              [](const auto &a, const auto &b) { return a.GetBlockSize() < b.GetBlockSize(); });
   if (it != pools_.end() && it->GetBlockSize() == block_size) {
     last_alloc_pool_ = &*it;
+    last_dealloc_pool_ = &*it;
     return it->Allocate();
   }
   // We don't have a pool for this block_size, so insert it in the sorted
@@ -330,8 +331,7 @@ void PoolResource::DoDeallocate(void *p, size_t bytes, size_t alignment) {
     return;
   }
   // Deallocate a regular block, first check if last_dealloc_pool_ is suitable.
-  MG_ASSERT(last_dealloc_pool_, "Failed deallocation");
-  if (last_dealloc_pool_->GetBlockSize() == block_size) return last_dealloc_pool_->Deallocate(p);
+  if (last_dealloc_pool_ && last_dealloc_pool_->GetBlockSize() == block_size) return last_dealloc_pool_->Deallocate(p);
   // Find the pool with equal block_size.
   impl::Pool pool(block_size, max_blocks_per_chunk_, GetUpstreamResource());
   auto it = std::lower_bound(pools_.begin(), pools_.end(), pool,

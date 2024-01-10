@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -84,7 +84,8 @@ class TypedValue {
     LocalTime,
     LocalDateTime,
     Duration,
-    Graph
+    Graph,
+    Function
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -420,6 +421,9 @@ class TypedValue {
     new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
   }
 
+  explicit TypedValue(std::function<void(TypedValue *)> &&other)
+      : function_v(std::move(other)), type_(Type::Function) {}
+
   /**
    * Construct with the value of other.
    * Default utils::NewDeleteResource() is used for allocations. After the move,
@@ -451,6 +455,7 @@ class TypedValue {
   TypedValue &operator=(const utils::LocalTime &);
   TypedValue &operator=(const utils::LocalDateTime &);
   TypedValue &operator=(const utils::Duration &);
+  TypedValue &operator=(const std::function<void(TypedValue *)> &);
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
   TypedValue &operator=(const TypedValue &other);
@@ -506,8 +511,11 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration)
   DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph)
+  DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function)
 
 #undef DECLARE_VALUE_AND_TYPE_GETTERS
+
+  bool ContainsDeleted() const;
 
   /**  Checks if value is a TypedValue::Null. */
   bool IsNull() const;
@@ -550,6 +558,7 @@ class TypedValue {
     utils::Duration duration_v;
     // As the unique_ptr is not allocator aware, it requires special attention when copying or moving graphs
     std::unique_ptr<Graph> graph_v;
+    std::function<void(TypedValue *)> function_v;
   };
 
   /**

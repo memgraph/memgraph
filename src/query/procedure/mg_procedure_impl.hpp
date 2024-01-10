@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -560,23 +560,24 @@ struct mgp_graph {
   // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
   // `ctx` field is out of place here.
   memgraph::query::ExecutionContext *ctx;
+  memgraph::storage::StorageMode storage_mode;
 
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
-    return mgp_graph{&acc, view, &ctx};
+    return mgp_graph{&acc, view, &ctx, acc.GetStorageMode()};
   }
 
   static mgp_graph NonWritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view) {
-    return mgp_graph{&acc, view, nullptr};
+    return mgp_graph{&acc, view, nullptr, acc.GetStorageMode()};
   }
 
   static mgp_graph WritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
-    return mgp_graph{&acc, view, &ctx};
+    return mgp_graph{&acc, view, &ctx, acc.GetStorageMode()};
   }
 
   static mgp_graph NonWritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view) {
-    return mgp_graph{&acc, view, nullptr};
+    return mgp_graph{&acc, view, nullptr, acc.GetStorageMode()};
   }
 };
 
@@ -585,6 +586,8 @@ struct mgp_result_record {
   const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
                                   std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
   memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue> values;
+  bool ignore_deleted_values = false;
+  bool has_deleted_values = false;
 };
 
 struct mgp_result {
@@ -599,6 +602,7 @@ struct mgp_result {
                                   std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
   memgraph::utils::pmr::vector<mgp_result_record> rows;
   std::optional<memgraph::utils::pmr::string> error_msg;
+  bool is_transactional = true;
 };
 
 struct mgp_func_result {
@@ -614,6 +618,7 @@ struct mgp_func_context {
   memgraph::query::DbAccessor *impl;
   memgraph::storage::View view;
 };
+
 struct mgp_properties_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_properties_iterator>;
 
@@ -724,6 +729,7 @@ struct ProcedureInfo {
   bool is_batched{false};
   std::optional<memgraph::query::AuthQuery::Privilege> required_privilege = std::nullopt;
 };
+
 struct mgp_proc {
   using allocator_type = memgraph::utils::Allocator<mgp_proc>;
 
@@ -983,5 +989,7 @@ struct mgp_messages {
 
   storage_type messages;
 };
+
+bool ContainsDeleted(const mgp_value *val);
 
 memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory);

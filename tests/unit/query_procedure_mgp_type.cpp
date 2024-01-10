@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,8 @@
 
 #include "disk_test_utils.hpp"
 #include "test_utils.hpp"
+
+using memgraph::replication::ReplicationRole;
 
 template <typename StorageType>
 class CypherType : public testing::Test {
@@ -244,12 +246,12 @@ TYPED_TEST(CypherType, MapSatisfiesType) {
 }
 
 TYPED_TEST(CypherType, VertexSatisfiesType) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto vertex = dba.InsertVertex();
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   memgraph::utils::Allocator<mgp_vertex> alloc(memory.impl);
-  mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr};
+  mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr, dba.GetStorageMode()};
   auto *mgp_vertex_v =
       EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_vertex, alloc.new_object<mgp_vertex>(vertex, &graph));
   const memgraph::query::TypedValue tv_vertex(vertex);
@@ -267,14 +269,14 @@ TYPED_TEST(CypherType, VertexSatisfiesType) {
 }
 
 TYPED_TEST(CypherType, EdgeSatisfiesType) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto edge = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   memgraph::utils::Allocator<mgp_edge> alloc(memory.impl);
-  mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr};
+  mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr, dba.GetStorageMode()};
   auto *mgp_edge_v = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_edge, alloc.new_object<mgp_edge>(edge, &graph));
   const memgraph::query::TypedValue tv_edge(edge);
   CheckSatisfiesTypesAndNullable(
@@ -291,14 +293,14 @@ TYPED_TEST(CypherType, EdgeSatisfiesType) {
 }
 
 TYPED_TEST(CypherType, PathSatisfiesType) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto edge = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   memgraph::utils::Allocator<mgp_path> alloc(memory.impl);
-  mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr};
+  mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr, dba.GetStorageMode()};
   auto *mgp_vertex_v = alloc.new_object<mgp_vertex>(v1, &graph);
   auto path = EXPECT_MGP_NO_ERROR(mgp_path *, mgp_path_make_with_start, mgp_vertex_v, &memory);
   ASSERT_TRUE(path);

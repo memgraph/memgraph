@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -122,7 +122,7 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
 inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) { return !(a == b); }
 
 struct Delta {
-  enum class Action {
+  enum class Action : std::uint8_t {
     /// Use for Vertex and Edge
     /// Used for disk storage for modifying MVCC logic and storing old key. Storing old key is necessary for
     /// deleting old-data (compaction).

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -111,12 +111,12 @@ class BaseEncoder {
 
   void WriteList(const std::vector<Value> &value) {
     WriteTypeSize(value.size(), MarkerList);
-    for (auto &x : value) WriteValue(x);
+    for (const auto &x : value) WriteValue(x);
   }
 
   void WriteMap(const std::map<std::string, Value> &value) {
     WriteTypeSize(value.size(), MarkerMap);
-    for (auto &x : value) {
+    for (const auto &x : value) {
       WriteString(x.first);
       WriteValue(x.second);
     }
@@ -205,11 +205,11 @@ class BaseEncoder {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
     WriteRAW(utils::UnderlyingCast(Signature::Path));
     WriteTypeSize(path.vertices.size(), MarkerList);
-    for (auto &v : path.vertices) WriteVertex(v);
+    for (const auto &v : path.vertices) WriteVertex(v);
     WriteTypeSize(path.edges.size(), MarkerList);
-    for (auto &e : path.edges) WriteEdge(e);
+    for (const auto &e : path.edges) WriteEdge(e);
     WriteTypeSize(path.indices.size(), MarkerList);
-    for (auto &i : path.indices) WriteInt(i);
+    for (const auto &i : path.indices) WriteInt(i);
   }
 
   void WriteDate(const utils::Date &date) {

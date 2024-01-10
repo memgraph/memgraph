@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,10 @@
 #include "storage_mode.hpp"
 
 namespace memgraph::storage {
+
+bool IsTransactional(const StorageMode storage_mode) noexcept {
+  return storage_mode != StorageMode::IN_MEMORY_ANALYTICAL;
+}
 
 std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode) {
   switch (storage_mode) {

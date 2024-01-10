@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,13 +12,17 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <optional>
 
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpreter_context.hpp"
+#include "replication/state.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/replication/enums.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -30,6 +34,8 @@ template <typename StorageType>
 class InfoTest : public testing::Test {
  protected:
   void SetUp() {
+    repl_state.emplace(memgraph::storage::ReplicationStateRootPath(config));
+    db_gk.emplace(config, *repl_state);
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;
@@ -43,6 +49,7 @@ class InfoTest : public testing::Test {
   void TearDown() {
     db_acc_.reset();
     db_gk.reset();
+    repl_state.reset();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
@@ -52,8 +59,10 @@ class InfoTest : public testing::Test {
   StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
                                                             : StorageMode::IN_MEMORY_TRANSACTIONAL};
 
+  std::optional<memgraph::replication::ReplicationState> repl_state;
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
-  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk{
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
+  memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
         memgraph::storage::UpdatePaths(config, storage_directory);
@@ -84,12 +93,12 @@ TYPED_TEST(InfoTest, InfoCheck) {
 
   {
     {
-      auto unique_acc = db_acc->storage()->UniqueAccess();
+      auto unique_acc = db_acc->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateExistenceConstraint(lbl, prop).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto unique_acc = db_acc->storage()->UniqueAccess();
+      auto unique_acc = db_acc->UniqueAccess();
       ASSERT_FALSE(unique_acc->DropExistenceConstraint(lbl, prop).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
@@ -114,55 +123,56 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
 
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(lbl).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop2).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->DropIndex(lbl, prop).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl, {prop2}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl2, {prop}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl3, {prop}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_EQ(unique_acc->DropUniqueConstraint(lbl, {prop2}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  const auto &info = db_acc->GetInfo(true);  // force to use configured directory
+  const auto &info =
+      db_acc->GetInfo(true, memgraph::replication::ReplicationRole::MAIN);  // force to use configured directory
 
   ASSERT_EQ(info.storage_info.vertex_count, 5);
   ASSERT_EQ(info.storage_info.edge_count, 2);
   ASSERT_EQ(info.storage_info.average_degree, 0.8);
-  ASSERT_GT(info.storage_info.memory_usage, 10'000'000);  // 200MB < > 10MB
-  ASSERT_LT(info.storage_info.memory_usage, 200'000'000);
+  ASSERT_GT(info.storage_info.memory_res, 10'000'000);  // 200MB < > 10MB
+  ASSERT_LT(info.storage_info.memory_res, 200'000'000);
   ASSERT_GT(info.storage_info.disk_usage, 100);  // 1MB < > 100B
   ASSERT_LT(info.storage_info.disk_usage, 1000'000);
   ASSERT_EQ(info.storage_info.label_indices, 1);

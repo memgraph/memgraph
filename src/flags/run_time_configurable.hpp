@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,12 +15,31 @@
 
 namespace memgraph::flags::run_time {
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern utils::Synchronized<std::string, utils::SpinLock> bolt_server_name_;
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern std::atomic<double> execution_timeout_sec_;
-
+/**
+ * @brief Initialize the run-time flags (must be done before run-time flags are used).
+ *
+ */
 void Initialize();
+
+/**
+ * @brief Get the bolt server name value
+ *
+ * @return std::string
+ */
+std::string GetServerName();
+
+/**
+ * @brief Get the query execution timeout value
+ *
+ * @return double
+ */
+double GetExecutionTimeout();
+
+/**
+ * @brief Get the cartesian product enabled value
+ *
+ * @return bool
+ */
+bool GetCartesianProductEnabled();
 
 }  // namespace memgraph::flags::run_time

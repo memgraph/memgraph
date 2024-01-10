@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,6 +57,6 @@ int main(int argc, char **argv) {
 
   MG_ASSERT(client->Execute("CALL libglobal_memory_limit_proc.success() YIELD *"));
   auto result2 = client->FetchAll();
-  MG_ASSERT(result2 != std::nullopt && result2->size() > 0);
+  MG_ASSERT(result2 != std::nullopt && !result2->empty());
   return 0;
 }

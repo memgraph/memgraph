@@ -18,7 +18,7 @@ TOOLCHAIN_BUILD_DEPS=(
     curl libcurl-devel # for cmake
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
-    libedit-devel pcre-devel automake bison # for swig
+    libedit-devel pcre-devel pcre2-devel automake bison # for swig
     file
     openssl-devel
     gmp-devel
@@ -158,9 +158,9 @@ install() {
             continue
         fi
         if [ "$pkg" == nodejs ]; then
-            curl -sL https://rpm.nodesource.com/setup_16.x | bash -
             if ! yum list installed nodejs >/dev/null 2>/dev/null; then
-                yum install -y nodejs
+              yum install https://rpm.nodesource.com/pub_16.x/nodistro/repo/nodesource-release-nodistro-1.noarch.rpm -y
+              yum install nodejs -y --setopt=nodesource-nodejs.module_hotfixes=1
             fi
             continue
         fi
@@ -169,13 +169,6 @@ install() {
                 pip3 install --user PyYAML
             else # Running using sudo.
                 sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
-            fi
-            continue
-        fi
-        if [ "$pkg" == nodejs ]; then
-            curl -sL https://rpm.nodesource.com/setup_16.x | bash -
-            if ! yum list installed nodejs >/dev/null 2>/dev/null; then
-                yum install -y nodejs
             fi
             continue
         fi

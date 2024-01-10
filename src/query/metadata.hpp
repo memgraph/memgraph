@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,6 +39,7 @@ enum class NotificationCode : uint8_t {
   LOAD_CSV_TIP,
   NONEXISTENT_INDEX,
   NONEXISTENT_CONSTRAINT,
+  PLAN_HINTING,
   REPLICA_PORT_WARNING,
   REGISTER_REPLICA,
   SET_REPLICA,

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,8 @@
 
 #include "disk_test_utils.hpp"
 
+using memgraph::replication::ReplicationRole;
+
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
 
@@ -41,7 +43,8 @@ class ConstraintsTest : public testing::Test {
     /// TODO: andi How to make this better? Because currentlly for every test changed you need to create a configuration
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
     config_.force_on_disk = std::is_same_v<StorageType, memgraph::storage::DiskStorage>;
-    db_gk_.emplace(config_);
+    repl_state_.emplace(memgraph::storage::ReplicationStateRootPath(config_));
+    db_gk_.emplace(config_, *repl_state_);
     auto db_acc_opt = db_gk_->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     db_acc_ = *db_acc_opt;
@@ -56,6 +59,7 @@ class ConstraintsTest : public testing::Test {
     storage = nullptr;
     db_acc_.reset();
     db_gk_.reset();
+    repl_state_.reset();
 
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
@@ -64,6 +68,7 @@ class ConstraintsTest : public testing::Test {
 
   Storage *storage;
   memgraph::storage::Config config_;
+  std::optional<memgraph::replication::ReplicationState> repl_state_;
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
   std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk_;
   PropertyId prop1;
@@ -78,7 +83,7 @@ TYPED_TEST_CASE(ConstraintsTest, StorageTypes);
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_EQ(acc->ListAllConstraints().existence.size(), 0);
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -89,7 +94,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_THAT(acc->ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(this->label1, this->prop1)));
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -100,7 +105,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_THAT(acc->ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(this->label1, this->prop1)));
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -111,7 +116,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_THAT(acc->ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(this->label1, this->prop1),
                                                                           std::make_pair(this->label2, this->prop1)));
     ASSERT_NO_ERROR(acc->Commit());
@@ -127,7 +132,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_THAT(acc->ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(this->label2, this->prop1)));
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -142,7 +147,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_EQ(acc->ListAllConstraints().existence.size(), 0);
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -153,7 +158,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_THAT(acc->ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(this->label2, this->prop1)));
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -162,7 +167,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(acc->Commit());
@@ -177,7 +182,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
     ASSERT_FALSE(unique_acc->Commit().HasError());  // TODO: Check if we are committing here?
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     for (auto vertex : acc->Vertices(View::OLD)) {
       ASSERT_NO_ERROR(acc->DeleteVertex(&vertex));
     }
@@ -194,7 +199,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(acc->Commit());
@@ -209,7 +214,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
     ASSERT_FALSE(unique_acc->Commit().HasError());  // TODO: Check if we are committing here?
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     for (auto vertex : acc->Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(1)));
     }
@@ -233,7 +238,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
 
@@ -245,7 +250,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(1)));
@@ -253,7 +258,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     for (auto vertex : acc->Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue()));
     }
@@ -266,7 +271,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     for (auto vertex : acc->Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue()));
     }
@@ -282,7 +287,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(acc->Commit());
@@ -292,7 +297,7 @@ TYPED_TEST(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_EQ(acc->ListAllConstraints().unique.size(), 0);
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -304,7 +309,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_THAT(acc->ListAllConstraints().unique,
                 UnorderedElementsAre(std::make_pair(this->label1, std::set<PropertyId>{this->prop1})));
     ASSERT_NO_ERROR(acc->Commit());
@@ -317,7 +322,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_THAT(acc->ListAllConstraints().unique,
                 UnorderedElementsAre(std::make_pair(this->label1, std::set<PropertyId>{this->prop1})));
     ASSERT_NO_ERROR(acc->Commit());
@@ -330,7 +335,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_THAT(acc->ListAllConstraints().unique,
                 UnorderedElementsAre(std::make_pair(this->label1, std::set<PropertyId>{this->prop1}),
                                      std::make_pair(this->label2, std::set<PropertyId>{this->prop1})));
@@ -349,7 +354,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_THAT(acc->ListAllConstraints().unique,
                 UnorderedElementsAre(std::make_pair(this->label2, std::set<PropertyId>{this->prop1})));
     ASSERT_NO_ERROR(acc->Commit());
@@ -367,7 +372,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_EQ(acc->ListAllConstraints().unique.size(), 0);
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -378,7 +383,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
     EXPECT_EQ(res.GetValue(), UniqueConstraints::CreationStatus::SUCCESS);
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_THAT(acc->ListAllConstraints().unique,
                 UnorderedElementsAre(std::make_pair(this->label2, std::set<PropertyId>{this->prop1})));
     ASSERT_NO_ERROR(acc->Commit());
@@ -388,7 +393,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure1) {
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     for (int i = 0; i < 2; ++i) {
       auto vertex1 = acc->CreateVertex();
       ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
@@ -408,7 +413,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure1) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     for (auto vertex : acc->Vertices(View::OLD)) {
       ASSERT_NO_ERROR(acc->DeleteVertex(&vertex));
     }
@@ -427,7 +432,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure1) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure2) {
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     for (int i = 0; i < 2; ++i) {
       auto vertex = acc->CreateVertex();
       ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
@@ -447,7 +452,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateFailure2) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     int value = 0;
     for (auto vertex : acc->Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(value)));
@@ -470,7 +475,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation1) {
   Gid gid1;
   Gid gid2;
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
     gid1 = vertex1.Gid();
@@ -490,7 +495,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation1) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc->FindVertex(gid1, View::OLD);
     auto vertex2 = acc->FindVertex(gid2, View::OLD);
 
@@ -502,7 +507,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation1) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc->FindVertex(gid1, View::OLD);
     auto vertex2 = acc->FindVertex(gid2, View::OLD);
     ASSERT_NO_ERROR(vertex1->SetProperty(this->prop1, PropertyValue(2)));
@@ -525,8 +530,8 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation2) {
     // tx1: B---SP(v1, 1)---SP(v1, 2)---OK--
     // tx2: -B---SP(v2, 2)---SP(v2, 1)---OK-
 
-    auto acc1 = this->storage->Access();
-    auto acc2 = this->storage->Access();
+    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc1->CreateVertex();
     auto vertex2 = acc2->CreateVertex();
 
@@ -558,7 +563,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation3) {
     // tx2: --------------------B---SP(v1, 2)---OK--
     // tx3: ---------------------B---SP(v2, 1)---OK-
 
-    auto acc1 = this->storage->Access();
+    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc1->CreateVertex();
     auto gid = vertex1.Gid();
 
@@ -567,8 +572,8 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation3) {
 
     ASSERT_NO_ERROR(acc1->Commit());
 
-    auto acc2 = this->storage->Access();
-    auto acc3 = this->storage->Access();
+    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc3 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex2 = acc2->FindVertex(gid, View::NEW);  // vertex1 == vertex2
     auto vertex3 = acc3->CreateVertex();
 
@@ -596,7 +601,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation4) {
     // tx2: --------------------B---SP(v2, 1)-----OK-
     // tx3: ---------------------B---SP(v1, 2)---OK--
 
-    auto acc1 = this->storage->Access();
+    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc1->CreateVertex();
     auto gid = vertex1.Gid();
 
@@ -604,8 +609,8 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation4) {
 
     ASSERT_NO_ERROR(acc1->Commit());
 
-    auto acc2 = this->storage->Access();
-    auto acc3 = this->storage->Access();
+    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc3 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex2 = acc2->CreateVertex();
     auto vertex3 = acc3->FindVertex(gid, View::NEW);
 
@@ -629,7 +634,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit1) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
@@ -660,7 +665,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit2) {
     // tx2: -------------------------------B---SP(v1, 3)---OK----
     // tx3: --------------------------------B---SP(v2, 3)---FAIL-
 
-    auto acc1 = this->storage->Access();
+    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc1->CreateVertex();
     auto vertex2 = acc1->CreateVertex();
     auto gid1 = vertex1.Gid();
@@ -673,8 +678,8 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit2) {
 
     ASSERT_NO_ERROR(acc1->Commit());
 
-    auto acc2 = this->storage->Access();
-    auto acc3 = this->storage->Access();
+    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc3 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex3 = acc2->FindVertex(gid1, View::NEW);  // vertex3 == vertex1
     auto vertex4 = acc3->FindVertex(gid2, View::NEW);  // vertex4 == vertex2
 
@@ -706,7 +711,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit3) {
     // tx2: -------------------------------B---SP(v1, 2)---FAIL--
     // tx3: --------------------------------B---SP(v2, 1)---FAIL-
 
-    auto acc1 = this->storage->Access();
+    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc1->CreateVertex();
     auto vertex2 = acc1->CreateVertex();
     auto gid1 = vertex1.Gid();
@@ -719,8 +724,8 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit3) {
 
     ASSERT_NO_ERROR(acc1->Commit());
 
-    auto acc2 = this->storage->Access();
-    auto acc3 = this->storage->Access();
+    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc3 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex3 = acc2->FindVertex(gid1, View::OLD);  // vertex3 == vertex1
     auto vertex4 = acc3->FindVertex(gid2, View::OLD);  // vertex4 == vertex2
 
@@ -759,7 +764,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
   {
     // B---AL(v2)---SP(v1, 1)---SP(v2, 1)---OK
 
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
     gid1 = vertex1.Gid();
@@ -779,8 +784,8 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
     // tx1: B---AL(v1)-----OK-
     // tx2: -B---RL(v2)---OK--
 
-    auto acc1 = this->storage->Access();
-    auto acc2 = this->storage->Access();
+    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc1->FindVertex(gid1, View::OLD);
     auto vertex2 = acc2->FindVertex(gid2, View::OLD);
 
@@ -808,7 +813,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
   {
     // B---AL(v2)---FAIL
 
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex2 = acc->FindVertex(gid2, View::OLD);
     ASSERT_NO_ERROR(vertex2->AddLabel(this->label1));
 
@@ -821,7 +826,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
   {
     // B---RL(v1)---OK
 
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc->FindVertex(gid1, View::OLD);
     ASSERT_NO_ERROR(vertex1->RemoveLabel(this->label1));
     ASSERT_NO_ERROR(acc->Commit());
@@ -831,8 +836,8 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
     // tx1: B---AL(v1)-----FAIL
     // tx2: -B---AL(v2)---OK---
 
-    auto acc1 = this->storage->Access();
-    auto acc2 = this->storage->Access();
+    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc1->FindVertex(gid1, View::OLD);
     auto vertex2 = acc2->FindVertex(gid2, View::OLD);
 
@@ -908,7 +913,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsPropertySetSize) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     EXPECT_THAT(acc->ListAllConstraints().unique, UnorderedElementsAre(std::make_pair(this->label1, properties)));
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -919,7 +924,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsPropertySetSize) {
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     ASSERT_TRUE(acc->ListAllConstraints().unique.empty());
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -948,7 +953,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsMultipleProperties) {
   Gid gid1;
   Gid gid2;
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
     gid1 = vertex1.Gid();
@@ -968,7 +973,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsMultipleProperties) {
   // Try to change property of the second vertex so it becomes the same as the
   // first vertex-> It should fail.
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex2 = acc->FindVertex(gid2, View::OLD);
     ASSERT_NO_ERROR(vertex2->SetProperty(this->prop2, PropertyValue(2)));
     auto res = acc->Commit();
@@ -982,7 +987,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsMultipleProperties) {
   // both vertices should now be equal. However, this operation should succeed
   // since null value is treated as non-existing property.
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc->FindVertex(gid1, View::OLD);
     auto vertex2 = acc->FindVertex(gid2, View::OLD);
     ASSERT_NO_ERROR(vertex1->SetProperty(this->prop2, PropertyValue()));
@@ -1002,7 +1007,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertAbortInsert) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(1)));
@@ -1011,7 +1016,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertAbortInsert) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop2, PropertyValue(2)));
@@ -1031,7 +1036,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveInsert) {
 
   Gid gid;
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
@@ -1041,14 +1046,14 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveInsert) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->FindVertex(gid, View::OLD);
     ASSERT_NO_ERROR(acc->DeleteVertex(&*vertex));
     ASSERT_NO_ERROR(acc->Commit());
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(1)));
@@ -1068,7 +1073,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveAbortInsert) {
 
   Gid gid;
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
@@ -1078,14 +1083,14 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertRemoveAbortInsert) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->FindVertex(gid, View::OLD);
     ASSERT_NO_ERROR(acc->DeleteVertex(&*vertex));
     acc->Abort();
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop2, PropertyValue(1)));
@@ -1111,7 +1116,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsDeleteVertexSetProperty) {
   Gid gid1;
   Gid gid2;
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
     gid1 = vertex1.Gid();
@@ -1126,8 +1131,8 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsDeleteVertexSetProperty) {
   }
 
   {
-    auto acc1 = this->storage->Access();
-    auto acc2 = this->storage->Access();
+    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex1 = acc1->FindVertex(gid1, View::OLD);
     auto vertex2 = acc2->FindVertex(gid2, View::OLD);
 
@@ -1153,7 +1158,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertDropInsert) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(1)));
@@ -1169,7 +1174,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertDropInsert) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop2, PropertyValue(2)));
@@ -1191,7 +1196,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsComparePropertyValues) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(2)));
@@ -1200,7 +1205,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsComparePropertyValues) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(1)));
@@ -1209,7 +1214,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsComparePropertyValues) {
   }
 
   {
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop2, PropertyValue(0)));
@@ -1235,7 +1240,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsClearOldData) {
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
-    auto acc = this->storage->Access();
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
     auto vertex = acc->CreateVertex();
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop1, PropertyValue(2)));
@@ -1243,14 +1248,14 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsClearOldData) {
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
-    auto acc2 = this->storage->Access(std::nullopt);
+    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex2.SetProperty(this->prop1, memgraph::storage::PropertyValue(2)).HasValue());
     ASSERT_FALSE(acc2->Commit().HasError());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
-    auto acc3 = this->storage->Access(std::nullopt);
+    auto acc3 = this->storage->Access(ReplicationRole::MAIN);
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex3.SetProperty(this->prop1, memgraph::storage::PropertyValue(10)).HasValue());
     ASSERT_FALSE(acc3->Commit().HasError());

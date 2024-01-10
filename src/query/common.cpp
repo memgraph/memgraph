@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,6 +62,7 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
     case TypedValue::Type::Graph:
+    case TypedValue::Type::Function:
       throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
     case TypedValue::Type::Null:
       LOG_FATAL("Invalid type");

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,22 @@
 
 #include "replication/state.hpp"
 
-#include "replication/status.hpp"  //TODO: don't use status for durability
+#include "replication/replication_client.hpp"
+#include "replication/replication_server.hpp"
+#include "replication/status.hpp"
 #include "utils/file.hpp"
+#include "utils/result.hpp"
+#include "utils/variant_helpers.hpp"
 
 constexpr auto kReplicationDirectory = std::string_view{"replication"};
 
 namespace memgraph::replication {
+
+auto BuildReplicaKey(std::string_view name) -> std::string {
+  auto key = std::string{durability::kReplicationReplicaPrefix};
+  key.append(name);
+  return key;
+}
 
 ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir) {
   if (!durability_dir) return;
@@ -24,121 +34,245 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   repl_dir /= kReplicationDirectory;
   utils::EnsureDirOrDie(repl_dir);
   durability_ = std::make_unique<kvstore::KVStore>(std::move(repl_dir));
+
+  auto replicationData = FetchReplicationData();
+  if (replicationData.HasError()) {
+    switch (replicationData.GetError()) {
+      using enum ReplicationState::FetchReplicationError;
+      case NOTHING_FETCHED: {
+        spdlog::debug("Cannot find data needed for restore replication role in persisted metadata.");
+        replication_data_ = RoleMainData{};
+        return;
+      }
+      case PARSE_ERROR: {
+        LOG_FATAL("Cannot parse previously saved configuration of replication role.");
+        return;
+      }
+    }
+  }
+  replication_data_ = std::move(replicationData).GetValue();
 }
+
 bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config) {
   if (!ShouldPersist()) return true;
-  // Only thing that matters here is the role saved as REPLICA and the listening port
-  auto data = ReplicationStatusToJSON(ReplicationStatus{.name = kReservedReplicationRoleName,
-                                                        .ip_address = config.ip_address,
-                                                        .port = config.port,
-                                                        .sync_mode = ReplicationMode::SYNC,
-                                                        .replica_check_frequency = std::chrono::seconds(0),
-                                                        .ssl = std::nullopt,
-                                                        .role = ReplicationRole::REPLICA});
 
-  if (durability_->Put(kReservedReplicationRoleName, data.dump())) {
-    role_persisted = RolePersisted::YES;
-    return true;
+  auto data = durability::ReplicationRoleEntry{.role = durability::ReplicaRole{
+                                                   .config = config,
+                                               }};
+
+  if (!durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
+    spdlog::error("Error when saving REPLICA replication role in settings.");
+    return false;
   }
-  spdlog::error("Error when saving REPLICA replication role in settings.");
-  return false;
-}
-bool ReplicationState::TryPersistRoleMain() {
-  if (!ShouldPersist()) return true;
-  // Only thing that matters here is the role saved as MAIN
-  auto data = ReplicationStatusToJSON(ReplicationStatus{.name = kReservedReplicationRoleName,
-                                                        .ip_address = "",
-                                                        .port = 0,
-                                                        .sync_mode = ReplicationMode::SYNC,
-                                                        .replica_check_frequency = std::chrono::seconds(0),
-                                                        .ssl = std::nullopt,
-                                                        .role = ReplicationRole::MAIN});
+  role_persisted = RolePersisted::YES;
 
-  if (durability_->Put(kReservedReplicationRoleName, data.dump())) {
+  // Cleanup remove registered replicas (assume successful delete)
+  // NOTE: we could do the alternative which would be on REPLICA -> MAIN we recover these registered replicas
+  auto b = durability_->begin(durability::kReplicationReplicaPrefix);
+  auto e = durability_->end(durability::kReplicationReplicaPrefix);
+  for (; b != e; ++b) {
+    durability_->Delete(b->first);
+  }
+
+  return true;
+}
+
+bool ReplicationState::TryPersistRoleMain(std::string new_epoch) {
+  if (!ShouldPersist()) return true;
+
+  auto data =
+      durability::ReplicationRoleEntry{.role = durability::MainRole{.epoch = ReplicationEpoch{std::move(new_epoch)}}};
+
+  if (durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
     role_persisted = RolePersisted::YES;
     return true;
   }
   spdlog::error("Error when saving MAIN replication role in settings.");
   return false;
 }
-bool ReplicationState::TryPersistUnregisterReplica(std::string_view &name) {
+
+bool ReplicationState::TryPersistUnregisterReplica(std::string_view name) {
   if (!ShouldPersist()) return true;
-  if (durability_->Delete(name)) return true;
+
+  auto key = BuildReplicaKey(name);
+
+  if (durability_->Delete(key)) return true;
   spdlog::error("Error when removing replica {} from settings.", name);
   return false;
 }
-auto ReplicationState::FetchReplicationData() -> FetchReplicationResult {
+
+// TODO: FetchEpochData (agnostic of FetchReplicationData, but should be done before)
+
+auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
   if (!ShouldPersist()) return FetchReplicationError::NOTHING_FETCHED;
-  const auto replication_data = durability_->Get(kReservedReplicationRoleName);
+  const auto replication_data = durability_->Get(durability::kReplicationRoleName);
   if (!replication_data.has_value()) {
     return FetchReplicationError::NOTHING_FETCHED;
   }
 
-  const auto maybe_replication_status = JSONToReplicationStatus(nlohmann::json::parse(*replication_data));
-  if (!maybe_replication_status.has_value()) {
+  auto json = nlohmann::json::parse(*replication_data, nullptr, false);
+  if (json.is_discarded()) {
     return FetchReplicationError::PARSE_ERROR;
   }
+  try {
+    durability::ReplicationRoleEntry data = json.get<durability::ReplicationRoleEntry>();
 
-  // To get here this must be the case
-  role_persisted = memgraph::replication::RolePersisted::YES;
-
-  const auto replication_status = *maybe_replication_status;
-  auto role = replication_status.role.value_or(ReplicationRole::MAIN);
-  switch (role) {
-    case ReplicationRole::REPLICA: {
-      return {ReplicationServerConfig{
-          .ip_address = kDefaultReplicationServerIp,
-          .port = replication_status.port,
-      }};
+    if (!HandleVersionMigration(data)) {
+      return FetchReplicationError::PARSE_ERROR;
     }
-    case ReplicationRole::MAIN: {
-      auto res = ReplicationState::ReplicationDataMain{};
-      res.reserve(durability_->Size() - 1);
-      for (const auto &[replica_name, replica_data] : *durability_) {
-        if (replica_name == kReservedReplicationRoleName) {
+
+    // To get here this must be the case
+    role_persisted = memgraph::replication::RolePersisted::YES;
+
+    return std::visit(
+        utils::Overloaded{
+            [&](durability::MainRole &&r) -> FetchReplicationResult_t {
+              auto res = RoleMainData{std::move(r.epoch)};
+              auto b = durability_->begin(durability::kReplicationReplicaPrefix);
+              auto e = durability_->end(durability::kReplicationReplicaPrefix);
+              for (; b != e; ++b) {
+                auto const &[replica_name, replica_data] = *b;
+                auto json = nlohmann::json::parse(replica_data, nullptr, false);
+                if (json.is_discarded()) return FetchReplicationError::PARSE_ERROR;
+                try {
+                  durability::ReplicationReplicaEntry data = json.get<durability::ReplicationReplicaEntry>();
+                  auto key_name = std::string_view{replica_name}.substr(strlen(durability::kReplicationReplicaPrefix));
+                  if (key_name != data.config.name) {
+                    return FetchReplicationError::PARSE_ERROR;
+                  }
+                  // Instance clients
+                  res.registered_replicas_.emplace_back(data.config);
+                } catch (...) {
+                  return FetchReplicationError::PARSE_ERROR;
+                }
+              }
+              return {std::move(res)};
+            },
+            [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t {
+              return {RoleReplicaData{r.config, std::make_unique<ReplicationServer>(r.config)}};
+            },
+        },
+        std::move(data.role));
+  } catch (...) {
+    return FetchReplicationError::PARSE_ERROR;
+  }
+}
+
+bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &data) const {
+  switch (data.version) {
+    case durability::DurabilityVersion::V1: {
+      // For each replica config, change key to use the prefix
+      std::map<std::string, std::string> to_put;
+      std::vector<std::string> to_delete;
+      for (auto [old_key, old_data] : *durability_) {
+        // skip reserved keys
+        if (old_key == durability::kReplicationRoleName) {
           continue;
         }
 
-        const auto maybe_replica_status = JSONToReplicationStatus(nlohmann::json::parse(replica_data));
-        if (!maybe_replica_status.has_value()) {
-          return FetchReplicationError::PARSE_ERROR;
-        }
+        // Turn old data to new data
+        auto old_json = nlohmann::json::parse(old_data, nullptr, false);
+        if (old_json.is_discarded()) return false;  // Can not read old_data as json
+        try {
+          durability::ReplicationReplicaEntry new_data = old_json.get<durability::ReplicationReplicaEntry>();
 
-        auto replica_status = *maybe_replica_status;
-        if (replica_status.name != replica_name) {
-          return FetchReplicationError::PARSE_ERROR;
+          // Migrate to using new key
+          to_put.emplace(BuildReplicaKey(old_key), nlohmann::json(new_data).dump());
+        } catch (...) {
+          return false;  // Can not parse as ReplicationReplicaEntry
         }
-        res.emplace_back(ReplicationClientConfig{
-            .name = replica_status.name,
-            .mode = replica_status.sync_mode,
-            .ip_address = replica_status.ip_address,
-            .port = replica_status.port,
-            .replica_check_frequency = replica_status.replica_check_frequency,
-            .ssl = replica_status.ssl,
-        });
+        to_delete.push_back(std::move(old_key));
       }
-      return {std::move(res)};
+      // Set version
+      data.version = durability::DurabilityVersion::V2;
+      // Re-serialise (to include version + epoch)
+      to_put.emplace(durability::kReplicationRoleName, nlohmann::json(data).dump());
+      if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return false;  // some reason couldn't persist
+      [[fallthrough]];
+    }
+    case durability::DurabilityVersion::V2: {
+      // do nothing - add code if V3 ever happens
+      break;
     }
   }
+  return true;
 }
+
 bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig &config) {
   if (!ShouldPersist()) return true;
 
   // If any replicas are persisted then Role must be persisted
   if (role_persisted != RolePersisted::YES) {
     DMG_ASSERT(IsMain(), "MAIN is expected");
-    if (!TryPersistRoleMain()) return false;
+    auto epoch_str = std::string(std::get<RoleMainData>(replication_data_).epoch_.id());
+    if (!TryPersistRoleMain(std::move(epoch_str))) return false;
   }
 
-  auto data = ReplicationStatusToJSON(ReplicationStatus{.name = config.name,
-                                                        .ip_address = config.ip_address,
-                                                        .port = config.port,
-                                                        .sync_mode = config.mode,
-                                                        .replica_check_frequency = config.replica_check_frequency,
-                                                        .ssl = config.ssl,
-                                                        .role = ReplicationRole::REPLICA});
-  if (durability_->Put(config.name, data.dump())) return true;
+  auto data = durability::ReplicationReplicaEntry{.config = config};
+
+  auto key = BuildReplicaKey(config.name);
+  if (durability_->Put(key, nlohmann::json(data).dump())) return true;
   spdlog::error("Error when saving replica {} in settings.", config.name);
   return false;
+}
+
+bool ReplicationState::SetReplicationRoleMain() {
+  auto new_epoch = utils::GenerateUUID();
+  if (!TryPersistRoleMain(new_epoch)) {
+    return false;
+  }
+  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}};
+  return true;
+}
+
+bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config) {
+  if (!TryPersistRoleReplica(config)) {
+    return false;
+  }
+  replication_data_ = RoleReplicaData{config, std::make_unique<ReplicationServer>(config)};
+  return true;
+}
+
+utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::RegisterReplica(
+    const ReplicationClientConfig &config) {
+  auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaError::NOT_MAIN; };
+  ReplicationClient *client{nullptr};
+  auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaError {
+    // name check
+    auto name_check = [&config](auto const &replicas) {
+      auto name_matches = [&name = config.name](auto const &replica) { return replica.name_ == name; };
+      return std::any_of(replicas.begin(), replicas.end(), name_matches);
+    };
+    if (name_check(mainData.registered_replicas_)) {
+      return RegisterReplicaError::NAME_EXISTS;
+    }
+
+    // endpoint check
+    auto endpoint_check = [&](auto const &replicas) {
+      auto endpoint_matches = [&config](auto const &replica) {
+        const auto &ep = replica.rpc_client_.Endpoint();
+        return ep.address == config.ip_address && ep.port == config.port;
+      };
+      return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
+    };
+    if (endpoint_check(mainData.registered_replicas_)) {
+      return RegisterReplicaError::END_POINT_EXISTS;
+    }
+
+    // Durability
+    if (!TryPersistRegisteredReplica(config)) {
+      return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+    }
+
+    // set
+    client = &mainData.registered_replicas_.emplace_back(config);
+    return RegisterReplicaError::SUCCESS;
+  };
+
+  const auto &res = std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
+  if (res == RegisterReplicaError::SUCCESS) {
+    return client;
+  }
+  return res;
 }
 }  // namespace memgraph::replication

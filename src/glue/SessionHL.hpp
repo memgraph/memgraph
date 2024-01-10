@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
                                                                       memgraph::communication::v2::OutputStream> {
  public:
   SessionHL(memgraph::query::InterpreterContext *interpreter_context,
-            const memgraph::communication::v2::ServerEndpoint &endpoint,
+            memgraph::communication::v2::ServerEndpoint endpoint,
             memgraph::communication::v2::InputStream *input_stream,
             memgraph::communication::v2::OutputStream *output_stream,
             memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth

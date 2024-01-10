@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 
 namespace memgraph::dbms {
 
+#ifdef MG_ENTERPRISE
 enum class DeleteError : uint8_t {
   DEFAULT_DB,
   USING,
@@ -34,11 +35,7 @@ enum class NewError : uint8_t {
   GENERIC,
 };
 
-enum class SetForResult : uint8_t {
-  SUCCESS,
-  ALREADY_SET,
-  FAIL,
-};
+#endif
 
 /**
  * UnknownSession Exception

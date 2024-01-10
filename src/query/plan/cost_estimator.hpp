@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,6 +36,14 @@ struct SymbolStatistics {
  */
 struct Scope {
   std::unordered_map<std::string, SymbolStatistics> symbol_stats;
+};
+
+struct CostEstimation {
+  // expense of running the query
+  double cost;
+
+  // expected number of rows
+  double cardinality;
 };
 
 /**
@@ -271,12 +279,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Union &op) override {
-    double left_cost = EstimateCostOnBranch(&op.left_op_);
-    double right_cost = EstimateCostOnBranch(&op.right_op_);
+    CostEstimation left_estimation = EstimateCostOnBranch(&op.left_op_);
+    CostEstimation right_estimation = EstimateCostOnBranch(&op.right_op_);
 
     // the number of hits in the previous operator should be the joined number of results of both parts of the union
-    cardinality_ *= (left_cost + right_cost);
-    IncrementCost(CostParam::kUnion);
+    cost_ = left_estimation.cost + right_estimation.cost;
+    cardinality_ = left_estimation.cardinality + right_estimation.cardinality;
 
     return false;
   }
@@ -303,11 +311,57 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     // Estimate cost on the subquery branch independently, use a copy
     auto &last_scope = scopes_.back();
-    double subquery_cost = EstimateCostOnBranch(&op.subquery_, last_scope);
-    subquery_cost = !utils::ApproxEqualDecimal(subquery_cost, 0.0) ? subquery_cost : 1;
-    cardinality_ *= subquery_cost;
+    CostEstimation subquery_estimation = EstimateCostOnBranch(&op.subquery_, last_scope);
+    double subquery_cost = !utils::ApproxEqualDecimal(subquery_estimation.cost, 0.0) ? subquery_estimation.cost : 1;
+    IncrementCost(subquery_cost);
 
-    IncrementCost(CostParam::kSubquery);
+    double subquery_cardinality =
+        !utils::ApproxEqualDecimal(subquery_estimation.cardinality, 0.0) ? subquery_estimation.cardinality : 1;
+    cardinality_ *= subquery_cardinality;
+
+    return false;
+  }
+
+  bool PreVisit(Cartesian &op) override {
+    // Get the cost of the main branch
+    op.left_op_->Accept(*this);
+
+    // add cost from the right branch and multiply cardinalities
+    CostEstimation right_cost_estimation = EstimateCostOnBranch(&op.right_op_);
+    cost_ += right_cost_estimation.cost;
+    double right_cardinality =
+        !utils::ApproxEqualDecimal(right_cost_estimation.cardinality, 0.0) ? right_cost_estimation.cardinality : 1;
+    cardinality_ *= right_cardinality;
+
+    return false;
+  }
+
+  bool PreVisit(IndexedJoin &op) override {
+    // Get the cost of the main branch
+    op.main_branch_->Accept(*this);
+
+    // add cost from the right branch and multiply cardinalities
+    CostEstimation right_cost_estimation = EstimateCostOnBranch(&op.sub_branch_);
+    IncrementCost(right_cost_estimation.cost);
+
+    double right_cardinality =
+        !utils::ApproxEqualDecimal(right_cost_estimation.cardinality, 0.0) ? right_cost_estimation.cardinality : 1;
+    cardinality_ *= right_cardinality;
+
+    return false;
+  }
+
+  bool PreVisit(HashJoin &op) override {
+    // Get the cost of the main branch
+    op.left_op_->Accept(*this);
+
+    // add cost from the right branch and multiply cardinalities
+    CostEstimation right_cost_estimation = EstimateCostOnBranch(&op.right_op_);
+    IncrementCost(right_cost_estimation.cost);
+
+    double right_cardinality =
+        !utils::ApproxEqualDecimal(right_cost_estimation.cardinality, 0.0) ? right_cost_estimation.cardinality : 1;
+    cardinality_ *= right_cardinality;
 
     return false;
   }
@@ -339,16 +393,16 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   void IncrementCost(double param) { cost_ += param * cardinality_; }
 
-  double EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
+  CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
     CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters);
     (*branch)->Accept(cost_estimator);
-    return cost_estimator.cost();
+    return CostEstimation{.cost = cost_estimator.cost(), .cardinality = cost_estimator.cardinality()};
   }
 
-  double EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch, Scope scope) {
+  CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch, Scope scope) {
     CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters, scope);
     (*branch)->Accept(cost_estimator);
-    return cost_estimator.cost();
+    return CostEstimation{.cost = cost_estimator.cost(), .cardinality = cost_estimator.cardinality()};
   }
 
   // converts an optional ScanAll range bound into a property value

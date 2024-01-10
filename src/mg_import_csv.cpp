@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,9 @@
 #include <regex>
 #include <unordered_map>
 
+#include "dbms/inmemory/storage_helper.hpp"
 #include "helpers.hpp"
+#include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -29,6 +31,8 @@
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 #include "version.hpp"
+
+using memgraph::replication::ReplicationRole;
 
 bool ValidateControlCharacter(const char *flagname, const std::string &value) {
   if (value.empty()) {
@@ -428,7 +432,7 @@ void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<std::st
                     const std::vector<Field> &fields, const std::vector<std::string> &additional_labels,
                     std::unordered_map<NodeId, memgraph::storage::Gid> *node_id_map) {
   std::optional<NodeId> id;
-  auto acc = store->Access();
+  auto acc = store->Access(ReplicationRole::MAIN);
   auto node = acc->CreateVertex();
   for (size_t i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
@@ -574,7 +578,7 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
   if (!end_id) throw LoadException("END_ID must be set");
   if (!relationship_type) throw LoadException("Relationship TYPE must be set");
 
-  auto acc = store->Access();
+  auto acc = store->Access(ReplicationRole::MAIN);
   auto from_node = acc->FindVertex(*start_id, memgraph::storage::View::NEW);
   if (!from_node) throw LoadException("From node must be in the storage");
   auto to_node = acc->FindVertex(*end_id, memgraph::storage::View::NEW);
@@ -707,14 +711,16 @@ int main(int argc, char *argv[]) {
   }
 
   std::unordered_map<NodeId, memgraph::storage::Gid> node_id_map;
-  auto store = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+  memgraph::storage::Config config{
 
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = false,
                      .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED,
                      .snapshot_on_exit = true},
-  });
+  };
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  auto store = memgraph::dbms::CreateInMemoryStorage(config, repl_state);
 
   memgraph::utils::Timer load_timer;
 
