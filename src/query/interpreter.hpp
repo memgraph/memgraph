@@ -114,7 +114,7 @@ class ReplicationQueryHandler {
   virtual std::optional<replication::CoordinatorEntityInfo> ShowMainOnCoordinator() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<replication::CoordinatorEntityHealthInfo> PingReplicasOnCoordinator() const = 0;
+  virtual std::unordered_map<std::string, bool> PingReplicasOnCoordinator() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::optional<replication::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const = 0;

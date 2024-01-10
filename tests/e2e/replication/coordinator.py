@@ -40,14 +40,30 @@ def test_coordinator_show_replication_cluster(connection):
     cursor = connection(7690, "coordinator").cursor()
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
 
-    expected_column_names = {"name", "socket_address"}
+    expected_column_names = {"name", "socket_address", "alive"}
     actual_column_names = {x.name for x in cursor.description}
     assert actual_column_names == expected_column_names
 
     expected_data = {
-        ("main", "127.0.0.1:10013"),
-        ("replica_1", "127.0.0.1:10011"),
-        ("replica_2", "127.0.0.1:10012"),
+        ("main", "127.0.0.1:10013", "true"),
+        ("replica_1", "127.0.0.1:10011", "true"),
+        ("replica_2", "127.0.0.1:10012", "true"),
+    }
+    assert actual_data == expected_data
+
+
+def test_coordinator_show_replication_cluster(connection):
+    cursor = connection(7690, "coordinator").cursor()
+    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
+
+    expected_column_names = {"name", "socket_address", "alive"}
+    actual_column_names = {x.name for x in cursor.description}
+    assert actual_column_names == expected_column_names
+
+    expected_data = {
+        ("main", "127.0.0.1:10013", True),
+        ("replica_1", "127.0.0.1:10011", True),
+        ("replica_2", "127.0.0.1:10012", True),
     }
     assert actual_data == expected_data
 
@@ -67,7 +83,7 @@ def test_main_and_relicas_cannot_call_show_repl_cluster(port, role, connection):
     cursor = connection(port, role).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")
-    assert str(e.value) == "Only coordinator can call SHOW REPLICATION CLUSTER!"
+    assert str(e.value) == "Only on coordinator you can call SHOW REPLICATION CLUSTER."
 
 
 @pytest.mark.parametrize(

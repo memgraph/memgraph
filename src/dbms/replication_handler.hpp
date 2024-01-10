@@ -73,7 +73,7 @@ struct ReplicationHandler {
 
   auto ShowMainOnCoordinator() const -> std::optional<memgraph::replication::CoordinatorEntityInfo>;
 
-  auto PingReplicasOnCoordinator() const -> std::vector<memgraph::replication::CoordinatorEntityHealthInfo>;
+  auto PingReplicasOnCoordinator() const -> std::unordered_map<std::string, bool>;
 
   auto PingMainOnCoordinator() const -> std::optional<memgraph::replication::CoordinatorEntityHealthInfo>;
 

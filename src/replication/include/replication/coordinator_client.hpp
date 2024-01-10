@@ -23,6 +23,7 @@
 
 namespace memgraph::replication {
 
+#ifdef MG_ENTERPRISE
 struct CoordinatorClient {
   explicit CoordinatorClient(const memgraph::replication::CoordinatorClientConfig &config);
 
@@ -59,5 +60,6 @@ struct CoordinatorClient {
 
   utils::Scheduler replica_checker_;
 };
+#endif
 
 }  // namespace memgraph::replication

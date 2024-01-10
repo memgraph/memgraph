@@ -488,7 +488,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     return handler_.ShowReplicasOnCoordinator();
   }
 
-  std::vector<replication::CoordinatorEntityHealthInfo> PingReplicasOnCoordinator() const override {
+  std::unordered_map<std::string, bool> PingReplicasOnCoordinator() const override {
     return handler_.PingReplicasOnCoordinator();
   }
 
@@ -907,22 +907,23 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         throw QueryRuntimeException("Only on coordinator you can call SHOW REPLICATION CLUSTER.");
       }
 
-      // TODO: (andi) Exact order of this checks
-      // TODO: (andi) Bunch of details missing atm
-      callback.header = {"name", "socket_address"};
+      callback.header = {"name", "socket_address", "alive"};
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, replica_nfields = callback.header.size()]() mutable {
-        const auto health_checks_replicas = handler.PingReplicasOnCoordinator();
+        auto health_checks_replicas = handler.PingReplicasOnCoordinator();
         const auto replicas = handler.ShowReplicasOnCoordinator();
         std::vector<std::vector<TypedValue>> result{};
         result.reserve(replicas.size() + 1);  // replicas + 1 main
         std::ranges::transform(replicas, std::back_inserter(result),
-                               [](const auto &replica) -> std::vector<TypedValue> {
-                                 return {TypedValue(replica.name), TypedValue(replica.endpoint.SocketAddress())};
+                               [&health_checks_replicas](const auto &replica) -> std::vector<TypedValue> {
+                                 return {TypedValue{replica.name}, TypedValue{replica.endpoint.SocketAddress()},
+                                         TypedValue{health_checks_replicas[replica.name]}};
                                });
         const auto main = handler.ShowMainOnCoordinator();
         if (main) {
-          result.emplace_back(
-              std::vector<TypedValue>{TypedValue(main->name), TypedValue(main->endpoint.SocketAddress())});
+          auto health_check_main = handler.PingMainOnCoordinator();
+          bool is_main_alive = health_check_main.has_value() ? health_check_main.value().alive : false;
+          result.emplace_back(std::vector<TypedValue>{
+              TypedValue{main->name}, TypedValue{main->endpoint.SocketAddress()}, TypedValue{is_main_alive}});
         }
 
         return result;

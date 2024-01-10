@@ -211,6 +211,7 @@ auto ReplicationHandler::RegisterMainOnCoordinator(const memgraph::replication::
   auto instance_client = dbms_handler_.CoordinatorState().RegisterMain(config);
   if (instance_client.HasError()) switch (instance_client.GetError()) {
       case memgraph::replication::RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR:
+        ///// TODO AF Do we want to crash here?
         MG_ASSERT(false, "Only coordinator instance can register main and replica!");
         return {};
       case memgraph::replication::RegisterMainReplicaCoordinatorStatus::NAME_EXISTS:
@@ -231,7 +232,7 @@ auto ReplicationHandler::ShowReplicasOnCoordinator() const -> std::vector<replic
   return dbms_handler_.CoordinatorState().ShowReplicas();
 }
 
-auto ReplicationHandler::PingReplicasOnCoordinator() const -> std::vector<replication::CoordinatorEntityHealthInfo> {
+auto ReplicationHandler::PingReplicasOnCoordinator() const -> std::unordered_map<std::string, bool> {
   return dbms_handler_.CoordinatorState().PingReplicas();
 }
 

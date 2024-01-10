@@ -50,7 +50,7 @@ class CoordinatorState {
 
   std::vector<CoordinatorEntityInfo> ShowReplicas() const;
 
-  std::vector<CoordinatorEntityHealthInfo> PingReplicas() const;
+  std::unordered_map<std::string, bool> PingReplicas() const;
 
   std::optional<CoordinatorEntityInfo> ShowMain() const;
 

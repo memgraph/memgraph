@@ -139,15 +139,15 @@ std::optional<CoordinatorEntityInfo> CoordinatorState::ShowMain() const {
   return std::nullopt;
 }
 
-std::vector<CoordinatorEntityHealthInfo> CoordinatorState::PingReplicas() const {
+std::unordered_map<std::string, bool> CoordinatorState::PingReplicas() const {
   if (!std::holds_alternative<CoordinatorData>(data_)) {
     MG_ASSERT(false, "Can't call ping replicas on data_, as variant holds wrong alternative");
   }
-  std::vector<CoordinatorEntityHealthInfo> result;
+  std::unordered_map<std::string, bool> result;
   const auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
   result.reserve(registered_replicas.size());
   for (const CoordinatorClient &replica_client : registered_replicas) {
-    result.emplace_back(CoordinatorEntityHealthInfo{replica_client.name_, replica_client.DoHealthCheck()});
+    result.emplace(replica_client.name_, replica_client.DoHealthCheck());
   }
 
   return result;

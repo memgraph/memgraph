@@ -14,6 +14,7 @@
 
 namespace memgraph::replication {
 
+#ifdef MG_ENTERPRISE
 static auto CreateClientContext(const memgraph::replication::CoordinatorClientConfig &config)
     -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
@@ -65,5 +66,5 @@ bool CoordinatorClient::DoHealthCheck() const {
   }
   return false;
 }
-
+#endif
 }  // namespace memgraph::replication
