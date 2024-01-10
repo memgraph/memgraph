@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1093,15 +1093,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(PatternComprehension &pattern_comprehension) override {
-    TypedValue &frame_pattern_value = frame_->at(symbol_table_->at(pattern_comprehension));
-    if (!frame_pattern_value.IsFunction()) [[unlikely]] {
-      throw QueryRuntimeException(
-          "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
-          frame_pattern_value.type());
-    }
-    TypedValue result{ctx_->memory};
-    frame_pattern_value.ValueFunction()(&result);
-    return result;
+    throw utils::NotYetImplemented("Expression evaluator can not handle pattern comprehension.");
   }
 
  private:

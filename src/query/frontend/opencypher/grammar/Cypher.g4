@@ -137,8 +137,6 @@ returnItems : ( '*' ( ',' returnItem )* )
 
 returnItem : ( expression AS variable )
            | expression
-           | ( patternComprehension AS variable )
-           | patternComprehension
            ;
 
 order : ORDER BY sortItem ( ',' sortItem )* ;
