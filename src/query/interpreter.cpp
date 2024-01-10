@@ -340,6 +340,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                                                .port = port,
                                                .replica_check_frequency = replica_check_frequency,
                                                .ssl = std::nullopt};
+
+#ifdef MG_ENTERPRISE
       const replication::CoordinatorClientConfig coordinator_config =
           replication::CoordinatorClientConfig{.name = name,
                                                .mode = repl_mode,
@@ -347,7 +349,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                                                .port = port,
                                                .replica_check_frequency = replica_check_frequency,
                                                .ssl = std::nullopt};
-#ifdef MG_ENTERPRISE
       const auto error = std::invoke([&coordinator_config, &replication_config, repl_handler = &this->handler_]() {
         if (FLAGS_coordinator) {
           if (!license::global_license_checker.IsEnterpriseValidFast()) {
