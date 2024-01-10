@@ -1092,7 +1092,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
   }
 
-  TypedValue Visit(PatternComprehension &pattern_comprehension) override {
+  TypedValue Visit(PatternComprehension & /*pattern_comprehension*/) override {
     throw utils::NotYetImplemented("Expression evaluator can not handle pattern comprehension.");
   }
 
