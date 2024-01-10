@@ -112,8 +112,10 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
       // it's ok to move it.
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
       auto plan_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
-      // if we have a plan that uses index hints, we want to use it no matter the cost
+      // if we have a plan that uses index hints, we reject all the plans that don't use index hinting because we want
+      // to force the plan using the index hints to be executed
       if (curr_uses_index_hint && !plan_cost.use_index_hints) continue;
+      // if a plan uses index hints, and there is currently not yet a plan that utilizes it, we will take it regardless
       if (plan_cost.use_index_hints && !curr_uses_index_hint) {
         curr_uses_index_hint = plan_cost.use_index_hints;
         curr_plan.emplace(std::move(rewritten_plan));
