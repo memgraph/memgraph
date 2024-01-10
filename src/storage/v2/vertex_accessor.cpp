@@ -15,6 +15,8 @@
 #include <tuple>
 #include <utility>
 
+#include <fmt/format.h>
+
 #include "flags/run_time_configurable.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -276,12 +278,13 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
         if (flags::run_time::GetTextSearchEnabled()) {
           for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
-            auto search_input = mgcxx_mock::text_search::SearchInput{};
+            auto search_input = mgcxx_mock::text_search::SearchInput{
+                .search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt()), .return_fields = {"data"}};
 
             auto search_result = mgcxx_mock::text_search::Mock::search(*index_context, search_input);
             mgcxx_mock::text_search::Mock::delete_document(*index_context, search_input, true);
-            // parse result to JSON, set property in JSON and convert to string
-            auto new_properties = search_result.docs[0].data;
+            auto new_properties = search_result.docs[0].data;  // TODO (pending real Tantivy results): parse result to
+                                                               // JSON, set property and convert back to string
             auto new_properties_document = mgcxx_mock::text_search::DocumentInput{.data = new_properties};
             mgcxx_mock::text_search::Mock::add(*index_context, new_properties_document, true);
           }
@@ -321,7 +324,9 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
         }
         if (flags::run_time::GetTextSearchEnabled()) {
           for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
-            auto new_properties_document = mgcxx_mock::text_search::DocumentInput{};  // empty properties
+            auto new_properties_document =
+                mgcxx_mock::text_search::DocumentInput{};  // TODO (pending real Tantivy operation): create a JSON, set
+                                                           // properties and convert to string
             mgcxx_mock::text_search::Mock::add(*index_context, new_properties_document, true);
           }
         }
@@ -362,12 +367,13 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
         id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
         if (flags::run_time::GetTextSearchEnabled()) {
           for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
-            auto search_input = mgcxx_mock::text_search::SearchInput{};
+            auto search_input = mgcxx_mock::text_search::SearchInput{
+                .search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt()), .return_fields = {"data"}};
 
             auto search_result = mgcxx_mock::text_search::Mock::search(*index_context, search_input);
             mgcxx_mock::text_search::Mock::delete_document(*index_context, search_input, true);
-            // parse result to JSON, set property in JSON and convert to string
-            auto new_properties = search_result.docs[0].data;
+            auto new_properties = search_result.docs[0].data;  // TODO (pending real Tantivy results): parse result to
+                                                               // JSON, set property and convert back to string
             auto new_properties_document = mgcxx_mock::text_search::DocumentInput{.data = new_properties};
             mgcxx_mock::text_search::Mock::add(*index_context, new_properties_document, true);
           }
@@ -404,27 +410,28 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 
   using ReturnType = decltype(vertex_->properties.Properties());
   std::optional<ReturnType> properties;
-  utils::AtomicMemoryBlock atomic_memory_block{
-      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties]() {
-        properties.emplace(vertex->properties.Properties());
-        if (!properties.has_value()) {
-          return;
-        }
-        for (const auto &[property, value] : *properties) {
-          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, value);
-          storage->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex, *transaction);
-          transaction->constraint_verification_info.RemovedProperty(vertex);
-          transaction->manyDeltasCache.Invalidate(vertex, property);
-        }
+  utils::AtomicMemoryBlock atomic_memory_block{[storage = storage_, transaction = transaction_, vertex = vertex_,
+                                                &properties]() {
+    properties.emplace(vertex->properties.Properties());
+    if (!properties.has_value()) {
+      return;
+    }
+    for (const auto &[property, value] : *properties) {
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, value);
+      storage->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex, *transaction);
+      transaction->constraint_verification_info.RemovedProperty(vertex);
+      transaction->manyDeltasCache.Invalidate(vertex, property);
+    }
 
-        vertex->properties.ClearProperties();
-        if (flags::run_time::GetTextSearchEnabled()) {
-          for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
-            auto search_input = mgcxx_mock::text_search::SearchInput{};
-            mgcxx_mock::text_search::Mock::delete_document(*index_context, search_input, true);
-          }
-        }
-      }};
+    vertex->properties.ClearProperties();
+    if (flags::run_time::GetTextSearchEnabled()) {
+      for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
+        auto search_input =
+            mgcxx_mock::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt())};
+        mgcxx_mock::text_search::Mock::delete_document(*index_context, search_input, true);
+      }
+    }
+  }};
   std::invoke(atomic_memory_block);
 
   return properties.has_value() ? std::move(properties.value()) : ReturnType{};

@@ -636,7 +636,7 @@ class DbAccessor final {
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(std::string index_name,
                                                                                  storage::LabelId label) {
-    return accessor_->CreateTextIndex(index_name, label);
+    return accessor_->CreateTextIndex(index_name, label, this);
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(std::string index_name) {
