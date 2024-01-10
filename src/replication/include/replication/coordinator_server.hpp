@@ -29,7 +29,9 @@ class CoordinatorServer {
   bool Start();
 
   template <typename F, typename TRequestResponse>
-  void Register(F &&callback);
+  void Register(F &&callback) {
+    rpc_server_.Register<TRequestResponse>(std::forward<F>(callback));
+  }
 
  private:
   communication::ServerContext rpc_server_context_;

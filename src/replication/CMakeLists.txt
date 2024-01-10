@@ -29,10 +29,10 @@ target_sources(mg-replication
         messages.cpp
         replication_client.cpp
         replication_server.cpp
+        coordinator_rpc.cpp
         coordinator_state.cpp
         coordinator_client.cpp
         coordinator_server.cpp
-        coordinator_rpc.cpp
         coordinator_handlers.cpp
 )
 target_include_directories(mg-replication PUBLIC include)

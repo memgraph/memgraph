@@ -47,10 +47,4 @@ CoordinatorServer::~CoordinatorServer() {
 
 // TODO: (andi) Do I need this method
 bool CoordinatorServer::Start() { return rpc_server_.Start(); }
-
-template <typename F, typename TRequestResponse>
-void CoordinatorServer::Register(F &&callback) {
-  rpc_server_.Register<TRequestResponse>(std::forward<F>(callback));
-}
-
 }  // namespace memgraph::replication
