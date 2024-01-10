@@ -1818,7 +1818,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.execution_db_accessor_, "Dump query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
-  auto plan = std::make_shared<PullPlanDump>(dba);
+  auto plan = std::make_shared<PullPlanDump>(dba, *current_db.db_acc_);
   return PreparedQuery{
       {"QUERY"},
       std::move(parsed_query.required_privileges),
