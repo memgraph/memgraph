@@ -434,11 +434,12 @@ void ExaminePlans(memgraph::query::DbAccessor *dba, const memgraph::query::Symbo
 
 memgraph::query::Query *MakeAst(const std::string &query, memgraph::query::AstStorage *storage) {
   memgraph::query::frontend::ParsingContext parsing_context;
+  memgraph::query::Parameters parameters;
   parsing_context.is_query_cached = false;
   // query -> AST
   auto parser = std::make_unique<memgraph::query::frontend::opencypher::Parser>(query);
   // AST -> high level tree
-  memgraph::query::frontend::CypherMainVisitor visitor(parsing_context, storage);
+  memgraph::query::frontend::CypherMainVisitor visitor(parsing_context, storage, &parameters);
   visitor.visit(parser->tree());
   return visitor.query();
 }
