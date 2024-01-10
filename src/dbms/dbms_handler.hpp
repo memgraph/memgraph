@@ -137,50 +137,48 @@ class DbmsHandler {
     const auto uuid = utils::UUID{};
     return New_(name, uuid);
   }
+
   /**
-   * @brief Create a new Database using the passed configuration
+   * @brief Create new if name/uuid do not match any database. Drop and recreate if database already present.
+   * @note Default database is not dropped, only its UUID is updated and only if the database is clean.
    *
-   * @param config configuration to be used
+   * @param config desired salient config
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New(const storage::SalientConfig &config) {
+  NewResultT Update(const storage::SalientConfig &config) {
     std::lock_guard<LockT> wr(lock_);
-    auto config_copy = default_config_;
-    config_copy.salient = config;  // name, uuid, mode, etc
-    UpdatePaths(config_copy, config_copy.durability.storage_directory / "database" / std::string{config.uuid});
-    auto new_db = New_(config_copy);
-
-    if (repl_state_.IsReplica()) {
-      // If database exists, update the UUID
-      if (new_db.HasError() && new_db.GetError() == NewError::EXISTS) {
-        spdlog::debug("Trying to create db '{}' on replica which already exists.", config.name);
-        auto db = Get_(config.name);
-        if (db->uuid() != config.uuid) {
-          spdlog::debug("Different UUIDs");
-
-          // TODO: Fix this hack
-          if (config.name == kDefaultDB) {
-            if (db->storage()->repl_storage_state_.last_commit_timestamp_ != storage::kTimestampInitialId) {
-              spdlog::debug("Default storage is not clean, cannot update UUID...");
-              return NewError::GENERIC;  // Update error
-            }
-            spdlog::debug("Update default db's UUID");
-            // Default db cannot be deleted and remade, have to just update the UUID
-            db->storage()->config_.salient.uuid = config.uuid;
-            UpdateDurability(db->storage()->config_, ".");
-            return db;
-          }
-
-          spdlog::debug("Drop database and recreate with the correct UUID");
-          // Defer drop
-          (void)Delete_(db->name());
-          // Second attempt
-          return New_(std::move(config_copy));
-        }
-      }
+    auto new_db = New_(config);
+    if (new_db.HasValue() || new_db.GetError() != NewError::EXISTS) {
+      // NOTE: If db already exists we retry below
+      return new_db;
     }
 
-    return new_db;
+    spdlog::debug("Trying to create db '{}' on replica which already exists.", config.name);
+    auto db = Get_(config.name);
+    if (db->uuid() == config.uuid) {  // Same db
+      return db;
+    }
+
+    spdlog::debug("Different UUIDs");
+
+    // TODO: Fix this hack
+    if (config.name == kDefaultDB) {
+      if (db->storage()->repl_storage_state_.last_commit_timestamp_ != storage::kTimestampInitialId) {
+        spdlog::debug("Default storage is not clean, cannot update UUID...");
+        return NewError::GENERIC;  // Update error
+      }
+      spdlog::debug("Update default db's UUID");
+      // Default db cannot be deleted and remade, have to just update the UUID
+      db->storage()->config_.salient.uuid = config.uuid;
+      UpdateDurability(db->storage()->config_, ".");
+      return db;
+    }
+
+    spdlog::debug("Drop database and recreate with the correct UUID");
+    // Defer drop
+    (void)Delete_(db->name());
+    // Second attempt
+    return New_(config);
   }
 
   void UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir = {});
@@ -505,8 +503,22 @@ class DbmsHandler {
     if (rel_dir) {
       storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / *rel_dir);
     } else {
-      storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / "databases" / std::string{uuid});
+      storage::UpdatePaths(config_copy,
+                           default_config_.durability.storage_directory / kMultiTenantDir / std::string{uuid});
     }
+    return New_(std::move(config_copy));
+  }
+
+  /**
+   * @brief Create a new Database using the passed configuration
+   *
+   * @param config configuration to be used
+   * @return NewResultT context on success, error on failure
+   */
+  NewResultT New_(const storage::SalientConfig &config) {
+    auto config_copy = default_config_;
+    config_copy.salient = config;  // name, uuid, mode, etc
+    UpdatePaths(config_copy, config_copy.durability.storage_directory / kMultiTenantDir / std::string{config.uuid});
     return New_(std::move(config_copy));
   }
 
@@ -537,7 +549,7 @@ class DbmsHandler {
     // Recreate the dbms layout for the default db and symlink to the root
     const auto dir = StorageDir_(kDefaultDB);
     MG_ASSERT(dir, "Failed to find storage path.");
-    const auto main_dir = *dir / "databases" / kDefaultDB;
+    const auto main_dir = *dir / kMultiTenantDir / kDefaultDB;
 
     if (!std::filesystem::exists(main_dir)) {
       std::filesystem::create_directory(main_dir);

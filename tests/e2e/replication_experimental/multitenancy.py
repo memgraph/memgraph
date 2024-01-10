@@ -1344,10 +1344,12 @@ def test_create_multitenancy_replication_restart_replica(connection):
     # Goal: to show that replication can be established against REPLICA where a new databases
     # needs replicating over
     # 0/ Setup replication
-    # 1/ MAIN CREATE DATABASE A and B
-    # 2/ Write on MAIN to A and B
-    # 3/ Restart SYNC replica and add replica
-    # 4/ Validate data on replica
+    # 1/ MAIN CREATE DATABASE A
+    # 2/ Write to MAIN A
+    # 3/ Validate replication of changes to A have arrived at REPLICA
+    # 4/ Start A transaction on replica 1, Use A on replica2
+    # 5/ Check that the drop replicated
+    # 6/ Validate that the transaction is still active and working and that the replica2 is not pointing to anything
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
@@ -1355,45 +1357,77 @@ def test_create_multitenancy_replication_restart_replica(connection):
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
 
     # 2/
     execute_and_fetch_all(main_cursor, "USE DATABASE A;")
     execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
 
     # 3/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
-    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE C;")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
+    def retrieve_data():
+        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
+
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "async", 1, 0, "ready"),
+    }
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    assert actual_data == expected_data
 
     # 4/
-    expected_data = execute_and_fetch_all(main_cursor, "SHOW DATABASES;")
+    replica1_cursor = connection(7688, "replica").cursor()
+    replica2_cursor = connection(7689, "replica").cursor()
 
-    def retrieve_data(cursor):
-        return execute_and_fetch_all(cursor, "SHOW DATABASES;")
+    execute_and_fetch_all(replica1_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(replica1_cursor, "BEGIN")
+    execute_and_fetch_all(replica2_cursor, "USE DATABASE A;")
 
-    actual_data = mg_sleep_and_assert(expected_data, partial(retrieve_data, connection(7688, "replica_1").cursor()))
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "DROP DATABASE A;")
+
+    # 5/
+    # TODO Remove this once there is a replica state for the system
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
+    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
+
+    def retrieve_data():
+        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
+
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
+    }
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
-    actual_data = mg_sleep_and_assert(expected_data, partial(retrieve_data, connection(7689, "replica_2").cursor()))
-    assert actual_data == expected_data
+
+    # 6/
+    assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 1  # one node
+    execute_and_fetch_all(replica1_cursor, "COMMIT")
+    failed = False
+    try:
+        execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN n;")
+    except mgclient.DatabaseError:
+        failed = True
+    assert failed
+
+    failed = False
+    try:
+        execute_and_fetch_all(replica2_cursor, "MATCH(n) RETURN n;")
+    except mgclient.DatabaseError:
+        failed = True
+    assert failed
 
 
-def test_create_multitenancy_replication_restart_replica_async(connection):
+def test_multitenancy_drop_and_recreate_while_replica_using(connection):
     # Goal: to show that replication can be established against REPLICA where a new databases
     # needs replicating over
     # 0/ Setup replication
-    # 1/ MAIN CREATE DATABASE A and B
-    # 2/ Write on MAIN to A and B
-    # 3/ Restart SYNC replica and add a database
-    # 4/ Validate data on replica
+    # 1/ MAIN CREATE DATABASE A
+    # 2/ Write to MAIN A
+    # 3/ Validate replication of changes to A have arrived at REPLICA
+    # 4/ Start A transaction on replica 1, Use A on replica2
+    # 5/ Check that the drop/create replicated
+    # 6/ Validate that the transaction is still active and working and that the replica2 is not pointing to anything
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
@@ -1401,35 +1435,64 @@ def test_create_multitenancy_replication_restart_replica_async(connection):
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
 
     # 2/
     execute_and_fetch_all(main_cursor, "USE DATABASE A;")
     execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
 
     # 3/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
-    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE C;")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
+    def retrieve_data():
+        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
+
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "async", 1, 0, "ready"),
+    }
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    assert actual_data == expected_data
 
     # 4/
-    expected_data = execute_and_fetch_all(main_cursor, "SHOW DATABASES;")
+    replica1_cursor = connection(7688, "replica").cursor()
+    replica2_cursor = connection(7689, "replica").cursor()
 
-    def retrieve_data(cursor):
-        return execute_and_fetch_all(cursor, "SHOW DATABASES;")
+    execute_and_fetch_all(replica1_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(replica1_cursor, "BEGIN")
+    execute_and_fetch_all(replica2_cursor, "USE DATABASE A;")
 
-    actual_data = mg_sleep_and_assert(expected_data, partial(retrieve_data, connection(7688, "replica_1").cursor()))
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "DROP DATABASE A;")
+
+    # 5/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+
+    def retrieve_data():
+        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
+
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
+    }
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
-    actual_data = mg_sleep_and_assert(expected_data, partial(retrieve_data, connection(7689, "replica_2").cursor()))
-    assert actual_data == expected_data
+
+    # 6/
+    assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 1  # one node
+    execute_and_fetch_all(replica1_cursor, "COMMIT")
+    failed = False
+    try:
+        execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN n;")
+    except mgclient.DatabaseError:
+        failed = True
+    assert failed
+
+    failed = False
+    try:
+        execute_and_fetch_all(replica2_cursor, "MATCH(n) RETURN n;")
+    except mgclient.DatabaseError:
+        failed = True
+    assert failed
 
 
 # start main and replica
