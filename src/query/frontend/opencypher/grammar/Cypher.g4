@@ -193,7 +193,7 @@ nodeLabels : nodeLabel ( nodeLabel )* ;
 
 nodeLabel : ':' labelName ;
 
-labelName : symbolicName ;
+labelName : symbolicName | parameter;
 
 relTypeName : symbolicName ;
 
