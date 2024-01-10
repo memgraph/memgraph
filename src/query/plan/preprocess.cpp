@@ -745,4 +745,10 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
   return QueryParts{query_parts, distinct};
 }
 
+FilterInfo::~FilterInfo() = default;
+FilterInfo::FilterInfo(const FilterInfo &) = default;
+FilterInfo &FilterInfo::operator=(const FilterInfo &) = default;
+FilterInfo::FilterInfo(FilterInfo &&) noexcept = default;
+FilterInfo &FilterInfo::operator=(FilterInfo &&) noexcept = default;
+
 }  // namespace memgraph::query::plan

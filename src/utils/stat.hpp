@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "utils/file.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::utils {
@@ -48,7 +49,7 @@ inline uint64_t GetDirDiskUsage(const std::filesystem::path &path) {
         spdlog::warn(
             "Skipping file path on collecting directory disk usage '{}' because it is not readable, check file "
             "ownership and read permissions!",
-            p);
+            p.path());
         continue;
       }
       size += std::filesystem::file_size(p);

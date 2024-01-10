@@ -30,7 +30,7 @@ ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationCli
 ReplicationClient::~ReplicationClient() {
   auto endpoint = rpc_client_.Endpoint();
   try {
-    spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
+    spdlog::trace("Closing replication client on {}", endpoint.SocketAddress());
   } catch (...) {
     // Logging can throw. Not a big deal, just ignore.
   }
