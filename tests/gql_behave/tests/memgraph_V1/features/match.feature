@@ -771,3 +771,17 @@ Feature: Match
         Then the result should be:
             | path                                        |
             | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |
+
+    Scenario: Using path indentifier from CREATE in MERGE
+        Given an empty graph
+        And having executed:
+            """
+            CREATE p0=()-[:T0]->() MERGE ({k:(size(p0))});
+            """
+        When executing query:
+            """
+            MATCH (n {k: 1}) RETURN n;
+            """
+        Then the result should be:
+            | n        |
+            | ({k: 1}) |
