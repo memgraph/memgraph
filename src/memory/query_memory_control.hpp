@@ -85,8 +85,8 @@ class QueriesMemoryControl {
     bool operator<(const TransactionId &other) const { return id < other.id; }
     bool operator==(const TransactionId &other) const { return id == other.id; }
 
-    bool operator<(const uint64_t &other) const { return id < other; }
-    bool operator==(const uint64_t &other) const { return id == other; }
+    bool operator<(uint64_t other) const { return id < other; }
+    bool operator==(uint64_t other) const { return id == other; }
   };
 
   struct ThreadIdToTransactionId {
