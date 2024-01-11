@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "replication/config.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 
@@ -26,7 +27,8 @@ struct FailoverReq {
   static void Load(FailoverReq *self, memgraph::slk::Reader *reader);
   static void Save(const FailoverReq &self, memgraph::slk::Builder *builder);
   FailoverReq() = default;
-  // TODO: (andi & fico) Do we needs db_name?
+
+  std::vector<ReplicationClientConfig> replicas_name_endpoints;
 };
 
 struct FailoverRes {
@@ -35,7 +37,9 @@ struct FailoverRes {
 
   static void Load(FailoverRes *self, memgraph::slk::Reader *reader);
   static void Save(const FailoverRes &self, memgraph::slk::Builder *builder);
-  FailoverRes() = default;
+  explicit FailoverRes(bool success) : success(success) {}
+
+  bool success;
 };
 
 using FailoverRpc = rpc::RequestResponse<FailoverReq, FailoverRes>;

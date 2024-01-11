@@ -15,7 +15,6 @@
 #include "replication/coordinator_client.hpp"
 #include "replication/coordinator_config.hpp"
 #include "replication/coordinator_entity_info.hpp"
-#include "replication/coordinator_handlers.hpp"
 #include "replication/register_replica_error.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -28,7 +27,6 @@ CoordinatorState::CoordinatorState() {
   MG_ASSERT(!(FLAGS_coordinator && FLAGS_coordinator_server_port),
             "Instance cannot be a coordinator and have registered coordinator server.");
 
-  // MAIN or REPLICA instance
   if (FLAGS_coordinator_server_port) {
     auto const config = memgraph::replication::ReplicationServerConfig{
         .ip_address = memgraph::replication::kDefaultReplicationServerIp,
@@ -36,16 +34,11 @@ CoordinatorState::CoordinatorState() {
     };
 
     data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(config)};
-    CoordinatorHandlers::Register(*std::get<CoordinatorMainReplicaData>(data_).coordinator_server_);
-
-    if (!std::get<CoordinatorMainReplicaData>(data_).coordinator_server_->Start()) {
-      MG_ASSERT(false, "Failed to start coordinator server!");
-    }
   }
 }
 
-utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> CoordinatorState::RegisterReplica(
-    const CoordinatorClientConfig &config) {
+auto CoordinatorState::RegisterReplica(const CoordinatorClientConfig &config)
+    -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> {
   // TODO: (andi) Solve DRY by extracting
   auto name_check = [&config](auto const &replicas) {
     auto name_matches = [&name = config.name](auto const &replica) { return replica.Name() == name; };
@@ -84,8 +77,8 @@ utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> Co
   return &std::get<CoordinatorData>(data_).registered_replicas_.emplace_back(config);
 }
 
-utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> CoordinatorState::RegisterMain(
-    const CoordinatorClientConfig &config) {
+auto CoordinatorState::RegisterMain(const CoordinatorClientConfig &config)
+    -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> {
   // endpoint check
   auto endpoint_check = [&](auto const &replicas) {
     auto endpoint_matches = [&config](auto const &replica) {
@@ -116,7 +109,7 @@ utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> Co
   return registered_main.get();
 }
 
-std::vector<CoordinatorEntityInfo> CoordinatorState::ShowReplicas() const {
+auto CoordinatorState::ShowReplicas() const -> std::vector<CoordinatorEntityInfo> {
   if (!std::holds_alternative<CoordinatorData>(data_)) {
     MG_ASSERT(false, "Can't call show replicas on data_, as variant holds wrong alternative");
   }
@@ -129,7 +122,7 @@ std::vector<CoordinatorEntityInfo> CoordinatorState::ShowReplicas() const {
   return result;
 }
 
-std::optional<CoordinatorEntityInfo> CoordinatorState::ShowMain() const {
+auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorEntityInfo> {
   if (!std::holds_alternative<CoordinatorData>(data_)) {
     MG_ASSERT(false, "Can't call show main on data_, as variant holds wrong alternative");
   }
@@ -140,7 +133,7 @@ std::optional<CoordinatorEntityInfo> CoordinatorState::ShowMain() const {
   return std::nullopt;
 }
 
-std::unordered_map<std::string_view, bool> CoordinatorState::PingReplicas() const {
+auto CoordinatorState::PingReplicas() const -> std::unordered_map<std::string_view, bool> {
   if (!std::holds_alternative<CoordinatorData>(data_)) {
     MG_ASSERT(false, "Can't call ping replicas on data_, as variant holds wrong alternative");
   }
@@ -154,7 +147,7 @@ std::unordered_map<std::string_view, bool> CoordinatorState::PingReplicas() cons
   return result;
 }
 
-std::optional<CoordinatorEntityHealthInfo> CoordinatorState::PingMain() const {
+auto CoordinatorState::PingMain() const -> std::optional<CoordinatorEntityHealthInfo> {
   if (!std::holds_alternative<CoordinatorData>(data_)) {
     MG_ASSERT(false, "Can't call show main on data_, as variant holds wrong alternative");
   }
@@ -166,10 +159,8 @@ std::optional<CoordinatorEntityHealthInfo> CoordinatorState::PingMain() const {
 }
 
 // TODO: Return error state
-void CoordinatorState::DoFailover() {
-  if (!std::holds_alternative<CoordinatorData>(data_)) {
-    MG_ASSERT(false, "Can't call show main on data_, as variant holds wrong alternative");
-  }
+auto CoordinatorState::DoFailover(const std::vector<ReplicationClientConfig> &replication_client_configs) -> void {
+  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_), "Cannot do failover since variant holds wrong alternative");
 
   auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
 
@@ -180,9 +171,15 @@ void CoordinatorState::DoFailover() {
   }
   auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
   registered_main = std::make_unique<CoordinatorClient>(new_main->Config());
-  registered_main->SendFailoverRpc();
+  registered_main->SendFailoverRpc({});
 
   registered_replicas.erase(new_main);
+}
+
+auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
+  MG_ASSERT(std::holds_alternative<CoordinatorMainReplicaData>(data_),
+            "Cannot get coordinator server since variant holds wrong alternative");
+  return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
 }
 
 }  // namespace memgraph::replication

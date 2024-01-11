@@ -37,15 +37,23 @@ namespace slk {
 
 // Serialize code for FailoverRes
 
-void Save(const memgraph::replication::FailoverRes &self, memgraph::slk::Builder *builder) {}
+void Save(const memgraph::replication::FailoverRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.success, builder);
+}
 
-void Load(memgraph::replication::FailoverRes *self, memgraph::slk::Reader *reader) {}
+void Load(memgraph::replication::FailoverRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->success, reader);
+}
 
 // Serialize code for FailoverReq
 
-void Save(const memgraph::replication::FailoverReq &self, memgraph::slk::Builder *builder) {}
+void Save(const memgraph::replication::FailoverReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.replicas_name_endpoints, builder);
+}
 
-void Load(memgraph::replication::FailoverReq *self, memgraph::slk::Reader *reader) {}
+void Load(memgraph::replication::FailoverReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->replicas_name_endpoints, reader);
+}
 
 }  // namespace slk
 

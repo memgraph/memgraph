@@ -78,10 +78,10 @@ auto CoordinatorClient::Name() const -> std::string_view { return config_.name; 
 auto CoordinatorClient::Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
 auto CoordinatorClient::Config() const -> CoordinatorClientConfig const & { return config_; }
 
-bool CoordinatorClient::SendFailoverRpc() const {
+bool CoordinatorClient::SendFailoverRpc(const std::vector<ReplicationClientConfig> &replication_client_configs) const {
   try {
     {
-      auto stream{rpc_client_.Stream<FailoverRpc>()};
+      auto stream{rpc_client_.Stream<FailoverRpc>(replication_client_configs)};
       stream.AwaitResponse();
       spdlog::info("Sent failover RPC from coordinator to new main!");
       return true;

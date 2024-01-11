@@ -39,7 +39,7 @@ class CoordinatorClient {
   void StartFrequentCheck();
 
   bool DoHealthCheck() const;
-  bool SendFailoverRpc() const;
+  bool SendFailoverRpc(const std::vector<ReplicationClientConfig> &replication_client_config) const;
 
   auto Name() const -> std::string_view;
   auto Endpoint() const -> io::network::Endpoint const &;

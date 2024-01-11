@@ -15,6 +15,7 @@
 #include "replication/coordinator_entity_info.hpp"
 #include "replication/coordinator_server.hpp"
 #include "replication/register_replica_error.hpp"
+#include "rpc/server.hpp"
 #include "utils/result.hpp"
 
 #include <list>
@@ -41,29 +42,33 @@ class CoordinatorState {
     return *this;
   }
 
-  utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> RegisterReplica(
-      const CoordinatorClientConfig &config);
+  auto RegisterReplica(const CoordinatorClientConfig &config)
+      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *>;
 
-  /// TODO: (andi) Introduce RegisterMainError
-  utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> RegisterMain(
-      const CoordinatorClientConfig &config);
+  auto RegisterMain(const CoordinatorClientConfig &config)
+      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *>;
 
-  std::vector<CoordinatorEntityInfo> ShowReplicas() const;
+  auto ShowReplicas() const -> std::vector<CoordinatorEntityInfo>;
 
-  std::unordered_map<std::string_view, bool> PingReplicas() const;
+  auto PingReplicas() const -> std::unordered_map<std::string_view, bool>;
 
-  std::optional<CoordinatorEntityInfo> ShowMain() const;
+  auto ShowMain() const -> std::optional<CoordinatorEntityInfo>;
 
-  std::optional<CoordinatorEntityHealthInfo> PingMain() const;
+  auto PingMain() const -> std::optional<CoordinatorEntityHealthInfo>;
 
-  void DoFailover();
+  // The client code must check that the server exists before calling this method.
+  auto GetCoordinatorServer() const -> CoordinatorServer &;
+
+  auto DoFailover(const std::vector<ReplicationClientConfig> &replication_client_configs) -> void;
 
  private:
+  // Coordinator stores registered replicas and main
   struct CoordinatorData {
     std::list<CoordinatorClient> registered_replicas_;
     std::unique_ptr<CoordinatorClient> registered_main_;
   };
 
+  // Data which each main and replica stores
   struct CoordinatorMainReplicaData {
     std::unique_ptr<CoordinatorServer> coordinator_server_;
   };
