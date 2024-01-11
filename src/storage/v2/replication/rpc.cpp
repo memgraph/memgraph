@@ -11,6 +11,8 @@
 
 #include "storage/v2/replication/rpc.hpp"
 #include <cstdint>
+#include "slk/streams.hpp"
+#include "utils/enum.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph {
@@ -297,7 +299,7 @@ void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::
 void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.name, builder);
   memgraph::slk::Save(self.uuid, builder);
-  memgraph::slk::Save(static_cast<uint8_t>(self.storage_mode), builder);
+  memgraph::slk::Save(utils::EnumToNum<3, uint8_t>(self.storage_mode), builder);
   memgraph::slk::Save(self.items.properties_on_edges, builder);
   memgraph::slk::Save(self.items.enable_schema_metadata, builder);
 }
@@ -307,7 +309,9 @@ void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader)
   memgraph::slk::Load(&self->uuid, reader);
   uint8_t sm = 0;
   memgraph::slk::Load(&sm, reader);
-  self->storage_mode = static_cast<storage::StorageMode>(sm);
+  if (!utils::NumToEnum<3>(sm, self->storage_mode)) {
+    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
+  }
   memgraph::slk::Load(&self->items.properties_on_edges, reader);
   memgraph::slk::Load(&self->items.enable_schema_metadata, reader);
 }
@@ -329,13 +333,15 @@ void Load(memgraph::storage::replication::CreateDatabaseReq *self, memgraph::slk
 // Serialize code for CreateDatabaseRes
 
 void Save(const memgraph::storage::replication::CreateDatabaseRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(static_cast<uint8_t>(self.result), builder);
+  memgraph::slk::Save(utils::EnumToNum<uint8_t>(self.result), builder);
 }
 
 void Load(memgraph::storage::replication::CreateDatabaseRes *self, memgraph::slk::Reader *reader) {
   uint8_t res = 0;
   memgraph::slk::Load(&res, reader);
-  self->result = static_cast<memgraph::storage::replication::CreateDatabaseRes::Result>(res);
+  if (!utils::NumToEnum(res, self->result)) {
+    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
+  }
 }
 
 // Serialize code for DropDatabaseReq
@@ -355,13 +361,15 @@ void Load(memgraph::storage::replication::DropDatabaseReq *self, memgraph::slk::
 // Serialize code for DropDatabaseRes
 
 void Save(const memgraph::storage::replication::DropDatabaseRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(static_cast<uint8_t>(self.result), builder);
+  memgraph::slk::Save(utils::EnumToNum<uint8_t>(self.result), builder);
 }
 
 void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::Reader *reader) {
   uint8_t res = 0;
   memgraph::slk::Load(&res, reader);
-  self->result = static_cast<memgraph::storage::replication::DropDatabaseRes::Result>(res);
+  if (!utils::NumToEnum(res, self->result)) {
+    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
+  }
 }
 
 // Serialize code for SystemRecoveryReq
@@ -377,13 +385,15 @@ void Load(memgraph::storage::replication::SystemRecoveryReq *self, memgraph::slk
 // Serialize code for SystemRecoveryRes
 
 void Save(const memgraph::storage::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(static_cast<uint8_t>(self.result), builder);
+  memgraph::slk::Save(utils::EnumToNum<uint8_t>(self.result), builder);
 }
 
 void Load(memgraph::storage::replication::SystemRecoveryRes *self, memgraph::slk::Reader *reader) {
   uint8_t res = 0;
   memgraph::slk::Load(&res, reader);
-  self->result = static_cast<memgraph::storage::replication::SystemRecoveryRes::Result>(res);
+  if (!utils::NumToEnum(res, self->result)) {
+    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
+  }
 }
 
 }  // namespace slk

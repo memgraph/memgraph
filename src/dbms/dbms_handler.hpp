@@ -410,19 +410,20 @@ class DbmsHandler {
       auto stream = client.rpc_client_.template Stream<RPC>(std::forward<Args>(args)...);
       auto task = [&client, check = std::forward<decltype(check)>(check), stream = std::move(stream)]() mutable {
         if (stream.IsDefunct()) {
-          client.behind_ = true;
+          client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
           return false;
         }
         try {
           const auto response = stream.AwaitResponse();
           if (!check(response)) {
             // This replica needs SYSTEM recovery
-            client.behind_ = true;
+            client.state_.WithLock(
+                [](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
             return false;
           }
         } catch (memgraph::rpc::GenericRpcFailedException const &e) {
           // This replica needs SYSTEM recovery
-          client.behind_ = true;
+          client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
           return false;
         }
         return true;
@@ -436,7 +437,7 @@ class DbmsHandler {
       return task();
     } catch (memgraph::rpc::GenericRpcFailedException const &e) {
       // This replica needs SYSTEM recovery
-      client.behind_ = true;
+      client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
       return false;
     }
   };
@@ -448,7 +449,9 @@ class DbmsHandler {
 #ifdef MG_ENTERPRISE
   void SystemRestore(replication::ReplicationClient &client) {
     // Check if system is up to date
-    if (!client.behind_) return;
+    if (client.state_.WithLock(
+            [](auto &state) { return state == memgraph::replication::ReplicationClient::State::READY; }))
+      return;
 
     // Try to recover...
     {
@@ -458,17 +461,17 @@ class DbmsHandler {
         auto stream = client.rpc_client_.Stream<storage::replication::SystemRecoveryRpc>(std::move(database_configs));
         const auto response = stream.AwaitResponse();
         if (response.result == storage::replication::SystemRecoveryRes::Result::FAILURE) {
-          client.behind_ = true;
+          client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
           return;
         }
       } catch (memgraph::rpc::GenericRpcFailedException const &e) {
-        client.behind_ = true;
+        client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
         return;
       }
     }
 
     // Successfully recovered
-    client.behind_ = false;
+    client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::READY; });
   }
 #endif
 

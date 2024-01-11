@@ -21,7 +21,9 @@ void StartReplicaClient(DbmsHandler &dbms_handler, replication::ReplicationClien
   client.StartFrequentCheck([&dbms_handler](bool reconnect, replication::ReplicationClient &client) {
     // Working connection
     // Check if system needs restoration
-    if (reconnect) client.behind_ = true;
+    if (reconnect) {
+      client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
+    }
 #ifdef MG_ENTERPRISE
     dbms_handler.SystemRestore(client);
 #endif

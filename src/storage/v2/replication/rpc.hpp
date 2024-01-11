@@ -20,6 +20,7 @@
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "storage/v2/config.hpp"
+#include "utils/enum.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::storage::replication {
@@ -219,7 +220,7 @@ struct CreateDatabaseRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE };
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
 
   static void Load(CreateDatabaseRes *self, memgraph::slk::Reader *reader);
   static void Save(const CreateDatabaseRes &self, memgraph::slk::Builder *builder);
@@ -250,7 +251,7 @@ struct DropDatabaseRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE };
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
 
   static void Load(DropDatabaseRes *self, memgraph::slk::Reader *reader);
   static void Save(const DropDatabaseRes &self, memgraph::slk::Builder *builder);
@@ -279,7 +280,7 @@ struct SystemRecoveryRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE };
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
 
   static void Load(SystemRecoveryRes *self, memgraph::slk::Reader *reader);
   static void Save(const SystemRecoveryRes &self, memgraph::slk::Builder *builder);
