@@ -16,6 +16,7 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"
+#include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
@@ -136,7 +137,8 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
         query_parts, &ctx);
     for (auto plan : plans) {
-      memgraph::query::plan::EstimatePlanCost(&dba, symbol_table, parameters, *plan);
+      memgraph::query::plan::EstimatePlanCost(&dba, symbol_table, parameters, *plan,
+                                              memgraph::query::plan::IndexHints());
     }
   }
 }
@@ -166,7 +168,8 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
         query_parts, &ctx);
     for (auto plan : plans) {
-      memgraph::query::plan::EstimatePlanCost(&vertex_counts, symbol_table, parameters, *plan);
+      memgraph::query::plan::EstimatePlanCost(&vertex_counts, symbol_table, parameters, *plan,
+                                              memgraph::query::plan::IndexHints());
     }
   }
 }
