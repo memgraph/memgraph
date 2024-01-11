@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -477,13 +477,14 @@ inline std::string DoubleToString(const double value) {
 
   std::stringstream ss;
   ss << std::setprecision(PRECISION) << std::fixed << value;
-  std::string res(ss.view(), 0, STR_LENGTH);
+  auto sv = ss.view().substr(0, STR_LENGTH);
 
-  res.erase(res.find_last_not_of('0') + 1);
-  if (res.back() == '.') {
-    res.pop_back();
+  // Because of setprecision and fixed manipulator we are guaranteed to have the dot
+  sv = sv.substr(0, sv.find_last_not_of('0') + 1);
+  if (sv.ends_with('.')) {
+    sv = sv.substr(0, sv.size() - 1);
   }
-  return res;
+  return std::string(sv);
 }
 
 }  // namespace memgraph::utils
