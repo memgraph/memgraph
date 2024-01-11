@@ -28,7 +28,7 @@ struct FailoverReq {
   static void Save(const FailoverReq &self, memgraph::slk::Builder *builder);
   FailoverReq() = default;
 
-  std::vector<ReplicationClientConfig> replicas_name_endpoints;
+  // std::vector<ReplicationClientConfig> replicas_name_endpoints;
 };
 
 struct FailoverRes {
@@ -37,9 +37,9 @@ struct FailoverRes {
 
   static void Load(FailoverRes *self, memgraph::slk::Reader *reader);
   static void Save(const FailoverRes &self, memgraph::slk::Builder *builder);
-  explicit FailoverRes(bool success) : success(success) {}
+  // explicit FailoverRes(bool success) : success(success) {}
 
-  bool success;
+  // bool success;
 };
 
 using FailoverRpc = rpc::RequestResponse<FailoverReq, FailoverRes>;

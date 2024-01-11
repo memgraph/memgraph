@@ -81,7 +81,7 @@ auto CoordinatorClient::Config() const -> CoordinatorClientConfig const & { retu
 bool CoordinatorClient::SendFailoverRpc(const std::vector<ReplicationClientConfig> &replication_client_configs) const {
   try {
     {
-      auto stream{rpc_client_.Stream<FailoverRpc>(replication_client_configs)};
+      auto stream{rpc_client_.Stream<FailoverRpc>()};
       stream.AwaitResponse();
       spdlog::info("Sent failover RPC from coordinator to new main!");
       return true;
