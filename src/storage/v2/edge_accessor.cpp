@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
@@ -264,9 +265,56 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   return std::move(value);
 }
 
-Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property) const {
+Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) const {
   if (!storage_->config_.items.properties_on_edges) return 0;
-  return edge_.ptr->properties.PropertySize(property);
+
+  bool exists = true;
+  bool deleted = false;
+  PropertyValue value;
+  Delta *delta = nullptr;
+  {
+    auto guard = std::shared_lock{edge_.ptr->lock};
+    delta = edge_.ptr->delta;
+    deleted = edge_.ptr->deleted;
+    if (!delta) {
+      return edge_.ptr->properties.PropertySize(property);
+    }
+    value = edge_.ptr->properties.GetProperty(property);
+  }
+
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::SET_PROPERTY: {
+        if (delta.property.key == property) {
+          value = delta.property.value;
+        }
+        break;
+      }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT: {
+        exists = false;
+        break;
+      }
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+  });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+
+  auto property_store = storage::PropertyStore();
+  property_store.SetProperty(property, value);
+
+  return property_store.PropertySize(property);
 };
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {

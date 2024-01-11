@@ -237,7 +237,7 @@ class Storage {
 
     PropertyId NameToProperty(std::string_view name) { return storage_->NameToProperty(name); }
 
-    std::optional<PropertyId> NameToPropertyIfExists(std::string_view name) {
+    std::optional<PropertyId> NameToPropertyIfExists(std::string_view name) const {
       return storage_->NameToPropertyIfExists(name);
     }
 
@@ -309,7 +309,7 @@ class Storage {
     return PropertyId::FromUint(name_id_mapper_->NameToId(name));
   }
 
-  std::optional<PropertyId> NameToPropertyIfExists(const std::string_view name) const {
+  std::optional<PropertyId> NameToPropertyIfExists(std::string_view name) const {
     const auto id = name_id_mapper_->NameToIdIfExists(name);
     if (!id) {
       return std::nullopt;

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -631,7 +631,7 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       property_size += SizeToByteSize(payload_size);
 
       std::string str_v(*size, '\0');
-      if (!reader->ReadBytes(str_v.data(), *size)) return false;
+      if (!reader->SkipBytes(*size)) return false;
       property_size += *size;
 
       return true;
@@ -1017,17 +1017,10 @@ enum class ExpectedPropertyStatus {
 }
 
 [[nodiscard]] ExpectedPropertyStatus FindSpecificPropertySize(Reader *reader, PropertyId property, uint64_t &size) {
-  while (true) {
-    auto ret = DecodeExpectedPropertySize(reader, property, size);
-    // Because the properties are sorted in the buffer, we only need to
-    // continue searching for the property while this function returns a
-    // `SMALLER` value indicating that the ID of the found property is smaller
-    // than the seeked ID. All other return values (`MISSING_DATA`, `EQUAL` and
-    // `GREATER`) terminate the search.
-    if (ret != ExpectedPropertyStatus::SMALLER) {
-      return ret;
-    }
+  ExpectedPropertyStatus ret;
+  while ((ret = DecodeExpectedPropertySize(reader, property, size)) == ExpectedPropertyStatus::SMALLER) {
   }
+  return ret;
 }
 
 // Function used to find if property is set. It relies on the fact that the properties
@@ -1138,6 +1131,27 @@ std::pair<uint64_t, uint8_t *> GetSizeData(const uint8_t *buffer) {
   return {size, data};
 }
 
+struct DataSizeLocalBuffer {
+  uint64_t size;
+  uint8_t *data;
+  bool in_local_buffer;
+};
+
+DataSizeLocalBuffer GetDataSizeInLocalBuffer(const uint8_t *buffer) {
+  uint64_t size = 0;
+  const uint8_t *data = nullptr;
+  bool in_local_buffer = false;
+  std::tie(size, data) = GetSizeData(buffer);
+  if (size % 8 != 0) {
+    // We are storing the data in the local buffer.
+    size = sizeof(buffer) - 1;
+    data = &buffer[1];
+    in_local_buffer = true;
+  }
+
+  return {size, const_cast<uint8_t *>(data), in_local_buffer};
+}
+
 void SetSizeData(uint8_t *buffer, uint64_t size, uint8_t *data) {
   memcpy(buffer, &size, sizeof(uint64_t));
   memcpy(buffer + sizeof(uint64_t), &data, sizeof(uint8_t *));
@@ -1178,30 +1192,16 @@ PropertyStore::~PropertyStore() {
 }
 
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
-  uint64_t size;
-  const uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
+  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
   PropertyValue value;
   if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return {};
   return value;
 }
 
 uint64_t PropertyStore::PropertySize(PropertyId property) const {
-  uint64_t size = 0;
-  const uint8_t *data = nullptr;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
+  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
 
   uint64_t property_size = 0;
   if (FindSpecificPropertySize(&reader, property, property_size) != ExpectedPropertyStatus::EQUAL) return 0;
@@ -1209,15 +1209,9 @@ uint64_t PropertyStore::PropertySize(PropertyId property) const {
 }
 
 bool PropertyStore::HasProperty(PropertyId property) const {
-  uint64_t size = 0;
-  const uint8_t *data = nullptr;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
+  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
+
   return ExistsSpecificProperty(&reader, property) == ExpectedPropertyStatus::EQUAL;
 }
 
@@ -1255,32 +1249,20 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
 }
 
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
-  uint64_t size;
-  const uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
+  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
+
   auto info = FindSpecificPropertyAndBufferInfo(&reader, property);
   if (info.property_size == 0) return value.IsNull();
-  Reader prop_reader(data + info.property_begin, info.property_size);
+  Reader prop_reader(data_size_localbuffer.data + info.property_begin, info.property_size);
   if (!CompareExpectedProperty(&prop_reader, property, value)) return false;
   return prop_reader.GetPosition() == info.property_size;
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
-  uint64_t size;
-  const uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
+  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
+
   std::map<PropertyId, PropertyValue> props;
   while (true) {
     PropertyValue value;
@@ -1299,28 +1281,20 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
     property_size = writer.Written();
   }
 
-  bool in_local_buffer = false;
-  uint64_t size;
-  uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-    in_local_buffer = true;
-  }
+  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
+  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
 
   bool existed = false;
-  if (!size) {
+  if (!data_size_localbuffer.size) {
     if (!value.IsNull()) {
       // We don't have a data buffer. Allocate a new one.
       auto property_size_to_power_of_8 = ToPowerOf8(property_size);
       if (property_size <= sizeof(buffer_) - 1) {
         // Use the local buffer.
         buffer_[0] = kUseLocalBuffer;
-        size = sizeof(buffer_) - 1;
-        data = &buffer_[1];
-        in_local_buffer = true;
+        data_size_localbuffer.size = sizeof(buffer_) - 1;
+        data_size_localbuffer.data = &buffer_[1];
+        data_size_localbuffer.in_local_buffer = true;
       } else {
         // Allocate a new external buffer.
         auto *alloc_data = new uint8_t[property_size_to_power_of_8];
@@ -1328,13 +1302,13 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 
         SetSizeData(buffer_, alloc_size, alloc_data);
 
-        size = alloc_size;
-        data = alloc_data;
-        in_local_buffer = false;
+        data_size_localbuffer.size = alloc_size;
+        data_size_localbuffer.data = alloc_data;
+        data_size_localbuffer.in_local_buffer = false;
       }
 
       // Encode the property into the data buffer.
-      Writer writer(data, size);
+      Writer writer(data_size_localbuffer.data, data_size_localbuffer.size);
       MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
       auto metadata = writer.WriteMetadata();
       if (metadata) {
@@ -1347,18 +1321,19 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       // to set a property to `Null` (we are trying to remove the property).
     }
   } else {
-    Reader reader(data, size);
+    Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
     auto info = FindSpecificPropertyAndBufferInfo(&reader, property);
     existed = info.property_size != 0;
     auto new_size = info.all_size - info.property_size + property_size;
     auto new_size_to_power_of_8 = ToPowerOf8(new_size);
     if (new_size_to_power_of_8 == 0) {
       // We don't have any data to encode anymore.
-      if (!in_local_buffer) delete[] data;
+      if (!data_size_localbuffer.in_local_buffer) delete[] data_size_localbuffer.data;
       SetSizeData(buffer_, 0, nullptr);
-      data = nullptr;
-      size = 0;
-    } else if (new_size_to_power_of_8 > size || new_size_to_power_of_8 <= size * 2 / 3) {
+      data_size_localbuffer.data = nullptr;
+      data_size_localbuffer.size = 0;
+    } else if (new_size_to_power_of_8 > data_size_localbuffer.size ||
+               new_size_to_power_of_8 <= data_size_localbuffer.size * 2 / 3) {
       // We need to enlarge/shrink the buffer.
       bool current_in_local_buffer = false;
       uint8_t *current_data = nullptr;
@@ -1376,35 +1351,36 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
         current_in_local_buffer = false;
       }
       // Copy everything before the property to the new buffer.
-      memmove(current_data, data, info.property_begin);
+      memmove(current_data, data_size_localbuffer.data, info.property_begin);
       // Copy everything after the property to the new buffer.
-      memmove(current_data + info.property_begin + property_size, data + info.property_end,
+      memmove(current_data + info.property_begin + property_size, data_size_localbuffer.data + info.property_end,
               info.all_end - info.property_end);
       // Free the old buffer.
-      if (!in_local_buffer) delete[] data;
+      if (!data_size_localbuffer.in_local_buffer) delete[] data_size_localbuffer.data;
       // Permanently remember the new buffer.
       if (!current_in_local_buffer) {
         SetSizeData(buffer_, current_size, current_data);
       }
       // Set the proxy variables.
-      data = current_data;
-      size = current_size;
-      in_local_buffer = current_in_local_buffer;
+      data_size_localbuffer.data = current_data;
+      data_size_localbuffer.size = current_size;
+      data_size_localbuffer.in_local_buffer = current_in_local_buffer;
     } else if (property_size != info.property_size) {
       // We can keep the data in the same buffer, but the new property is
       // larger/smaller than the old property. We need to move the following
       // properties to the right/left.
-      memmove(data + info.property_begin + property_size, data + info.property_end, info.all_end - info.property_end);
+      memmove(data_size_localbuffer.data + info.property_begin + property_size,
+              data_size_localbuffer.data + info.property_end, info.all_end - info.property_end);
     }
 
     if (!value.IsNull()) {
       // We need to encode the new value.
-      Writer writer(data + info.property_begin, property_size);
+      Writer writer(data_size_localbuffer.data + info.property_begin, property_size);
       MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
     }
 
     // We need to recreate the tombstone (if possible).
-    Writer writer(data + new_size, size - new_size);
+    Writer writer(data_size_localbuffer.data + new_size, data_size_localbuffer.size - new_size);
     auto metadata = writer.WriteMetadata();
     if (metadata) {
       metadata->Set({Type::EMPTY});
@@ -1514,33 +1490,20 @@ bool PropertyStore::InitProperties(std::vector<std::pair<storage::PropertyId, st
 }
 
 bool PropertyStore::ClearProperties() {
-  bool in_local_buffer = false;
-  uint64_t size;
-  uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-    in_local_buffer = true;
-  }
-  if (!size) return false;
-  if (!in_local_buffer) delete[] data;
+  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
+
+  if (!data_size_localbuffer.size) return false;
+  if (!data_size_localbuffer.in_local_buffer) delete[] data_size_localbuffer.data;
   SetSizeData(buffer_, 0, nullptr);
   return true;
 }
 
 std::string PropertyStore::StringBuffer() const {
-  uint64_t size = 0;
-  const uint8_t *data = nullptr;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {  // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  std::string arr(size, ' ');
-  for (uint i = 0; i < size; ++i) {
-    arr[i] = static_cast<char>(data[i]);
+  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
+
+  std::string arr(data_size_localbuffer.size, ' ');
+  for (uint i = 0; i < data_size_localbuffer.size; ++i) {
+    arr[i] = static_cast<char>(data_size_localbuffer.data[i]);
   }
   return arr;
 }

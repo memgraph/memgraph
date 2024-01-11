@@ -2,7 +2,7 @@ awesome_functions_cluster: &awesome_functions_cluster
   cluster:
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
-      log_file: "query_planning.log"
+      log_file: "awesome_functions.log"
       setup_queries: []
       validation_queries: []
 

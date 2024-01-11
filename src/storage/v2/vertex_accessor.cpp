@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -438,8 +438,42 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   return std::move(value);
 }
 
-Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property) const {
-  return vertex_->properties.PropertySize(property);
+Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view) const {
+  bool exists = true;
+  PropertyValue value;
+  Delta *delta = nullptr;
+  bool deleted = false;
+  {
+    auto guard = std::shared_lock{vertex_->lock};
+    delta = vertex_->delta;
+    deleted = vertex_->deleted;
+    if (!delta) {
+      return vertex_->properties.PropertySize(property);
+    }
+  }
+
+  // Checking cache has a cost, only do it if we have any deltas
+  // if we have no deltas then what we already have from the vertex is correct.
+  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    auto const n_processed =
+        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
+          // clang-format off
+          DeltaDispatch(delta, utils::ChainedOverloaded{
+            Deleted_ActionMethod(deleted),
+            Exists_ActionMethod(exists),
+            PropertyValue_ActionMethod(value, property)
+          });
+          // clang-format on
+        });
+  }
+
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+
+  auto property_store = storage::PropertyStore();
+  property_store.SetProperty(property, value);
+
+  return property_store.PropertySize(property);
 };
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view) const {

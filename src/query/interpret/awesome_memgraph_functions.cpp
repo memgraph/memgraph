@@ -446,7 +446,7 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
   FType<Or<Null, Vertex, Edge>, Or<String>>("property_size", args, nargs);
 
   auto *dba = ctx.db_accessor;
-  const auto &graph_entity = args[0];
+
   const auto &property_name = args[1].ValueString();
   const auto maybe_property_id = dba->NameToPropertyIfExists(property_name);
 
@@ -454,18 +454,17 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
     return TypedValue(0, ctx.memory);
   }
 
+  uint64_t property_size = 0;
+  const auto &graph_entity = args[0];
   if (graph_entity.IsVertex()) {
-    uint64_t property_size = graph_entity.ValueVertex().GetPropertySize(*maybe_property_id).GetValue();
-    return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
+    property_size = graph_entity.ValueVertex().GetPropertySize(*maybe_property_id, ctx.view).GetValue();
   }
 
   if (graph_entity.IsEdge()) {
-    uint64_t property_size = graph_entity.ValueEdge().GetPropertySize(*maybe_property_id).GetValue();
-    return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
+    property_size = graph_entity.ValueEdge().GetPropertySize(*maybe_property_id, ctx.view).GetValue();
   }
 
-  // Graph entity is null
-  return TypedValue(0, ctx.memory);
+  return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
 }
 
 TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {

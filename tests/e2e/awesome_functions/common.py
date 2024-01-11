@@ -22,3 +22,8 @@ def memgraph(**kwargs) -> Memgraph:
     memgraph.drop_indexes()
     memgraph.ensure_constraints([])
     memgraph.drop_database()
+
+
+def get_bytes(memgraph, prop_name):
+    res = list(memgraph.execute_and_fetch(f"MATCH (n) RETURN property_size(n, '{prop_name}') AS size"))
+    return res[0]["size"]

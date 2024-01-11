@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,7 +54,9 @@ class EdgeAccessor final {
     return impl_.GetProperty(key, view);
   }
 
-  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key) const { return impl_.GetPropertySize(key); }
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
+    return impl_.GetPropertySize(key, view);
+  }
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
@@ -131,7 +133,9 @@ class VertexAccessor final {
     return impl_.GetProperty(key, view);
   }
 
-  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key) const { return impl_.GetPropertySize(key); }
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
+    return impl_.GetPropertySize(key, view);
+  }
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
@@ -272,7 +276,9 @@ class SubgraphVertexAccessor final {
     return impl_.GetProperty(view, key);
   }
 
-  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key) const { return impl_.GetPropertySize(key); }
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
+    return impl_.GetPropertySize(key, view);
+  }
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
@@ -535,7 +541,7 @@ class DbAccessor final {
 
   storage::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }
 
-  std::optional<storage::PropertyId> NameToPropertyIfExists(const std::string_view name) {
+  std::optional<storage::PropertyId> NameToPropertyIfExists(std::string_view name) const {
     return accessor_->NameToPropertyIfExists(name);
   }
 
