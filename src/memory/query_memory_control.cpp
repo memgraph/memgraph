@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,7 +47,7 @@ void QueriesMemoryControl::UpdateThreadToTransactionId(const std::thread::id &th
 void QueriesMemoryControl::EraseThreadToTransactionId(const std::thread::id &thread_id, uint64_t transaction_id) {
   auto accessor = thread_id_to_transaction_id.access();
   auto elem = accessor.find(thread_id);
-  MG_ASSERT(elem != accessor.end() && elem->transaction_id.id == transaction_id);
+  MG_ASSERT(elem != accessor.end() && elem->transaction_id == transaction_id);
   elem->transaction_id.cnt--;
   if (elem->transaction_id.cnt == 0) {
     accessor.remove(thread_id);
