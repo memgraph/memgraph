@@ -48,6 +48,7 @@ struct RoleMainData {
   RoleMainData &operator=(RoleMainData &&other) noexcept = default;
 
   ReplicationEpoch epoch_;
+
   std::list<ReplicationClient> registered_replicas_{};
 };
 

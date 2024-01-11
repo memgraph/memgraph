@@ -70,5 +70,25 @@ bool CoordinatorClient::DoHealthCheck() const {
   }
   return false;
 }
+
+// bool CoordinatorClient::SendClients() const {
+//   try {
+//     {
+//       // this should be different RPC message?
+//       // doesn't have to be because there is lock taken in RPC request but we can do it
+//       // TODO:(andi) What is the timeout of this message? New message would be better...
+//       // Since the end goal is to create automatic failover, how to realize when the
+//       // instance is down? Because when we figure out this then we won't need to send
+//       // explicit frequent heartbeat message.
+//       auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
+//       stream.AwaitResponse();
+//       return true;
+//     }
+//   } catch (const rpc::RpcFailedException &) {
+//     // Nothing to do...wait for a reconnect
+//   }
+//   return false;
+// }
+
 #endif
 }  // namespace memgraph::replication

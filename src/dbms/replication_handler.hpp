@@ -77,6 +77,8 @@ struct ReplicationHandler {
 
   auto PingMainOnCoordinator() const -> std::optional<memgraph::replication::CoordinatorEntityHealthInfo>;
 
+  auto DoFailover() const -> void;
+
 #endif
 
   // as MAIN, remove a REPLICA connection

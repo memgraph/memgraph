@@ -3032,7 +3032,8 @@ class ReplicationQuery : public memgraph::query::Query {
     DROP_REPLICA,
     SHOW_REPLICAS,
     REGISTER_COORDINATOR_SERVER,
-    SHOW_REPLICATION_CLUSTER
+    SHOW_REPLICATION_CLUSTER,
+    DO_FAILOVER
   };
 
   enum class ReplicationRole { MAIN, REPLICA };

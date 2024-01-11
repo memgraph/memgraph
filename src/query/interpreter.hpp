@@ -119,6 +119,8 @@ class ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::optional<replication::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const = 0;
 
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void DoFailover() const = 0;
 #endif
 
   /// @throw QueryRuntimeException if an error ocurred.

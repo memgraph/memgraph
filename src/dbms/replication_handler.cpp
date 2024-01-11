@@ -244,6 +244,8 @@ auto ReplicationHandler::PingMainOnCoordinator() const -> std::optional<replicat
   return dbms_handler_.CoordinatorState().PingMain();
 }
 
+auto ReplicationHandler::DoFailover() const -> void { dbms_handler_.CoordinatorState().DoFailover(); }
+
 #endif
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterReplicaResult {

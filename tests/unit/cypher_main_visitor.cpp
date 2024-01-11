@@ -2661,6 +2661,22 @@ TEST_P(CypherMainVisitorTest, TestRegisterCoordinatorServer) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, TestDoFailover) {
+  auto &ast_generator = *GetParam();
+
+  {
+    std::string invalid_query = "DO FAILO";
+    ASSERT_THROW(ast_generator.ParseQuery(missing_name_query), SyntaxException);
+  }
+
+  {
+    std::string correct_query = "DO FAILOVER";
+    auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
+    ASSERT_TRUE(correct_query_parsed);
+    EXPECT_EQ(correct_query_parsed->action_, ReplicationQuery::Action::DO_FAILOVER);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   auto &ast_generator = *GetParam();
 

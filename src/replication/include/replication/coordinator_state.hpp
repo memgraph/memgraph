@@ -56,6 +56,8 @@ class CoordinatorState {
 
   std::optional<CoordinatorEntityHealthInfo> PingMain() const;
 
+  void DoFailover();
+
  private:
   struct CoordinatorData {
     std::list<CoordinatorClient> registered_replicas_;

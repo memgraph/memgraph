@@ -167,6 +167,22 @@ std::optional<CoordinatorEntityHealthInfo> CoordinatorState::PingMain() const {
   return std::nullopt;
 }
 
+void CoordinatorState::DoFailover() {
+  if (!std::holds_alternative<CoordinatorData>(data_)) {
+    MG_ASSERT(false, "Can't call show main on data_, as variant holds wrong alternative");
+  }
+  // auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
+  // for (auto &registered_replica: registered_replicas){
+  //   if(!registered_replica.DoHealthCheck()){
+  //     continue;
+  //   }
+  //   registered_replicaHDoFailover();
+  // }
+  // if (registered_main) {
+  //   return CoordinatorEntityHealthInfo{registered_main->name_, registered_main->DoHealthCheck()};
+  // }
+}
+
 #endif
 
 }  // namespace memgraph::replication
