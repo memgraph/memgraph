@@ -3405,7 +3405,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
   const bool is_replica = interpreter_context->repl_state->IsReplica();
 
   switch (query->action_) {
-    case MultiDatabaseQuery::Action::CREATE:
+    case MultiDatabaseQuery::Action::CREATE: {
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
@@ -3446,8 +3446,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
           RWType::W,
           ""  // No target DB possible
       };
-
-    case MultiDatabaseQuery::Action::USE:
+    }
+    case MultiDatabaseQuery::Action::USE: {
       if (current_db.in_explicit_db_) {
         throw QueryException("Database switching is prohibited if session explicitly defines the used database");
       }
@@ -3483,8 +3483,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
                            },
                            RWType::NONE,
                            query->db_name_};
-
-    case MultiDatabaseQuery::Action::DROP:
+    }
+    case MultiDatabaseQuery::Action::DROP: {
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
@@ -3529,8 +3529,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
           },
           RWType::W,
           query->db_name_};
-
-    case MultiDatabaseQuery::Action::SHOW:
+    }
+    case MultiDatabaseQuery::Action::SHOW: {
       return PreparedQuery{
           {"Current"},
           std::move(parsed_query.required_privileges),
@@ -3538,8 +3538,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
               AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
             if (!pull_plan) {
               std::vector<std::vector<TypedValue>> results;
-              std::string db_name = db_acc ? db_acc->get()->storage()->name() : "No current database defined";
-              results.push_back({TypedValue(db_name)});
+              auto db_name = db_acc ? TypedValue{db_acc->get()->storage()->name()} : TypedValue{};
+              results.push_back({std::move(db_name)});
               pull_plan = std::make_shared<PullPlanVector>(std::move(results));
             }
 
@@ -3551,6 +3551,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
           RWType::NONE,
           ""  // No target DB
       };
+    }
   };
 #else
   throw QueryException("Query not supported.");
