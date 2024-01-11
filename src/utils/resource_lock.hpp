@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,6 +48,15 @@ struct ResourceLock {
     }
     return false;
   }
+
+  template <class Rep, class Period>
+  bool try_lock_for(const std::chrono::duration<Rep, Period> &timeout_duration) {
+    auto lock = std::unique_lock{mtx};
+    if (!cv.wait_for(lock, timeout_duration, [this] { return state == UNLOCKED; })) return false;
+    state = UNIQUE;
+    return true;
+  }
+
   bool try_lock_shared() {
     auto lock = std::unique_lock{mtx};
     if (state != UNIQUE) {
