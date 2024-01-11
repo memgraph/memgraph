@@ -15,6 +15,7 @@
 #include "replication/messages.hpp"
 #include "rpc/client.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 
 #include <concepts>
@@ -66,7 +67,11 @@ struct ReplicationClient {
   std::chrono::seconds replica_check_frequency_;
 
   // TODO: Better, this was the easiest place to put this
-  std::atomic_bool behind_{true};
+  enum class State {
+    BEHIND,
+    READY,
+  };
+  utils::Synchronized<State> state_{State::BEHIND};
 
   memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
   // This thread pool is used for background tasks so we don't

@@ -280,8 +280,8 @@ void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
   memgraph::storage::replication::CreateDatabaseReq req;
   memgraph::slk::Load(&req, req_reader);
 
-  memgraph::storage::replication::CreateDatabaseRes res(
-      memgraph::storage::replication::CreateDatabaseRes::Result::FAILURE);
+  using memgraph::storage::replication::CreateDatabaseRes;
+  CreateDatabaseRes res(CreateDatabaseRes::Result::FAILURE);
 
   // TODO
   // Check epoch
@@ -292,8 +292,7 @@ void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
     auto new_db = dbms_handler.Update(req.config);
     if (new_db.HasValue()) {
       // Successfully create db
-      res = memgraph::storage::replication::CreateDatabaseRes(
-          memgraph::storage::replication::CreateDatabaseRes::Result::SUCCESS);
+      res = CreateDatabaseRes(CreateDatabaseRes::Result::SUCCESS);
     }
   } catch (...) {
     // Failure
@@ -306,7 +305,8 @@ void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk
   memgraph::storage::replication::DropDatabaseReq req;
   memgraph::slk::Load(&req, req_reader);
 
-  memgraph::storage::replication::DropDatabaseRes res(memgraph::storage::replication::DropDatabaseRes::Result::FAILURE);
+  using memgraph::storage::replication::DropDatabaseRes;
+  DropDatabaseRes res(DropDatabaseRes::Result::FAILURE);
 
   // TODO
   // Check epoch
@@ -318,13 +318,11 @@ void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk
     if (new_db.HasError()) {
       if (new_db.GetError() == DeleteError::NON_EXISTENT) {
         // Nothing to drop
-        res = memgraph::storage::replication::DropDatabaseRes(
-            memgraph::storage::replication::DropDatabaseRes::Result::NO_NEED);
+        res = DropDatabaseRes(DropDatabaseRes::Result::NO_NEED);
       }
     } else {
       // Successfully drop db
-      res = memgraph::storage::replication::DropDatabaseRes(
-          memgraph::storage::replication::DropDatabaseRes::Result::SUCCESS);
+      res = DropDatabaseRes(DropDatabaseRes::Result::SUCCESS);
     }
   } catch (...) {
     // Failure
@@ -338,8 +336,8 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
   memgraph::storage::replication::SystemRecoveryReq req;
   memgraph::slk::Load(&req, req_reader);
 
-  memgraph::storage::replication::SystemRecoveryRes res(
-      memgraph::storage::replication::SystemRecoveryRes::Result::FAILURE);
+  using memgraph::storage::replication::SystemRecoveryRes;
+  SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
 
   utils::OnScopeExit send_on_exit([&]() { memgraph::slk::Save(res, res_builder); });
 
@@ -374,8 +372,7 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
     }
   }
   // Successfully recovered
-  res = memgraph::storage::replication::SystemRecoveryRes(
-      memgraph::storage::replication::SystemRecoveryRes::Result::SUCCESS);
+  res = SystemRecoveryRes(SystemRecoveryRes::Result::SUCCESS);
 }
 #endif
 

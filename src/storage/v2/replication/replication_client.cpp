@@ -39,9 +39,11 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 
 #ifdef MG_ENTERPRISE       // Multi-tenancy is only supported in enterprise
   if (!replica.success) {  // Replica is missing the current database
-    spdlog::debug("Replica '{}' missing database '{}' - '{}'", client_.name_, storage->name(),
-                  std::string{storage->uuid()});
-    client_.behind_ = true;
+    client_.state_.WithLock([&](auto &state) {
+      spdlog::debug("Replica '{}' missing database '{}' - '{}'", client_.name_, storage->name(),
+                    std::string{storage->uuid()});
+      state = memgraph::replication::ReplicationClient::State::BEHIND;
+    });
     return;
   }
 #endif
