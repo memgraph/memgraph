@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -591,13 +591,20 @@ class SkipList final : detail::SkipListNode_base {
     Iterator(TNode *node) : node_(node) {}
 
    public:
-    TObj &operator*() const { return node_->obj; }
+    using value_type = TObj;
+    using difference_type = std::ptrdiff_t;
 
-    TObj *operator->() const { return &node_->obj; }
+    Iterator() = default;
+    Iterator(Iterator const &) = default;
+    Iterator(Iterator &&) = default;
+    Iterator &operator=(Iterator const &) = default;
+    Iterator &operator=(Iterator &&) = default;
 
-    bool operator==(const Iterator &other) const { return node_ == other.node_; }
+    value_type &operator*() const { return node_->obj; }
 
-    bool operator!=(const Iterator &other) const { return node_ != other.node_; }
+    value_type *operator->() const { return &node_->obj; }
+
+    friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.node_ == rhs.node_; }
 
     Iterator &operator++() {
       while (true) {
@@ -610,8 +617,14 @@ class SkipList final : detail::SkipListNode_base {
       }
     }
 
+    Iterator operator++(int) {
+      Iterator old = *this;
+      ++(*this);
+      return old;
+    }
+
    private:
-    TNode *node_;
+    TNode *node_{nullptr};
   };
 
   class ConstIterator final {
@@ -621,15 +634,22 @@ class SkipList final : detail::SkipListNode_base {
     ConstIterator(TNode *node) : node_(node) {}
 
    public:
+    using value_type = TObj const;
+    using difference_type = std::ptrdiff_t;
+
+    ConstIterator() = default;
+    ConstIterator(ConstIterator const &) = default;
+    ConstIterator(ConstIterator &&) = default;
+    ConstIterator &operator=(ConstIterator const &) = default;
+    ConstIterator &operator=(ConstIterator &&) = default;
+
     ConstIterator(const Iterator &it) : node_(it.node_) {}
 
-    const TObj &operator*() const { return node_->obj; }
+    value_type &operator*() const { return node_->obj; }
 
-    const TObj *operator->() const { return &node_->obj; }
+    value_type *operator->() const { return &node_->obj; }
 
-    bool operator==(const ConstIterator &other) const { return node_ == other.node_; }
-
-    bool operator!=(const ConstIterator &other) const { return node_ != other.node_; }
+    friend bool operator==(ConstIterator const &lhs, ConstIterator const &rhs) { return lhs.node_ == rhs.node_; }
 
     ConstIterator &operator++() {
       while (true) {
@@ -640,6 +660,12 @@ class SkipList final : detail::SkipListNode_base {
           return *this;
         }
       }
+    }
+
+    ConstIterator operator++(int) {
+      ConstIterator old = *this;
+      ++(*this);
+      return old;
     }
 
    private:
@@ -653,6 +679,10 @@ class SkipList final : detail::SkipListNode_base {
     explicit Accessor(SkipList *skiplist) : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
 
    public:
+    using value_type = TObj;
+    using iterator = Iterator;
+    using const_iterator = ConstIterator;
+
     ~Accessor() {
       if (skiplist_ != nullptr) skiplist_->gc_.ReleaseId(id_);
     }
@@ -695,7 +725,7 @@ class SkipList final : detail::SkipListNode_base {
     /// @return bool indicating whether the item exists
     template <typename TKey>
     bool contains(const TKey &key) const {
-      return skiplist_->template contains(key);
+      return skiplist_->contains(key);
     }
 
     /// Finds the key in the list and returns an iterator to the item.
@@ -703,8 +733,17 @@ class SkipList final : detail::SkipListNode_base {
     /// @return Iterator to the item in the list, will be equal to `end()` when
     ///                  the key isn't found
     template <typename TKey>
-    Iterator find(const TKey &key) const {
-      return skiplist_->template find(key);
+    Iterator find(const TKey &key) {
+      return skiplist_->find(key);
+    }
+
+    /// Finds the key in the list and returns an iterator to the item.
+    ///
+    /// @return ConstIterator to the item in the list, will be equal to `cend()` when
+    ///                  the key isn't found
+    template <typename TKey>
+    ConstIterator find(const TKey &key) const {
+      return skiplist_->find(key);
     }
 
     /// Finds the key or the first larger key in the list and returns an
@@ -713,8 +752,18 @@ class SkipList final : detail::SkipListNode_base {
     /// @return Iterator to the item in the list, will be equal to `end()` when
     ///                  no items match the search
     template <typename TKey>
-    Iterator find_equal_or_greater(const TKey &key) const {
-      return skiplist_->template find_equal_or_greater(key);
+    Iterator find_equal_or_greater(const TKey &key) {
+      return skiplist_->find_equal_or_greater(key);
+    }
+
+    /// Finds the key or the first larger key in the list and returns an
+    /// iterator to the item.
+    ///
+    /// @return ConstIterator to the item in the list, will be equal to `end()` when
+    ///                  no items match the search
+    template <typename TKey>
+    ConstIterator find_equal_or_greater(const TKey &key) const {
+      return skiplist_->find_equal_or_greater(key);
     }
 
     /// Estimates the number of items that are contained in the list that are
@@ -727,7 +776,7 @@ class SkipList final : detail::SkipListNode_base {
     /// @return uint64_t estimated count of identical items in the list
     template <typename TKey>
     uint64_t estimate_count(const TKey &key, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_count(key, max_layer_for_estimation);
+      return skiplist_->estimate_count(key, max_layer_for_estimation);
     }
 
     /// Estimates the number of items that are contained in the list that are
@@ -742,7 +791,7 @@ class SkipList final : detail::SkipListNode_base {
     uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
                                   const std::optional<utils::Bound<TKey>> &upper,
                                   int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_range_count(lower, upper, max_layer_for_estimation);
+      return skiplist_->estimate_range_count(lower, upper, max_layer_for_estimation);
     }
 
     /// Estimates the average number of objects in the list that have the same
@@ -759,7 +808,7 @@ class SkipList final : detail::SkipListNode_base {
     template <typename TCallable>
     uint64_t estimate_average_number_of_equals(
         const TCallable &equal_cmp, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_average_number_of_equals(equal_cmp, max_layer_for_estimation);
+      return skiplist_->estimate_average_number_of_equals(equal_cmp, max_layer_for_estimation);
     }
 
     /// Removes the key from the list.
@@ -767,7 +816,7 @@ class SkipList final : detail::SkipListNode_base {
     /// @return bool indicating whether the removal was successful
     template <typename TKey>
     bool remove(const TKey &key) {
-      return skiplist_->template remove(key);
+      return skiplist_->remove(key);
     }
 
     /// Returns the number of items contained in the list.
@@ -787,6 +836,10 @@ class SkipList final : detail::SkipListNode_base {
     explicit ConstAccessor(const SkipList *skiplist) : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
 
    public:
+    using value_type = TObj;
+    using iterator = ConstIterator;
+    using const_iterator = ConstIterator;
+
     ~ConstAccessor() {
       if (skiplist_ != nullptr) skiplist_->gc_.ReleaseId(id_);
     }
@@ -812,35 +865,35 @@ class SkipList final : detail::SkipListNode_base {
 
     template <typename TKey>
     bool contains(const TKey &key) const {
-      return skiplist_->template contains(key);
+      return skiplist_->contains(key);
     }
 
     template <typename TKey>
     ConstIterator find(const TKey &key) const {
-      return skiplist_->template find(key);
+      return skiplist_->find(key);
     }
 
     template <typename TKey>
     ConstIterator find_equal_or_greater(const TKey &key) const {
-      return skiplist_->template find_equal_or_greater(key);
+      return skiplist_->find_equal_or_greater(key);
     }
 
     template <typename TKey>
     uint64_t estimate_count(const TKey &key, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_count(key, max_layer_for_estimation);
+      return skiplist_->estimate_count(key, max_layer_for_estimation);
     }
 
     template <typename TKey>
     uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
                                   const std::optional<utils::Bound<TKey>> &upper,
                                   int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_range_count(lower, upper, max_layer_for_estimation);
+      return skiplist_->estimate_range_count(lower, upper, max_layer_for_estimation);
     }
 
     template <typename TCallable>
     uint64_t estimate_average_number_of_equals(
         const TCallable &equal_cmp, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_average_number_of_equals(equal_cmp, max_layer_for_estimation);
+      return skiplist_->estimate_average_number_of_equals(equal_cmp, max_layer_for_estimation);
     }
 
     uint64_t size() const { return skiplist_->size(); }
@@ -1018,26 +1071,33 @@ class SkipList final : detail::SkipListNode_base {
   }
 
   template <typename TKey>
-  bool contains(const TKey &key) const {
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
-    int layer_found = find_node(key, preds, succs);
-    return (layer_found != -1 && succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
-            !succs[layer_found]->marked.load(std::memory_order_acquire));
-  }
-
-  template <typename TKey>
-  Iterator find(const TKey &key) const {
+  SkipListNode<TObj> *find_(const TKey &key) const {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     int layer_found = find_node(key, preds, succs);
     if (layer_found != -1 && succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
         !succs[layer_found]->marked.load(std::memory_order_acquire)) {
-      return Iterator{succs[layer_found]};
+      return succs[layer_found];
     }
-    return Iterator{nullptr};
+    return nullptr;
   }
 
   template <typename TKey>
-  Iterator find_equal_or_greater(const TKey &key) const {
+  bool contains(const TKey &key) const {
+    return find_(key) != nullptr;
+  }
+
+  template <typename TKey>
+  Iterator find(const TKey &key) {
+    return {find_(key)};
+  }
+
+  template <typename TKey>
+  ConstIterator find(const TKey &key) const {
+    return {find_(key)};
+  }
+
+  template <typename TKey>
+  Iterator find_equal_or_greater_(const TKey &key) const {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     find_node(key, preds, succs);
     if (succs[0] && succs[0]->fully_linked.load(std::memory_order_acquire) &&
@@ -1045,6 +1105,16 @@ class SkipList final : detail::SkipListNode_base {
       return Iterator{succs[0]};
     }
     return Iterator{nullptr};
+  }
+
+  template <typename TKey>
+  Iterator find_equal_or_greater(const TKey &key) {
+    return {find_equal_or_greater_(key)};
+  }
+
+  template <typename TKey>
+  ConstIterator find_equal_or_greater(const TKey &key) const {
+    return {find_equal_or_greater_(key)};
   }
 
   template <typename TKey>
