@@ -1969,6 +1969,18 @@ antlrcpp::Any CypherMainVisitor::visitPatternElement(MemgraphCypher::PatternElem
   return pattern;
 }
 
+antlrcpp::Any CypherMainVisitor::visitRelationshipsPattern(MemgraphCypher::RelationshipsPatternContext *ctx) {
+  auto *pattern = storage_->Create<Pattern>();
+  pattern->atoms_.push_back(std::any_cast<NodeAtom *>(ctx->nodePattern()->accept(this)));
+  for (auto *pattern_element_chain : ctx->patternElementChain()) {
+    auto element = std::any_cast<std::pair<PatternAtom *, PatternAtom *>>(pattern_element_chain->accept(this));
+    pattern->atoms_.push_back(element.first);
+    pattern->atoms_.push_back(element.second);
+  }
+  anonymous_identifiers.push_back(&pattern->identifier_);
+  return pattern;
+}
+
 antlrcpp::Any CypherMainVisitor::visitPatternElementChain(MemgraphCypher::PatternElementChainContext *ctx) {
   return std::pair<PatternAtom *, PatternAtom *>(std::any_cast<EdgeAtom *>(ctx->relationshipPattern()->accept(this)),
                                                  std::any_cast<NodeAtom *>(ctx->nodePattern()->accept(this)));
@@ -2463,6 +2475,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<Extract>(ident, list, expr));
   } else if (ctx->existsExpression()) {
     return std::any_cast<Expression *>(ctx->existsExpression()->accept(this));
+  } else if (ctx->patternComprehension()) {
+    return std::any_cast<Expression *>(ctx->patternComprehension()->accept(this));
   }
 
   // TODO: Implement this. We don't support comprehensions, filtering... at
@@ -2521,6 +2535,19 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   }
 
   return static_cast<Expression *>(exists);
+}
+
+antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) {
+  auto *comprehension = storage_->Create<PatternComprehension>();
+  if (ctx->variable()) {
+    comprehension->variable_ = storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
+  }
+  comprehension->pattern_ = std::any_cast<Pattern *>(ctx->relationshipsPattern()->accept(this));
+  if (ctx->where()) {
+    comprehension->filter_ = std::any_cast<Where *>(ctx->where()->accept(this));
+  }
+  comprehension->resultExpr_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
+  return static_cast<Expression *>(comprehension);
 }
 
 antlrcpp::Any CypherMainVisitor::visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) {
