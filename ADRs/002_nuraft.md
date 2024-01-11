@@ -12,7 +12,7 @@ January 10, 2024
 **Problem**
 
 In order to enhance Memgraph to have High Availability features as requested by
-customers, we want to have a reliable coordinator backed by RAFT. Implementing
+customers, we want to have reliable coordinators backed by RAFT consensus algorithm. Implementing
 RAFT to be correct and performant is a very challenging task. Skillful Memgraph
 engineers already tried 3 times and failed to deliver in a reasonable timeframe
 all three times (approximately 4 person-weeks of engineering work each time).
