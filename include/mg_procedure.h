@@ -893,12 +893,12 @@ enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex
 
 /// Result is non-zero if the index with the given name exists.
 /// Current implementation always returns without errors.
-enum mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int *result);
+enum mgp_error mgp_graph_has_text_index(struct mgp_graph *graph, const char *index_name, int *result);
 
 /// Search the named text index for the given query. The result is a list of the vertices whose text properties match
 /// the given query.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate search result vertices.
-enum mgp_error mgp_graph_search_text_index(mgp_graph *graph, mgp_memory *memory, const char *index_name,
+enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, struct mgp_memory *memory, const char *index_name,
                                            const char *search_query, struct mgp_list **result);
 
 /// Creates label index for given label.
