@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -458,18 +458,18 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  const auto check_replica = [&](Storage *replica_store) {
-    auto acc = replica_store->Access();
+  const auto check_replica = [&](memgraph::dbms::Database &replica_database) {
+    auto acc = replica_database.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     const auto labels = v->Labels(View::OLD);
     ASSERT_TRUE(labels.HasValue());
-    ASSERT_THAT(*labels, UnorderedElementsAre(replica_store->NameToLabel(vertex_label)));
+    ASSERT_THAT(*labels, UnorderedElementsAre(replica_database.storage()->NameToLabel(vertex_label)));
     ASSERT_FALSE(acc->Commit().HasError());
   };
 
-  check_replica(replica1.db.storage());
-  check_replica(replica2.db.storage());
+  check_replica(replica1.db);
+  check_replica(replica2.db);
 
   auto handler = main.repl_handler;
   handler.UnregisterReplica(replicas[1]);
@@ -482,7 +482,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
 
   // REPLICA1 should contain the new vertex
   {
-    auto acc = replica1.db.storage()->Access();
+    auto acc = replica1.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_FALSE(acc->Commit().HasError());
@@ -490,7 +490,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
 
   // REPLICA2 should not contain the new vertex
   {
-    auto acc = replica2.db.storage()->Access();
+    auto acc = replica2.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_FALSE(v);
     ASSERT_FALSE(acc->Commit().HasError());
@@ -677,7 +677,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   }
 
   ASSERT_TRUE(std::all_of(created_vertices.begin(), created_vertices.end(), [&](const auto vertex_gid) {
-    auto acc = replica_async.db.storage()->Access();
+    auto acc = replica_async.db.Access();
     auto v = acc->FindVertex(vertex_gid, View::OLD);
     const bool exists = v.has_value();
     EXPECT_FALSE(acc->Commit().HasError());
@@ -726,13 +726,13 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = replica1.db.storage()->Access();
+    auto acc = replica1.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = replica2.db.storage()->Access();
+    auto acc = replica2.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_FALSE(acc->Commit().HasError());
@@ -759,14 +759,14 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = replica1.db.storage()->Access();
+    auto acc = replica1.db.Access();
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
     ASSERT_FALSE(acc->Commit().HasError());
   }
   // Replica1 should forward it's vertex to Replica2
   {
-    auto acc = replica2.db.storage()->Access();
+    auto acc = replica2.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_FALSE(acc->Commit().HasError());
@@ -795,7 +795,7 @@ TEST_F(ReplicationTest, EpochTest) {
   // Replica1 is not compatible with the main so it shouldn't contain
   // it's newest vertex
   {
-    auto acc = replica1.db.storage()->Access();
+    auto acc = replica1.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_FALSE(v);
     ASSERT_FALSE(acc->Commit().HasError());

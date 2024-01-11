@@ -101,6 +101,8 @@ class InterpreterTest : public ::testing::Test {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
       disk_test_utils::RemoveRocksDbDirs(testSuiteCsv);
     }
+
+    std::filesystem::remove_all(data_directory);
   }
 
   InterpreterFaker default_interpreter{&interpreter_context, db};

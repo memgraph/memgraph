@@ -1,0 +1,9 @@
+version: "3"
+
+services:
+  pulsar:
+    image: 'apachepulsar/pulsar:2.8.1'
+    ports:
+      - '6652:8080'
+      - '6650:6650'
+    entrypoint: [ 'bin/pulsar', 'standalone' ]

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,8 +44,8 @@ TEST_P(StorageModeTest, Mode) {
           .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
 
   static_cast<memgraph::storage::InMemoryStorage *>(storage.get())->SetStorageMode(storage_mode);
-  auto creator = storage->Access();
-  auto other_analytics_mode_reader = storage->Access();
+  auto creator = storage->Access(memgraph::replication::ReplicationRole::MAIN);
+  auto other_analytics_mode_reader = storage->Access(memgraph::replication::ReplicationRole::MAIN);
 
   ASSERT_EQ(CountVertices(*creator, memgraph::storage::View::OLD), 0);
   ASSERT_EQ(CountVertices(*other_analytics_mode_reader, memgraph::storage::View::OLD), 0);
@@ -74,6 +74,8 @@ class StorageModeMultiTxTest : public ::testing::Test {
     std::filesystem::remove_all(tmp);
     return tmp;
   }();  // iile
+
+  void TearDown() override { std::filesystem::remove_all(data_directory); }
 
   memgraph::storage::Config config{.durability.storage_directory = data_directory,
                                    .disk.main_storage_directory = data_directory / "disk"};

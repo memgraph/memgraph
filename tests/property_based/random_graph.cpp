@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-
+using memgraph::replication::ReplicationRole;
 /**
  * It is possible to run test with custom seed with:
  * RC_PARAMS="seed=1" ./random_graph
@@ -40,7 +40,7 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
   std::unordered_map<memgraph::storage::VertexAccessor, std::string> vertex_label_map;
   std::unordered_map<memgraph::storage::EdgeAccessor, std::string> edge_type_map;
 
-  auto dba = db->Access();
+  auto dba = db->Access(ReplicationRole::MAIN);
 
   for (auto label : vertex_labels) {
     auto vertex_accessor = dba->CreateVertex();
