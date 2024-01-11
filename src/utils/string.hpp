@@ -473,11 +473,10 @@ inline std::string_view Substr(const std::string_view string, size_t pos = 0, si
  */
 inline std::string DoubleToString(const double value) {
   static const int PRECISION = 15;
-  static const int STR_LENGTH = PRECISION + 1;  // 1 for dot
 
   std::stringstream ss;
   ss << std::setprecision(PRECISION) << std::fixed << value;
-  auto sv = ss.view().substr(0, STR_LENGTH);
+  auto sv = ss.view();
 
   // Because of setprecision and fixed manipulator we are guaranteed to have the dot
   sv = sv.substr(0, sv.find_last_not_of('0') + 1);
