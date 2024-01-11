@@ -396,9 +396,16 @@ antlrcpp::Any CypherMainVisitor::visitDropReplica(MemgraphCypher::DropReplicaCon
   return replication_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitShowReplicas(MemgraphCypher::ShowReplicasContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitShowReplicas(MemgraphCypher::ShowReplicasContext * /*ctx*/) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICAS;
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDoFailover(MemgraphCypher::DoFailoverContext * /*ctx*/) {
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::DO_FAILOVER;
+  query_ = replication_query;
   return replication_query;
 }
 

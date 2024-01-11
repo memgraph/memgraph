@@ -73,9 +73,11 @@ struct ReplicationHandler {
 
   auto ShowMainOnCoordinator() const -> std::optional<memgraph::replication::CoordinatorEntityInfo>;
 
-  auto PingReplicasOnCoordinator() const -> std::unordered_map<std::string, bool>;
+  auto PingReplicasOnCoordinator() const -> std::unordered_map<std::string_view, bool>;
 
   auto PingMainOnCoordinator() const -> std::optional<memgraph::replication::CoordinatorEntityHealthInfo>;
+
+  auto DoFailover() const -> void;
 
 #endif
 

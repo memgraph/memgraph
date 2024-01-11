@@ -405,6 +405,34 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       }
     }
   }
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  void DoFailover() const override {
+    if (!FLAGS_coordinator) {
+      throw QueryRuntimeException("Only coordinator can register coordinator server!");
+    }
+    // TODO: (andi) Can this method somehow fail> If yes change return type from void to some error
+    handler_.DoFailover();
+  }
+
+  std::vector<MainReplicaStatus> ShowMainReplicaStatus(
+      const std::vector<replication::CoordinatorEntityInfo> &replicas,
+      const std::unordered_map<std::string_view, bool> &health_check_replicas,
+      const std::optional<replication::CoordinatorEntityInfo> &main,
+      const std::optional<replication::CoordinatorEntityHealthInfo> &health_check_main) const override {
+    std::vector<MainReplicaStatus> result{};
+    result.reserve(replicas.size() + 1);  // replicas + 1 main
+    std::ranges::transform(
+        replicas, std::back_inserter(result), [&health_check_replicas](const auto &replica) -> MainReplicaStatus {
+          return {replica.name, replica.endpoint.SocketAddress(), health_check_replicas.at(replica.name)};
+        });
+    if (main) {
+      bool is_main_alive = health_check_main.has_value() ? health_check_main.value().alive : false;
+      result.emplace_back(main->name, main->endpoint.SocketAddress(), is_main_alive);
+    }
+    return result;
+  }
+
 #endif
 
   /// @throw QueryRuntimeException if an error occurred.
@@ -489,7 +517,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     return handler_.ShowReplicasOnCoordinator();
   }
 
-  std::unordered_map<std::string, bool> PingReplicasOnCoordinator() const override {
+  std::unordered_map<std::string_view, bool> PingReplicasOnCoordinator() const override {
     return handler_.PingReplicasOnCoordinator();
   }
 
@@ -910,28 +938,53 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
       callback.header = {"name", "socket_address", "alive"};
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, replica_nfields = callback.header.size()]() mutable {
-        auto health_checks_replicas = handler.PingReplicasOnCoordinator();
-        const auto replicas = handler.ShowReplicasOnCoordinator();
-        std::vector<std::vector<TypedValue>> result{};
-        result.reserve(replicas.size() + 1);  // replicas + 1 main
-        std::ranges::transform(replicas, std::back_inserter(result),
-                               [&health_checks_replicas](const auto &replica) -> std::vector<TypedValue> {
-                                 return {TypedValue{replica.name}, TypedValue{replica.endpoint.SocketAddress()},
-                                         TypedValue{health_checks_replicas[replica.name]}};
-                               });
         const auto main = handler.ShowMainOnCoordinator();
-        if (main) {
-          auto health_check_main = handler.PingMainOnCoordinator();
-          bool is_main_alive = health_check_main.has_value() ? health_check_main.value().alive : false;
-          result.emplace_back(std::vector<TypedValue>{
-              TypedValue{main->name}, TypedValue{main->endpoint.SocketAddress()}, TypedValue{is_main_alive}});
-        }
+        const auto health_check_main = main ? handler.PingMainOnCoordinator() : std::nullopt;
+        const auto result_status = handler.ShowMainReplicaStatus(
+            handler.ShowReplicasOnCoordinator(), handler.PingReplicasOnCoordinator(), main, health_check_main);
+        std::vector<std::vector<TypedValue>> result{};
+        result.reserve(result_status.size());
 
+        std::ranges::transform(
+            result_status, std::back_inserter(result), [](const auto &status) -> std::vector<TypedValue> {
+              return {TypedValue{status.name}, TypedValue{status.socket_address}, TypedValue{status.alive}};
+            });
         return result;
       };
       return callback;
 #endif
     }
+    case ReplicationQuery::Action::DO_FAILOVER: {
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryException("Trying to use enterprise feature without a valid license.");
+      }
+#ifdef MG_ENTERPRISE
+      if (!FLAGS_coordinator) {
+        throw QueryRuntimeException("Only coordinator can run DO FAILOVER!");
+      }
+
+      callback.header = {"name", "socket_address", "alive"};
+      callback.fn = [handler = ReplQueryHandler{dbms_handler}]() mutable {
+        handler.DoFailover();
+        const auto main = handler.ShowMainOnCoordinator();
+        const auto health_check_main = main ? handler.PingMainOnCoordinator() : std::nullopt;
+        const auto result_status = handler.ShowMainReplicaStatus(
+            handler.ShowReplicasOnCoordinator(), handler.PingReplicasOnCoordinator(), main, health_check_main);
+        std::vector<std::vector<TypedValue>> result{};
+        result.reserve(result_status.size());
+
+        std::ranges::transform(
+            result_status, std::back_inserter(result), [](const auto &status) -> std::vector<TypedValue> {
+              return {TypedValue{status.name}, TypedValue{status.socket_address}, TypedValue{status.alive}};
+            });
+        return result;
+      };
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::DO_FAILOVER,
+                                  "DO FAILOVER called on coordinator.");
+      return callback;
+#endif
+    }
+
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->instance_name_;
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, name]() mutable {

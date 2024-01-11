@@ -24,23 +24,26 @@
 namespace memgraph::replication {
 
 #ifdef MG_ENTERPRISE
-struct CoordinatorClient {
-  explicit CoordinatorClient(const memgraph::replication::CoordinatorClientConfig &config);
+class CoordinatorClient {
+ public:
+  explicit CoordinatorClient(const CoordinatorClientConfig &config);
 
   ~CoordinatorClient();
-  CoordinatorClient(CoordinatorClient const &) = delete;
-  CoordinatorClient &operator=(CoordinatorClient const &) = delete;
+
+  CoordinatorClient(CoordinatorClient &other) = delete;
+  CoordinatorClient &operator=(CoordinatorClient const &other) = delete;
+
   CoordinatorClient(CoordinatorClient &&) noexcept = delete;
   CoordinatorClient &operator=(CoordinatorClient &&) noexcept = delete;
 
   void StartFrequentCheck();
 
   bool DoHealthCheck() const;
+  bool SendFailoverRpc() const;
 
-  std::string name_;
-  communication::ClientContext rpc_context_;
-  mutable rpc::Client rpc_client_;
-  std::chrono::seconds replica_check_frequency_;
+  auto Name() const -> std::string_view;
+  auto Endpoint() const -> io::network::Endpoint const &;
+  auto Config() const -> CoordinatorClientConfig const &;
 
   // TODO: (andi) Do I need this?
   // This thread pool is used for background tasks so we don't
@@ -56,9 +59,13 @@ struct CoordinatorClient {
   //    and be sure of the execution order.
   //    Not having mulitple possible threads in the same client allows us
   //    to ignore concurrency problems inside the client.
+ private:
   utils::ThreadPool thread_pool_{1};
-
   utils::Scheduler replica_checker_;
+
+  communication::ClientContext rpc_context_;
+  mutable rpc::Client rpc_client_;
+  CoordinatorClientConfig config_;
 };
 #endif
 

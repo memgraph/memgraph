@@ -20,9 +20,9 @@
 #include <list>
 #include <variant>
 
+#ifdef MG_ENTERPRISE
 namespace memgraph::replication {
 
-#ifdef MG_ENTERPRISE
 class CoordinatorState {
  public:
   CoordinatorState();
@@ -50,11 +50,13 @@ class CoordinatorState {
 
   std::vector<CoordinatorEntityInfo> ShowReplicas() const;
 
-  std::unordered_map<std::string, bool> PingReplicas() const;
+  std::unordered_map<std::string_view, bool> PingReplicas() const;
 
   std::optional<CoordinatorEntityInfo> ShowMain() const;
 
   std::optional<CoordinatorEntityHealthInfo> PingMain() const;
+
+  void DoFailover();
 
  private:
   struct CoordinatorData {
@@ -68,6 +70,6 @@ class CoordinatorState {
 
   std::variant<CoordinatorData, CoordinatorMainReplicaData> data_;
 };
-#endif
 
 }  // namespace memgraph::replication
+#endif

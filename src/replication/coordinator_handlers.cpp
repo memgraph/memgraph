@@ -19,13 +19,13 @@ void CoordinatorHandlers::Register(CoordinatorServer &server) {
   using Callable = std::function<void(slk::Reader * req_reader, slk::Builder * res_builder)>;
 
   server.Register<Callable, replication::FailoverRpc>([](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-    spdlog::debug("Received FailoverRpc");
+    spdlog::info("Received FailoverRpc");
     CoordinatorHandlers::FailoverHandler(req_reader, res_builder);
   });
 }
 
 void CoordinatorHandlers::FailoverHandler(slk::Reader * /*req_reader*/, slk::Builder * /*res_builder*/) {
-  spdlog::debug("Failover handler finished execution!");
+  spdlog::info("Failover handler finished execution!");
 }
 
 }  // namespace memgraph::replication

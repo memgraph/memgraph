@@ -48,10 +48,12 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DENY
                       | DROP
+                      | DO
                       | DUMP
                       | EDGE
                       | EDGE_TYPES
                       | EXECUTE
+                      | FAILOVER
                       | FOR
                       | FOREACH
                       | FREE
@@ -183,6 +185,7 @@ replicationQuery : setReplicationRole
                  | dropReplica
                  | showReplicas
                  | showReplicationCluster
+                 | doFailover
                  ;
 
 triggerQuery : createTrigger
@@ -245,6 +248,8 @@ transactionQueueQuery : showTransactions
                       ;
 
 showTransactions : SHOW TRANSACTIONS ;
+
+doFailover : DO FAILOVER ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 
