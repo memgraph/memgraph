@@ -1551,7 +1551,8 @@ TYPED_TEST(IndexTest, EdgeTypeIndexBasic) {
                 UnorderedElementsAre(0, 2, 4, 6, 8));
 
     for (auto vertex : acc->Vertices(View::OLD)) {
-      for (auto edge : vertex.OutEdges(View::OLD)->edges) {
+      auto edges = vertex.OutEdges(View::OLD)->edges;
+      for (auto &edge : edges) {
         int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
         if (id % 2 == 0) {
           ASSERT_NO_ERROR(acc->DetachDelete({}, {&edge}, false));
