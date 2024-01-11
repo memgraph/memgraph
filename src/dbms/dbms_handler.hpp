@@ -154,6 +154,7 @@ class DbmsHandler {
     }
 
     spdlog::debug("Trying to create db '{}' on replica which already exists.", config.name);
+
     auto db = Get_(config.name);
     if (db->uuid() == config.uuid) {  // Same db
       return db;
@@ -530,6 +531,7 @@ class DbmsHandler {
    */
   NewResultT New_(storage::Config storage_config);
 
+  // TODO: new overload of Delete_ with DatabaseAccess
   DeleteResult Delete_(std::string_view db_name);
 
   /**

@@ -16,6 +16,7 @@
 #include "replication/messages.hpp"
 #include "replication/replication_client.hpp"
 #include "rpc/client.hpp"
+#include "storage/v2/database_access.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
@@ -106,7 +107,7 @@ class ReplicationStorageClient {
    * @param storage pointer to the storage associated with the client
    * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void Start(Storage *storage, std::any gk);
+  void Start(Storage *storage, DatabaseAccessProtector db_acc);
 
   /**
    * @brief Start a new transaction replication (open up a stream)
@@ -115,7 +116,7 @@ class ReplicationStorageClient {
    * @param storage pointer to the storage associated with the client
    * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage, std::any gk);
+  void StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage, DatabaseAccessProtector db_acc);
 
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
@@ -156,7 +157,7 @@ class ReplicationStorageClient {
    * @return true
    * @return false
    */
-  [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage, std::any gk);
+  [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc);
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
@@ -164,7 +165,7 @@ class ReplicationStorageClient {
    * @param storage pointer to the storage associated with the client
    * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void TryCheckReplicaStateAsync(Storage *storage, std::any gk);  // TODO Move back to private
+  void TryCheckReplicaStateAsync(Storage *storage, DatabaseAccessProtector db_acc);  // TODO Move back to private
 
   auto &Client() { return client_; }
 
@@ -183,7 +184,7 @@ class ReplicationStorageClient {
    * @param storage pointer to the storage associated with the client
    * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void UpdateReplicaState(Storage *storage, std::any gk);
+  void UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc);
 
   void LogRpcFailure();
 
@@ -193,7 +194,7 @@ class ReplicationStorageClient {
    * @param storage pointer to the storage associated with the client
    * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void TryCheckReplicaStateSync(Storage *storage, std::any gk);
+  void TryCheckReplicaStateSync(Storage *storage, DatabaseAccessProtector db_acc);
 
   ::memgraph::replication::ReplicationClient &client_;
   // TODO Do not store the stream, make is a local variable

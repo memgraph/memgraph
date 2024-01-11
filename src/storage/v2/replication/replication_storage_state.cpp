@@ -16,10 +16,11 @@
 
 namespace memgraph::storage {
 
-void ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage, std::any gk) {
-  replication_clients_.WithLock([=, gk = std::move(gk)](auto &clients) mutable {
+void ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage,
+                                                    DatabaseAccessProtector db_acc) {
+  replication_clients_.WithLock([=, db_acc = std::move(db_acc)](auto &clients) mutable {
     for (auto &client : clients) {
-      client->StartTransactionReplication(seq_num, storage, std::move(gk));
+      client->StartTransactionReplication(seq_num, storage, std::move(db_acc));
     }
   });
 }
@@ -52,15 +53,16 @@ void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperati
   });
 }
 
-bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage, std::any gk) {
-  return replication_clients_.WithLock([=, gk = std::move(gk)](auto &clients) mutable {
+bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage,
+                                                  DatabaseAccessProtector db_acc) {
+  return replication_clients_.WithLock([=, db_acc = std::move(db_acc)](auto &clients) mutable {
     bool finalized_on_all_replicas = true;
-    MG_ASSERT(clients.empty() || gk.has_value(),
+    MG_ASSERT(clients.empty() || db_acc.has_value(),
               "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
               "handle ASYNC tasks");
     for (ReplicationClientPtr &client : clients) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); });
-      const auto finalized = client->FinalizeTransactionReplication(storage, std::move(gk));
+      const auto finalized = client->FinalizeTransactionReplication(storage, std::move(db_acc));
 
       if (client->Mode() == memgraph::replication::ReplicationMode::SYNC) {
         finalized_on_all_replicas = finalized && finalized_on_all_replicas;

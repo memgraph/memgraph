@@ -22,6 +22,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/config.hpp"
 #include "storage/v2/replication/rpc.hpp"
+#include "utils/on_scope_exit.hpp"
 
 using memgraph::replication::ReplicationClientConfig;
 using memgraph::replication::ReplicationState;
@@ -279,8 +280,8 @@ void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
   memgraph::storage::replication::CreateDatabaseReq req;
   memgraph::slk::Load(&req, req_reader);
 
-  namespace sr = memgraph::storage::replication;
-  sr::CreateDatabaseRes res(sr::CreateDatabaseRes::Result::FAILURE);
+  memgraph::storage::replication::CreateDatabaseRes res(
+      memgraph::storage::replication::CreateDatabaseRes::Result::FAILURE);
 
   // TODO
   // Check epoch
@@ -291,7 +292,8 @@ void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
     auto new_db = dbms_handler.Update(req.config);
     if (new_db.HasValue()) {
       // Successfully create db
-      res = sr::CreateDatabaseRes(sr::CreateDatabaseRes::Result::SUCCESS);
+      res = memgraph::storage::replication::CreateDatabaseRes(
+          memgraph::storage::replication::CreateDatabaseRes::Result::SUCCESS);
     }
   } catch (...) {
     // Failure
@@ -304,8 +306,7 @@ void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk
   memgraph::storage::replication::DropDatabaseReq req;
   memgraph::slk::Load(&req, req_reader);
 
-  namespace sr = memgraph::storage::replication;
-  sr::DropDatabaseRes res(sr::DropDatabaseRes::Result::FAILURE);
+  memgraph::storage::replication::DropDatabaseRes res(memgraph::storage::replication::DropDatabaseRes::Result::FAILURE);
 
   // TODO
   // Check epoch
@@ -317,11 +318,13 @@ void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk
     if (new_db.HasError()) {
       if (new_db.GetError() == DeleteError::NON_EXISTENT) {
         // Nothing to drop
-        res = sr::DropDatabaseRes(sr::DropDatabaseRes::Result::NO_NEED);
+        res = memgraph::storage::replication::DropDatabaseRes(
+            memgraph::storage::replication::DropDatabaseRes::Result::NO_NEED);
       }
     } else {
       // Successfully drop db
-      res = sr::DropDatabaseRes(sr::DropDatabaseRes::Result::SUCCESS);
+      res = memgraph::storage::replication::DropDatabaseRes(
+          memgraph::storage::replication::DropDatabaseRes::Result::SUCCESS);
     }
   } catch (...) {
     // Failure
@@ -335,40 +338,44 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
   memgraph::storage::replication::SystemRecoveryReq req;
   memgraph::slk::Load(&req, req_reader);
 
-  namespace sr = memgraph::storage::replication;
-  sr::SystemRecoveryRes res(sr::SystemRecoveryRes::Result::FAILURE);
+  memgraph::storage::replication::SystemRecoveryRes res(
+      memgraph::storage::replication::SystemRecoveryRes::Result::FAILURE);
 
-  try {
-    // Get all current dbs
-    auto old = dbms_handler.All();
-    // Check/create the incoming dbs
-    for (const auto &config : req.database_configs) {
-      try {
-        dbms_handler.Get(config.uuid);
-      } catch (const UnknownDatabaseException &) {
-        // Missing db
-        if (dbms_handler.Update(config).HasError()) {
-          spdlog::debug("Failed to create new database \"{}\".", config.name);
-          throw;
-        }
+  utils::OnScopeExit send_on_exit([&]() { memgraph::slk::Save(res, res_builder); });
+
+  // Get all current dbs
+  auto old = dbms_handler.All();
+
+  // Check/create the incoming dbs
+  for (const auto &config : req.database_configs) {
+    // Missing db
+    try {
+      if (dbms_handler.Update(config).HasError()) {
+        spdlog::debug("Failed to update database \"{}\".", config.name);
+        return;  // Send failure on exit
       }
-      const auto it = std::find(old.begin(), old.end(), config.name);
-      if (it != old.end()) old.erase(it);
+    } catch (const UnknownDatabaseException &) {
+      return;  // Send failure on exit
     }
-    // Delete all the leftover old dbs
-    for (const auto &remove_db : old) {
-      if (dbms_handler.Delete(remove_db).HasError()) {
-        spdlog::debug("Failed to drop database \"{}\".", remove_db);
-        throw;
-      }
-    }
-    // Successfully recovered
-    res = sr::SystemRecoveryRes(sr::SystemRecoveryRes::Result::SUCCESS);
-  } catch (...) {
-    // Failure
+    const auto it = std::find(old.begin(), old.end(), config.name);
+    if (it != old.end()) old.erase(it);
   }
 
-  memgraph::slk::Save(res, res_builder);
+  // Delete all the leftover old dbs
+  for (const auto &remove_db : old) {
+    const auto del = dbms_handler.Delete(remove_db);
+    if (del.HasError()) {
+      // Some errors are not terminal
+      if (del.GetError() == DeleteError::DEFAULT_DB || del.GetError() == DeleteError::NON_EXISTENT) {
+        continue;
+      }
+      spdlog::debug("Failed to drop database \"{}\".", remove_db);
+      return;  // Send failure on exit
+    }
+  }
+  // Successfully recovered
+  res = memgraph::storage::replication::SystemRecoveryRes(
+      memgraph::storage::replication::SystemRecoveryRes::Result::SUCCESS);
 }
 #endif
 

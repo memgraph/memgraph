@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <memory>
 #include "storage/v2/config.hpp"
 
 namespace memgraph::dbms {
@@ -38,6 +39,8 @@ struct SystemTransaction {
     ~Delta() {
       switch (action) {
         case Action::CREATE_DATABASE:
+          std::destroy_at(&config);
+          break;
         case Action::DROP_DATABASE:
           break;
           // Some deltas might have special destructor handling
