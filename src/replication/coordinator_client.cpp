@@ -10,26 +10,28 @@
 // licenses/APL.txt.
 
 #include "replication/coordinator_client.hpp"
-#include "replication/coordinator_config.hpp"
 
-namespace memgraph::replication {
+#include "replication/coordinator_config.hpp"
+#include "replication/coordinator_rpc.hpp"
 
 #ifdef MG_ENTERPRISE
-static auto CreateClientContext(const memgraph::replication::CoordinatorClientConfig &config)
-    -> communication::ClientContext {
+namespace memgraph::replication {
+
+namespace {
+auto CreateClientContext(const memgraph::replication::CoordinatorClientConfig &config) -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
                       : communication::ClientContext{};
 }
+}  // namespace
 
 CoordinatorClient::CoordinatorClient(const memgraph::replication::CoordinatorClientConfig &config)
-    : name_{config.name},
-      rpc_context_{CreateClientContext(config)},
+    : rpc_context_{CreateClientContext(config)},
       rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
                   &rpc_context_},
-      replica_check_frequency_{config.replica_check_frequency} {}
+      config_{config} {}
 
 CoordinatorClient::~CoordinatorClient() {
-  auto endpoint = rpc_client_.Endpoint();
+  const auto endpoint = rpc_client_.Endpoint();
   try {
     spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
   } catch (...) {
@@ -39,11 +41,12 @@ CoordinatorClient::~CoordinatorClient() {
 }
 
 void CoordinatorClient::StartFrequentCheck() {
-  MG_ASSERT(replica_check_frequency_ > std::chrono::seconds(0), "Replica check frequency must be greater than 0");
-  replica_checker_.Run("Coord checker", replica_check_frequency_, [this] {
+  MG_ASSERT(config_.replica_check_frequency > std::chrono::seconds(0),
+            "Replica check frequency must be greater than 0");
+  replica_checker_.Run("Coord checker", config_.replica_check_frequency, [rpc_client = &rpc_client_] {
     try {
       {
-        auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
+        auto stream{rpc_client->Stream<memgraph::replication::FrequentHeartbeatRpc>()};
         stream.AwaitResponse();
       }
     } catch (const rpc::RpcFailedException &) {
@@ -71,24 +74,23 @@ bool CoordinatorClient::DoHealthCheck() const {
   return false;
 }
 
-// bool CoordinatorClient::SendClients() const {
-//   try {
-//     {
-//       // this should be different RPC message?
-//       // doesn't have to be because there is lock taken in RPC request but we can do it
-//       // TODO:(andi) What is the timeout of this message? New message would be better...
-//       // Since the end goal is to create automatic failover, how to realize when the
-//       // instance is down? Because when we figure out this then we won't need to send
-//       // explicit frequent heartbeat message.
-//       auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
-//       stream.AwaitResponse();
-//       return true;
-//     }
-//   } catch (const rpc::RpcFailedException &) {
-//     // Nothing to do...wait for a reconnect
-//   }
-//   return false;
-// }
+auto CoordinatorClient::Name() const -> std::string_view { return config_.name; }
+auto CoordinatorClient::Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
+auto CoordinatorClient::Config() const -> CoordinatorClientConfig const & { return config_; }
 
-#endif
+bool CoordinatorClient::SendFailoverRpc() const {
+  try {
+    {
+      auto stream{rpc_client_.Stream<FailoverRpc>()};
+      stream.AwaitResponse();
+      spdlog::info("Sent failover RPC from coordinator to new main!");
+      return true;
+    }
+  } catch (const rpc::RpcFailedException &) {
+    spdlog::error("Failed to send failover RPC from coordinator to new main!");
+  }
+  return false;
+}
+
 }  // namespace memgraph::replication
+#endif

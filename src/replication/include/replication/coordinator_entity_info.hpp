@@ -21,12 +21,12 @@ namespace memgraph::replication {
 
 // TODO: (andi) Eventually unite with one global replica info
 struct CoordinatorEntityInfo {
-  std::string name;
-  io::network::Endpoint endpoint;
+  std::string_view name;
+  const io::network::Endpoint &endpoint;
 };
 
 struct CoordinatorEntityHealthInfo {
-  std::string name;
+  std::string_view name;
   bool alive;
 };
 #endif

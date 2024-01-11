@@ -84,9 +84,9 @@ workloads:
     args: ["replication/coordinator.py"]
     <<: *coordinator_cluster
 
-      # - name: "Show replication cluster on coordinator with droped replica"
-      #   binary: "tests/e2e/pytest_runner.sh"
-      #   args: ["replication/coordinator_show_with_dropped_replica.py"]
+  - name: "Show replication cluster on coordinator with droped replica"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/coordinator_show_with_dropped_replica.py"]
 
   - name: "Constraints"
     binary: "tests/e2e/replication/memgraph__e2e__replication__constraints"

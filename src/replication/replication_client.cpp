@@ -28,7 +28,7 @@ ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationCli
       mode_{config.mode} {}
 
 ReplicationClient::~ReplicationClient() {
-  auto endpoint = rpc_client_.Endpoint();
+  const auto endpoint = rpc_client_.Endpoint();
   try {
     spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
   } catch (...) {

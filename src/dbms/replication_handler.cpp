@@ -232,7 +232,7 @@ auto ReplicationHandler::ShowReplicasOnCoordinator() const -> std::vector<replic
   return dbms_handler_.CoordinatorState().ShowReplicas();
 }
 
-auto ReplicationHandler::PingReplicasOnCoordinator() const -> std::unordered_map<std::string, bool> {
+auto ReplicationHandler::PingReplicasOnCoordinator() const -> std::unordered_map<std::string_view, bool> {
   return dbms_handler_.CoordinatorState().PingReplicas();
 }
 
