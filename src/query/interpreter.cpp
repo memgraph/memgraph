@@ -1421,7 +1421,6 @@ bool IsQueryWrite(const query::plan::ReadWriteTypeChecker::RWType query_type) {
 }  // namespace
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
-  // here
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 #ifndef MG_ENTERPRISE
   auto db_acc = interpreter_context_->dbms_handler->Get();
@@ -1432,7 +1431,6 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
     : current_db_{std::move(db)}, interpreter_context_(interpreter_context) {
-  // here????too late?
   MG_ASSERT(current_db_.db_acc_, "Database accessor needs to be valid");
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
@@ -3395,9 +3393,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
                                         InterpreterContext *interpreter_context,
-                                        std::optional<std::function<void(std::string_view)>> on_change_cb
-                                        /*,
-                                        utils::ResourceLockGuard &system_guard*/) {
+                                        std::optional<std::function<void(std::string_view)>> on_change_cb) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
@@ -3492,13 +3488,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
-
-      // NOTE: this is too strong, we want to system_guard per replication group
-      //       if we are not dealing with replication group we don't need this
-      // using namespace std::chrono_literals;
-      // if (!system_guard.try_upgrade_to_unique(100ms)) {
-      //   throw QueryException("Can't get exclusive system access for DROP DATABASE");
-      // }
 
       return PreparedQuery{
           {"STATUS"},
@@ -3706,12 +3695,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     SetupInterpreterTransaction(extras);
   }
-
-  // If this is the first query command within a transaction
-  // get a shared lock over the system
-  // if (!system_guard) {
-  //   system_guard.emplace(interpreter_context_->system_lock);
-  // }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {

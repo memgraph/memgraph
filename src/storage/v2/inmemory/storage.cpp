@@ -745,8 +745,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
-utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(CommitReplArgs reparg,
-                                                                                             std::any gk) {
+utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
+    CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -835,7 +835,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // so the Wal files are consistent
         if (is_main_or_replica_write) {
           could_replicate_all_sync_replicas = mem_storage->AppendToWal(transaction_, *commit_timestamp_,
-                                                                       std::move(gk));  // protected by engine_guard
+                                                                       std::move(db_acc));  // protected by engine_guard
 
           // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
@@ -1728,7 +1728,8 @@ void InMemoryStorage::FinalizeWalFile() {
   }
 }
 
-bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp, std::any gk) {
+bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
+                                  DatabaseAccessProtector db_acc) {
   if (!InitializeWalFile(repl_storage_state_.epoch_)) {
     return true;
   }
@@ -1736,7 +1737,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, gk);
+  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
 
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
@@ -1963,7 +1964,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
-  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this, std::move(gk));
+  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this, std::move(db_acc));
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,

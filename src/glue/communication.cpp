@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -75,7 +75,8 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
 
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view) {
   auto check_db = [db]() {
-    if (db == nullptr) throw communication::bolt::ValueException("Database needed for TypeValue conversion.");
+    if (db == nullptr) [[unlikely]]
+      throw communication::bolt::ValueException("Database needed for TypeValue conversion.");
   };
 
   switch (value.type()) {

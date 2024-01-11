@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,7 @@
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
 #include "replication/state.hpp"
+#include "storage/v2/database_access.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
@@ -39,13 +40,13 @@ class ReplicationStorageClient;
 
 struct ReplicationStorageState {
   // Only MAIN can send
-  void InitializeTransaction(uint64_t seq_num, Storage *storage, std::any gk);
+  void InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc);
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
   void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                        const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                        const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp);
-  bool FinalizeTransaction(uint64_t timestamp, Storage *storage, std::any gk);
+  bool FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc);
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;

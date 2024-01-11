@@ -26,6 +26,7 @@
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/database_access.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -54,7 +55,6 @@ extern const Event ActiveLabelPropertyIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
-
 struct Transaction;
 class EdgeAccessor;
 
@@ -115,10 +115,6 @@ struct CommitReplArgs {
   std::optional<uint64_t> desired_commit_timestamp = std::nullopt;
 
   bool is_main = true;
-
-  // MAIN for ASYNC replication will need to wrap the aync task to ensure database
-  // isn't dropped while replicaition is happening
-  std::optional<std::function<std::function<void()>(std::function<void()>)>> gatekeeper_access_wrapper = std::nullopt;
 
   bool IsMain() { return is_main; }
 };
@@ -233,7 +229,8 @@ class Storage {
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {}, std::any gk = {}) = 0;
+    virtual utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
+                                                                      DatabaseAccessProtector db_acc = {}) = 0;
 
     virtual void Abort() = 0;
 
