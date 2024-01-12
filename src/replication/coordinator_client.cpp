@@ -95,7 +95,10 @@ bool CoordinatorClient::SendFailoverRpc(
   try {
     {
       auto stream{rpc_client_.Stream<FailoverRpc>(std::move(replication_clients_info))};
-      stream.AwaitResponse();
+      if (!stream.AwaitResponse().success) {
+        spdlog::error("Failed to perform failover!");
+        return false;
+      }
       spdlog::info("Sent failover RPC from coordinator to new main!");
       return true;
     }

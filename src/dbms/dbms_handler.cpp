@@ -11,8 +11,8 @@
 
 #include "dbms/dbms_handler.hpp"
 
+#include "dbms/inmemory/coordinator_handlers.hpp"
 #include "flags/replication.hpp"
-#include "replication/coordinator_handlers.hpp"
 
 namespace memgraph::dbms {
 #ifdef MG_ENTERPRISE
@@ -75,9 +75,8 @@ DbmsHandler::DbmsHandler(
 
   // MAIN or REPLICA instance
   if (FLAGS_coordinator_server_port) {
-    auto &coord_server = coordinator_state_.GetCoordinatorServer();
-    replication::CoordinatorHandlers::Register(repl_state_, coord_server);
-    MG_ASSERT(coord_server.Start(), "Failed to start coordinator server!");
+    CoordinatorHandlers::Register(*this);
+    MG_ASSERT(coordinator_state_.GetCoordinatorServer().Start(), "Failed to start coordinator server!");
   }
 }
 

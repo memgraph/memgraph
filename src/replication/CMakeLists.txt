@@ -14,10 +14,10 @@ target_sources(mg-replication
         include/replication/coordinator_state.hpp
         include/replication/coordinator_client.hpp
         include/replication/coordinator_server.hpp
-        include/replication/coordinator_handlers.hpp
         include/replication/coordinator_entity_info.hpp
         include/replication/coordinator_rpc.hpp
         include/replication/coordinator_slk.hpp
+        include/replication/coordinator_exceptions.hpp
         include/replication/replication_utils.hpp
         include/replication/register_replica_error.hpp
 
@@ -34,7 +34,6 @@ target_sources(mg-replication
         coordinator_state.cpp
         coordinator_client.cpp
         coordinator_server.cpp
-        coordinator_handlers.cpp
 )
 target_include_directories(mg-replication PUBLIC include)
 

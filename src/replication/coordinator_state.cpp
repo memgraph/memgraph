@@ -163,7 +163,6 @@ auto CoordinatorState::PingMain() const -> std::optional<CoordinatorEntityHealth
   return std::nullopt;
 }
 
-// TODO: Return error state
 auto CoordinatorState::DoFailover() -> DoFailoverStatus {
   // 1. find new replica (coordinator)
   // 2. make copy replica's client as potential new main client (coordinator)
@@ -203,9 +202,8 @@ auto CoordinatorState::DoFailover() -> DoFailoverStatus {
   potential_new_main->ReplicationClientInfo().reset();
 
   // 3.
-  try {
-    chosen_replica->SendFailoverRpc(std::move(repl_clients_info));
-  } catch (std::exception &e) {
+  if (!chosen_replica->SendFailoverRpc(std::move(repl_clients_info))) {
+    // TODO: rollback all changes that were done...
     spdlog::error("Sent RPC message, but exception was caught, aborting Failover");
   }
 

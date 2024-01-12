@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include "replication/coordinator_server.hpp"
-#include "replication/state.hpp"
 #include "slk/serialization.hpp"
 
 // TODO: (andi) How to organize this code better, what to do with namespaces...? Do we need to bind this to storage
@@ -21,16 +19,18 @@
 
 #ifdef MG_ENTERPRISE
 
-namespace memgraph::replication {
+namespace memgraph::dbms {
+
+class DbmsHandler;
 
 class CoordinatorHandlers {
  public:
-  static void Register(const ReplicationState &repl_state, CoordinatorServer &server);
+  static void Register(DbmsHandler &dbms_handler);
 
  private:
-  static void FailoverHandler(const ReplicationState &repl_state, slk::Reader *req_reader, slk::Builder *res_builder);
+  static void FailoverHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
 };
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::dbms
 
 #endif

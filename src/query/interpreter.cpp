@@ -1013,7 +1013,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         throw QueryRuntimeException("Only coordinator can run DO FAILOVER!");
       }
 
-      callback.header = {"name", "socket_address", "alive"};
+      callback.header = {"name", "socket_address", "alive", "role"};
       callback.fn = [handler = ReplQueryHandler{dbms_handler}]() mutable {
         handler.DoFailover();
         const auto main = handler.ShowMainOnCoordinator();
@@ -1023,10 +1023,11 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         std::vector<std::vector<TypedValue>> result{};
         result.reserve(result_status.size());
 
-        std::ranges::transform(
-            result_status, std::back_inserter(result), [](const auto &status) -> std::vector<TypedValue> {
-              return {TypedValue{status.name}, TypedValue{status.socket_address}, TypedValue{status.alive}};
-            });
+        std::ranges::transform(result_status, std::back_inserter(result),
+                               [](const auto &status) -> std::vector<TypedValue> {
+                                 return {TypedValue{status.name}, TypedValue{status.socket_address},
+                                         TypedValue{status.alive}, TypedValue{status.is_main ? "main" : "replica"}};
+                               });
         return result;
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::DO_FAILOVER,
