@@ -1131,13 +1131,14 @@ std::pair<uint64_t, uint8_t *> GetSizeData(const uint8_t *buffer) {
   return {size, data};
 }
 
-struct DataSizeLocalBuffer {
+struct BufferInfo {
   uint64_t size;
   uint8_t *data{nullptr};
   bool in_local_buffer;
 };
 
-DataSizeLocalBuffer GetDataSizeInLocalBuffer(const uint8_t *buffer) {
+template <size_t N>
+BufferInfo GetBufferInfo(const uint8_t (&buffer)[N]) {
   uint64_t size = 0;
   const uint8_t *data = nullptr;
   bool in_local_buffer = false;
@@ -1195,22 +1196,16 @@ PropertyStore::~PropertyStore() {
 }
 
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
-  uint64_t size;
-  const uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+  Reader reader(buffer_info.data, buffer_info.size);
+
   PropertyValue value;
   if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return {};
   return value;
 }
 
 uint64_t PropertyStore::PropertySize(PropertyId property) const {
-  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
+  auto data_size_localbuffer = GetBufferInfo(buffer_);
   Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
 
   uint64_t property_size = 0;
@@ -1219,15 +1214,9 @@ uint64_t PropertyStore::PropertySize(PropertyId property) const {
 }
 
 bool PropertyStore::HasProperty(PropertyId property) const {
-  uint64_t size;
-  const uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+  Reader reader(buffer_info.data, buffer_info.size);
+
   return ExistsSpecificProperty(&reader, property) == ExpectedPropertyStatus::EQUAL;
 }
 
@@ -1265,32 +1254,20 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
 }
 
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
-  uint64_t size;
-  const uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+  Reader reader(buffer_info.data, buffer_info.size);
+
   auto info = FindSpecificPropertyAndBufferInfo(&reader, property);
   if (info.property_size == 0) return value.IsNull();
-  Reader prop_reader(data + info.property_begin, info.property_size);
+  Reader prop_reader(buffer_info.data + info.property_begin, info.property_size);
   if (!CompareExpectedProperty(&prop_reader, property, value)) return false;
   return prop_reader.GetPosition() == info.property_size;
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
-  uint64_t size;
-  const uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+  Reader reader(buffer_info.data, buffer_info.size);
+
   std::map<PropertyId, PropertyValue> props;
   while (true) {
     PropertyValue value;
@@ -1524,33 +1501,20 @@ bool PropertyStore::InitProperties(std::vector<std::pair<storage::PropertyId, st
 }
 
 bool PropertyStore::ClearProperties() {
-  bool in_local_buffer = false;
-  uint64_t size;
-  uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-    in_local_buffer = true;
-  }
-  if (!size) return false;
-  if (!in_local_buffer) delete[] data;
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+
+  if (!buffer_info.size) return false;
+  if (!buffer_info.in_local_buffer) delete[] buffer_info.data;
   SetSizeData(buffer_, 0, nullptr);
   return true;
 }
 
 std::string PropertyStore::StringBuffer() const {
-  uint64_t size = 0;
-  const uint8_t *data = nullptr;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {  // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  std::string arr(size, ' ');
-  for (uint i = 0; i < size; ++i) {
-    arr[i] = static_cast<char>(data[i]);
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+
+  std::string arr(buffer_info.size, ' ');
+  for (uint i = 0; i < buffer_info.size; ++i) {
+    arr[i] = static_cast<char>(buffer_info.data[i]);
   }
   return arr;
 }
