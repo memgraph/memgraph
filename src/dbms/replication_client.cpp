@@ -25,7 +25,7 @@ void StartReplicaClient(DbmsHandler &dbms_handler, replication::ReplicationClien
       client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
     }
 #ifdef MG_ENTERPRISE
-    dbms_handler.SystemRestore(client);
+    dbms_handler.SystemRestore<true>(client);
 #endif
     // Check if any database has been left behind
     dbms_handler.ForEach([&name = client.name_, reconnect](dbms::DatabaseAccess db_acc) {
