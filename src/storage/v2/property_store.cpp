@@ -1017,7 +1017,7 @@ enum class ExpectedPropertyStatus {
 }
 
 [[nodiscard]] ExpectedPropertyStatus FindSpecificPropertySize(Reader *reader, PropertyId property, uint64_t &size) {
-  ExpectedPropertyStatus ret;
+  ExpectedPropertyStatus ret = ExpectedPropertyStatus::SMALLER;
   while ((ret = DecodeExpectedPropertySize(reader, property, size)) == ExpectedPropertyStatus::SMALLER) {
   }
   return ret;
@@ -1133,7 +1133,7 @@ std::pair<uint64_t, uint8_t *> GetSizeData(const uint8_t *buffer) {
 
 struct DataSizeLocalBuffer {
   uint64_t size;
-  uint8_t *data;
+  uint8_t *data{nullptr};
   bool in_local_buffer;
 };
 
@@ -1149,7 +1149,10 @@ DataSizeLocalBuffer GetDataSizeInLocalBuffer(const uint8_t *buffer) {
     in_local_buffer = true;
   }
 
-  return {size, const_cast<uint8_t *>(data), in_local_buffer};
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  auto *non_const_data = const_cast<uint8_t *>(data);
+
+  return {size, non_const_data, in_local_buffer};
 }
 
 void SetSizeData(uint8_t *buffer, uint64_t size, uint8_t *data) {
