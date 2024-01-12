@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include "replication/config.hpp"
+#include "replication/coordinator_config.hpp"
 #include "replication/coordinator_slk.hpp"
 #include "replication/mode.hpp"
 #include "slk_common.hpp"
@@ -118,36 +119,30 @@ TEST(SlkAdvanced, PropertyValueComplex) {
 }
 
 TEST(SlkAdvanced, ReplicationClientConfigs) {
-  using ReplicationClientConfig = memgraph::replication::ReplicationClientConfig;
-  using ReplicationClientConfigs = std::vector<ReplicationClientConfig>;
+  using ReplicationClientInfo = memgraph::replication::CoordinatorClientConfig::ReplicationClientInfo;
+  using ReplicationClientInfoVec = std::vector<ReplicationClientInfo>;
   using ReplicationMode = memgraph::replication::ReplicationMode;
-  using SSL = ReplicationClientConfig::SSL;
 
-  ReplicationClientConfigs original{
-      ReplicationClientConfig{.name = "replica1",
-                              .mode = ReplicationMode::SYNC,
-                              .ip_address = "127.0.0.1",
-                              .port = 10000,
-                              .replica_check_frequency = std::chrono::seconds(1),
-                              .ssl = SSL{.key_file = "test_file", .cert_file = "cert_file"}},
-      ReplicationClientConfig{.name = "replica2",
-                              .mode = ReplicationMode::ASYNC,
-                              .ip_address = "127.0.1.1",
-                              .port = 10010,
-                              .replica_check_frequency = std::chrono::seconds(5),
-                              .ssl = SSL{.key_file = "test_file_1", .cert_file = "cert_file_1"}},
-      ReplicationClientConfig{.name = "replica3",
-                              .mode = ReplicationMode::ASYNC,
-                              .ip_address = "127.1.1.1",
-                              .port = 1110,
-                              .replica_check_frequency = std::chrono::seconds(2),
-                              .ssl = SSL{.key_file = "test_file_11", .cert_file = "cert_file_00"}}};
+  ReplicationClientInfoVec original{ReplicationClientInfo{.instance_name = "replica1",
+                                                          .replication_mode = ReplicationMode::SYNC,
+                                                          .replication_ip_address = "127.0.0.1",
+                                                          .replication_port = 10000},
+                                    ReplicationClientInfo{.instance_name = "replica2",
+                                                          .replication_mode = ReplicationMode::ASYNC,
+                                                          .replication_ip_address = "127.0.1.1",
+                                                          .replication_port = 10010},
+                                    ReplicationClientInfo{
+                                        .instance_name = "replica3",
+                                        .replication_mode = ReplicationMode::ASYNC,
+                                        .replication_ip_address = "127.1.1.1",
+                                        .replication_port = 1110,
+                                    }};
 
   memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
   memgraph::slk::Save(original, builder);
 
-  ReplicationClientConfigs decoded;
+  ReplicationClientInfoVec decoded;
   auto reader = loopback.GetReader();
   memgraph::slk::Load(&decoded, reader);
 

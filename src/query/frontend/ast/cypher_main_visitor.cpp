@@ -373,26 +373,6 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
 
   return replication_query;
 }
-// delete
-// antlrcpp::Any CypherMainVisitor::visitTransactionQueueQuery(MemgraphCypher::TransactionQueueQueryContext *ctx) {
-//   MG_ASSERT(ctx->children.size() == 1, "TransactionQueueQuery should have exactly one child!");
-//   auto *transaction_queue_query = std::any_cast<TransactionQueueQuery *>(ctx->children[0]->accept(this));
-//   query_ = transaction_queue_query;
-//   return transaction_queue_query;
-// }
-
-// antlrcpp::Any CypherMainVisitor::visitShowTransactions(MemgraphCypher::ShowTransactionsContext * /*ctx*/) {
-//   auto *transaction_shower = storage_->Create<TransactionQueueQuery>();
-//   transaction_shower->action_ = TransactionQueueQuery::Action::SHOW_TRANSACTIONS;
-//   return transaction_shower;
-// }
-
-// antlrcpp::Any CypherMainVisitor::visitTerminateTransactions(MemgraphCypher::TerminateTransactionsContext *ctx) {
-//   auto *terminator = storage_->Create<TransactionQueueQuery>();
-//   terminator->action_ = TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS;
-//   terminator->transaction_id_list_ = std::any_cast<std::vector<Expression
-//   *>>(ctx->transactionIdList()->accept(this)); return terminator;
-// }
 
 // License check is done in the interpreter.
 antlrcpp::Any CypherMainVisitor::visitRegisterCoordinatorServer(MemgraphCypher::RegisterCoordinatorServerContext *ctx) {

@@ -23,8 +23,9 @@
 #include <optional>
 #include <variant>
 
-#ifdef MG_ENTERPRISE
 namespace memgraph::replication {
+
+#ifdef MG_ENTERPRISE
 
 CoordinatorState::CoordinatorState() {
   MG_ASSERT(!(FLAGS_coordinator && FLAGS_coordinator_server_port),
@@ -233,6 +234,5 @@ auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
             "Cannot get coordinator server since variant holds wrong alternative");
   return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
 }
-
-}  // namespace memgraph::replication
 #endif
+}  // namespace memgraph::replication
