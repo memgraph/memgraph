@@ -335,6 +335,8 @@ void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
     }
     auto &replica_epoch = storage->repl_storage_state_.epoch_;
     if (wal_info.epoch_id != replica_epoch.id()) {
+      // questionable behaviour, we trust that any change in epoch implies change in who is MAIN
+      // when we use high availability, this assumption need to be checked.
       auto prev_epoch = replica_epoch.SetEpoch(wal_info.epoch_id);
       storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
     }

@@ -50,6 +50,11 @@
 
 namespace memgraph::dbms {
 
+enum class AllSyncReplicaStatus {
+  AllCommitsConfirmed,
+  SomeCommitsUnconfirmed,
+};
+
 struct Statistics {
   uint64_t num_vertex;           //!< Sum of vertexes in every database
   uint64_t num_edges;            //!< Sum of edges in every database
@@ -404,6 +409,12 @@ class DbmsHandler {
 
   void ResetSystemTransaction() { system_transaction_.reset(); }
 
+  //! \tparam RPC An rpc::RequestResponse
+  //! \tparam Args the args type
+  //! \param client the client to use for rpc communication
+  //! \param check predicate to check response is ok
+  //! \param args arguments to forward to the rpc request
+  //! \return If replica stream is completed or enqueued
   template <typename RPC, typename... Args>
   bool SteamAndFinalizeDelta(auto &client, auto &&check, Args &&...args) {
     try {
@@ -414,19 +425,15 @@ class DbmsHandler {
           return false;
         }
         try {
-          const auto response = stream.AwaitResponse();
-          if (!check(response)) {
-            // This replica needs SYSTEM recovery
-            client.state_.WithLock(
-                [](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
-            return false;
+          if (check(stream.AwaitResponse())) {
+            return true;
           }
         } catch (memgraph::rpc::GenericRpcFailedException const &e) {
-          // This replica needs SYSTEM recovery
-          client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
-          return false;
+          // swallow error, fallthrough to error handling
         }
-        return true;
+        // This replica needs SYSTEM recovery
+        client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
+        return false;
       };
 
       if (client.mode_ == memgraph::replication::ReplicationMode::ASYNC) {
@@ -442,11 +449,15 @@ class DbmsHandler {
     }
   };
 
-  void Commit();
+  AllSyncReplicaStatus Commit();
 
-  uint64_t LastCommitedTS() const { return last_commited_system_timestamp_; }
+  auto LastCommitedTS() const -> uint64_t { return last_commited_system_timestamp_; }
+  void SetLastCommitedTS(uint64_t new_ts) { last_commited_system_timestamp_.store(new_ts); }
 
 #ifdef MG_ENTERPRISE
+  // When being called by intepreter no need to gain lock, it should already be under a system transaction
+  // But concurrently the FrequentCheck is running and will need to lock before reading last_commited_system_timestamp_
+  template <bool REQUIRE_LOCK = false>
   void SystemRestore(replication::ReplicationClient &client) {
     // Check if system is up to date
     if (client.state_.WithLock(
@@ -455,10 +466,19 @@ class DbmsHandler {
 
     // Try to recover...
     {
-      std::vector<storage::SalientConfig> database_configs{};
-      ForEach([&database_configs](DatabaseAccess acc) { database_configs.emplace_back(acc->config().salient); });
+      auto [database_configs, last_commited_system_timestamp] = std::invoke([&] {
+        auto sys_guard =
+            std::unique_lock{system_lock_, std::defer_lock};  // ensure no other system transaction in progress
+        if constexpr (REQUIRE_LOCK) {
+          sys_guard.lock();
+        }
+        auto configs = std::vector<storage::SalientConfig>{};
+        ForEach([&configs](DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
+        return std::pair{configs, last_commited_system_timestamp_.load()};
+      });
       try {
-        auto stream = client.rpc_client_.Stream<storage::replication::SystemRecoveryRpc>(std::move(database_configs));
+        auto stream = client.rpc_client_.Stream<storage::replication::SystemRecoveryRpc>(last_commited_system_timestamp,
+                                                                                         std::move(database_configs));
         const auto response = stream.AwaitResponse();
         if (response.result == storage::replication::SystemRecoveryRes::Result::FAILURE) {
           client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });

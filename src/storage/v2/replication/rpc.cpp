@@ -320,13 +320,15 @@ void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader)
 
 void Save(const memgraph::storage::replication::CreateDatabaseReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.epoch_id, builder);
-  memgraph::slk::Save(self.group_timestamp, builder);
+  memgraph::slk::Save(self.expected_group_timestamp, builder);
+  memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.config, builder);
 }
 
 void Load(memgraph::storage::replication::CreateDatabaseReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->epoch_id, reader);
-  memgraph::slk::Load(&self->group_timestamp, reader);
+  memgraph::slk::Load(&self->expected_group_timestamp, reader);
+  memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->config, reader);
 }
 
@@ -348,13 +350,15 @@ void Load(memgraph::storage::replication::CreateDatabaseRes *self, memgraph::slk
 
 void Save(const memgraph::storage::replication::DropDatabaseReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.epoch_id, builder);
-  memgraph::slk::Save(self.group_timestamp, builder);
+  memgraph::slk::Save(self.expected_group_timestamp, builder);
+  memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.uuid, builder);
 }
 
 void Load(memgraph::storage::replication::DropDatabaseReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->epoch_id, reader);
-  memgraph::slk::Load(&self->group_timestamp, reader);
+  memgraph::slk::Load(&self->expected_group_timestamp, reader);
+  memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->uuid, reader);
 }
 
@@ -375,10 +379,12 @@ void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::
 // Serialize code for SystemRecoveryReq
 
 void Save(const memgraph::storage::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.forced_group_timestamp, builder);
   memgraph::slk::Save(self.database_configs, builder);
 }
 
 void Load(memgraph::storage::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->forced_group_timestamp, reader);
   memgraph::slk::Load(&self->database_configs, reader);
 }
 

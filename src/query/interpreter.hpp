@@ -251,7 +251,7 @@ class Interpreter final {
 
     ~SystemTransaction() { dbms_handler_->ResetSystemTransaction(); }
 
-    void Commit() { dbms_handler_->Commit(); }
+    dbms::AllSyncReplicaStatus Commit() { return dbms_handler_->Commit(); }
 
    private:
     std::unique_lock<utils::ResourceLock> system_guard_;

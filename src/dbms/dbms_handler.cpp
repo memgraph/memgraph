@@ -354,10 +354,12 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
   durability_->Put(key, val);
 }
 
-void DbmsHandler::Commit() {
-  if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt) return;  // Nothing to commit
+AllSyncReplicaStatus DbmsHandler::Commit() {
+  if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt)
+    return AllSyncReplicaStatus::AllCommitsConfirmed;  // Nothing to commit
   const auto &delta = *system_transaction_->delta;
 
+  auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
   // TODO Create a system client that can handle all of this automatically
   switch (delta.action) {
     using enum SystemTransaction::Delta::Action;
@@ -367,12 +369,17 @@ void DbmsHandler::Commit() {
         // TODO: data race issue? registered_replicas_ access not protected
         // This is sync in any case, as this is the startup
         for (auto &client : main_data.registered_replicas_) {
-          SteamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
+          bool completed = SteamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
               client,
               [](const storage::replication::CreateDatabaseRes &response) {
-                return response.result == storage::replication::CreateDatabaseRes::Result::FAILURE;
+                return response.result != storage::replication::CreateDatabaseRes::Result::FAILURE;
               },
-              std::string(main_data.epoch_.id()), system_transaction_->system_timestamp, delta.config);
+              std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
+              system_transaction_->system_timestamp, delta.config);
+          // TODO: reduce duplicate code
+          if (!completed && client.mode_ == replication::ReplicationMode::SYNC) {
+            sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+          }
         }
         // Sync database with REPLICAs
         RecoverReplication(Get_(delta.config.name));
@@ -386,12 +393,17 @@ void DbmsHandler::Commit() {
         // TODO: data race issue? registered_replicas_ access not protected
         // This is sync in any case, as this is the startup
         for (auto &client : main_data.registered_replicas_) {
-          SteamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
+          bool completed = SteamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
               client,
               [](const storage::replication::DropDatabaseRes &response) {
-                return response.result == storage::replication::DropDatabaseRes::Result::FAILURE;
+                return response.result != storage::replication::DropDatabaseRes::Result::FAILURE;
               },
-              std::string(main_data.epoch_.id()), system_transaction_->system_timestamp, delta.uuid);
+              std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
+              system_transaction_->system_timestamp, delta.uuid);
+          // TODO: reduce duplicate code
+          if (!completed && client.mode_ == replication::ReplicationMode::SYNC) {
+            sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+          }
         }
       };
       auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
@@ -399,18 +411,20 @@ void DbmsHandler::Commit() {
     } break;
   }
 
+  durability_->Put(kLastCommitedSystemTsKey, std::to_string(system_transaction_->system_timestamp));
   last_commited_system_timestamp_ = system_transaction_->system_timestamp;
-  durability_->Put(kLastCommitedSystemTsKey, std::to_string(last_commited_system_timestamp_));
   ResetSystemTransaction();
+  return sync_status;
 }
 
 #else  // not MG_ENTERPRISE
 
-void DbmsHandler::Commit() {
-  if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt) return;  // Nothing to commit
+AllSyncReplicaStatus DbmsHandler::Commit() {
+  if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt) {
+    return AllSyncReplicaStatus::AllCommitsConfirmed;  // Nothing to commit
+  }
   const auto &delta = *system_transaction_->delta;
 
-  // TODO Create a system client that can handle all of this automatically
   switch (delta.action) {
     using enum SystemTransaction::Delta::Action;
     case CREATE_DATABASE:
@@ -420,8 +434,8 @@ void DbmsHandler::Commit() {
   }
 
   last_commited_system_timestamp_ = system_transaction_->system_timestamp;
-  // TODO Durability once community needs it
   ResetSystemTransaction();
+  return AllSyncReplicaStatus::AllCommitsConfirmed;
 }
 
 #endif

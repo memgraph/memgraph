@@ -208,11 +208,16 @@ struct CreateDatabaseReq {
   static void Load(CreateDatabaseReq *self, memgraph::slk::Reader *reader);
   static void Save(const CreateDatabaseReq &self, memgraph::slk::Builder *builder);
   CreateDatabaseReq() = default;
-  CreateDatabaseReq(std::string epoch_id, uint64_t group_timestamp, storage::SalientConfig config)
-      : epoch_id(std::move(epoch_id)), group_timestamp(group_timestamp), config(std::move(config)) {}
+  CreateDatabaseReq(std::string epoch_id, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
+                    storage::SalientConfig config)
+      : epoch_id(std::move(epoch_id)),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        config(std::move(config)) {}
 
   std::string epoch_id;
-  uint64_t group_timestamp;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
   storage::SalientConfig config;
 };
 
@@ -239,11 +244,16 @@ struct DropDatabaseReq {
   static void Load(DropDatabaseReq *self, memgraph::slk::Reader *reader);
   static void Save(const DropDatabaseReq &self, memgraph::slk::Builder *builder);
   DropDatabaseReq() = default;
-  DropDatabaseReq(std::string epoch_id, uint64_t group_timestamp, const utils::UUID &uuid)
-      : epoch_id(std::move(epoch_id)), group_timestamp(group_timestamp), uuid(uuid) {}
+  DropDatabaseReq(std::string epoch_id, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
+                  const utils::UUID &uuid)
+      : epoch_id(std::move(epoch_id)),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        uuid(uuid) {}
 
   std::string epoch_id;
-  uint64_t group_timestamp;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
   utils::UUID uuid;
 };
 
@@ -270,9 +280,10 @@ struct SystemRecoveryReq {
   static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
   static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
   SystemRecoveryReq() = default;
-  SystemRecoveryReq(std::vector<storage::SalientConfig> database_configs)
-      : database_configs(std::move(database_configs)) {}
+  SystemRecoveryReq(uint64_t forced_group_timestamp, std::vector<storage::SalientConfig> database_configs)
+      : forced_group_timestamp{forced_group_timestamp}, database_configs(std::move(database_configs)) {}
 
+  uint64_t forced_group_timestamp;
   std::vector<storage::SalientConfig> database_configs;
 };
 

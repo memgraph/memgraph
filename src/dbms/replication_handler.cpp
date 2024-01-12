@@ -283,16 +283,26 @@ void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
   using memgraph::storage::replication::CreateDatabaseRes;
   CreateDatabaseRes res(CreateDatabaseRes::Result::FAILURE);
 
-  // TODO
-  // Check epoch
-  // Check ts
+  // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
+  //       of the set of databases. Hence no history exists to maintain regarding epoch change.
+  //       If MAIN has changed we need to check this new group_timestamp is consistent with
+  //       what we have so far.
+
+  if (req.expected_group_timestamp != dbms_handler.LastCommitedTS()) {
+    spdlog::debug("CreateDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+                  dbms_handler.LastCommitedTS());
+    memgraph::slk::Save(res, res_builder);
+    return;
+  }
 
   try {
     // Create new
     auto new_db = dbms_handler.Update(req.config);
     if (new_db.HasValue()) {
       // Successfully create db
+      dbms_handler.SetLastCommitedTS(req.new_group_timestamp);
       res = CreateDatabaseRes(CreateDatabaseRes::Result::SUCCESS);
+      spdlog::debug("CreateDatabaseHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
     }
   } catch (...) {
     // Failure
@@ -308,9 +318,17 @@ void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk
   using memgraph::storage::replication::DropDatabaseRes;
   DropDatabaseRes res(DropDatabaseRes::Result::FAILURE);
 
-  // TODO
-  // Check epoch
-  // Check ts
+  // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
+  //       of the set of databases. Hence no history exists to maintain regarding epoch change.
+  //       If MAIN has changed we need to check this new group_timestamp is consistent with
+  //       what we have so far.
+
+  if (req.expected_group_timestamp != dbms_handler.LastCommitedTS()) {
+    spdlog::debug("DropDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+                  dbms_handler.LastCommitedTS());
+    memgraph::slk::Save(res, res_builder);
+    return;
+  }
 
   try {
     // NOTE: Single communication channel can exist at a time, no other database can be deleted/created aat the moment.
@@ -318,11 +336,14 @@ void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk
     if (new_db.HasError()) {
       if (new_db.GetError() == DeleteError::NON_EXISTENT) {
         // Nothing to drop
+        dbms_handler.SetLastCommitedTS(req.new_group_timestamp);
         res = DropDatabaseRes(DropDatabaseRes::Result::NO_NEED);
       }
     } else {
       // Successfully drop db
+      dbms_handler.SetLastCommitedTS(req.new_group_timestamp);
       res = DropDatabaseRes(DropDatabaseRes::Result::SUCCESS);
+      spdlog::debug("DropDatabaseHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
     }
   } catch (...) {
     // Failure
@@ -349,10 +370,11 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
     // Missing db
     try {
       if (dbms_handler.Update(config).HasError()) {
-        spdlog::debug("Failed to update database \"{}\".", config.name);
+        spdlog::debug("SystemRecoveryHandler: Failed to update database \"{}\".", config.name);
         return;  // Send failure on exit
       }
     } catch (const UnknownDatabaseException &) {
+      spdlog::debug("SystemRecoveryHandler: UnknownDatabaseException");
       return;  // Send failure on exit
     }
     const auto it = std::find(old.begin(), old.end(), config.name);
@@ -365,13 +387,16 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
     if (del.HasError()) {
       // Some errors are not terminal
       if (del.GetError() == DeleteError::DEFAULT_DB || del.GetError() == DeleteError::NON_EXISTENT) {
+        spdlog::debug("SystemRecoveryHandler: Dropped database \"{}\".", remove_db);
         continue;
       }
-      spdlog::debug("Failed to drop database \"{}\".", remove_db);
+      spdlog::debug("SystemRecoveryHandler: Failed to drop database \"{}\".", remove_db);
       return;  // Send failure on exit
     }
   }
   // Successfully recovered
+  dbms_handler.SetLastCommitedTS(req.forced_group_timestamp);
+  spdlog::debug("SystemRecoveryHandler: SUCCESS updated LCTS to {}", req.forced_group_timestamp);
   res = SystemRecoveryRes(SystemRecoveryRes::Result::SUCCESS);
 }
 #endif
