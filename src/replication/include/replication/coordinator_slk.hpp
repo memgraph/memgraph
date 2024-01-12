@@ -11,13 +11,15 @@
 
 #pragma once
 
-#include "replication/config.hpp"
+#include "replication/coordinator_config.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 
 #ifdef MG_ENTERPRISE
 
 namespace memgraph::slk {
+
+using ReplicationClientInfo = replication::CoordinatorClientConfig::ReplicationClientInfo;
 
 inline void Save(replication::ReplicationMode obj, Builder *builder) {
   Save(static_cast<std::underlying_type_t<replication::ReplicationMode>>(obj), builder);
@@ -30,41 +32,18 @@ inline void Load(replication::ReplicationMode *obj, Reader *reader) {
   *obj = replication::ReplicationMode(utils::MemcpyCast<enum_type>(obj_encoded));
 }
 
-inline void Save(const std::chrono::seconds &obj, Builder *builder) { Save(obj.count(), builder); }
-
-inline void Load(std::chrono::seconds *obj, Reader *reader) {
-  using chrono_type = std::chrono::seconds;
-  typename chrono_type::rep obj_encoded{};
-  slk::Load(&obj_encoded, reader);
-  *obj = chrono_type(utils::MemcpyCast<typename chrono_type::rep>(obj_encoded));
+inline void Save(const ReplicationClientInfo &obj, Builder *builder) {
+  Save(obj.instance_name, builder);
+  Save(obj.replication_mode, builder);
+  Save(obj.replication_ip_address, builder);
+  Save(obj.replication_port, builder);
 }
 
-inline void Save(const replication::ReplicationClientConfig::SSL &obj, Builder *builder) {
-  Save(obj.key_file, builder);
-  Save(obj.cert_file, builder);
-}
-
-inline void Load(replication::ReplicationClientConfig::SSL *obj, Reader *reader) {
-  Load(&obj->key_file, reader);
-  Load(&obj->cert_file, reader);
-}
-
-inline void Save(const replication::ReplicationClientConfig &obj, Builder *builder) {
-  Save(obj.name, builder);
-  Save(obj.mode, builder);
-  Save(obj.ip_address, builder);
-  Save(obj.port, builder);
-  Save(obj.replica_check_frequency, builder);
-  Save(obj.ssl, builder);
-}
-
-inline void Load(replication::ReplicationClientConfig *obj, Reader *reader) {
-  Load(&obj->name, reader);
-  Load(&obj->mode, reader);
-  Load(&obj->ip_address, reader);
-  Load(&obj->port, reader);
-  Load(&obj->replica_check_frequency, reader);
-  Load(&obj->ssl, reader);
+inline void Load(ReplicationClientInfo *obj, Reader *reader) {
+  Load(&obj->instance_name, reader);
+  Load(&obj->replication_mode, reader);
+  Load(&obj->replication_ip_address, reader);
+  Load(&obj->replication_port, reader);
 }
 }  // namespace memgraph::slk
 #endif

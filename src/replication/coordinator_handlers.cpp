@@ -30,11 +30,11 @@ void CoordinatorHandlers::FailoverHandler(const ReplicationState &repl_state, sl
   MG_ASSERT(repl_state.IsReplica(), "Failover must me performed on replica!");
   FailoverReq req;
   slk::Load(&req, req_reader);
-  for (const auto &config : req.replicas_name_endpoints) {
-    spdlog::info("Received replica: {}", config.name);
-    spdlog::info("Received endpoint: {}", config.ip_address);
-    spdlog::info("Received port: {}", config.port);
-    spdlog::info("Received mode: {}\n", config.mode);
+  for (const auto &config : req.replication_clients_info) {
+    spdlog::info("Received replica: {}", config.instance_name);
+    spdlog::info("Received endpoint: {}", config.replication_ip_address);
+    spdlog::info("Received port: {}", config.replication_port);
+    spdlog::info("Received mode: {}\n", config.replication_mode);
   }
 
   FailoverRes res{true};

@@ -113,10 +113,14 @@ class ReplicationQueryHandler {
 
 #ifdef MG_ENTERPRISE
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterCoordinatorServer(const std::string &socket_address,
-                                         const std::chrono::seconds instance_check_frequency,
-                                         const std::string &instance_name,
-                                         ReplicationQuery::ReplicationRole replication_role) = 0;
+  virtual void RegisterReplicaCoordinatorServer(const std::string &replication_socket_address,
+                                                const std::string &coordinator_socket_address,
+                                                const std::chrono::seconds instance_check_frequency,
+                                                const std::string &instance_name,
+                                                ReplicationQuery::SyncMode sync_mode) = 0;
+  virtual void RegisterMainCoordinatorServer(const std::string &socket_address,
+                                             const std::chrono::seconds instance_check_frequency,
+                                             const std::string &instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<replication::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const = 0;

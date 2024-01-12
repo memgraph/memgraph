@@ -373,17 +373,70 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
 
   return replication_query;
 }
+// delete
+// antlrcpp::Any CypherMainVisitor::visitTransactionQueueQuery(MemgraphCypher::TransactionQueueQueryContext *ctx) {
+//   MG_ASSERT(ctx->children.size() == 1, "TransactionQueueQuery should have exactly one child!");
+//   auto *transaction_queue_query = std::any_cast<TransactionQueueQuery *>(ctx->children[0]->accept(this));
+//   query_ = transaction_queue_query;
+//   return transaction_queue_query;
+// }
+
+// antlrcpp::Any CypherMainVisitor::visitShowTransactions(MemgraphCypher::ShowTransactionsContext * /*ctx*/) {
+//   auto *transaction_shower = storage_->Create<TransactionQueueQuery>();
+//   transaction_shower->action_ = TransactionQueueQuery::Action::SHOW_TRANSACTIONS;
+//   return transaction_shower;
+// }
+
+// antlrcpp::Any CypherMainVisitor::visitTerminateTransactions(MemgraphCypher::TerminateTransactionsContext *ctx) {
+//   auto *terminator = storage_->Create<TransactionQueueQuery>();
+//   terminator->action_ = TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS;
+//   terminator->transaction_id_list_ = std::any_cast<std::vector<Expression
+//   *>>(ctx->transactionIdList()->accept(this)); return terminator;
+// }
 
 // License check is done in the interpreter.
 antlrcpp::Any CypherMainVisitor::visitRegisterCoordinatorServer(MemgraphCypher::RegisterCoordinatorServerContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "RegisterCoordinatorServerQuery should have exactly one child!");
+  auto *replication_query = std::any_cast<ReplicationQuery *>(ctx->children[0]->accept(this));
+  query_ = replication_query;
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRegisterReplicaCoordinatorServer(
+    MemgraphCypher::RegisterReplicaCoordinatorServerContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   if (!ctx->socketAddress()->literal()->StringLiteral()) {
     throw SemanticException("Socket address should be a string literal!");
   }
-  replication_query->action_ = ReplicationQuery::Action::REGISTER_COORDINATOR_SERVER;
-  replication_query->role_ =
-      ctx->MAIN() ? ReplicationQuery::ReplicationRole::MAIN : ReplicationQuery::ReplicationRole::REPLICA;
+
+  if (!ctx->coordinatorSocketAddress()->literal()->StringLiteral()) {
+    throw SemanticException("Coordinator socket address should be a string literal!");
+  }
+  replication_query->action_ = ReplicationQuery::Action::REGISTER_REPLICA_COORDINATOR_SERVER;
+  replication_query->role_ = ReplicationQuery::ReplicationRole::REPLICA;
   replication_query->socket_address_ = std::any_cast<Expression *>(ctx->socketAddress()->accept(this));
+  replication_query->coordinator_socket_address_ =
+      std::any_cast<Expression *>(ctx->coordinatorSocketAddress()->accept(this));
+  replication_query->instance_name_ = std::any_cast<std::string>(ctx->instanceName()->symbolicName()->accept(this));
+  if (ctx->SYNC()) {
+    replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::SYNC;
+  } else if (ctx->ASYNC()) {
+    replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::ASYNC;
+  }
+
+  return replication_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRegisterMainCoordinatorServer(
+    MemgraphCypher::RegisterMainCoordinatorServerContext *ctx) {
+  if (!ctx->coordinatorSocketAddress()->literal()->StringLiteral()) {
+    throw SemanticException("Coordinator socket address should be a string literal!");
+  }
+  auto *replication_query = storage_->Create<ReplicationQuery>();
+  replication_query->action_ = ReplicationQuery::Action::REGISTER_MAIN_COORDINATOR_SERVER;
+  replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
+  replication_query->coordinator_socket_address_ =
+      std::any_cast<Expression *>(ctx->coordinatorSocketAddress()->accept(this));
   replication_query->instance_name_ = std::any_cast<std::string>(ctx->instanceName()->symbolicName()->accept(this));
 
   return replication_query;

@@ -377,10 +377,16 @@ instanceName : symbolicName ;
 
 socketAddress : literal ;
 
+coordinatorSocketAddress : literal ;
+
 registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
 
-registerCoordinatorServer : REGISTER ( MAIN | REPLICA ) COORDINATOR SERVER ON instanceName TO socketAddress ;
+registerReplicaCoordinatorServer: REGISTER REPLICA instanceName ( ASYNC | SYNC ) TO socketAddress WITH COORDINATOR SERVER ON coordinatorSocketAddress ;
+
+registerMainCoordinatorServer: REGISTER MAIN instanceName WITH COORDINATOR SERVER ON coordinatorSocketAddress ;
+
+registerCoordinatorServer : registerMainCoordinatorServer | registerReplicaCoordinatorServer ;
 
 dropReplica : DROP REPLICA instanceName ;
 

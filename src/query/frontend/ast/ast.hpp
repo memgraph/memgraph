@@ -3031,7 +3031,8 @@ class ReplicationQuery : public memgraph::query::Query {
     REGISTER_REPLICA,
     DROP_REPLICA,
     SHOW_REPLICAS,
-    REGISTER_COORDINATOR_SERVER,
+    REGISTER_MAIN_COORDINATOR_SERVER,
+    REGISTER_REPLICA_COORDINATOR_SERVER,
     SHOW_REPLICATION_CLUSTER,
     DO_FAILOVER
   };
@@ -3050,6 +3051,7 @@ class ReplicationQuery : public memgraph::query::Query {
   memgraph::query::ReplicationQuery::ReplicationRole role_;
   std::string instance_name_;
   memgraph::query::Expression *socket_address_{nullptr};
+  memgraph::query::Expression *coordinator_socket_address_{nullptr};
   memgraph::query::Expression *port_{nullptr};
   memgraph::query::ReplicationQuery::SyncMode sync_mode_;
 
@@ -3061,6 +3063,8 @@ class ReplicationQuery : public memgraph::query::Query {
     object->socket_address_ = socket_address_ ? socket_address_->Clone(storage) : nullptr;
     object->port_ = port_ ? port_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
+    object->coordinator_socket_address_ = coordinator_socket_address_;
+
     return object;
   }
 

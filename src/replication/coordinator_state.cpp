@@ -41,7 +41,9 @@ auto CoordinatorState::RegisterReplica(const CoordinatorClientConfig &config)
     -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> {
   // TODO: (andi) Solve DRY by extracting
   auto name_check = [&config](auto const &replicas) {
-    auto name_matches = [&name = config.name](auto const &replica) { return replica.Name() == name; };
+    auto name_matches = [&instance_name = config.instance_name](auto const &replica) {
+      return replica.InstanceName() == instance_name;
+    };
     return std::any_of(replicas.begin(), replicas.end(), name_matches);
   };
 
@@ -117,7 +119,7 @@ auto CoordinatorState::ShowReplicas() const -> std::vector<CoordinatorEntityInfo
   const auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
   result.reserve(registered_replicas.size());
   std::ranges::transform(registered_replicas, std::back_inserter(result), [](const auto &replica) {
-    return CoordinatorEntityInfo{replica.Name(), replica.Endpoint()};
+    return CoordinatorEntityInfo{replica.InstanceName(), replica.Endpoint()};
   });
   return result;
 }
@@ -128,7 +130,7 @@ auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorEntityInfo> 
   }
   const auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
   if (registered_main) {
-    return CoordinatorEntityInfo{registered_main->Name(), registered_main->Endpoint()};
+    return CoordinatorEntityInfo{registered_main->InstanceName(), registered_main->Endpoint()};
   }
   return std::nullopt;
 }
@@ -141,7 +143,7 @@ auto CoordinatorState::PingReplicas() const -> std::unordered_map<std::string_vi
   const auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
   result.reserve(registered_replicas.size());
   for (const CoordinatorClient &replica_client : registered_replicas) {
-    result.emplace(replica_client.Name(), replica_client.DoHealthCheck());
+    result.emplace(replica_client.InstanceName(), replica_client.DoHealthCheck());
   }
 
   return result;
@@ -153,27 +155,39 @@ auto CoordinatorState::PingMain() const -> std::optional<CoordinatorEntityHealth
   }
   const auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
   if (registered_main) {
-    return CoordinatorEntityHealthInfo{registered_main->Name(), registered_main->DoHealthCheck()};
+    return CoordinatorEntityHealthInfo{registered_main->InstanceName(), registered_main->DoHealthCheck()};
   }
   return std::nullopt;
 }
 
 // TODO: Return error state
-auto CoordinatorState::DoFailover(const std::vector<ReplicationClientConfig> &replication_client_configs) -> void {
+auto CoordinatorState::DoFailover() -> DoFailoverStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorData>(data_), "Cannot do failover since variant holds wrong alternative");
+  using ReplicationClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
 
   auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
 
   const auto new_main = std::ranges::find_if(registered_replicas,
                                              [](const CoordinatorClient &replica) { return replica.DoHealthCheck(); });
   if (new_main == registered_replicas.end()) {
-    return;
+    return DoFailoverStatus::ALL_REPLICAS_DOWN;
   }
+
+  std::vector<ReplicationClientInfo> repl_clients_info;
+  repl_clients_info.reserve(registered_replicas.size() - 1);
+  std::ranges::for_each(registered_replicas, [&new_main, &repl_clients_info](const CoordinatorClient &replica) {
+    if (replica == *new_main) return;
+    repl_clients_info.emplace_back(replica.ReplicationClientInfo());
+  });
+
   auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
   registered_main = std::make_unique<CoordinatorClient>(new_main->Config());
-  registered_main->SendFailoverRpc({});
+  // TODO: continue from here
+  registered_main->SendFailoverRpc(std::move(repl_clients_info));
 
   registered_replicas.erase(new_main);
+
+  return DoFailoverStatus::SUCCESS;
 }
 
 auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {

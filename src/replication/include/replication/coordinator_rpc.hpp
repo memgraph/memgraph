@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "replication/config.hpp"
+#include "replication/coordinator_config.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 
@@ -27,9 +27,11 @@ struct FailoverReq {
   static void Load(FailoverReq *self, memgraph::slk::Reader *reader);
   static void Save(const FailoverReq &self, memgraph::slk::Builder *builder);
 
+  FailoverReq(std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info)
+      : replication_clients_info(std::move(replication_clients_info)) {}
   FailoverReq() = default;
 
-  std::vector<ReplicationClientConfig> replicas_name_endpoints;
+  std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info;
 };
 
 struct FailoverRes {
@@ -39,8 +41,8 @@ struct FailoverRes {
   static void Load(FailoverRes *self, memgraph::slk::Reader *reader);
   static void Save(const FailoverRes &self, memgraph::slk::Builder *builder);
 
-  FailoverRes() = default;
   explicit FailoverRes(bool success) : success(success) {}
+  FailoverRes() = default;
 
   bool success;
 };

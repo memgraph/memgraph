@@ -18,7 +18,6 @@
 #include "utils/scheduler.hpp"
 #include "utils/thread_pool.hpp"
 
-#include <concepts>
 #include <string_view>
 
 namespace memgraph::replication {
@@ -38,12 +37,18 @@ class CoordinatorClient {
 
   void StartFrequentCheck();
 
+  // TOODO: change method call signature
   bool DoHealthCheck() const;
-  bool SendFailoverRpc(const std::vector<ReplicationClientConfig> &replication_client_config) const;
+  bool SendFailoverRpc(std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const;
 
-  auto Name() const -> std::string_view;
+  auto InstanceName() const -> std::string_view;
   auto Endpoint() const -> io::network::Endpoint const &;
   auto Config() const -> CoordinatorClientConfig const &;
+  auto ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo const &;
+
+  friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
+    return first.config_ == second.config_;
+  }
 
   // TODO: (andi) Do I need this?
   // This thread pool is used for background tasks so we don't

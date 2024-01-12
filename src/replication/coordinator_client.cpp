@@ -41,9 +41,8 @@ CoordinatorClient::~CoordinatorClient() {
 }
 
 void CoordinatorClient::StartFrequentCheck() {
-  MG_ASSERT(config_.replica_check_frequency > std::chrono::seconds(0),
-            "Replica check frequency must be greater than 0");
-  replica_checker_.Run("Coord checker", config_.replica_check_frequency, [rpc_client = &rpc_client_] {
+  MG_ASSERT(config_.health_check_frequency > std::chrono::seconds(0), "Health check frequency must be greater than 0");
+  replica_checker_.Run("Coord checker", config_.health_check_frequency, [rpc_client = &rpc_client_] {
     try {
       {
         auto stream{rpc_client->Stream<memgraph::replication::FrequentHeartbeatRpc>()};
@@ -74,14 +73,20 @@ bool CoordinatorClient::DoHealthCheck() const {
   return false;
 }
 
-auto CoordinatorClient::Name() const -> std::string_view { return config_.name; }
+auto CoordinatorClient::InstanceName() const -> std::string_view { return config_.instance_name; }
 auto CoordinatorClient::Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
 auto CoordinatorClient::Config() const -> CoordinatorClientConfig const & { return config_; }
 
-bool CoordinatorClient::SendFailoverRpc(const std::vector<ReplicationClientConfig> &replication_client_configs) const {
+auto CoordinatorClient::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo const & {
+  MG_ASSERT(config_.replication_client_info.has_value(), "No ReplicationClientInfo for MAIN instance!");
+  return *config_.replication_client_info;
+}
+
+bool CoordinatorClient::SendFailoverRpc(
+    std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const {
   try {
     {
-      auto stream{rpc_client_.Stream<FailoverRpc>()};
+      auto stream{rpc_client_.Stream<FailoverRpc>(std::move(replication_clients_info))};
       stream.AwaitResponse();
       spdlog::info("Sent failover RPC from coordinator to new main!");
       return true;

@@ -44,9 +44,9 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "args": ["--bolt-port", "7690", "--log-level=TRACE", "--coordinator"],
         "log_file": "replica3.log",
         "setup_queries": [
-            "REGISTER REPLICA COORDINATOR SERVER ON replica_1 TO '127.0.0.1:10011';",
-            "REGISTER REPLICA COORDINATOR SERVER ON replica_2 TO '127.0.0.1:10012';",
-            "REGISTER MAIN COORDINATOR SERVER ON main TO '127.0.0.1:10013';",
+            "REGISTER REPLICA COORDINATOR SERVER ON instance_1 TO '127.0.0.1:10011';",
+            "REGISTER REPLICA COORDINATOR SERVER ON instance_2 TO '127.0.0.1:10012';",
+            "REGISTER MAIN COORDINATOR SERVER ON instance_3 TO '127.0.0.1:10013';",
         ],
     },
 }
@@ -54,16 +54,17 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 
 def test_show_replication_cluster(connection):
     # Goal of this test is to check the SHOW REPLICATION CLUSTER command.
-    # 0/ We start all replicas, main and coordinator manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
-    # 1/ We check that all replicas and main have the correct state: they should all be alive.
-    # 2/ We kill one replica. It should not appear anymore in the SHOW REPLICATION CLUSTER command.
+    # 0. We start all replicas, main and coordinator manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
+    # 1. We check that all replicas and main have the correct state: they should all be alive.
+    # 2. We kill one replica. It should not appear anymore in the SHOW REPLICATION CLUSTER command.
+    # 3. We kill main. It should not appear anymore in the SHOW REPLICATION CLUSTER command.
 
-    # 0/
+    # 0.
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     cursor = connection(7690, "coordinator").cursor()
 
-    # 1/
+    # 1.
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
 
     expected_column_names = {"name", "socket_address", "alive"}
@@ -71,26 +72,65 @@ def test_show_replication_cluster(connection):
     assert actual_column_names == expected_column_names
 
     expected_data = {
-        ("main", "127.0.0.1:10013", True),
-        ("replica_1", "127.0.0.1:10011", True),
-        ("replica_2", "127.0.0.1:10012", True),
+        ("instance_3", "127.0.0.1:10013", True),
+        ("instance_1", "127.0.0.1:10011", True),
+        ("instance_2", "127.0.0.1:10012", True),
     }
     assert actual_data == expected_data
 
-    # 2/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
+    # 2.
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
 
     # We leave some time for the coordinator to realise the replicas are down.
     def retrieve_data():
         return set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
 
     expected_data = {
-        ("main", "127.0.0.1:10013", True),
-        ("replica_1", "127.0.0.1:10011", False),
-        ("replica_2", "127.0.0.1:10012", True),
+        ("instance_3", "127.0.0.1:10013", True),
+        ("instance_1", "127.0.0.1:10011", False),
+        ("instance_2", "127.0.0.1:10012", True),
     }
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
+
+    # 3.
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+
+    # We leave some time for the coordinator to realise the replicas are down.
+    def retrieve_data():
+        return set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
+
+    expected_data = {
+        ("instance_3", "127.0.0.1:10013", False),
+        ("instance_1", "127.0.0.1:10011", False),
+        ("instance_2", "127.0.0.1:10012", True),
+    }
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    assert actual_data == expected_data
+
+
+def test_simple_client_initiated_failover(connection):
+    # TODO: Add
+    # 1. Start all instances
+    # 2. Kill main
+    # 3. Run DO FAILOVER on COORDINATOR
+    # 4. Assert new config on coordinator by running show replication cluster
+    # 5. Assert replicas on new main
+
+    # 1.
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+
+def test_failover_fails_all_replicas_down(connection):
+    # TODO: Add
+    # 1. Start all instances
+    # 2. Kill all replicas
+    # 3. Kill main
+    # 4. Run DO FAILOVER on COORDINATOR
+    # 5. Assert exception is being thrown due to all replicas being down
+
+    # 1.
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
 
 if __name__ == "__main__":

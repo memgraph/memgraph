@@ -11,33 +11,45 @@
 
 #pragma once
 
+#include "replication/mode.hpp"
+
 #include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
-#include "replication/mode.hpp"
 
 namespace memgraph::replication {
 
 #ifdef MG_ENTERPRISE
 struct CoordinatorClientConfig {
-  std::string name;
-  std::string ip_address;
-  uint16_t port{};
+  const std::string instance_name;
+  const std::string ip_address;
+  const uint16_t port{};
 
-  // The default delay between main checking/pinging replicas is 1s because
-  // that seems like a reasonable timeframe in which main should notice a
-  // replica is down.
-  std::chrono::seconds replica_check_frequency{1};
+  // Frequency with which coordinator pings main/replicas about it status
+  const std::chrono::seconds health_check_frequency{1};
+
+  // Info which coordinator will send to new main when performing failover
+  struct ReplicationClientInfo {
+    // Should be the same as CoordinatorClientConfig's instance_name
+    std::string instance_name;
+    ReplicationMode replication_mode{};
+    std::string replication_ip_address;
+    uint16_t replication_port{};
+
+    friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
+  };
+
+  std::optional<ReplicationClientInfo> replication_client_info;
 
   struct SSL {
-    std::string key_file;
-    std::string cert_file;
+    const std::string key_file;
+    const std::string cert_file;
 
     friend bool operator==(const SSL &, const SSL &) = default;
   };
 
-  std::optional<SSL> ssl;
+  const std::optional<SSL> ssl;
 
   friend bool operator==(CoordinatorClientConfig const &, CoordinatorClientConfig const &) = default;
 };

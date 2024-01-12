@@ -16,6 +16,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "dbms/replication_client.hpp"
+#include "replication/coordinator_state.hpp"
 #include "replication/register_replica_error.hpp"
 #include "replication/state.hpp"
 
@@ -244,7 +245,16 @@ auto ReplicationHandler::PingMainOnCoordinator() const -> std::optional<replicat
   return dbms_handler_.CoordinatorState().PingMain();
 }
 
-auto ReplicationHandler::DoFailover() const -> void { dbms_handler_.CoordinatorState().DoFailover({}); }
+auto ReplicationHandler::DoFailover() const -> DoFailoverStatus {
+  auto status = dbms_handler_.CoordinatorState().DoFailover();
+  // TODO: Solve this duplication when moving things to different namespaces
+  switch (status) {
+    case memgraph::replication::DoFailoverStatus::ALL_REPLICAS_DOWN:
+      return memgraph::dbms::DoFailoverStatus::ALL_REPLICAS_DOWN;
+    case memgraph::replication::DoFailoverStatus::SUCCESS:
+      return memgraph::dbms::DoFailoverStatus::SUCCESS;
+  }
+}
 
 #endif
 

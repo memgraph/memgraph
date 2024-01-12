@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -171,7 +171,7 @@ bool Endpoint::IsResolvableAddress(const std::string &address, uint16_t port) {
 }
 
 std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrAddress(
-    const std::string &address, const std::optional<uint16_t> default_port = {}) {
+    const std::string &address, const std::optional<uint16_t> default_port) {
   const std::string delimiter = ":";
   std::vector<std::string> parts = utils::Split(address, delimiter);
   if (parts.size() == 1) {

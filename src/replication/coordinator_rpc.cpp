@@ -50,15 +50,16 @@ void Load(memgraph::replication::FailoverRes *self, memgraph::slk::Reader *reade
 // Serialize code for FailoverReq
 
 void Save(const memgraph::replication::FailoverReq &self, memgraph::slk::Builder *builder) {
-  std::function<void(const replication::ReplicationClientConfig &, Builder *)> item_save_function =
+  std::function<void(const ReplicationClientInfo &, Builder *)> item_save_function =
       [](const auto &item, auto *builder) -> void { memgraph::slk::Save(item, builder); };
-  memgraph::slk::Save(self.replicas_name_endpoints, builder, item_save_function);
+  memgraph::slk::Save(self.replication_clients_info, builder, item_save_function);
 }
 
 void Load(memgraph::replication::FailoverReq *self, memgraph::slk::Reader *reader) {
-  std::function<void(replication::ReplicationClientConfig *, Reader *)> item_load_function =
-      [](auto *item, auto *reader) -> void { memgraph::slk::Load(item, reader); };
-  memgraph::slk::Load(&self->replicas_name_endpoints, reader, item_load_function);
+  std::function<void(ReplicationClientInfo *, Reader *)> item_load_function = [](auto *item, auto *reader) -> void {
+    memgraph::slk::Load(item, reader);
+  };
+  memgraph::slk::Load(&self->replication_clients_info, reader, item_load_function);
 }
 
 }  // namespace slk

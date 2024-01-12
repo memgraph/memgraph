@@ -18,6 +18,7 @@
 #include "utils/result.hpp"
 
 #include <list>
+#include <span>
 #include <variant>
 
 #ifdef MG_ENTERPRISE
@@ -30,6 +31,8 @@ enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
   NOT_COORDINATOR,
   SUCCESS
 };
+
+enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN };
 
 class CoordinatorState {
  public:
@@ -66,7 +69,7 @@ class CoordinatorState {
   // The client code must check that the server exists before calling this method.
   auto GetCoordinatorServer() const -> CoordinatorServer &;
 
-  auto DoFailover(const std::vector<ReplicationClientConfig> &replication_client_configs) -> void;
+  auto DoFailover() -> DoFailoverStatus;
 
  private:
   // TODO: Data is not thread safe

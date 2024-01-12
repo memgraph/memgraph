@@ -44,6 +44,8 @@ enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
   NOT_COORDINATOR,
   SUCCESS
 };
+enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN };
+
 ;
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
@@ -77,7 +79,7 @@ struct ReplicationHandler {
 
   auto PingMainOnCoordinator() const -> std::optional<memgraph::replication::CoordinatorEntityHealthInfo>;
 
-  auto DoFailover() const -> void;
+  auto DoFailover() const -> DoFailoverStatus;
 
 #endif
 
