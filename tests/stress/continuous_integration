@@ -144,6 +144,7 @@ def run_test(args: Args, test: str, options: List[str], timeout: int, mode: Data
         ]
         + options
     )
+    print("Executing command '{}'".format(" ".join(cmd)))
     start = time.time()
     ret_test = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout * 60)
 
