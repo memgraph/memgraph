@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -170,9 +170,6 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
     spdlog::trace("Error trace: {}", p->trace());
   }
   session.encoder_buffer_.Clear();
-
-  // WE need to handle drop database error as something that will disconnect the session
-  // (ie force the client to establish new session)
 
   auto code_message = ExceptionToErrorMessage(e);
   bool fail_sent = session.encoder_.MessageFailure({{"code", code_message.first}, {"message", code_message.second}});
