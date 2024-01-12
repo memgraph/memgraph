@@ -960,12 +960,12 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       auto coordinator_socket_address_tv = repl_query->coordinator_socket_address_->Accept(evaluator);
-      auto replication_socket_address_tv = repl_query->coordinator_socket_address_->Accept(evaluator);
+      auto replication_socket_address_tv = repl_query->socket_address_->Accept(evaluator);
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, coordinator_socket_address_tv,
                      replication_socket_address_tv, main_check_frequency = config.replication_replica_check_frequency,
                      instance_name = repl_query->instance_name_, sync_mode = repl_query->sync_mode_]() mutable {
-        handler.RegisterReplicaCoordinatorServer(std::string(coordinator_socket_address_tv.ValueString()),
-                                                 std::string(replication_socket_address_tv.ValueString()),
+        handler.RegisterReplicaCoordinatorServer(std::string(replication_socket_address_tv.ValueString()),
+                                                 std::string(coordinator_socket_address_tv.ValueString()),
                                                  main_check_frequency, instance_name, sync_mode);
         return std::vector<std::vector<TypedValue>>();
       };

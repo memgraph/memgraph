@@ -164,10 +164,10 @@ auto CoordinatorState::PingMain() const -> std::optional<CoordinatorEntityHealth
 }
 
 auto CoordinatorState::DoFailover() -> DoFailoverStatus {
-  // 1. find new replica (coordinator)
-  // 2. make copy replica's client as potential new main client (coordinator)
-  // 3. send failover RPC to new main (coordinator and new main)
-  // 4. to old main shut down RPC client (coordinator)
+  // 1. MAIN is already down, stop sending frequent checks
+  // 2. find new replica (coordinator)
+  // 3. make copy replica's client as potential new main client (coordinator)
+  // 4. send failover RPC to new main (coordinator and new main)
   // 5. exchange old main to new main (coordinator)
   // 6. remove replica which was promoted to main from all replicas -> this will shut down RPC frequent check client
   // (coordinator)
@@ -179,6 +179,10 @@ auto CoordinatorState::DoFailover() -> DoFailoverStatus {
   using ReplicationClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
 
   // 1.
+  auto &current_main = std::get<CoordinatorData>(data_).registered_main_;
+  current_main->StopFrequentCheck();
+
+  // 2.
   // Get all replicas and find new main
   auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
 
@@ -195,30 +199,31 @@ auto CoordinatorState::DoFailover() -> DoFailoverStatus {
     repl_clients_info.emplace_back(replica.ReplicationClientInfo());
   });
 
-  // 2.
+  // 3.
   // Set on coordinator data of new main
   // allocate resources for new main, clear replication info on this replica as main
   auto potential_new_main = std::make_unique<CoordinatorClient>(chosen_replica->Config());
   potential_new_main->ReplicationClientInfo().reset();
 
-  // 3.
+  // 4.
   if (!chosen_replica->SendFailoverRpc(std::move(repl_clients_info))) {
     // TODO: rollback all changes that were done...
     spdlog::error("Sent RPC message, but exception was caught, aborting Failover");
+    // TODO: new status
+    MG_ASSERT(false, "RPC message failed");
+    // return DoFailoverStatus::FAIL;
   }
 
-  // 4.
-  auto &old_main = std::get<CoordinatorData>(data_).registered_main_;
-  old_main->StopFrequentCheck();
-
   // 5.
-  std::exchange(old_main, std::move(potential_new_main));
+  current_main = std::move(potential_new_main);
 
   // 6. remove old replica
+  // TODO: Stop pinging chosen_replica before failover.
+  // Check that it doesn't fail when you call StopFrequentCheck if it is already stopped
   registered_replicas.erase(chosen_replica);
 
   // 7.
-  std::get<CoordinatorData>(data_).registered_main_->StartFrequentCheck();
+  current_main->StartFrequentCheck();
 
   return DoFailoverStatus::SUCCESS;
 }

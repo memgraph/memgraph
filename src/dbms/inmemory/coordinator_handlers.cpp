@@ -24,7 +24,7 @@ void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
 
   server.Register<Callable, replication::FailoverRpc>(
       [&dbms_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received FailoverRpc");
+        spdlog::info("Received FailoverRpc from coordinator server");
         CoordinatorHandlers::FailoverHandler(dbms_handler, req_reader, res_builder);
       });
 }

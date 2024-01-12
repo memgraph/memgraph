@@ -31,13 +31,13 @@ CoordinatorClient::CoordinatorClient(const memgraph::replication::CoordinatorCli
       config_{config} {}
 
 CoordinatorClient::~CoordinatorClient() {
+  auto exit_job = utils::OnScopeExit([&] {
+    StopFrequentCheck();
+    thread_pool_.Shutdown();
+  });
   const auto endpoint = rpc_client_.Endpoint();
-  try {
-    spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
-  } catch (...) {
-    // Logging can throw. Not a big deal, just ignore.
-  }
-  thread_pool_.Shutdown();
+  // Logging can throw
+  spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
 }
 
 void CoordinatorClient::StartFrequentCheck() {
