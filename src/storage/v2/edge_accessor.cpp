@@ -268,51 +268,22 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
 Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) const {
   if (!storage_->config_.items.properties_on_edges) return 0;
 
-  bool exists = true;
-  bool deleted = false;
-  PropertyValue value;
-  Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
-    delta = edge_.ptr->delta;
-    deleted = edge_.ptr->deleted;
+    Delta *delta = edge_.ptr->delta;
     if (!delta) {
       return edge_.ptr->properties.PropertySize(property);
     }
-    value = edge_.ptr->properties.GetProperty(property);
   }
 
-  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
-    switch (delta.action) {
-      case Delta::Action::SET_PROPERTY: {
-        if (delta.property.key == property) {
-          value = delta.property.value;
-        }
-        break;
-      }
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT: {
-        exists = false;
-        break;
-      }
-      case Delta::Action::RECREATE_OBJECT: {
-        deleted = false;
-        break;
-      }
-      case Delta::Action::ADD_LABEL:
-      case Delta::Action::REMOVE_LABEL:
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
-    }
-  });
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  auto property_result = this->GetProperty(property, view);
+
+  if (property_result.HasError()) {
+    return property_result.GetError();
+  }
 
   auto property_store = storage::PropertyStore();
-  property_store.SetProperty(property, value);
+  property_store.SetProperty(property, *property_result);
 
   return property_store.PropertySize(property);
 };

@@ -1192,8 +1192,15 @@ PropertyStore::~PropertyStore() {
 }
 
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
-  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
-  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
+  uint64_t size;
+  const uint8_t *data;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size % 8 != 0) {
+    // We are storing the data in the local buffer.
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+  }
+  Reader reader(data, size);
   PropertyValue value;
   if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return {};
   return value;
@@ -1209,9 +1216,15 @@ uint64_t PropertyStore::PropertySize(PropertyId property) const {
 }
 
 bool PropertyStore::HasProperty(PropertyId property) const {
-  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
-  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
-
+  uint64_t size;
+  const uint8_t *data;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size % 8 != 0) {
+    // We are storing the data in the local buffer.
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+  }
+  Reader reader(data, size);
   return ExistsSpecificProperty(&reader, property) == ExpectedPropertyStatus::EQUAL;
 }
 
@@ -1249,20 +1262,32 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
 }
 
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
-  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
-  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
-
+  uint64_t size;
+  const uint8_t *data;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size % 8 != 0) {
+    // We are storing the data in the local buffer.
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+  }
+  Reader reader(data, size);
   auto info = FindSpecificPropertyAndBufferInfo(&reader, property);
   if (info.property_size == 0) return value.IsNull();
-  Reader prop_reader(data_size_localbuffer.data + info.property_begin, info.property_size);
+  Reader prop_reader(data + info.property_begin, info.property_size);
   if (!CompareExpectedProperty(&prop_reader, property, value)) return false;
   return prop_reader.GetPosition() == info.property_size;
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
-  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
-  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
-
+  uint64_t size;
+  const uint8_t *data;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size % 8 != 0) {
+    // We are storing the data in the local buffer.
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+  }
+  Reader reader(data, size);
   std::map<PropertyId, PropertyValue> props;
   while (true) {
     PropertyValue value;
@@ -1281,20 +1306,28 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
     property_size = writer.Written();
   }
 
-  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
-  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
+  bool in_local_buffer = false;
+  uint64_t size;
+  uint8_t *data;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size % 8 != 0) {
+    // We are storing the data in the local buffer.
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+    in_local_buffer = true;
+  }
 
   bool existed = false;
-  if (!data_size_localbuffer.size) {
+  if (!size) {
     if (!value.IsNull()) {
       // We don't have a data buffer. Allocate a new one.
       auto property_size_to_power_of_8 = ToPowerOf8(property_size);
       if (property_size <= sizeof(buffer_) - 1) {
         // Use the local buffer.
         buffer_[0] = kUseLocalBuffer;
-        data_size_localbuffer.size = sizeof(buffer_) - 1;
-        data_size_localbuffer.data = &buffer_[1];
-        data_size_localbuffer.in_local_buffer = true;
+        size = sizeof(buffer_) - 1;
+        data = &buffer_[1];
+        in_local_buffer = true;
       } else {
         // Allocate a new external buffer.
         auto *alloc_data = new uint8_t[property_size_to_power_of_8];
@@ -1302,13 +1335,13 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 
         SetSizeData(buffer_, alloc_size, alloc_data);
 
-        data_size_localbuffer.size = alloc_size;
-        data_size_localbuffer.data = alloc_data;
-        data_size_localbuffer.in_local_buffer = false;
+        size = alloc_size;
+        data = alloc_data;
+        in_local_buffer = false;
       }
 
       // Encode the property into the data buffer.
-      Writer writer(data_size_localbuffer.data, data_size_localbuffer.size);
+      Writer writer(data, size);
       MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
       auto metadata = writer.WriteMetadata();
       if (metadata) {
@@ -1321,19 +1354,18 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       // to set a property to `Null` (we are trying to remove the property).
     }
   } else {
-    Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
+    Reader reader(data, size);
     auto info = FindSpecificPropertyAndBufferInfo(&reader, property);
     existed = info.property_size != 0;
     auto new_size = info.all_size - info.property_size + property_size;
     auto new_size_to_power_of_8 = ToPowerOf8(new_size);
     if (new_size_to_power_of_8 == 0) {
       // We don't have any data to encode anymore.
-      if (!data_size_localbuffer.in_local_buffer) delete[] data_size_localbuffer.data;
+      if (!in_local_buffer) delete[] data;
       SetSizeData(buffer_, 0, nullptr);
-      data_size_localbuffer.data = nullptr;
-      data_size_localbuffer.size = 0;
-    } else if (new_size_to_power_of_8 > data_size_localbuffer.size ||
-               new_size_to_power_of_8 <= data_size_localbuffer.size * 2 / 3) {
+      data = nullptr;
+      size = 0;
+    } else if (new_size_to_power_of_8 > size || new_size_to_power_of_8 <= size * 2 / 3) {
       // We need to enlarge/shrink the buffer.
       bool current_in_local_buffer = false;
       uint8_t *current_data = nullptr;
@@ -1351,36 +1383,35 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
         current_in_local_buffer = false;
       }
       // Copy everything before the property to the new buffer.
-      memmove(current_data, data_size_localbuffer.data, info.property_begin);
+      memmove(current_data, data, info.property_begin);
       // Copy everything after the property to the new buffer.
-      memmove(current_data + info.property_begin + property_size, data_size_localbuffer.data + info.property_end,
+      memmove(current_data + info.property_begin + property_size, data + info.property_end,
               info.all_end - info.property_end);
       // Free the old buffer.
-      if (!data_size_localbuffer.in_local_buffer) delete[] data_size_localbuffer.data;
+      if (!in_local_buffer) delete[] data;
       // Permanently remember the new buffer.
       if (!current_in_local_buffer) {
         SetSizeData(buffer_, current_size, current_data);
       }
       // Set the proxy variables.
-      data_size_localbuffer.data = current_data;
-      data_size_localbuffer.size = current_size;
-      data_size_localbuffer.in_local_buffer = current_in_local_buffer;
+      data = current_data;
+      size = current_size;
+      in_local_buffer = current_in_local_buffer;
     } else if (property_size != info.property_size) {
       // We can keep the data in the same buffer, but the new property is
       // larger/smaller than the old property. We need to move the following
       // properties to the right/left.
-      memmove(data_size_localbuffer.data + info.property_begin + property_size,
-              data_size_localbuffer.data + info.property_end, info.all_end - info.property_end);
+      memmove(data + info.property_begin + property_size, data + info.property_end, info.all_end - info.property_end);
     }
 
     if (!value.IsNull()) {
       // We need to encode the new value.
-      Writer writer(data_size_localbuffer.data + info.property_begin, property_size);
+      Writer writer(data + info.property_begin, property_size);
       MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
     }
 
     // We need to recreate the tombstone (if possible).
-    Writer writer(data_size_localbuffer.data + new_size, data_size_localbuffer.size - new_size);
+    Writer writer(data + new_size, size - new_size);
     auto metadata = writer.WriteMetadata();
     if (metadata) {
       metadata->Set({Type::EMPTY});
@@ -1490,20 +1521,33 @@ bool PropertyStore::InitProperties(std::vector<std::pair<storage::PropertyId, st
 }
 
 bool PropertyStore::ClearProperties() {
-  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
-
-  if (!data_size_localbuffer.size) return false;
-  if (!data_size_localbuffer.in_local_buffer) delete[] data_size_localbuffer.data;
+  bool in_local_buffer = false;
+  uint64_t size;
+  uint8_t *data;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size % 8 != 0) {
+    // We are storing the data in the local buffer.
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+    in_local_buffer = true;
+  }
+  if (!size) return false;
+  if (!in_local_buffer) delete[] data;
   SetSizeData(buffer_, 0, nullptr);
   return true;
 }
 
 std::string PropertyStore::StringBuffer() const {
-  auto data_size_localbuffer = GetDataSizeInLocalBuffer(buffer_);
-
-  std::string arr(data_size_localbuffer.size, ' ');
-  for (uint i = 0; i < data_size_localbuffer.size; ++i) {
-    arr[i] = static_cast<char>(data_size_localbuffer.data[i]);
+  uint64_t size = 0;
+  const uint8_t *data = nullptr;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size % 8 != 0) {  // We are storing the data in the local buffer.
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+  }
+  std::string arr(size, ' ');
+  for (uint i = 0; i < size; ++i) {
+    arr[i] = static_cast<char>(data[i]);
   }
   return arr;
 }

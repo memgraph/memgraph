@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,6 +45,9 @@ class PropertyStore {
   /// @throw std::bad_alloc
   PropertyValue GetProperty(PropertyId property) const;
 
+  /// Returns the size of the encoded property in bytes.
+  /// Returns 0 if the property does not exist.
+  /// The time complexity of this function is O(n).
   uint64_t PropertySize(PropertyId property) const;
 
   /// Checks whether the property `property` exists in the store. The time

@@ -439,39 +439,21 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 }
 
 Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view) const {
-  bool exists = true;
-  PropertyValue value;
-  Delta *delta = nullptr;
-  bool deleted = false;
   {
     auto guard = std::shared_lock{vertex_->lock};
-    delta = vertex_->delta;
-    deleted = vertex_->deleted;
+    Delta *delta = vertex_->delta;
     if (!delta) {
       return vertex_->properties.PropertySize(property);
     }
   }
 
-  // Checking cache has a cost, only do it if we have any deltas
-  // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    auto const n_processed =
-        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
-          // clang-format off
-          DeltaDispatch(delta, utils::ChainedOverloaded{
-            Deleted_ActionMethod(deleted),
-            Exists_ActionMethod(exists),
-            PropertyValue_ActionMethod(value, property)
-          });
-          // clang-format on
-        });
+  auto property_result = this->GetProperty(property, view);
+  if (property_result.HasError()) {
+    return property_result.GetError();
   }
 
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
-
   auto property_store = storage::PropertyStore();
-  property_store.SetProperty(property, value);
+  property_store.SetProperty(property, *property_result);
 
   return property_store.PropertySize(property);
 };
