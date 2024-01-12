@@ -112,6 +112,8 @@ def start_memgraph(args: Args, memgraph_options: List[str]) -> Popen:
 
 def stop_memgraph(proc_mg: Popen) -> None:
     proc_mg.terminate()
+    for line in iter(proc_mg.stdout.readline, ""):
+        print(line)
     ret_mg = proc_mg.wait()
     if ret_mg != 0:
         raise Exception("Memgraph binary returned non-zero ({})!".format(ret_mg))
