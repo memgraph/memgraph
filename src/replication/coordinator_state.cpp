@@ -16,8 +16,11 @@
 #include "replication/coordinator_config.hpp"
 #include "replication/coordinator_entity_info.hpp"
 #include "replication/register_replica_error.hpp"
+#include "spdlog/spdlog.h"
 #include "utils/variant_helpers.hpp"
 
+#include <exception>
+#include <optional>
 #include <variant>
 
 #ifdef MG_ENTERPRISE
@@ -162,30 +165,62 @@ auto CoordinatorState::PingMain() const -> std::optional<CoordinatorEntityHealth
 
 // TODO: Return error state
 auto CoordinatorState::DoFailover() -> DoFailoverStatus {
+  // 1. find new replica (coordinator)
+  // 2. make copy replica's client as potential new main client (coordinator)
+  // 3. send failover RPC to new main (coordinator and new main)
+  // 4. to old main shut down RPC client (coordinator)
+  // 5. exchange old main to new main (coordinator)
+  // 6. remove replica which was promoted to main from all replicas -> this will shut down RPC frequent check client
+  // (coordinator)
+  // 7. for new main start frequent checks (coordinator)
+
+  // TODO: Now it can partially fail which is not good
+
   MG_ASSERT(std::holds_alternative<CoordinatorData>(data_), "Cannot do failover since variant holds wrong alternative");
   using ReplicationClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
 
+  // 1.
+  // Get all replicas and find new main
   auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
 
-  const auto new_main = std::ranges::find_if(registered_replicas,
-                                             [](const CoordinatorClient &replica) { return replica.DoHealthCheck(); });
-  if (new_main == registered_replicas.end()) {
+  const auto chosen_replica = std::ranges::find_if(
+      registered_replicas, [](const CoordinatorClient &replica) { return replica.DoHealthCheck(); });
+  if (chosen_replica == registered_replicas.end()) {
     return DoFailoverStatus::ALL_REPLICAS_DOWN;
   }
 
   std::vector<ReplicationClientInfo> repl_clients_info;
   repl_clients_info.reserve(registered_replicas.size() - 1);
-  std::ranges::for_each(registered_replicas, [&new_main, &repl_clients_info](const CoordinatorClient &replica) {
-    if (replica == *new_main) return;
+  std::ranges::for_each(registered_replicas, [&chosen_replica, &repl_clients_info](const CoordinatorClient &replica) {
+    if (replica == *chosen_replica) return;
     repl_clients_info.emplace_back(replica.ReplicationClientInfo());
   });
 
-  auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
-  registered_main = std::make_unique<CoordinatorClient>(new_main->Config());
-  // TODO: continue from here
-  registered_main->SendFailoverRpc(std::move(repl_clients_info));
+  // 2.
+  // Set on coordinator data of new main
+  // allocate resources for new main, clear replication info on this replica as main
+  auto potential_new_main = std::make_unique<CoordinatorClient>(chosen_replica->Config());
+  potential_new_main->ReplicationClientInfo().reset();
 
-  registered_replicas.erase(new_main);
+  // 3.
+  try {
+    chosen_replica->SendFailoverRpc(std::move(repl_clients_info));
+  } catch (std::exception &e) {
+    spdlog::error("Sent RPC message, but exception was caught, aborting Failover");
+  }
+
+  // 4.
+  auto &old_main = std::get<CoordinatorData>(data_).registered_main_;
+  old_main->StopFrequentCheck();
+
+  // 5.
+  std::exchange(old_main, std::move(potential_new_main));
+
+  // 6. remove old replica
+  registered_replicas.erase(chosen_replica);
+
+  // 7.
+  std::get<CoordinatorData>(data_).registered_main_->StartFrequentCheck();
 
   return DoFailoverStatus::SUCCESS;
 }

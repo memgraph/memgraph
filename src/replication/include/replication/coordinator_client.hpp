@@ -36,6 +36,7 @@ class CoordinatorClient {
   CoordinatorClient &operator=(CoordinatorClient &&) noexcept = delete;
 
   void StartFrequentCheck();
+  void StopFrequentCheck();
 
   // TOODO: change method call signature
   bool DoHealthCheck() const;
@@ -45,6 +46,7 @@ class CoordinatorClient {
   auto Endpoint() const -> io::network::Endpoint const &;
   auto Config() const -> CoordinatorClientConfig const &;
   auto ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo const &;
+  auto ReplicationClientInfo() -> std::optional<CoordinatorClientConfig::ReplicationClientInfo> &;
 
   friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
     return first.config_ == second.config_;

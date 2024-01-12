@@ -54,6 +54,8 @@ void CoordinatorClient::StartFrequentCheck() {
   });
 }
 
+void CoordinatorClient::StopFrequentCheck() { replica_checker_.Stop(); }
+
 bool CoordinatorClient::DoHealthCheck() const {
   try {
     {
@@ -80,6 +82,12 @@ auto CoordinatorClient::Config() const -> CoordinatorClientConfig const & { retu
 auto CoordinatorClient::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo const & {
   MG_ASSERT(config_.replication_client_info.has_value(), "No ReplicationClientInfo for MAIN instance!");
   return *config_.replication_client_info;
+}
+
+////// AF design choice
+auto CoordinatorClient::ReplicationClientInfo() -> std::optional<CoordinatorClientConfig::ReplicationClientInfo> & {
+  MG_ASSERT(config_.replication_client_info.has_value(), "No ReplicationClientInfo for MAIN instance!");
+  return config_.replication_client_info;
 }
 
 bool CoordinatorClient::SendFailoverRpc(

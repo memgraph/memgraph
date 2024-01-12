@@ -447,11 +447,11 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     result.reserve(replicas.size() + 1);  // replicas + 1 main
     std::ranges::transform(
         replicas, std::back_inserter(result), [&health_check_replicas](const auto &replica) -> MainReplicaStatus {
-          return {replica.name, replica.endpoint.SocketAddress(), health_check_replicas.at(replica.name)};
+          return {replica.name, replica.endpoint.SocketAddress(), health_check_replicas.at(replica.name), false};
         });
     if (main) {
       bool is_main_alive = health_check_main.has_value() ? health_check_main.value().alive : false;
-      result.emplace_back(main->name, main->endpoint.SocketAddress(), is_main_alive);
+      result.emplace_back(main->name, main->endpoint.SocketAddress(), is_main_alive, true);
     }
     return result;
   }
@@ -985,7 +985,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         throw QueryRuntimeException("Only on coordinator you can call SHOW REPLICATION CLUSTER.");
       }
 
-      callback.header = {"name", "socket_address", "alive"};
+      callback.header = {"name", "socket_address", "alive", "role"};
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, replica_nfields = callback.header.size()]() mutable {
         const auto main = handler.ShowMainOnCoordinator();
         const auto health_check_main = main ? handler.PingMainOnCoordinator() : std::nullopt;
@@ -994,10 +994,11 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         std::vector<std::vector<TypedValue>> result{};
         result.reserve(result_status.size());
 
-        std::ranges::transform(
-            result_status, std::back_inserter(result), [](const auto &status) -> std::vector<TypedValue> {
-              return {TypedValue{status.name}, TypedValue{status.socket_address}, TypedValue{status.alive}};
-            });
+        std::ranges::transform(result_status, std::back_inserter(result),
+                               [](const auto &status) -> std::vector<TypedValue> {
+                                 return {TypedValue{status.name}, TypedValue{status.socket_address},
+                                         TypedValue{status.alive}, TypedValue{status.is_main ? "main" : "replica"}};
+                               });
         return result;
       };
       return callback;
