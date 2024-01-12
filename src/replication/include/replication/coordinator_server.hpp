@@ -14,6 +14,7 @@
 #include "replication/config.hpp"
 #include "rpc/server.hpp"
 
+#ifdef MG_ENTERPRISE
 namespace memgraph::replication {
 
 class CoordinatorServer {
@@ -39,3 +40,4 @@ class CoordinatorServer {
 };
 
 }  // namespace memgraph::replication
+#endif

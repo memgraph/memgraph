@@ -344,7 +344,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
       const replication::CoordinatorClientConfig coordinator_config =
           replication::CoordinatorClientConfig{.name = name,
-                                               .mode = repl_mode,
                                                .ip_address = ip,
                                                .port = port,
                                                .replica_check_frequency = replica_check_frequency,

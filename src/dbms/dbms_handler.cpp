@@ -76,7 +76,7 @@ DbmsHandler::DbmsHandler(
   // MAIN or REPLICA instance
   if (FLAGS_coordinator_server_port) {
     auto &coord_server = coordinator_state_.GetCoordinatorServer();
-    replication::CoordinatorHandlers::Register(coord_server);
+    replication::CoordinatorHandlers::Register(repl_state_, coord_server);
     MG_ASSERT(coord_server.Start(), "Failed to start coordinator server!");
   }
 }

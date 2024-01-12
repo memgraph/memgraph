@@ -14,7 +14,6 @@
 #include "replication/coordinator_client.hpp"
 #include "replication/coordinator_entity_info.hpp"
 #include "replication/coordinator_server.hpp"
-#include "replication/register_replica_error.hpp"
 #include "rpc/server.hpp"
 #include "utils/result.hpp"
 
@@ -23,6 +22,14 @@
 
 #ifdef MG_ENTERPRISE
 namespace memgraph::replication {
+
+enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
+  NAME_EXISTS,
+  END_POINT_EXISTS,
+  COULD_NOT_BE_PERSISTED,
+  NOT_COORDINATOR,
+  SUCCESS
+};
 
 class CoordinatorState {
  public:
@@ -62,6 +69,8 @@ class CoordinatorState {
   auto DoFailover(const std::vector<ReplicationClientConfig> &replication_client_configs) -> void;
 
  private:
+  // TODO: Data is not thread safe
+
   // Coordinator stores registered replicas and main
   struct CoordinatorData {
     std::list<CoordinatorClient> registered_replicas_;

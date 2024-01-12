@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "replication/coordinator_rpc.hpp"
+#include "replication/coordinator_slk.hpp"
+#include "slk/serialization.hpp"
 
 #ifdef MG_ENTERPRISE
 
@@ -38,21 +40,25 @@ namespace slk {
 // Serialize code for FailoverRes
 
 void Save(const memgraph::replication::FailoverRes &self, memgraph::slk::Builder *builder) {
-  // memgraph::slk::Save(self.success, builder);
+  memgraph::slk::Save(self.success, builder);
 }
 
 void Load(memgraph::replication::FailoverRes *self, memgraph::slk::Reader *reader) {
-  // memgraph::slk::Load(&self->success, reader);
+  memgraph::slk::Load(&self->success, reader);
 }
 
 // Serialize code for FailoverReq
 
 void Save(const memgraph::replication::FailoverReq &self, memgraph::slk::Builder *builder) {
-  // memgraph::slk::Save(self.replicas_name_endpoints, builder);
+  std::function<void(const replication::ReplicationClientConfig &, Builder *)> item_save_function =
+      [](const auto &item, auto *builder) -> void { memgraph::slk::Save(item, builder); };
+  memgraph::slk::Save(self.replicas_name_endpoints, builder, item_save_function);
 }
 
 void Load(memgraph::replication::FailoverReq *self, memgraph::slk::Reader *reader) {
-  // memgraph::slk::Load(&self->replicas_name_endpoints, reader);
+  std::function<void(replication::ReplicationClientConfig *, Reader *)> item_load_function =
+      [](auto *item, auto *reader) -> void { memgraph::slk::Load(item, reader); };
+  memgraph::slk::Load(&self->replicas_name_endpoints, reader, item_load_function);
 }
 
 }  // namespace slk

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,12 @@
 
 #include <gtest/gtest.h>
 
+#include "replication/config.hpp"
+#include "replication/coordinator_slk.hpp"
+#include "replication/mode.hpp"
+#include "slk_common.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/slk.hpp"
-
-#include "slk_common.hpp"
 #include "storage/v2/temporal.hpp"
 
 TEST(SlkAdvanced, PropertyValueList) {
@@ -109,6 +111,43 @@ TEST(SlkAdvanced, PropertyValueComplex) {
   memgraph::slk::Save(original, builder);
 
   memgraph::storage::PropertyValue decoded;
+  auto reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded, reader);
+
+  ASSERT_EQ(original, decoded);
+}
+
+TEST(SlkAdvanced, ReplicationClientConfigs) {
+  using ReplicationClientConfig = memgraph::replication::ReplicationClientConfig;
+  using ReplicationClientConfigs = std::vector<ReplicationClientConfig>;
+  using ReplicationMode = memgraph::replication::ReplicationMode;
+  using SSL = ReplicationClientConfig::SSL;
+
+  ReplicationClientConfigs original{
+      ReplicationClientConfig{.name = "replica1",
+                              .mode = ReplicationMode::SYNC,
+                              .ip_address = "127.0.0.1",
+                              .port = 10000,
+                              .replica_check_frequency = std::chrono::seconds(1),
+                              .ssl = SSL{.key_file = "test_file", .cert_file = "cert_file"}},
+      ReplicationClientConfig{.name = "replica2",
+                              .mode = ReplicationMode::ASYNC,
+                              .ip_address = "127.0.1.1",
+                              .port = 10010,
+                              .replica_check_frequency = std::chrono::seconds(5),
+                              .ssl = SSL{.key_file = "test_file_1", .cert_file = "cert_file_1"}},
+      ReplicationClientConfig{.name = "replica3",
+                              .mode = ReplicationMode::ASYNC,
+                              .ip_address = "127.1.1.1",
+                              .port = 1110,
+                              .replica_check_frequency = std::chrono::seconds(2),
+                              .ssl = SSL{.key_file = "test_file_11", .cert_file = "cert_file_00"}}};
+
+  memgraph::slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  memgraph::slk::Save(original, builder);
+
+  ReplicationClientConfigs decoded;
   auto reader = loopback.GetReader();
   memgraph::slk::Load(&decoded, reader);
 

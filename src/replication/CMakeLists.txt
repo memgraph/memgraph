@@ -17,6 +17,7 @@ target_sources(mg-replication
         include/replication/coordinator_handlers.hpp
         include/replication/coordinator_entity_info.hpp
         include/replication/coordinator_rpc.hpp
+        include/replication/coordinator_slk.hpp
         include/replication/replication_utils.hpp
         include/replication/register_replica_error.hpp
 

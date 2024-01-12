@@ -22,8 +22,6 @@ namespace memgraph::replication {
 #ifdef MG_ENTERPRISE
 struct CoordinatorClientConfig {
   std::string name;
-  // Used for replica only
-  std::optional<ReplicationMode> mode{};
   std::string ip_address;
   uint16_t port{};
 

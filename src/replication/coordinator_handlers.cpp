@@ -15,16 +15,30 @@
 #ifdef MG_ENTERPRISE
 namespace memgraph::replication {
 
-void CoordinatorHandlers::Register(CoordinatorServer &server) {
+void CoordinatorHandlers::Register(const ReplicationState &repl_state, CoordinatorServer &server) {
   using Callable = std::function<void(slk::Reader * req_reader, slk::Builder * res_builder)>;
 
-  server.Register<Callable, replication::FailoverRpc>([](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-    spdlog::info("Received FailoverRpc");
-    CoordinatorHandlers::FailoverHandler(req_reader, res_builder);
-  });
+  server.Register<Callable, replication::FailoverRpc>(
+      [&repl_state](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+        spdlog::info("Received FailoverRpc");
+        CoordinatorHandlers::FailoverHandler(repl_state, req_reader, res_builder);
+      });
 }
 
-void CoordinatorHandlers::FailoverHandler(slk::Reader * /*req_reader*/, slk::Builder * /*res_builder*/) {
+void CoordinatorHandlers::FailoverHandler(const ReplicationState &repl_state, slk::Reader *req_reader,
+                                          slk::Builder *res_builder) {
+  MG_ASSERT(repl_state.IsReplica(), "Failover must me performed on replica!");
+  FailoverReq req;
+  slk::Load(&req, req_reader);
+  for (const auto &config : req.replicas_name_endpoints) {
+    spdlog::info("Received replica: {}", config.name);
+    spdlog::info("Received endpoint: {}", config.ip_address);
+    spdlog::info("Received port: {}", config.port);
+    spdlog::info("Received mode: {}\n", config.mode);
+  }
+
+  FailoverRes res{true};
+  slk::Save(res, res_builder);
   spdlog::info("Failover handler finished execution!");
 }
 

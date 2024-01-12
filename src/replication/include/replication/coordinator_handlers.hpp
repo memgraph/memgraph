@@ -12,6 +12,7 @@
 #pragma once
 
 #include "replication/coordinator_server.hpp"
+#include "replication/state.hpp"
 #include "slk/serialization.hpp"
 
 // TODO: (andi) How to organize this code better, what to do with namespaces...? Do we need to bind this to storage
@@ -24,10 +25,10 @@ namespace memgraph::replication {
 
 class CoordinatorHandlers {
  public:
-  static void Register(CoordinatorServer &server);
+  static void Register(const ReplicationState &repl_state, CoordinatorServer &server);
 
  private:
-  static void FailoverHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+  static void FailoverHandler(const ReplicationState &repl_state, slk::Reader *req_reader, slk::Builder *res_builder);
 };
 
 }  // namespace memgraph::replication
