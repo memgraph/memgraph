@@ -41,7 +41,7 @@ set(mg_single_node_v2_sources
 add_executable(memgraph ${mg_single_node_v2_sources})
 target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(memgraph stdc++fs Threads::Threads
-        mg-telemetry mg-communication mg-communication-metrics mg-memory mg-utils mg-license mg-settings mg-glue mg-flags)
+        mg-telemetry mgcxx_text_search tantivy_text_search mg-communication mg-communication-metrics mg-memory mg-utils mg-license mg-settings mg-glue mg-flags)
 
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
 # should be dynamically exported, so that `dlopen` can correctly link the

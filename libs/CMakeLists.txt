@@ -314,11 +314,11 @@ ExternalProject_Add(mgcxx-proj
 ExternalProject_Get_Property(mgcxx-proj install_dir)
 set(MGCXX_ROOT ${install_dir})
 
-add_library(tantivy_text_search STATIC IMPORTED)
+add_library(tantivy_text_search STATIC IMPORTED GLOBAL)
 add_dependencies(tantivy_text_search mgcxx-proj)
 set_property(TARGET tantivy_text_search PROPERTY IMPORTED_LOCATION ${MGCXX_ROOT}/lib/libtantivy_text_search.a)
 
-add_library(mgcxx_text_search STATIC IMPORTED)
+add_library(mgcxx_text_search STATIC IMPORTED GLOBAL)
 add_dependencies(mgcxx_text_search mgcxx-proj)
 set_property(TARGET mgcxx_text_search PROPERTY IMPORTED_LOCATION ${MGCXX_ROOT}/lib/libmgcxx_text_search.a)
 # We need to create the include directory first in order to be able to add it
