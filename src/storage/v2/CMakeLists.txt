@@ -20,6 +20,7 @@ add_library(mg-storage-v2 STATIC
         vertex_info_cache.cpp
         storage.cpp
         indices/indices.cpp
+        indices/text_index.cpp
         all_vertices_iterable.cpp
         vertices_iterable.cpp
         inmemory/storage.cpp
@@ -42,4 +43,4 @@ add_library(mg-storage-v2 STATIC
         inmemory/replication/recovery.cpp
 )
 
-target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk mg-events mg-memory)
+target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils mg-flags gflags absl::flat_hash_map mg-rpc mg-slk mg-events mg-memory mgcxx_text_search tantivy_text_search)

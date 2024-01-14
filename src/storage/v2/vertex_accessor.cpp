@@ -277,7 +277,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       [transaction = transaction_, storage = storage_, vertex = vertex_, &value, &property, &current_value]() {
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
         if (flags::run_time::GetTextSearchEnabled()) {
-          for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
+          for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
             auto search_input = mgcxx_mock::text_search::SearchInput{
                 .search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt()), .return_fields = {"data"}};
 
@@ -323,7 +323,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
           return;
         }
         if (flags::run_time::GetTextSearchEnabled()) {
-          for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
+          for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
             auto new_properties_document =
                 mgcxx_mock::text_search::DocumentInput{};  // TODO (pending real Tantivy operation): create a JSON, set
                                                            // properties and convert to string
@@ -366,7 +366,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &id_old_new_change]() {
         id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
         if (flags::run_time::GetTextSearchEnabled()) {
-          for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
+          for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
             auto search_input = mgcxx_mock::text_search::SearchInput{
                 .search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt()), .return_fields = {"data"}};
 
@@ -425,7 +425,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 
     vertex->properties.ClearProperties();
     if (flags::run_time::GetTextSearchEnabled()) {
-      for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex, storage)) {
+      for (const auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
         auto search_input =
             mgcxx_mock::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt())};
         mgcxx_mock::text_search::Mock::delete_document(*index_context, search_input, true);

@@ -269,7 +269,7 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateTextIndex(std::string index_name, LabelId label,
-                                                                                  DbAccessor *db) {
+                                                                                  query::DbAccessor *db) {
       storage_->indices_.text_index_->CreateIndex(index_name, label, db);
       return {};
     }
