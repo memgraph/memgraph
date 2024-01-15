@@ -14,11 +14,11 @@
 #include "replication/messages.hpp"
 #include "replication/replication_utils.hpp"
 
+#ifdef MG_ENTERPRISE
 namespace memgraph::replication {
 
 namespace {
 
-#ifdef MG_ENTERPRISE
 // TODO: (andi) Do I need this to be 1
 // NOTE: The replication server must have a single thread for processing
 // because there is no need for more processing threads - each replica can
@@ -49,5 +49,5 @@ CoordinatorServer::~CoordinatorServer() {
 // TODO: (andi) Do I need this method
 bool CoordinatorServer::Start() { return rpc_server_.Start(); }
 
-#endif
 }  // namespace memgraph::replication
+#endif
