@@ -121,8 +121,8 @@ def test_simple_client_initiated_failover(connection):
     # 2.
     main_cursor = connection(7687, "instance_3").cursor()
     expected_data_on_main = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        ("instance_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
     }
     actual_data_on_main = set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
     assert actual_data_on_main == expected_data_on_main

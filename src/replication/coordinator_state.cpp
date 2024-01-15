@@ -174,8 +174,6 @@ auto CoordinatorState::DoFailover() -> DoFailoverStatus {
   // (coordinator)
   // 7. for new main start frequent checks (coordinator)
 
-  // TODO: Now it can partially fail which is not good
-
   MG_ASSERT(std::holds_alternative<CoordinatorData>(data_), "Cannot do failover since variant holds wrong alternative");
   using ReplicationClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
 

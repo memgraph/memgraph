@@ -35,13 +35,6 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
   MG_ASSERT(repl_state.IsReplica(), "Failover must be performed on replica!");
   replication::FailoverReq req;
   slk::Load(&req, req_reader);
-  spdlog::info("Received {} replicas", req.replication_clients_info.size());
-  for (const auto &config : req.replication_clients_info) {
-    spdlog::info("Received replica: {}", config.instance_name);
-    spdlog::info("Received endpoint: {}", config.replication_ip_address);
-    spdlog::info("Received port: {}", config.replication_port);
-    spdlog::info("Received mode: {}\n", config.replication_mode);
-  }
 
   bool success = true;
   try {
@@ -52,7 +45,7 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
       storage->PrepareForNewEpoch();
     });
 
-    // STEP 2) Change to MAIN
+    // STEP 2) Change to MAIN = Kill replication server
     // TODO: restore replication servers if false?
     if (!repl_state.SetReplicationRoleMain()) {
       // TODO: Handle recovery on failure???
