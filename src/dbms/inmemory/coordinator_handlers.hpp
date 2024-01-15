@@ -11,10 +11,22 @@
 
 #pragma once
 
-#include <cstdint>
+#ifdef MG_ENTERPRISE
 
-namespace memgraph::replication {
+#include "slk/serialization.hpp"
 
-enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
+namespace memgraph::dbms {
 
-}  // namespace memgraph::replication
+class DbmsHandler;
+
+class CoordinatorHandlers {
+ public:
+  static void Register(DbmsHandler &dbms_handler);
+
+ private:
+  static void FailoverHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
+};
+
+}  // namespace memgraph::dbms
+
+#endif

@@ -15,7 +15,6 @@
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
 #include "replication/mode.hpp"
-#include "replication/register_replica_error.hpp"
 #include "replication/replication_client.hpp"
 #include "replication/role.hpp"
 #include "replication_server.hpp"
@@ -32,6 +31,7 @@
 namespace memgraph::replication {
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
+enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
 struct RoleMainData {
   RoleMainData() = default;
@@ -48,6 +48,7 @@ struct RoleMainData {
   RoleMainData &operator=(RoleMainData &&other) noexcept = default;
 
   ReplicationEpoch epoch_;
+
   std::list<ReplicationClient> registered_replicas_{};
 };
 
@@ -86,7 +87,7 @@ struct ReplicationState {
 
   bool ShouldPersist() const { return nullptr != durability_; }
 
-  bool TryPersistRoleMain(std::string new_epoch, const std::optional<ReplicationServerConfig> &config = {});
+  bool TryPersistRoleMain(std::string new_epoch);
 
   bool TryPersistRoleReplica(const ReplicationServerConfig &config);
   bool TryPersistUnregisterReplica(std::string_view name);
@@ -97,7 +98,7 @@ struct ReplicationState {
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
-  bool SetReplicationRoleMain(const std::optional<ReplicationServerConfig> &config = {});
+  bool SetReplicationRoleMain();
 
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
 

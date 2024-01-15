@@ -22,6 +22,8 @@ struct ReplicationServerConfig;
 struct ReplicationClientConfig;
 #ifdef MG_ENTERPRISE
 struct CoordinatorEntityInfo;
+struct CoordinatorEntityHealthInfo;
+struct CoordinatorClientConfig;
 #endif
 }  // namespace memgraph::replication
 
@@ -35,15 +37,24 @@ enum class UnregisterReplicaResult : uint8_t {
   CAN_NOT_UNREGISTER,
   SUCCESS,
 };
+enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
+  NAME_EXISTS,
+  END_POINT_EXISTS,
+  COULD_NOT_BE_PERSISTED,
+  NOT_COORDINATOR,
+  SUCCESS
+};
+enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN, MAIN_ALIVE };
+
+;
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 /// TODO: extend to do multiple storages
 struct ReplicationHandler {
   explicit ReplicationHandler(DbmsHandler &dbms_handler);
 
-  // As default main, add replication server to the main or
-  // As replica become main
-  bool SetReplicationRoleMain(const std::optional<memgraph::replication::ReplicationServerConfig> &config = {});
+  // as REPLICA, become MAIN
+  bool SetReplicationRoleMain();
 
   // as MAIN, become REPLICA
   bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config);
@@ -53,16 +64,21 @@ struct ReplicationHandler {
       -> utils::BasicResult<RegisterReplicaError>;
 
 #ifdef MG_ENTERPRISE
-  auto RegisterReplicaOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
-      -> utils::BasicResult<RegisterReplicaError>;
+  auto RegisterReplicaOnCoordinator(const memgraph::replication::CoordinatorClientConfig &config)
+      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
 
-  // TODO: (andi) RegisterMainError
-  auto RegisterMainOnCoordinator(const memgraph::replication::ReplicationClientConfig &config)
-      -> utils::BasicResult<RegisterReplicaError>;
+  auto RegisterMainOnCoordinator(const memgraph::replication::CoordinatorClientConfig &config)
+      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
 
   auto ShowReplicasOnCoordinator() const -> std::vector<memgraph::replication::CoordinatorEntityInfo>;
 
   auto ShowMainOnCoordinator() const -> std::optional<memgraph::replication::CoordinatorEntityInfo>;
+
+  auto PingReplicasOnCoordinator() const -> std::unordered_map<std::string_view, bool>;
+
+  auto PingMainOnCoordinator() const -> std::optional<memgraph::replication::CoordinatorEntityHealthInfo>;
+
+  auto DoFailover() const -> DoFailoverStatus;
 
 #endif
 

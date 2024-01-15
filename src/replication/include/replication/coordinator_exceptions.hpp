@@ -13,22 +13,20 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "io/network/endpoint.hpp"
-
-#include <string>
+#include "utils/exceptions.hpp"
 
 namespace memgraph::replication {
+class CoordinatorFailoverException final : public utils::BasicException {
+ public:
+  explicit CoordinatorFailoverException(const std::string_view what) noexcept
+      : BasicException("Failover didn't complete successfully: " + std::string(what)) {}
 
-struct CoordinatorEntityInfo {
-  std::string_view name;
-  const io::network::Endpoint &endpoint;
-};
+  template <class... Args>
+  explicit CoordinatorFailoverException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : CoordinatorFailoverException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
-struct CoordinatorEntityHealthInfo {
-  std::string_view name;
-  bool alive;
+  SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorFailoverException)
 };
 
 }  // namespace memgraph::replication
-
 #endif

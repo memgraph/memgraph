@@ -162,13 +162,6 @@ DEFINE_string(pulsar_service_url, "", "Default URL used while connecting to Puls
 
 // Query flags.
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(replication_replica_check_frequency_sec, 1,
-              "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: "
-              "The MAIN instance allocates a new thread for each REPLICA.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(replication_restore_state_on_startup, false, "Restore replication state on startup, e.g. recover replica");
-
 DEFINE_VALIDATED_string(query_modules_directory, "",
                         "Directory where modules with custom query procedures are stored. "
                         "NOTE: Multiple comma-separated directories can be defined.",

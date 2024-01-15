@@ -29,7 +29,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #ifdef MG_ENTERPRISE
 #include "dbms/database_handler.hpp"
-#include "replication/coordinator.hpp"
+#include "replication/coordinator_state.hpp"
 #endif
 #include "dbms/replication_client.hpp"
 #include "global.hpp"
@@ -228,7 +228,7 @@ class DbmsHandler {
   bool IsReplica() const { return repl_state_.IsReplica(); }
 
 #ifdef MG_ENTERPRISE
-  replication::Coordinator &Coordinator() { return coordinator_; }
+  replication::CoordinatorState &CoordinatorState() { return coordinator_state_; }
 #endif
 
   /**
@@ -526,8 +526,8 @@ class DbmsHandler {
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;       //!< list of active dbs (pointer so we can postpone its creation)
   bool delete_on_drop_;                                //!< Flag defining if dropping storage also deletes its directory
-  std::set<std::string> defunct_dbs_;     //!< Databases that are in an unknown state due to various failures
-  replication::Coordinator coordinator_;  //!< Replication coordinator
+  std::set<std::string> defunct_dbs_;                //!< Databases that are in an unknown state due to various failures
+  replication::CoordinatorState coordinator_state_;  //!< Replication coordinator
 #endif
   replication::ReplicationState repl_state_;  //!< Global replication state
 #ifndef MG_ENTERPRISE

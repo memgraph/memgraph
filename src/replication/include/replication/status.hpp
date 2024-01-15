@@ -37,7 +37,6 @@ enum class DurabilityVersion : uint8_t {
 // fragment of key: "__replication_role"
 struct MainRole {
   ReplicationEpoch epoch{};
-  std::optional<ReplicationServerConfig> config{};
   friend bool operator==(MainRole const &, MainRole const &) = default;
 };
 

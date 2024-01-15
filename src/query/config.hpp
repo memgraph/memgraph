@@ -26,8 +26,5 @@ struct InterpreterConfig {
   std::string default_pulsar_service_url;
   uint32_t stream_transaction_conflict_retries;
   std::chrono::milliseconds stream_transaction_retry_interval;
-#ifdef MG_ENTERPRISE
-  bool is_coordinator{false};
-#endif
 };
 }  // namespace memgraph::query

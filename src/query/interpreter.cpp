@@ -72,6 +72,7 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "replication/config.hpp"
+#include "replication/coordinator_entity_info.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
@@ -287,23 +288,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     };
 
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
-      auto const config = std::invoke([&]() -> std::optional<memgraph::replication::ReplicationServerConfig> {
-        if (port.has_value()) {
-          if (!license::global_license_checker.IsEnterpriseValidFast()) {
-            throw QueryException("Trying to use enterprise feature without a valid license.");
-          }
-
-          ValidatePort(port);
-
-          return memgraph::replication::ReplicationServerConfig{
-              .ip_address = memgraph::replication::kDefaultReplicationServerIp,
-              .port = static_cast<uint16_t>(*port),
-          };
-        }
-        return {};
-      });
-
-      if (!handler_.SetReplicationRoleMain(config)) {
+      if (!handler_.SetReplicationRoleMain()) {
         throw QueryRuntimeException("Couldn't set replication role to main!");
       }
     } else {
@@ -348,27 +333,17 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       const auto [ip, port] = *maybe_ip_and_port;
-      const auto config = replication::ReplicationClientConfig{.name = name,
-                                                               .mode = repl_mode,
-                                                               .ip_address = ip,
-                                                               .port = port,
-                                                               .replica_check_frequency = replica_check_frequency,
-                                                               .ssl = std::nullopt};
-#ifdef MG_ENTERPRISE
-      const auto ret = std::invoke([&config, repl_handler = &this->handler_]() {
-        if (FLAGS_coordinator) {
-          if (!license::global_license_checker.IsEnterpriseValidFast()) {
-            throw QueryException("Trying to use enterprise feature without a valid license.");
-          }
-          return repl_handler->RegisterReplicaOnCoordinator(config);
-        }
-        return repl_handler->RegisterReplica(config);
-      });
-#else
-      const auto ret = handler_.RegisterReplica(config);
-#endif
+      const auto replication_config =
+          replication::ReplicationClientConfig{.name = name,
+                                               .mode = repl_mode,
+                                               .ip_address = ip,
+                                               .port = port,
+                                               .replica_check_frequency = replica_check_frequency,
+                                               .ssl = std::nullopt};
 
-      if (ret.HasError()) {
+      const auto error = handler_.RegisterReplica(replication_config).HasError();
+
+      if (error) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
 
@@ -379,31 +354,108 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
 #ifdef MG_ENTERPRISE
   /// @throw QueryRuntimeException if an error ocurred.
-  void RegisterMain(const std::string &socket_address, const std::chrono::seconds main_check_frequency) override {
+  void RegisterReplicaCoordinatorServer(const std::string &replication_socket_address,
+                                        const std::string &coordinator_socket_address,
+                                        const std::chrono::seconds instance_check_frequency,
+                                        const std::string &instance_name,
+                                        ReplicationQuery::SyncMode sync_mode) override {
     if (!FLAGS_coordinator) {
-      throw QueryRuntimeException("Only coordinator can register main instance!");
+      throw QueryRuntimeException("Only coordinator can register coordinator server!");
+    }
+
+    const auto maybe_replication_ip_port =
+        io::network::Endpoint::ParseSocketOrAddress(replication_socket_address, std::nullopt);
+    if (!maybe_replication_ip_port) {
+      throw QueryRuntimeException("Invalid replication socket address!");
+    }
+
+    const auto maybe_coordinator_ip_port =
+        io::network::Endpoint::ParseSocketOrAddress(coordinator_socket_address, std::nullopt);
+    if (!maybe_replication_ip_port) {
+      throw QueryRuntimeException("Invalid replication socket address!");
+    }
+
+    const auto [replication_ip, replication_port] = *maybe_replication_ip_port;
+    const auto [coordinator_server_ip, coordinator_server_port] = *maybe_coordinator_ip_port;
+    const auto repl_config = replication::CoordinatorClientConfig::ReplicationClientInfo{
+        .instance_name = instance_name,
+        .replication_mode = convertToReplicationMode(sync_mode),
+        .replication_ip_address = replication_ip,
+        .replication_port = replication_port};
+
+    const auto coordinator_client_config =
+        replication::CoordinatorClientConfig{.instance_name = instance_name,
+                                             .ip_address = coordinator_server_ip,
+                                             .port = coordinator_server_port,
+                                             .health_check_frequency = instance_check_frequency,
+                                             .replication_client_info = repl_config,
+                                             .ssl = std::nullopt};
+
+    if (const auto ret = handler_.RegisterReplicaOnCoordinator(coordinator_client_config); ret.HasError()) {
+      throw QueryRuntimeException("Couldn't register replica on coordinator!");
+    }
+  }
+
+  void RegisterMainCoordinatorServer(const std::string &coordinator_socket_address,
+                                     const std::chrono::seconds instance_check_frequency,
+                                     const std::string &instance_name) override {
+    if (!FLAGS_coordinator) {
+      throw QueryRuntimeException("Only coordinator can register coordinator server!");
     }
 
     const auto maybe_ip_and_port =
-        io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
-    if (maybe_ip_and_port) {
-      const auto [ip, port] = *maybe_ip_and_port;
-      const auto config = replication::ReplicationClientConfig{
-          .name = memgraph::replication::kDefaultMainName,
-          .mode = replication::ReplicationMode::ASYNC,  // MAIN is not using actually replication mode, TODO: (andi) Set
-                                                        // it to optional
-          .ip_address = ip,
-          .port = port,
-          .replica_check_frequency = main_check_frequency,  // TODO: (andi) better naming would be check_frequency
-          .ssl = std::nullopt};
-
-      if (const auto ret = handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
-        throw QueryRuntimeException("Couldn't register main!");
-      }
-    } else {
+        io::network::Endpoint::ParseSocketOrAddress(coordinator_socket_address, std::nullopt);
+    if (!maybe_ip_and_port) {
       throw QueryRuntimeException("Invalid socket address!");
     }
+    const auto [ip, port] = *maybe_ip_and_port;
+    const auto config = replication::CoordinatorClientConfig{.instance_name = instance_name,
+                                                             .ip_address = ip,
+                                                             .port = port,
+                                                             .health_check_frequency = instance_check_frequency,
+                                                             .ssl = std::nullopt};
+
+    if (const auto ret = handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
+      throw QueryRuntimeException("Couldn't register main on coordinator!");
+    }
   }
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  void DoFailover() const override {
+    if (!FLAGS_coordinator) {
+      throw QueryRuntimeException("Only coordinator can register coordinator server!");
+    }
+
+    auto status = handler_.DoFailover();
+    switch (status) {
+      using enum memgraph::dbms::DoFailoverStatus;
+      case ALL_REPLICAS_DOWN:
+        throw QueryRuntimeException("Failover aborted since all replicas are down!");
+      case MAIN_ALIVE:
+        throw QueryRuntimeException("Failover aborted since main is alive!");
+      case SUCCESS:
+        break;
+    }
+  }
+
+  std::vector<MainReplicaStatus> ShowMainReplicaStatus(
+      const std::vector<replication::CoordinatorEntityInfo> &replicas,
+      const std::unordered_map<std::string_view, bool> &health_check_replicas,
+      const std::optional<replication::CoordinatorEntityInfo> &main,
+      const std::optional<replication::CoordinatorEntityHealthInfo> &health_check_main) const override {
+    std::vector<MainReplicaStatus> result{};
+    result.reserve(replicas.size() + 1);  // replicas + 1 main
+    std::ranges::transform(
+        replicas, std::back_inserter(result), [&health_check_replicas](const auto &replica) -> MainReplicaStatus {
+          return {replica.name, replica.endpoint.SocketAddress(), health_check_replicas.at(replica.name), false};
+        });
+    if (main) {
+      bool is_main_alive = health_check_main.has_value() ? health_check_main.value().alive : false;
+      result.emplace_back(main->name, main->endpoint.SocketAddress(), is_main_alive, true);
+    }
+    return result;
+  }
+
 #endif
 
   /// @throw QueryRuntimeException if an error occurred.
@@ -488,8 +540,16 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     return handler_.ShowReplicasOnCoordinator();
   }
 
+  std::unordered_map<std::string_view, bool> PingReplicasOnCoordinator() const override {
+    return handler_.PingReplicasOnCoordinator();
+  }
+
   std::optional<replication::CoordinatorEntityInfo> ShowMainOnCoordinator() const override {
     return handler_.ShowMainOnCoordinator();
+  }
+
+  std::optional<replication::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const override {
+    return handler_.PingMainOnCoordinator();
   }
 #endif
 
@@ -851,7 +911,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
-      const auto &name = repl_query->replica_name_;
+      const auto &name = repl_query->instance_name_;
       const auto &sync_mode = repl_query->sync_mode_;
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       const auto replica_check_frequency = config.replication_replica_check_frequency;
@@ -862,10 +922,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         return std::vector<std::vector<TypedValue>>();
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
-                                  fmt::format("Replica {} is registered.", repl_query->replica_name_));
+                                  fmt::format("Replica {} is registered.", repl_query->instance_name_));
       return callback;
     }
-    case ReplicationQuery::Action::REGISTER_MAIN: {
+    case ReplicationQuery::Action::REGISTER_MAIN_COORDINATOR_SERVER: {
       if (!license::global_license_checker.IsEnterpriseValidFast()) {
         throw QueryException("Trying to use enterprise feature without a valid license.");
       }
@@ -874,16 +934,45 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       // the argument to Callback.
       EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      auto socket_address_tv = repl_query->socket_address_->Accept(evaluator);
+      auto coordinator_socket_address_tv = repl_query->coordinator_socket_address_->Accept(evaluator);
 
-      callback.fn = [handler = ReplQueryHandler{dbms_handler}, socket_address_tv,
-                     main_check_frequency = config.replication_replica_check_frequency]() mutable {
-        handler.RegisterMain(std::string(socket_address_tv.ValueString()), main_check_frequency);
+      callback.fn = [handler = ReplQueryHandler{dbms_handler}, coordinator_socket_address_tv,
+                     main_check_frequency = config.replication_replica_check_frequency,
+                     instance_name = repl_query->instance_name_]() mutable {
+        handler.RegisterMainCoordinatorServer(std::string(coordinator_socket_address_tv.ValueString()),
+                                              main_check_frequency, instance_name);
         return std::vector<std::vector<TypedValue>>();
       };
 
-      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_MAIN,
-                                  "Coordinator has registered main instance.");
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_COORDINATOR_SERVER,
+                                  fmt::format("Coordinator has registered coordinator server on {} for instance {}.",
+                                              coordinator_socket_address_tv.ValueString(), repl_query->instance_name_));
+      return callback;
+#endif
+    }
+    case ReplicationQuery::Action::REGISTER_REPLICA_COORDINATOR_SERVER: {
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryException("Trying to use enterprise feature without a valid license.");
+      }
+#ifdef MG_ENTERPRISE
+      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+      // the argument to Callback.
+      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      auto coordinator_socket_address_tv = repl_query->coordinator_socket_address_->Accept(evaluator);
+      auto replication_socket_address_tv = repl_query->socket_address_->Accept(evaluator);
+      callback.fn = [handler = ReplQueryHandler{dbms_handler}, coordinator_socket_address_tv,
+                     replication_socket_address_tv, main_check_frequency = config.replication_replica_check_frequency,
+                     instance_name = repl_query->instance_name_, sync_mode = repl_query->sync_mode_]() mutable {
+        handler.RegisterReplicaCoordinatorServer(std::string(replication_socket_address_tv.ValueString()),
+                                                 std::string(coordinator_socket_address_tv.ValueString()),
+                                                 main_check_frequency, instance_name, sync_mode);
+        return std::vector<std::vector<TypedValue>>();
+      };
+
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_COORDINATOR_SERVER,
+                                  fmt::format("Coordinator has registered coordinator server on {} for instance {}.",
+                                              coordinator_socket_address_tv.ValueString(), repl_query->instance_name_));
       return callback;
 #endif
     }
@@ -893,39 +982,68 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       }
 #ifdef MG_ENTERPRISE
       if (!FLAGS_coordinator) {
-        throw QueryRuntimeException("Only coordinator can call SHOW REPLICATION CLUSTER!");
+        throw QueryRuntimeException("Only on coordinator you can call SHOW REPLICATION CLUSTER.");
       }
 
-      // TODO: (andi) Exact order of this checks
-      // TODO: (andi) Bunch of details missing atm
-      callback.header = {"name", "socket_address"};
+      callback.header = {"name", "socket_address", "alive", "role"};
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, replica_nfields = callback.header.size()]() mutable {
-        const auto replicas = handler.ShowReplicasOnCoordinator();
-        std::vector<std::vector<TypedValue>> result{};
-        result.reserve(replicas.size() + 1);  // replicas + 1 main
-        std::ranges::transform(replicas, std::back_inserter(result),
-                               [](const auto &replica) -> std::vector<TypedValue> {
-                                 return {TypedValue(replica.name), TypedValue(replica.endpoint.SocketAddress())};
-                               });
         const auto main = handler.ShowMainOnCoordinator();
-        if (main) {
-          result.emplace_back(
-              std::vector<TypedValue>{TypedValue(main->name), TypedValue(main->endpoint.SocketAddress())});
-        }
+        const auto health_check_main = main ? handler.PingMainOnCoordinator() : std::nullopt;
+        const auto result_status = handler.ShowMainReplicaStatus(
+            handler.ShowReplicasOnCoordinator(), handler.PingReplicasOnCoordinator(), main, health_check_main);
+        std::vector<std::vector<TypedValue>> result{};
+        result.reserve(result_status.size());
 
+        std::ranges::transform(result_status, std::back_inserter(result),
+                               [](const auto &status) -> std::vector<TypedValue> {
+                                 return {TypedValue{status.name}, TypedValue{status.socket_address},
+                                         TypedValue{status.alive}, TypedValue{status.is_main ? "main" : "replica"}};
+                               });
         return result;
       };
       return callback;
 #endif
     }
+    case ReplicationQuery::Action::DO_FAILOVER: {
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryException("Trying to use enterprise feature without a valid license.");
+      }
+#ifdef MG_ENTERPRISE
+      if (!FLAGS_coordinator) {
+        throw QueryRuntimeException("Only coordinator can run DO FAILOVER!");
+      }
+
+      callback.header = {"name", "socket_address", "alive", "role"};
+      callback.fn = [handler = ReplQueryHandler{dbms_handler}]() mutable {
+        handler.DoFailover();
+        const auto main = handler.ShowMainOnCoordinator();
+        const auto health_check_main = main ? handler.PingMainOnCoordinator() : std::nullopt;
+        const auto result_status = handler.ShowMainReplicaStatus(
+            handler.ShowReplicasOnCoordinator(), handler.PingReplicasOnCoordinator(), main, health_check_main);
+        std::vector<std::vector<TypedValue>> result{};
+        result.reserve(result_status.size());
+
+        std::ranges::transform(result_status, std::back_inserter(result),
+                               [](const auto &status) -> std::vector<TypedValue> {
+                                 return {TypedValue{status.name}, TypedValue{status.socket_address},
+                                         TypedValue{status.alive}, TypedValue{status.is_main ? "main" : "replica"}};
+                               });
+        return result;
+      };
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::DO_FAILOVER,
+                                  "DO FAILOVER called on coordinator.");
+      return callback;
+#endif
+    }
+
     case ReplicationQuery::Action::DROP_REPLICA: {
-      const auto &name = repl_query->replica_name_;
+      const auto &name = repl_query->instance_name_;
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, name]() mutable {
         handler.DropReplica(name);
         return std::vector<std::vector<TypedValue>>();
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::DROP_REPLICA,
-                                  fmt::format("Replica {} is dropped.", repl_query->replica_name_));
+                                  fmt::format("Replica {} is dropped.", repl_query->instance_name_));
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {

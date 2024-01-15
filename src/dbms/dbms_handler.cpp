@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include "dbms/dbms_handler.hpp"
+
+#include "dbms/inmemory/coordinator_handlers.hpp"
+#include "flags/replication.hpp"
 
 namespace memgraph::dbms {
 #ifdef MG_ENTERPRISE
@@ -69,7 +72,14 @@ DbmsHandler::DbmsHandler(
   // Startup proccess for main/replica
   MG_ASSERT(std::visit(memgraph::utils::Overloaded{replica, main}, repl_state_.ReplicationData()),
             "Replica recovery failure!");
+
+  // MAIN or REPLICA instance
+  if (FLAGS_coordinator_server_port) {
+    CoordinatorHandlers::Register(*this);
+    MG_ASSERT(coordinator_state_.GetCoordinatorServer().Start(), "Failed to start coordinator server!");
+  }
 }
+
 #endif
 
 }  // namespace memgraph::dbms

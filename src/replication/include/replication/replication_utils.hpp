@@ -11,24 +11,19 @@
 
 #pragma once
 
-#ifdef MG_ENTERPRISE
-
-#include "io/network/endpoint.hpp"
-
-#include <string>
+#include "communication/context.hpp"
+#include "replication/config.hpp"
 
 namespace memgraph::replication {
 
-struct CoordinatorEntityInfo {
-  std::string_view name;
-  const io::network::Endpoint &endpoint;
-};
+template <typename F>
+concept InvocableWithStringView = std::invocable<F, std::string_view>;
 
-struct CoordinatorEntityHealthInfo {
-  std::string_view name;
-  bool alive;
-};
+inline auto CreateServerContext(const memgraph::replication::ReplicationServerConfig &config)
+    -> communication::ServerContext {
+  return (config.ssl) ? communication::ServerContext{config.ssl->key_file, config.ssl->cert_file, config.ssl->ca_file,
+                                                     config.ssl->verify_peer}
+                      : communication::ServerContext{};
+}
 
 }  // namespace memgraph::replication
-
-#endif

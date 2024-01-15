@@ -229,7 +229,18 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return ReplicationQuery*
    */
-  antlrcpp::Any visitRegisterMain(MemgraphCypher::RegisterMainContext *ctx) override;
+  antlrcpp::Any visitRegisterCoordinatorServer(MemgraphCypher::RegisterCoordinatorServerContext *ctx) override;
+
+  /**
+   * @return ShowTransactions*
+   */
+  antlrcpp::Any visitRegisterMainCoordinatorServer(MemgraphCypher::RegisterMainCoordinatorServerContext *ctx) override;
+
+  /**
+   * @return TerminateTransactions*
+   */
+  antlrcpp::Any visitRegisterReplicaCoordinatorServer(
+      MemgraphCypher::RegisterReplicaCoordinatorServerContext *ctx) override;
 
   /**
    * @return ReplicationQuery*
@@ -240,6 +251,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ReplicationQuery*
    */
   antlrcpp::Any visitShowReplicas(MemgraphCypher::ShowReplicasContext *ctx) override;
+
+  /**
+   * @return ReplicationQuery*
+   */
+  antlrcpp::Any visitDoFailover(MemgraphCypher::DoFailoverContext *ctx) override;
 
   /**
    * @return LockPathQuery*

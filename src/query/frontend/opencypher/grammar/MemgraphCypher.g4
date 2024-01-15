@@ -48,10 +48,12 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DENY
                       | DROP
+                      | DO
                       | DUMP
                       | EDGE
                       | EDGE_TYPES
                       | EXECUTE
+                      | FAILOVER
                       | FOR
                       | FOREACH
                       | FREE
@@ -179,10 +181,11 @@ authQuery : createRole
 replicationQuery : setReplicationRole
                  | showReplicationRole
                  | registerReplica
-                 | registerMain
+                 | registerCoordinatorServer
                  | dropReplica
                  | showReplicas
                  | showReplicationCluster
+                 | doFailover
                  ;
 
 triggerQuery : createTrigger
@@ -245,6 +248,8 @@ transactionQueueQuery : showTransactions
                       ;
 
 showTransactions : SHOW TRANSACTIONS ;
+
+doFailover : DO FAILOVER ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 
@@ -368,16 +373,22 @@ showReplicationRole : SHOW REPLICATION ROLE ;
 
 showReplicationCluster : SHOW REPLICATION CLUSTER ;
 
-replicaName : symbolicName ;
+instanceName : symbolicName ;
 
 socketAddress : literal ;
 
-registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
+coordinatorSocketAddress : literal ;
+
+registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
 
-registerMain : REGISTER MAIN TO socketAddress ;
+registerReplicaCoordinatorServer: REGISTER REPLICA instanceName ( ASYNC | SYNC ) TO socketAddress WITH COORDINATOR SERVER ON coordinatorSocketAddress ;
 
-dropReplica : DROP REPLICA replicaName ;
+registerMainCoordinatorServer: REGISTER MAIN instanceName WITH COORDINATOR SERVER ON coordinatorSocketAddress ;
+
+registerCoordinatorServer : registerMainCoordinatorServer | registerReplicaCoordinatorServer ;
+
+dropReplica : DROP REPLICA instanceName ;
 
 showReplicas : SHOW REPLICAS ;
 

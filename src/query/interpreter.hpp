@@ -89,6 +89,18 @@ class ReplicationQueryHandler {
     ReplicationQuery::ReplicaState state;
   };
 
+#ifdef MG_ENTERPRISE
+  struct MainReplicaStatus {
+    std::string_view name;
+    std::string socket_address;
+    bool alive;
+    bool is_main;
+
+    MainReplicaStatus(std::string_view name, std::string socket_address, bool alive, bool is_main)
+        : name{name}, socket_address{std::move(socket_address)}, alive{alive}, is_main{is_main} {}
+  };
+#endif
+
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) = 0;
 
@@ -102,13 +114,36 @@ class ReplicationQueryHandler {
 
 #ifdef MG_ENTERPRISE
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterMain(const std::string &socket_address, const std::chrono::seconds main_check_frequency) = 0;
+  virtual void RegisterReplicaCoordinatorServer(const std::string &replication_socket_address,
+                                                const std::string &coordinator_socket_address,
+                                                const std::chrono::seconds instance_check_frequency,
+                                                const std::string &instance_name,
+                                                ReplicationQuery::SyncMode sync_mode) = 0;
+  virtual void RegisterMainCoordinatorServer(const std::string &socket_address,
+                                             const std::chrono::seconds instance_check_frequency,
+                                             const std::string &instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<replication::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::optional<replication::CoordinatorEntityInfo> ShowMainOnCoordinator() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::unordered_map<std::string_view, bool> PingReplicasOnCoordinator() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::optional<replication::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void DoFailover() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<MainReplicaStatus> ShowMainReplicaStatus(
+      const std::vector<replication::CoordinatorEntityInfo> &replicas,
+      const std::unordered_map<std::string_view, bool> &health_check_replicas,
+      const std::optional<replication::CoordinatorEntityInfo> &main,
+      const std::optional<replication::CoordinatorEntityHealthInfo> &health_check_main) const = 0;
 
 #endif
 

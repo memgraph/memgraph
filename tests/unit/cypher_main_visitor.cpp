@@ -42,6 +42,7 @@
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -2546,7 +2547,7 @@ TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
 void check_replication_query(Base *ast_generator, const ReplicationQuery *query, const std::string name,
                              const std::optional<TypedValue> socket_address, const ReplicationQuery::SyncMode sync_mode,
                              const std::optional<TypedValue> port = {}) {
-  EXPECT_EQ(query->replica_name_, name);
+  EXPECT_EQ(query->instance_name_, name);
   EXPECT_EQ(query->sync_mode_, sync_mode);
   ASSERT_EQ(static_cast<bool>(query->socket_address_), static_cast<bool>(socket_address));
   if (socket_address) {
@@ -2585,28 +2586,12 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
     ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
   }
 
-#ifdef MG_ENTERPRISE
   {
     const std::string query = "SET REPLICATION ROLE TO MAIN";
     auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(query));
     EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SET_REPLICATION_ROLE);
     EXPECT_EQ(parsed_query->role_, ReplicationQuery::ReplicationRole::MAIN);
   }
-  {
-    const std::string query = "SET REPLICATION ROLE TO MAIN WITH PORT 10000";
-    auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(query));
-    EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SET_REPLICATION_ROLE);
-    EXPECT_EQ(parsed_query->role_, ReplicationQuery::ReplicationRole::MAIN);
-    ast_generator.CheckLiteral(parsed_query->port_, TypedValue(10000));
-  }
-#else
-  {
-    const std::string query = "SET REPLICATION ROLE TO MAIN";
-    auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(query));
-    EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SET_REPLICATION_ROLE);
-    EXPECT_EQ(parsed_query->role_, ReplicationQuery::ReplicationRole::MAIN);
-  }
-#endif
 
   {
     const std::string query = "SET REPLICATION ROLE TO REPLICA";
@@ -2643,22 +2628,79 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
                           ReplicationQuery::SyncMode::SYNC);
 }
 
-// NOTE: When using RegisterMain query, port_ is not used, rather just socket_address_ is used.
-TEST_P(CypherMainVisitorTest, TestRegisterMainQuery) {
+#ifdef MG_ENTERPRISE
+TEST_P(CypherMainVisitorTest, TestRegisterCoordinatorServer) {
   auto &ast_generator = *GetParam();
 
-  // Missing IP address and port
-  const std::string faulty_query = "REGISTER MAIN TO";
-  ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
+  {
+    const std::string faulty_query_1 = "REGISTER MAIN COORDINATOR SERVER TO";
+    ASSERT_THROW(ast_generator.ParseQuery(faulty_query_1), SyntaxException);
+  }
 
-  // Full valid query
-  std::string full_query = R"(REGISTER MAIN TO "127.0.0.1:10003")";
-  auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
-  ASSERT_TRUE(full_query_parsed);
+  {
+    const std::string faulty_query_2 = "REGISTER MAIN COORDINATOR SERVER TO MAIN";
+    ASSERT_THROW(ast_generator.ParseQuery(faulty_query_2), SyntaxException);
+  }
 
-  ast_generator.CheckLiteral(full_query_parsed->socket_address_, "127.0.0.1:10003");
-  ASSERT_EQ(full_query_parsed->port_, nullptr);
+  {
+    std::string full_query = "REGISTER MAIN main WITH COORDINATOR SERVER ON '127.0.0.1:10011';";
+
+    auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
+
+    ASSERT_TRUE(full_query_parsed);
+    EXPECT_EQ(full_query_parsed->action_, ReplicationQuery::Action::REGISTER_MAIN_COORDINATOR_SERVER);
+    EXPECT_EQ(full_query_parsed->role_, ReplicationQuery::ReplicationRole::MAIN);
+    EXPECT_EQ(full_query_parsed->instance_name_, "main");
+    ast_generator.CheckLiteral(full_query_parsed->coordinator_socket_address_, "127.0.0.1:10011");
+    ASSERT_EQ(full_query_parsed->port_, nullptr);
+    ASSERT_EQ(full_query_parsed->socket_address_, nullptr);
+  }
+
+  {
+    std::string full_query =
+        R"(REGISTER REPLICA replica_1 SYNC TO "127.0.0.1:10002" WITH COORDINATOR SERVER ON "127.0.0.1:10012")";
+    auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
+    ASSERT_TRUE(full_query_parsed);
+    EXPECT_EQ(full_query_parsed->action_, ReplicationQuery::Action::REGISTER_REPLICA_COORDINATOR_SERVER);
+    EXPECT_EQ(full_query_parsed->role_, ReplicationQuery::ReplicationRole::REPLICA);
+    ast_generator.CheckLiteral(full_query_parsed->socket_address_, "127.0.0.1:10002");
+    ast_generator.CheckLiteral(full_query_parsed->coordinator_socket_address_, "127.0.0.1:10012");
+    EXPECT_EQ(full_query_parsed->instance_name_, "replica_1");
+    EXPECT_EQ(full_query_parsed->sync_mode_, ReplicationQuery::SyncMode::SYNC);
+    ASSERT_EQ(full_query_parsed->port_, nullptr);
+  }
+
+  {
+    std::string full_query =
+        R"(REGISTER REPLICA replica_1 ASYNC TO '127.0.0.1:10002' WITH COORDINATOR SERVER ON '127.0.0.1:10012')";
+    auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
+    ASSERT_TRUE(full_query_parsed);
+    EXPECT_EQ(full_query_parsed->action_, ReplicationQuery::Action::REGISTER_REPLICA_COORDINATOR_SERVER);
+    EXPECT_EQ(full_query_parsed->role_, ReplicationQuery::ReplicationRole::REPLICA);
+    ast_generator.CheckLiteral(full_query_parsed->socket_address_, "127.0.0.1:10002");
+    ast_generator.CheckLiteral(full_query_parsed->coordinator_socket_address_, "127.0.0.1:10012");
+    EXPECT_EQ(full_query_parsed->instance_name_, "replica_1");
+    EXPECT_EQ(full_query_parsed->sync_mode_, ReplicationQuery::SyncMode::ASYNC);
+    ASSERT_EQ(full_query_parsed->port_, nullptr);
+  }
 }
+
+TEST_P(CypherMainVisitorTest, TestDoFailover) {
+  auto &ast_generator = *GetParam();
+
+  {
+    std::string invalid_query = "DO FAILO";
+    ASSERT_THROW(ast_generator.ParseQuery(invalid_query), SyntaxException);
+  }
+
+  {
+    std::string correct_query = "DO FAILOVER";
+    auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
+    ASSERT_TRUE(correct_query_parsed);
+    EXPECT_EQ(correct_query_parsed->action_, ReplicationQuery::Action::DO_FAILOVER);
+  }
+}
+#endif
 
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   auto &ast_generator = *GetParam();
@@ -2669,7 +2711,7 @@ TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   std::string correct_query = "DROP REPLICA replica1";
   auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
   ASSERT_TRUE(correct_query_parsed);
-  EXPECT_EQ(correct_query_parsed->replica_name_, "replica1");
+  EXPECT_EQ(correct_query_parsed->instance_name_, "replica1");
 }
 
 TEST_P(CypherMainVisitorTest, TestExplainRegularQuery) {

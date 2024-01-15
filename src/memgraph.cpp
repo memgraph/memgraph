@@ -352,13 +352,7 @@ int main(int argc, char **argv) {
       .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
       .default_pulsar_service_url = FLAGS_pulsar_service_url,
       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
-      .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)
-#ifdef MG_ENTERPRISE
-          ,
-      .is_coordinator = FLAGS_coordinator
-#endif
-
-  };
+      .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
 
   auto auth_glue =
       [flag = FLAGS_auth_user_or_role_name_regex](
