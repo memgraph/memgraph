@@ -3063,7 +3063,8 @@ class ReplicationQuery : public memgraph::query::Query {
     object->socket_address_ = socket_address_ ? socket_address_->Clone(storage) : nullptr;
     object->port_ = port_ ? port_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
-    object->coordinator_socket_address_ = coordinator_socket_address_;
+    object->coordinator_socket_address_ =
+        coordinator_socket_address_ ? coordinator_socket_address_->Clone(storage) : nullptr;
 
     return object;
   }

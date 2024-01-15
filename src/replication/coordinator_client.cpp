@@ -50,7 +50,7 @@ void CoordinatorClient::StartFrequentCheck() {
                            {
                              auto stream{rpc_client->Stream<memgraph::replication::FrequentHeartbeatRpc>()};
                              stream.AwaitResponse();
-                             *last_response_time = std::chrono::system_clock::now();
+                             last_response_time->store(std::chrono::system_clock::now(), std::memory_order_acq_rel);
                            }
                          } catch (const rpc::RpcFailedException &) {
                            // Nothing to do...wait for a reconnect
@@ -62,9 +62,9 @@ void CoordinatorClient::StopFrequentCheck() { replica_checker_.Stop(); }
 
 bool CoordinatorClient::DoHealthCheck() const {
   auto response = std::chrono::system_clock::now();
-  auto duration = std::chrono::duration_cast<std::chrono::seconds>(response - last_response_time);
-
-  return duration.count() <= 5;
+  auto duration =
+      std::chrono::duration_cast<std::chrono::seconds>(response - last_response_time.load(std::memory_order_acquire));
+  return duration.count() <= alive_response_time_difference;
 }
 
 auto CoordinatorClient::InstanceName() const -> std::string_view { return config_.instance_name; }
