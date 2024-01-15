@@ -43,3 +43,16 @@ def memgraph(**kwargs) -> Memgraph:
 
     memgraph.drop_database()
     memgraph.drop_indexes()
+
+
+@pytest.fixture
+def memgraph_with_text_indexed_data(**kwargs) -> Memgraph:
+    memgraph = Memgraph()
+
+    memgraph.execute_and_fetch("CREATE TEXT INDEX complianceDocuments ON :Document;")
+
+    yield memgraph
+
+    memgraph.execute_and_fetch("DROP TEXT INDEX complianceDocuments;")
+    memgraph.drop_database()
+    memgraph.drop_indexes()

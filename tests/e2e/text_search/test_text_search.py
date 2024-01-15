@@ -12,7 +12,7 @@
 import sys
 
 import pytest
-from common import memgraph
+from common import memgraph, memgraph_with_text_indexed_data
 
 
 def test_create_index(memgraph):
@@ -26,36 +26,36 @@ def test_drop_index(memgraph):
     assert True
 
 
-def test_text_search_given_property():
-    assert True
+def test_text_search_given_property(memgraph_with_text_indexed_data):
+    memgraph_with_text_indexed_data.execute_and_fetch("CALL text_search.search('complianceDocuments', 'b') YIELD *;")
 
 
-def test_text_search_all_properties():
-    assert True
+def test_text_search_all_properties(memgraph_with_text_indexed_data):
+    memgraph_with_text_indexed_data.execute_and_fetch("CALL text_search.search('complianceDocuments', 'b') YIELD *;")
 
 
-def test_create_indexed_node():
-    assert True
+def test_create_indexed_node(memgraph_with_text_indexed_data):
+    memgraph_with_text_indexed_data.execute_and_fetch("CALL text_search.search('complianceDocuments', 'b') YIELD *;")
 
 
-def test_delete_indexed_node():
-    assert True
+def test_delete_indexed_node(memgraph_with_text_indexed_data):
+    memgraph_with_text_indexed_data.execute_and_fetch("CALL text_search.search('complianceDocuments', 'b') YIELD *;")
 
 
-def test_add_indexed_label():
-    assert True
+def test_add_indexed_label(memgraph_with_text_indexed_data):
+    memgraph_with_text_indexed_data.execute_and_fetch("CALL text_search.search('complianceDocuments', 'b') YIELD *;")
 
 
-def test_remove_indexed_label():
-    assert True
+def test_remove_indexed_label(memgraph_with_text_indexed_data):
+    memgraph_with_text_indexed_data.execute_and_fetch("CALL text_search.search('complianceDocuments', 'b') YIELD *;")
 
 
-def test_add_property_to_indexed_node():
-    assert True
+def test_add_property_to_indexed_node(memgraph_with_text_indexed_data):
+    memgraph_with_text_indexed_data.execute_and_fetch("CALL text_search.search('complianceDocuments', 'b') YIELD *;")
 
 
-def test_remove_property_from_indexed_node():
-    assert True
+def test_remove_property_from_indexed_node(memgraph_with_text_indexed_data):
+    memgraph_with_text_indexed_data.execute_and_fetch("CALL text_search.search('complianceDocuments', 'b') YIELD *;")
 
 
 if __name__ == "__main__":
