@@ -10,9 +10,6 @@
 // licenses/APL.txt.
 
 #include <mgp.hpp>
-// #include "query/procedure/mg_procedure_impl.hpp"
-// #include "storage/v2/indices/mgcxx_mock.hpp"
-#include "storage/v2/mgcxx_mock.hpp"
 
 namespace TextSearch {
 constexpr std::string_view kProcedureSearch = "search";
@@ -23,7 +20,7 @@ constexpr std::string_view kReturnNode = "node";
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 }  // namespace TextSearch
 
-void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+void TextSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
   auto arguments = mgp::List(args);
