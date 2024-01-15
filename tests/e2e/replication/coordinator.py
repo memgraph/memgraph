@@ -13,6 +13,7 @@ import sys
 
 import pytest
 from common import execute_and_fetch_all
+from mg_utils import mg_sleep_and_assert
 
 
 def test_disable_cypher_queries(connection):
@@ -38,34 +39,16 @@ def test_coordinator_cannot_run_show_repl_role(connection):
 
 def test_coordinator_show_replication_cluster(connection):
     cursor = connection(7690, "coordinator").cursor()
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
 
-    expected_column_names = {"name", "socket_address", "alive"}
-    actual_column_names = {x.name for x in cursor.description}
-    assert actual_column_names == expected_column_names
-
-    expected_data = {
-        ("main", "127.0.0.1:10013", "true"),
-        ("replica_1", "127.0.0.1:10011", "true"),
-        ("replica_2", "127.0.0.1:10012", "true"),
-    }
-    assert actual_data == expected_data
-
-
-def test_coordinator_show_replication_cluster(connection):
-    cursor = connection(7690, "coordinator").cursor()
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
-
-    expected_column_names = {"name", "socket_address", "alive", "role"}
-    actual_column_names = {x.name for x in cursor.description}
-    assert actual_column_names == expected_column_names
+    def retrieve_data():
+        return set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
 
     expected_data = {
         ("main", "127.0.0.1:10013", True, "main"),
         ("replica_1", "127.0.0.1:10011", True, "replica"),
         ("replica_2", "127.0.0.1:10012", True, "replica"),
     }
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, retrieve_data)
 
 
 def test_coordinator_cannot_call_show_replicas(connection):
