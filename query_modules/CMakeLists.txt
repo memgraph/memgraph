@@ -58,7 +58,7 @@ install(PROGRAMS $<TARGET_FILE:schema>
 # Also install the source of the example, so user can read it.
 install(FILES schema.cpp DESTINATION lib/memgraph/query_modules/src)
 
-add_library(text_search SHARED text_search.cpp)
+add_library(text_search SHARED text_search_module.cpp)
 target_include_directories(text_search PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(text_search PRIVATE -Wall)
 target_link_libraries(text_search PRIVATE -static-libgcc -static-libstdc++)
@@ -72,7 +72,7 @@ install(PROGRAMS $<TARGET_FILE:text_search>
         DESTINATION lib/memgraph/query_modules
         RENAME text_search.so)
 # Also install the source of the example, so user can read it.
-install(FILES text_search.cpp DESTINATION lib/memgraph/query_modules/src)
+install(FILES text_search_module.cpp DESTINATION lib/memgraph/query_modules/src)
 
 # Install the Python example and modules
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)
