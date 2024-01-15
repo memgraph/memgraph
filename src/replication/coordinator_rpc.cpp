@@ -9,11 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#ifdef MG_ENTERPRISE
+
 #include "replication/coordinator_rpc.hpp"
+
 #include "replication/coordinator_slk.hpp"
 #include "slk/serialization.hpp"
-
-#ifdef MG_ENTERPRISE
 
 namespace memgraph {
 
@@ -37,8 +38,6 @@ constexpr utils::TypeInfo replication::FailoverRes::kType{utils::TypeId::COORD_F
 
 namespace slk {
 
-// Serialize code for FailoverRes
-
 void Save(const memgraph::replication::FailoverRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
 }
@@ -46,8 +45,6 @@ void Save(const memgraph::replication::FailoverRes &self, memgraph::slk::Builder
 void Load(memgraph::replication::FailoverRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
 }
-
-// Serialize code for FailoverReq
 
 void Save(const memgraph::replication::FailoverReq &self, memgraph::slk::Builder *builder) {
   std::function<void(const ReplicationClientInfo &, Builder *)> item_save_function =

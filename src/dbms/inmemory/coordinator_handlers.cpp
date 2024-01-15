@@ -9,13 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#ifdef MG_ENTERPRISE
+
 #include "dbms/inmemory/coordinator_handlers.hpp"
 
 #include "dbms/dbms_handler.hpp"
 #include "replication/coordinator_exceptions.hpp"
 #include "replication/coordinator_rpc.hpp"
 
-#ifdef MG_ENTERPRISE
 namespace memgraph::dbms {
 
 void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {

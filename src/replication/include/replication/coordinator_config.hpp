@@ -11,6 +11,8 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+
 #include "replication/mode.hpp"
 
 #include <chrono>
@@ -20,7 +22,6 @@
 
 namespace memgraph::replication {
 
-#ifdef MG_ENTERPRISE
 struct CoordinatorClientConfig {
   const std::string instance_name;
   const std::string ip_address;
@@ -69,6 +70,6 @@ struct CoordinatorServerConfig {
 
   friend bool operator==(CoordinatorServerConfig const &, CoordinatorServerConfig const &) = default;
 };
-#endif
 
 }  // namespace memgraph::replication
+#endif

@@ -11,11 +11,11 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+
 #include "replication/coordinator_config.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
-
-#ifdef MG_ENTERPRISE
 
 namespace memgraph::slk {
 

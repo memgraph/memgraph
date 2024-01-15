@@ -2628,6 +2628,7 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
                           ReplicationQuery::SyncMode::SYNC);
 }
 
+#ifdef MG_ENTERPRISE
 TEST_P(CypherMainVisitorTest, TestRegisterCoordinatorServer) {
   auto &ast_generator = *GetParam();
 
@@ -2683,6 +2684,7 @@ TEST_P(CypherMainVisitorTest, TestRegisterCoordinatorServer) {
     ASSERT_EQ(full_query_parsed->port_, nullptr);
   }
 }
+#endif
 
 TEST_P(CypherMainVisitorTest, TestDoFailover) {
   auto &ast_generator = *GetParam();

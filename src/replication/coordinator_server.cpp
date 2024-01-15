@@ -9,18 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#ifdef MG_ENTERPRISE
+
 #include "replication/coordinator_server.hpp"
 
 #include "replication/messages.hpp"
 #include "replication/replication_utils.hpp"
 
-#ifdef MG_ENTERPRISE
 namespace memgraph::replication {
 
 namespace {
 
-// NOTE: The coordinator server must have a single thread for processing
-// because there is no need for more processing threads - each replica can
+// NOTE: The coordinator server doesn't more than 1 processing thread - each replica can
 // have only a single coordinator server. Also, the single-threaded guarantee
 // simplifies the rest of the implementation.
 constexpr auto kCoordinatorServerThreads = 1;
