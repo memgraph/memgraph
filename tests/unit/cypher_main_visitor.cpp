@@ -2657,7 +2657,7 @@ TEST_P(CypherMainVisitorTest, TestRegisterCoordinatorServer) {
 
   {
     std::string full_query =
-        R"(REGISTER REPLICA replica_1  SYNC TO "127.0.0.1:10002" WITH COORDINATOR SERVER ON "127.0.0.1:10012")";
+        R"(REGISTER REPLICA replica_1 SYNC TO "127.0.0.1:10002" WITH COORDINATOR SERVER ON "127.0.0.1:10012")";
     auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
     ASSERT_TRUE(full_query_parsed);
     EXPECT_EQ(full_query_parsed->action_, ReplicationQuery::Action::REGISTER_REPLICA_COORDINATOR_SERVER);
@@ -2671,7 +2671,7 @@ TEST_P(CypherMainVisitorTest, TestRegisterCoordinatorServer) {
 
   {
     std::string full_query =
-        R"(REGISTER REPLICA replica_1  ASYNC TO '127.0.0.1:10002' WITH COORDINATOR SERVER ON '127.0.0.1:10012')";
+        R"(REGISTER REPLICA replica_1 ASYNC TO '127.0.0.1:10002' WITH COORDINATOR SERVER ON '127.0.0.1:10012')";
     auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
     ASSERT_TRUE(full_query_parsed);
     EXPECT_EQ(full_query_parsed->action_, ReplicationQuery::Action::REGISTER_REPLICA_COORDINATOR_SERVER);

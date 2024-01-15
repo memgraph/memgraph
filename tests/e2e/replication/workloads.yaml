@@ -73,9 +73,9 @@ coordinator_cluster: &coordinator_cluster
       args: ["--bolt-port", "7690", "--log-level=TRACE", "--coordinator"]
       log_file: "replication-e2e-coordinator.log"
       setup_queries: [
-        "REGISTER MAIN COORDINATOR SERVER ON main TO '127.0.0.1:10013'",
-        "REGISTER REPLICA COORDINATOR SERVER ON replica_1 TO '127.0.0.1:10011'",
-        "REGISTER REPLICA COORDINATOR SERVER ON replica_2 TO '127.0.0.1:10012'",
+        "REGISTER MAIN main WITH COORDINATOR SERVER ON '127.0.0.1:10013'",
+        "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001' WITH COORDINATOR SERVER ON '127.0.0.1:10011'",
+        "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002' WITH COORDINATOR SERVER ON '127.0.0.1:10012'",
       ]
 
 workloads:

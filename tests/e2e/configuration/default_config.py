@@ -67,6 +67,7 @@ startup_config_dict = {
     ),
     "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
     "coordinator": ("false", "false", "Controls whether the instance is a replication coordinator."),
+    "coordinator_server_port": ("false", "false", "Port on which coordinator servers will be started."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_recovery_on_startup": (
         "false",
