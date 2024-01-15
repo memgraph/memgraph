@@ -11,15 +11,14 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+
 #include "io/network/endpoint.hpp"
 
 #include <string>
 
 namespace memgraph::replication {
 
-#ifdef MG_ENTERPRISE
-
-// TODO: (andi) Eventually unite with one global replica info
 struct CoordinatorEntityInfo {
   std::string_view name;
   const io::network::Endpoint &endpoint;
@@ -29,6 +28,7 @@ struct CoordinatorEntityHealthInfo {
   std::string_view name;
   bool alive;
 };
-#endif
 
 }  // namespace memgraph::replication
+
+#endif

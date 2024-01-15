@@ -47,11 +47,7 @@ std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
 ReplicationHandler::ReplicationHandler(DbmsHandler &dbms_handler) : dbms_handler_(dbms_handler) {}
 
 bool ReplicationHandler::SetReplicationRoleMain() {
-  // TODO: (andi) In reality instance should be started as a default non-replication instance and then switched to MAIN
-  auto const main_handler = [](RoleMainData &) {
-    // If we are already MAIN, we don't want to change anything
-    return false;
-  };
+  auto const main_handler = [](RoleMainData &) { return false; };
 
   auto const replica_handler = [this](RoleReplicaData const &) {
     // STEP 1) bring down all REPLICA servers
@@ -206,15 +202,12 @@ auto ReplicationHandler::RegisterReplicaOnCoordinator(const memgraph::replicatio
   return {};
 }
 
-// TODO: (andi) RegisterMainError
 auto ReplicationHandler::RegisterMainOnCoordinator(const memgraph::replication::CoordinatorClientConfig &config)
     -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus> {
   auto instance_client = dbms_handler_.CoordinatorState().RegisterMain(config);
   if (instance_client.HasError()) switch (instance_client.GetError()) {
       case memgraph::replication::RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR:
-        ///// TODO AF Do we want to crash here?
         MG_ASSERT(false, "Only coordinator instance can register main and replica!");
-        return {};
       case memgraph::replication::RegisterMainReplicaCoordinatorStatus::NAME_EXISTS:
         return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
       case memgraph::replication::RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS:
@@ -247,12 +240,13 @@ auto ReplicationHandler::PingMainOnCoordinator() const -> std::optional<replicat
 
 auto ReplicationHandler::DoFailover() const -> DoFailoverStatus {
   auto status = dbms_handler_.CoordinatorState().DoFailover();
-  // TODO: Solve this duplication when moving things to different namespaces
   switch (status) {
     case memgraph::replication::DoFailoverStatus::ALL_REPLICAS_DOWN:
       return memgraph::dbms::DoFailoverStatus::ALL_REPLICAS_DOWN;
     case memgraph::replication::DoFailoverStatus::SUCCESS:
       return memgraph::dbms::DoFailoverStatus::SUCCESS;
+    case memgraph::replication::DoFailoverStatus::MAIN_ALIVE:
+      return memgraph::dbms::DoFailoverStatus::MAIN_ALIVE;
   }
 }
 

@@ -46,9 +46,7 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
     });
 
     // STEP 2) Change to MAIN = Kill replication server
-    // TODO: restore replication servers if false?
     if (!repl_state.SetReplicationRoleMain()) {
-      // TODO: Handle recovery on failure???
       success = false;
     }
 
@@ -100,7 +98,6 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
         if (!allow_mt_repl && storage->id() != kDefaultDB) {
           return;
         }
-        // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
         if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
         all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
@@ -118,15 +115,11 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
             });
       });
 
-      // NOTE Currently if any databases fails, we revert back
       if (!all_clients_good) {
         spdlog::error("Failed to register all databases to the REPLICA \"{}\"", config.name);
-        // TODO: add a code for unregistering registered replicas
-        // UnregisterReplica(config.name);
         throw replication::CoordinatorFailoverException("Failed to register all databases to the REPLICA!");
       }
 
-      // No client error, start instance level client
       StartReplicaClient(dbms_handler, *instance_client.GetValue());
     });
 

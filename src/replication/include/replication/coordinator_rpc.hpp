@@ -11,13 +11,12 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+
 #include "replication/coordinator_config.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 
-#ifdef MG_ENTERPRISE
-
-/// TODO: (andi) What to do with this namespace?
 namespace memgraph::replication {
 
 struct FailoverReq {
@@ -27,7 +26,7 @@ struct FailoverReq {
   static void Load(FailoverReq *self, memgraph::slk::Reader *reader);
   static void Save(const FailoverReq &self, memgraph::slk::Builder *builder);
 
-  FailoverReq(std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info)
+  explicit FailoverReq(std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info)
       : replication_clients_info(std::move(replication_clients_info)) {}
   FailoverReq() = default;
 

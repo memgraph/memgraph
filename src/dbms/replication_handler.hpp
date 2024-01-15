@@ -44,7 +44,7 @@ enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
   NOT_COORDINATOR,
   SUCCESS
 };
-enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN };
+enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN, MAIN_ALIVE };
 
 ;
 
@@ -67,7 +67,6 @@ struct ReplicationHandler {
   auto RegisterReplicaOnCoordinator(const memgraph::replication::CoordinatorClientConfig &config)
       -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
 
-  // TODO: (andi) RegisterMainError
   auto RegisterMainOnCoordinator(const memgraph::replication::CoordinatorClientConfig &config)
       -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
 

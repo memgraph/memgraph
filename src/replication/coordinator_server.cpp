@@ -19,18 +19,17 @@ namespace memgraph::replication {
 
 namespace {
 
-// TODO: (andi) Do I need this to be 1
-// NOTE: The replication server must have a single thread for processing
+// NOTE: The coordinator server must have a single thread for processing
 // because there is no need for more processing threads - each replica can
-// have only a single main server. Also, the single-threaded guarantee
+// have only a single coordinator server. Also, the single-threaded guarantee
 // simplifies the rest of the implementation.
-constexpr auto kReplicationServerThreads = 1;
+constexpr auto kCoordinatorServerThreads = 1;
 }  // namespace
 
 CoordinatorServer::CoordinatorServer(const memgraph::replication::ReplicationServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
       rpc_server_{io::network::Endpoint{config.ip_address, config.port}, &rpc_server_context_,
-                  kReplicationServerThreads} {
+                  kCoordinatorServerThreads} {
   rpc_server_.Register<FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received FrequentHeartbeatRpc on coordinator server");
     FrequentHeartbeatHandler(req_reader, res_builder);
@@ -46,7 +45,6 @@ CoordinatorServer::~CoordinatorServer() {
   rpc_server_.AwaitShutdown();
 }
 
-// TODO: (andi) Do I need this method
 bool CoordinatorServer::Start() { return rpc_server_.Start(); }
 
 }  // namespace memgraph::replication

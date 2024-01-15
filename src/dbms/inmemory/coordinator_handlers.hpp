@@ -13,10 +13,6 @@
 
 #include "slk/serialization.hpp"
 
-// TODO: (andi) How to organize this code better, what to do with namespaces...? Do we need to bind this to storage
-// Check replication_handlers.hpp for example, for forward declarations etc.
-// I would avoid binding to storage since this is higher level logic than in replication
-
 #ifdef MG_ENTERPRISE
 
 namespace memgraph::dbms {

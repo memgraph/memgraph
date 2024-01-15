@@ -43,7 +43,6 @@ CoordinatorState::CoordinatorState() {
 
 auto CoordinatorState::RegisterReplica(const CoordinatorClientConfig &config)
     -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> {
-  // TODO: (andi) Solve DRY by extracting
   auto name_check = [&config](auto const &replicas) {
     auto name_matches = [&instance_name = config.instance_name](auto const &replica) {
       return replica.InstanceName() == instance_name;
@@ -179,6 +178,9 @@ auto CoordinatorState::DoFailover() -> DoFailoverStatus {
 
   // 1.
   auto &current_main = std::get<CoordinatorData>(data_).registered_main_;
+  if (current_main->DoHealthCheck()) {
+    return DoFailoverStatus::MAIN_ALIVE;
+  }
   current_main->StopFrequentCheck();
 
   // 2.

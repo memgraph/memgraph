@@ -409,7 +409,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       throw QueryRuntimeException("Invalid socket address!");
     }
     const auto [ip, port] = *maybe_ip_and_port;
-    // TODO: (andi) What to do with mode
     const auto config = replication::CoordinatorClientConfig{.instance_name = instance_name,
                                                              .ip_address = ip,
                                                              .port = port,
@@ -431,8 +430,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     switch (status) {
       using enum memgraph::dbms::DoFailoverStatus;
       case ALL_REPLICAS_DOWN:
-        // TODO: test
         throw QueryRuntimeException("Failover aborted since all replicas are down!");
+      case MAIN_ALIVE:
+        throw QueryRuntimeException("Failover aborted since main is alive!");
       case SUCCESS:
         break;
     }

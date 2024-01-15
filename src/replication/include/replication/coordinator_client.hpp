@@ -52,20 +52,6 @@ class CoordinatorClient {
     return first.config_ == second.config_;
   }
 
-  // TODO: (andi) Do I need this?
-  // This thread pool is used for background tasks so we don't
-  // block the main storage thread
-  // We use only 1 thread for 2 reasons:
-  //  - background tasks ALWAYS contain some kind of RPC communication.
-  //    We can't have multiple RPC communication from a same client
-  //    because that's not logically valid (e.g. you cannot send a snapshot
-  //    and WAL at a same time because WAL will arrive earlier and be applied
-  //    before the snapshot which is not correct)
-  //  - the implementation is simplified as we have a total control of what
-  //    this pool is executing. Also, we can simply queue multiple tasks
-  //    and be sure of the execution order.
-  //    Not having mulitple possible threads in the same client allows us
-  //    to ignore concurrency problems inside the client.
  private:
   utils::ThreadPool thread_pool_{1};
   utils::Scheduler replica_checker_;
