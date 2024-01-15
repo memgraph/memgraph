@@ -2684,7 +2684,6 @@ TEST_P(CypherMainVisitorTest, TestRegisterCoordinatorServer) {
     ASSERT_EQ(full_query_parsed->port_, nullptr);
   }
 }
-#endif
 
 TEST_P(CypherMainVisitorTest, TestDoFailover) {
   auto &ast_generator = *GetParam();
@@ -2701,6 +2700,7 @@ TEST_P(CypherMainVisitorTest, TestDoFailover) {
     EXPECT_EQ(correct_query_parsed->action_, ReplicationQuery::Action::DO_FAILOVER);
   }
 }
+#endif
 
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   auto &ast_generator = *GetParam();
