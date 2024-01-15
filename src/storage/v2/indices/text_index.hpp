@@ -56,7 +56,7 @@ class TextIndex {
 
   std::vector<std::string> ListIndices() const;
 
-  uint64_t ApproximateVertexCount(std::string index_name) const;
+  std::uint64_t ApproximateVertexCount(std::string index_name) const;
 };
 
 }  // namespace memgraph::storage

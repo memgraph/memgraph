@@ -34,9 +34,13 @@ std::vector<memcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(
 }
 
 bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::query::DbAccessor *db) {
-  auto index_config = memcxx::text_search::IndexConfig{
-      .mappings = "TODO devise the mapping by reading the indexable nodes' properties"};
-  index_.emplace(index_name, memcxx::text_search::create_index(index_name, index_config));
+  nlohmann::json mappings = {};
+  mappings["properties"] = {};
+  mappings["properties"]["metadata"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
+  mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
+
+  index_.emplace(index_name, memcxx::text_search::create_index(
+                                 index_name, memcxx::text_search::IndexConfig{.mappings = mappings.dump()}));
   label_to_index_.emplace(label, index_name);
   return true;
 
@@ -53,7 +57,7 @@ bool TextIndex::DropIndex(std::string index_name) {
 bool TextIndex::IndexExists(std::string index_name) const { return index_.contains(index_name); }
 
 std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_query) {
-  auto input = memcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata.gid"}};
+  auto input = memcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata"}};
   // Basic check for search fields in the query (Tantivy syntax delimits them with a `:` to the right)
   if (search_query.find(":") == std::string::npos) {
     input.search_fields = {"data"};
@@ -74,6 +78,7 @@ std::vector<std::string> TextIndex::ListIndices() const {
   }
   return ret;
 }
-uint64_t TextIndex::ApproximateVertexCount(std::string index_name) const { return 10; }
+
+std::uint64_t TextIndex::ApproximateVertexCount(std::string index_name) const { return 10; }
 
 }  // namespace memgraph::storage
