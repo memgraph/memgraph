@@ -17,8 +17,10 @@
 #include "replication/coordinator_entity_info.hpp"
 #include "replication/register_replica_error.hpp"
 #include "spdlog/spdlog.h"
+#include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include <atomic>
 #include <exception>
 #include <optional>
 #include <variant>

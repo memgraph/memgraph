@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "replication/coordinator_client.hpp"
+#include <atomic>
 
 #include "replication/coordinator_config.hpp"
 #include "replication/coordinator_rpc.hpp"
@@ -42,31 +43,27 @@ CoordinatorClient::~CoordinatorClient() {
 
 void CoordinatorClient::StartFrequentCheck() {
   MG_ASSERT(config_.health_check_frequency > std::chrono::seconds(0), "Health check frequency must be greater than 0");
-  replica_checker_.Run("Coord checker", config_.health_check_frequency, [rpc_client = &rpc_client_] {
-    try {
-      {
-        auto stream{rpc_client->Stream<memgraph::replication::FrequentHeartbeatRpc>()};
-        stream.AwaitResponse();
-      }
-    } catch (const rpc::RpcFailedException &) {
-      // Nothing to do...wait for a reconnect
-    }
-  });
+  replica_checker_.Run("Coord checker", config_.health_check_frequency,
+                       [last_response_time = &last_response_time, rpc_client = &rpc_client_] {
+                         try {
+                           {
+                             auto stream{rpc_client->Stream<memgraph::replication::FrequentHeartbeatRpc>()};
+                             stream.AwaitResponse();
+                             *last_response_time = std::chrono::system_clock::now();
+                           }
+                         } catch (const rpc::RpcFailedException &) {
+                           // Nothing to do...wait for a reconnect
+                         }
+                       });
 }
 
 void CoordinatorClient::StopFrequentCheck() { replica_checker_.Stop(); }
 
 bool CoordinatorClient::DoHealthCheck() const {
-  try {
-    {
-      auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
-      stream.AwaitResponse();
-      return true;
-    }
-  } catch (const rpc::RpcFailedException &) {
-    // Nothing to do...wait for a reconnect
-  }
-  return false;
+  auto response = std::chrono::system_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::seconds>(response - last_response_time);
+
+  return duration.count() <= 5;
 }
 
 auto CoordinatorClient::InstanceName() const -> std::string_view { return config_.instance_name; }

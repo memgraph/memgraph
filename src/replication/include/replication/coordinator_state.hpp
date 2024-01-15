@@ -16,6 +16,8 @@
 #include "replication/coordinator_server.hpp"
 #include "rpc/server.hpp"
 #include "utils/result.hpp"
+#include "utils/rw_spin_lock.hpp"
+#include "utils/synchronized.hpp"
 
 #include <list>
 #include <span>
