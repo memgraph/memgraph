@@ -17,10 +17,8 @@
 #include "dbms/inmemory/storage_helper.hpp"
 #include "dbms/replication_client.hpp"
 #include "replication/coordinator_state.hpp"
-#include "replication/register_replica_error.hpp"
 #include "replication/state.hpp"
 
-using memgraph::replication::ReplicationClientConfig;
 using memgraph::replication::ReplicationState;
 using memgraph::replication::RoleMainData;
 using memgraph::replication::RoleReplicaData;

@@ -11,6 +11,8 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+
 #include "replication/coordinator_client.hpp"
 #include "replication/coordinator_entity_info.hpp"
 #include "replication/coordinator_server.hpp"
@@ -20,10 +22,8 @@
 #include "utils/synchronized.hpp"
 
 #include <list>
-#include <span>
 #include <variant>
 
-#ifdef MG_ENTERPRISE
 namespace memgraph::replication {
 
 enum class RegisterMainReplicaCoordinatorStatus : uint8_t {

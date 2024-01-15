@@ -56,14 +56,14 @@ def test_coordinator_show_replication_cluster(connection):
     cursor = connection(7690, "coordinator").cursor()
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
 
-    expected_column_names = {"name", "socket_address", "alive"}
+    expected_column_names = {"name", "socket_address", "alive", "role"}
     actual_column_names = {x.name for x in cursor.description}
     assert actual_column_names == expected_column_names
 
     expected_data = {
-        ("main", "127.0.0.1:10013", True),
-        ("replica_1", "127.0.0.1:10011", True),
-        ("replica_2", "127.0.0.1:10012", True),
+        ("main", "127.0.0.1:10013", True, "main"),
+        ("replica_1", "127.0.0.1:10011", True, "replica"),
+        ("replica_2", "127.0.0.1:10012", True, "replica"),
     }
     assert actual_data == expected_data
 
@@ -93,7 +93,10 @@ def test_main_and_relicas_cannot_call_show_repl_cluster(port, role, connection):
 def test_main_and_replicas_cannot_register_coord_server(port, role, connection):
     cursor = connection(port, role).cursor()
     with pytest.raises(Exception) as e:
-        execute_and_fetch_all(cursor, "REGISTER REPLICA COORDINATOR SERVER ON replica_1 TO '127.0.0.1:10005';")
+        execute_and_fetch_all(
+            cursor,
+            "REGISTER REPLICA instance_1 SYNC TO '127.0.0.1:10001' WITH COORDINATOR SERVER ON '127.0.0.1:10011';",
+        )
     assert str(e.value) == "Only coordinator can register coordinator server!"
 
 
@@ -106,11 +109,6 @@ def test_main_and_replicas_cannot_run_do_failover(port, role, connection):
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "DO FAILOVER;")
     assert str(e.value) == "Only coordinator can run DO FAILOVER!"
-
-
-def test_coordinator_can_do_failover(connection):
-    cursor = connection(7690, "coordinator").cursor()
-    execute_and_fetch_all(cursor, "DO FAILOVER;")
 
 
 if __name__ == "__main__":

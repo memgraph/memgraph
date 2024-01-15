@@ -19,8 +19,6 @@ target_sources(mg-replication
         include/replication/coordinator_slk.hpp
         include/replication/coordinator_exceptions.hpp
         include/replication/replication_utils.hpp
-        include/replication/register_replica_error.hpp
-
 
         PRIVATE
         state.cpp

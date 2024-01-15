@@ -9,13 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#ifdef MG_ENTERPRISE
+
 #include "replication/coordinator_client.hpp"
 #include <atomic>
 
 #include "replication/coordinator_config.hpp"
 #include "replication/coordinator_rpc.hpp"
 
-#ifdef MG_ENTERPRISE
 namespace memgraph::replication {
 
 namespace {
@@ -81,8 +82,8 @@ auto CoordinatorClient::ReplicationClientInfo() -> std::optional<CoordinatorClie
   return config_.replication_client_info;
 }
 
-bool CoordinatorClient::SendFailoverRpc(
-    std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const {
+auto CoordinatorClient::SendFailoverRpc(
+    std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const -> bool {
   try {
     {
       auto stream{rpc_client_.Stream<FailoverRpc>(std::move(replication_clients_info))};

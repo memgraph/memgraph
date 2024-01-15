@@ -11,9 +11,9 @@
 
 #pragma once
 
-#include "utils/exceptions.hpp"
-
 #ifdef MG_ENTERPRISE
+
+#include "utils/exceptions.hpp"
 
 namespace memgraph::replication {
 class CoordinatorFailoverException final : public utils::BasicException {

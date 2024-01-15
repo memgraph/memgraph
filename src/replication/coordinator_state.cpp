@@ -11,11 +11,12 @@
 
 #include "replication/coordinator_state.hpp"
 
+#ifdef MG_ENTERPRISE
+
 #include "flags/replication.hpp"
 #include "replication/coordinator_client.hpp"
 #include "replication/coordinator_config.hpp"
 #include "replication/coordinator_entity_info.hpp"
-#include "replication/register_replica_error.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
@@ -23,11 +24,8 @@
 #include <atomic>
 #include <exception>
 #include <optional>
-#include <variant>
 
 namespace memgraph::replication {
-
-#ifdef MG_ENTERPRISE
 
 CoordinatorState::CoordinatorState() {
   MG_ASSERT(!(FLAGS_coordinator && FLAGS_coordinator_server_port),
@@ -236,5 +234,5 @@ auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
             "Cannot get coordinator server since variant holds wrong alternative");
   return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
 }
-#endif
 }  // namespace memgraph::replication
+#endif

@@ -11,9 +11,9 @@
 
 #pragma once
 
-#include "slk/serialization.hpp"
-
 #ifdef MG_ENTERPRISE
+
+#include "slk/serialization.hpp"
 
 namespace memgraph::dbms {
 

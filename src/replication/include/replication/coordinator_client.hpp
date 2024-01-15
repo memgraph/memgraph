@@ -11,7 +11,8 @@
 
 #pragma once
 
-#include "replication/config.hpp"
+#ifdef MG_ENTERPRISE
+
 #include "replication/coordinator_config.hpp"
 #include "replication/messages.hpp"
 #include "rpc/client.hpp"
@@ -22,7 +23,6 @@
 
 namespace memgraph::replication {
 
-#ifdef MG_ENTERPRISE
 class CoordinatorClient {
  public:
   explicit CoordinatorClient(const CoordinatorClientConfig &config);
@@ -38,9 +38,9 @@ class CoordinatorClient {
   void StartFrequentCheck();
   void StopFrequentCheck();
 
-  // TOODO: change method call signature
-  bool DoHealthCheck() const;
-  bool SendFailoverRpc(std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const;
+  auto DoHealthCheck() const -> bool;
+  auto SendFailoverRpc(std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const
+      -> bool;
 
   auto InstanceName() const -> std::string_view;
   auto Endpoint() const -> io::network::Endpoint const &;

@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "replication/coordinator_entity_info.hpp"
 #include "replication/role.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/result.hpp"
@@ -23,6 +22,7 @@ struct ReplicationServerConfig;
 struct ReplicationClientConfig;
 #ifdef MG_ENTERPRISE
 struct CoordinatorEntityInfo;
+struct CoordinatorEntityHealthInfo;
 struct CoordinatorClientConfig;
 #endif
 }  // namespace memgraph::replication
