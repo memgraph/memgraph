@@ -34,7 +34,7 @@ class TextIndex {
 
   ~TextIndex() = default;
 
-  std::map<std::string, mgcxx_mock::text_search::IndexContext> index_;
+  std::map<std::string, memcxx::text_search::Context> index_;
   std::map<LabelId, std::string> label_to_index_;
 
   void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) const;
@@ -44,7 +44,7 @@ class TextIndex {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                            const Transaction &tx) const;
 
-  std::vector<mgcxx_mock::text_search::IndexContext *> GetApplicableTextIndices(Vertex *vertex);
+  std::vector<memcxx::text_search::Context *> GetApplicableTextIndices(Vertex *vertex);
 
   bool CreateIndex(std::string index_name, LabelId label, memgraph::query::DbAccessor *db);
 
@@ -52,7 +52,7 @@ class TextIndex {
 
   bool IndexExists(std::string index_name) const;
 
-  std::vector<Gid> Search(std::string index_name, std::string search_query) const;
+  std::vector<Gid> Search(std::string index_name, std::string search_query);
 
   std::vector<std::string> ListIndices() const;
 
