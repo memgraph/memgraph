@@ -203,8 +203,10 @@ auto CoordinatorState::DoFailover() -> DoFailoverStatus {
   // 3.
   // Set on coordinator data of new main
   // allocate resources for new main, clear replication info on this replica as main
+  // set last response time
   auto potential_new_main = std::make_unique<CoordinatorClient>(chosen_replica->Config());
   potential_new_main->ReplicationClientInfo().reset();
+  potential_new_main->UpdateTimeCheck(chosen_replica->GetLastTimeResponse());
 
   // 4.
   if (!chosen_replica->SendFailoverRpc(std::move(repl_clients_info))) {

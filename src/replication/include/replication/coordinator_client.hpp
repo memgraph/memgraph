@@ -47,6 +47,8 @@ class CoordinatorClient {
   auto Config() const -> CoordinatorClientConfig const &;
   auto ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo const &;
   auto ReplicationClientInfo() -> std::optional<CoordinatorClientConfig::ReplicationClientInfo> &;
+  void UpdateTimeCheck(const std::chrono::system_clock::time_point &last_checked_time);
+  auto GetLastTimeResponse() -> std::chrono::system_clock::time_point;
 
   friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
     return first.config_ == second.config_;

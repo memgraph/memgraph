@@ -11,6 +11,7 @@
 
 import os
 import sys
+from time import sleep
 
 import interactive_mg_runner
 import pytest
@@ -134,14 +135,13 @@ def test_simple_client_initiated_failover(connection):
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
     # 3.
-    def retrieve_data_do_failover():
-        return set(execute_and_fetch_all(coord_cursor, "DO FAILOVER"))
+    execute_and_fetch_all(coord_cursor, "DO FAILOVER")
 
     expected_data_on_coord = {
         ("instance_1", "127.0.0.1:10011", True, "main"),
         ("instance_2", "127.0.0.1:10012", True, "replica"),
     }
-    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_do_failover)
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
     # 4.
     new_main_cursor = connection(7688, "instance_1").cursor()
@@ -176,7 +176,7 @@ def test_failover_fails_all_replicas_down(connection):
     # 4.
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(coord_cursor, "DO FAILOVER;")
-        assert str(e.value) == "Failover aborted since all replicas are down!"
+    assert str(e.value) == "Failover aborted since all replicas are down!"
 
     # 5.
 
@@ -201,12 +201,7 @@ def test_failover_fails_main_is_alive(connection):
 
     # 2.
     coord_cursor = connection(7690, "coordinator").cursor()
-    # 4.
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(coord_cursor, "DO FAILOVER;")
-        assert str(e.value) == "Failover aborted since main is alive!"
 
-    # 5.
     def retrieve_data():
         return set(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;"))
 
@@ -215,6 +210,14 @@ def test_failover_fails_main_is_alive(connection):
         ("instance_2", "127.0.0.1:10012", True, "replica"),
         ("instance_3", "127.0.0.1:10013", True, "main"),
     }
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data)
+
+    # 4.
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coord_cursor, "DO FAILOVER;")
+    assert str(e.value) == "Failover aborted since main is alive!"
+
+    # 5.
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data)
 
 
