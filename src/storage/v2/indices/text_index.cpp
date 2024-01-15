@@ -12,6 +12,7 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "query/db_accessor.hpp"
 #include "storage/v2/mgcxx_mock.hpp"
+#include "storage/v2/view.hpp"
 #include "text_search.hpp"
 
 namespace memgraph::storage {
@@ -42,9 +43,35 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
   index_.emplace(index_name, memcxx::text_search::create_index(
                                  index_name, memcxx::text_search::IndexConfig{.mappings = mappings.dump()}));
   label_to_index_.emplace(label, index_name);
-  return true;
 
-  // TODO add documents (indexable nodes) to index
+  bool has_schema = false;
+  std::vector<std::pair<PropertyId, std::string>> indexed_properties{};
+  for (const auto &v : db->Vertices(View::OLD)) {
+    if (!has_schema) [[unlikely]] {
+      for (const auto &[prop_id, prop_val] : v.Properties(View::OLD).GetValue()) {
+        if (prop_val.IsString()) {
+          indexed_properties.emplace_back(std::pair<PropertyId, std::string>{prop_id, db->PropertyToName(prop_id)});
+        }
+      }
+      has_schema = true;
+    }
+
+    nlohmann::json document = {};
+    nlohmann::json properties = {};
+    for (const auto &[prop_id, prop_name] : indexed_properties) {
+      properties[prop_name] = v.GetProperty(View::OLD, prop_id).GetValue().ValueString();
+    }
+
+    document["data"] = properties;
+    document["metadata"] = {};
+    document["metadata"]["gid"] = v.Gid().AsInt();
+    // TODO add txid
+    document["metadata"]["deleted"] = false;
+    document["metadata"]["is_node"] = true;
+
+    memcxx::text_search::add(index_.at(index_name), memcxx::text_search::DocumentInput{.data = document.dump()}, false);
+  }
+  return true;
 }
 
 bool TextIndex::DropIndex(std::string index_name) {
@@ -65,7 +92,7 @@ std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_qu
 
   std::vector<Gid> found_nodes;
   for (const auto &doc : memcxx::text_search::search(index_.at(index_name), input).docs) {
-    found_nodes.push_back(storage::Gid::FromString(doc.data.data()));
+    found_nodes.push_back(storage::Gid::FromString(nlohmann::json::parse(doc.data.data())["metadata"]["gid"].dump()));
   }
   return found_nodes;
 }
