@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1243,6 +1243,10 @@ class ExpandVariableCursor : public Cursor {
         MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
                   "Accumulated path must be path");
         Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
+        // Shrink the accumulated path including current level if necessary
+        while (accumulated_path.size() >= edges_on_frame.size()) {
+          accumulated_path.Shrink();
+        }
         accumulated_path.Expand(current_edge.first);
         accumulated_path.Expand(current_vertex);
       }
