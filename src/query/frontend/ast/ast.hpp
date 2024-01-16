@@ -3529,6 +3529,65 @@ class Exists : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
+class PatternComprehension : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  PatternComprehension() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      if (variable_) {
+        variable_->Accept(visitor);
+      }
+      pattern_->Accept(visitor);
+      if (filter_) {
+        filter_->Accept(visitor);
+      }
+      resultExpr_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  PatternComprehension *MapTo(const Symbol &symbol) {
+    symbol_pos_ = symbol.position();
+    return this;
+  }
+
+  // The variable name.
+  Identifier *variable_{nullptr};
+  // The pattern to match.
+  Pattern *pattern_{nullptr};
+  // Optional WHERE clause for filtering.
+  Where *filter_{nullptr};
+  // The projection expression.
+  Expression *resultExpr_{nullptr};
+
+  /// Symbol table position of the symbol this Aggregation is mapped to.
+  int32_t symbol_pos_{-1};
+
+  PatternComprehension *Clone(AstStorage *storage) const override {
+    PatternComprehension *object = storage->Create<PatternComprehension>();
+    object->pattern_ = pattern_ ? pattern_->Clone(storage) : nullptr;
+    object->filter_ = filter_ ? filter_->Clone(storage) : nullptr;
+    object->resultExpr_ = resultExpr_ ? resultExpr_->Clone(storage) : nullptr;
+
+    object->symbol_pos_ = symbol_pos_;
+    return object;
+  }
+
+ protected:
+  PatternComprehension(Identifier *variable, Pattern *pattern) : variable_(variable), pattern_(pattern) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class CallSubquery : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;

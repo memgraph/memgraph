@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -434,11 +434,12 @@ void ExaminePlans(memgraph::query::DbAccessor *dba, const memgraph::query::Symbo
 
 memgraph::query::Query *MakeAst(const std::string &query, memgraph::query::AstStorage *storage) {
   memgraph::query::frontend::ParsingContext parsing_context;
+  memgraph::query::Parameters parameters;
   parsing_context.is_query_cached = false;
   // query -> AST
   auto parser = std::make_unique<memgraph::query::frontend::opencypher::Parser>(query);
   // AST -> high level tree
-  memgraph::query::frontend::CypherMainVisitor visitor(parsing_context, storage);
+  memgraph::query::frontend::CypherMainVisitor visitor(parsing_context, storage, &parameters);
   visitor.visit(parser->tree());
   return visitor.query();
 }
@@ -462,7 +463,7 @@ auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstS
     memgraph::query::AstStorage ast_copy;
     auto unoptimized_plan = plan->Clone(&ast_copy);
     auto rewritten_plan = post_process.Rewrite(std::move(plan), &ctx);
-    double cost = post_process.EstimatePlanCost(rewritten_plan, dba, symbol_table);
+    double cost = post_process.EstimatePlanCost(rewritten_plan, dba, symbol_table).cost;
     interactive_plans.push_back(
         InteractivePlan{std::move(unoptimized_plan), std::move(ast_copy), std::move(rewritten_plan), cost});
   }
