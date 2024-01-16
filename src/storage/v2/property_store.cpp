@@ -1024,18 +1024,6 @@ PropertyStore::~PropertyStore() {
 }
 
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
-  // if (external) {
-  //   int DUMMY_GRAPH_ELEMENT_ID = 1;
-
-  //   auto key = property.ToString();
-  //   auto properties = external_store_mock->GetDocument(DUMMY_GRAPH_ELEMENT_ID)["properties"];
-  //   if (!properties.contains(key)) {
-  //     return PropertyValue();
-  //   }
-
-  //   return PropertyValue(properties.at(key).get<int64_t>());
-  // }
-
   uint64_t size;
   const uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
@@ -1133,7 +1121,6 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
   return props;
 }
 
-/// NOTE: The external_store_mock argument will be removed after replacing the mock with the mgcxx Tantivy API
 bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
   uint64_t property_size = 0;
   if (!value.IsNull()) {
