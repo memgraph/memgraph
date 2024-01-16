@@ -28,8 +28,8 @@
 #include "dbms/database.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #ifdef MG_ENTERPRISE
+#include "coordination/coordinator_state.hpp"
 #include "dbms/database_handler.hpp"
-#include "replication/coordinator_state.hpp"
 #endif
 #include "dbms/replication_client.hpp"
 #include "global.hpp"

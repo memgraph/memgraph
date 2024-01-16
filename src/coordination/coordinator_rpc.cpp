@@ -11,9 +11,9 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "replication/coordinator_rpc.hpp"
+#include "coordination/coordinator_rpc.hpp"
 
-#include "replication/coordinator_slk.hpp"
+#include "coordination/coordinator_slk.hpp"
 #include "slk/serialization.hpp"
 
 namespace memgraph {

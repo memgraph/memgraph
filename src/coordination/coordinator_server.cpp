@@ -11,7 +11,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "replication/coordinator_server.hpp"
+#include "coordination/coordinator_server.hpp"
 
 #include "replication/messages.hpp"
 #include "replication/replication_utils.hpp"

@@ -9,13 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#ifdef MG_ENTERPRISE
+
 #include "dbms/dbms_handler.hpp"
 
-#include "dbms/inmemory/coordinator_handlers.hpp"
+#include "dbms/coordinator_handlers.hpp"
 #include "flags/replication.hpp"
 
 namespace memgraph::dbms {
-#ifdef MG_ENTERPRISE
+
 DbmsHandler::DbmsHandler(
     storage::Config config,
     memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
@@ -80,6 +82,5 @@ DbmsHandler::DbmsHandler(
   }
 }
 
-#endif
-
 }  // namespace memgraph::dbms
+#endif

@@ -13,9 +13,9 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "replication/coordinator_client.hpp"
-#include "replication/coordinator_entity_info.hpp"
-#include "replication/coordinator_server.hpp"
+#include "coordination/coordinator_client.hpp"
+#include "coordination/coordinator_entity_info.hpp"
+#include "coordination/coordinator_server.hpp"
 #include "rpc/server.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_spin_lock.hpp"

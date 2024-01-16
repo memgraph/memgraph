@@ -33,6 +33,7 @@
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "coordination/coordinator_entity_info.hpp"
 #include "csv/parsing.hpp"
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
@@ -72,7 +73,6 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "replication/config.hpp"
-#include "replication/coordinator_entity_info.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"

@@ -11,11 +11,12 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "replication/coordinator_client.hpp"
-#include <atomic>
+#include "coordination/coordinator_client.hpp"
 
-#include "replication/coordinator_config.hpp"
-#include "replication/coordinator_rpc.hpp"
+#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_rpc.hpp"
+
+#include <atomic>
 
 namespace memgraph::replication {
 

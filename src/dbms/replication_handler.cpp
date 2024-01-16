@@ -11,12 +11,12 @@
 
 #include "dbms/replication_handler.hpp"
 
+#include "coordination/coordinator_state.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "dbms/replication_client.hpp"
-#include "replication/coordinator_state.hpp"
 #include "replication/state.hpp"
 
 using memgraph::replication::ReplicationState;

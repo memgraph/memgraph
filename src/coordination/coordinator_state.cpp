@@ -9,14 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "replication/coordinator_state.hpp"
+#include "coordination/coordinator_state.hpp"
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_entity_info.hpp"
 #include "flags/replication.hpp"
-#include "replication/coordinator_client.hpp"
-#include "replication/coordinator_config.hpp"
-#include "replication/coordinator_entity_info.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"

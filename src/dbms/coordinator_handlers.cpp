@@ -11,11 +11,11 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "dbms/inmemory/coordinator_handlers.hpp"
+#include "dbms/coordinator_handlers.hpp"
 
+#include "coordination/coordinator_exceptions.hpp"
+#include "coordination/coordinator_rpc.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "replication/coordinator_exceptions.hpp"
-#include "replication/coordinator_rpc.hpp"
 
 namespace memgraph::dbms {
 

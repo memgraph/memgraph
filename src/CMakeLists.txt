@@ -22,6 +22,7 @@ add_subdirectory(dbms)
 add_subdirectory(flags)
 add_subdirectory(distributed)
 add_subdirectory(replication)
+add_subdirectory(coordination)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 

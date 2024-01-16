@@ -11,9 +11,9 @@
 
 #include <gtest/gtest.h>
 
+#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_slk.hpp"
 #include "replication/config.hpp"
-#include "replication/coordinator_config.hpp"
-#include "replication/coordinator_slk.hpp"
 #include "replication/mode.hpp"
 #include "slk_common.hpp"
 #include "storage/v2/property_value.hpp"

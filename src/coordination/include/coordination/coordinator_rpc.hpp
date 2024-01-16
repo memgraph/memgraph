@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "replication/coordinator_config.hpp"
+#include "coordination/coordinator_config.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 
