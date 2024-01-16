@@ -20,5 +20,5 @@ target_sources(mg-coordination
 target_include_directories(mg-coordination PUBLIC include)
 
 target_link_libraries(mg-coordination
-    PUBLIC mg::utils mg::rpc mg::slk mg::replication
+    PUBLIC mg::utils mg::rpc mg::slk mg::io mg::replication
 )

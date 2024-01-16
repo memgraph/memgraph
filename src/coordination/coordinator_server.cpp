@@ -12,27 +12,33 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_server.hpp"
-
 #include "replication/messages.hpp"
-#include "replication/replication_utils.hpp"
 
-namespace memgraph::replication {
+namespace memgraph::coordination {
 
 namespace {
+
+auto CreateServerContext(const memgraph::coordination::CoordinatorServerConfig &config)
+    -> communication::ServerContext {
+  return (config.ssl) ? communication::ServerContext{config.ssl->key_file, config.ssl->cert_file, config.ssl->ca_file,
+                                                     config.ssl->verify_peer}
+                      : communication::ServerContext{};
+}
 
 // NOTE: The coordinator server doesn't more than 1 processing thread - each replica can
 // have only a single coordinator server. Also, the single-threaded guarantee
 // simplifies the rest of the implementation.
 constexpr auto kCoordinatorServerThreads = 1;
+
 }  // namespace
 
-CoordinatorServer::CoordinatorServer(const memgraph::replication::ReplicationServerConfig &config)
+CoordinatorServer::CoordinatorServer(const CoordinatorServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
       rpc_server_{io::network::Endpoint{config.ip_address, config.port}, &rpc_server_context_,
                   kCoordinatorServerThreads} {
-  rpc_server_.Register<FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
+  rpc_server_.Register<replication::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received FrequentHeartbeatRpc on coordinator server");
-    FrequentHeartbeatHandler(req_reader, res_builder);
+    replication::FrequentHeartbeatHandler(req_reader, res_builder);
   });
 }
 
@@ -47,5 +53,5 @@ CoordinatorServer::~CoordinatorServer() {
 
 bool CoordinatorServer::Start() { return rpc_server_.Start(); }
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::coordination
 #endif

@@ -15,19 +15,19 @@
 
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_rpc.hpp"
+#include "replication/messages.hpp"
 
-#include <atomic>
-
-namespace memgraph::replication {
+namespace memgraph::coordination {
 
 namespace {
-auto CreateClientContext(const memgraph::replication::CoordinatorClientConfig &config) -> communication::ClientContext {
+auto CreateClientContext(const memgraph::coordination::CoordinatorClientConfig &config)
+    -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
                       : communication::ClientContext{};
 }
 }  // namespace
 
-CoordinatorClient::CoordinatorClient(const memgraph::replication::CoordinatorClientConfig &config)
+CoordinatorClient::CoordinatorClient(const CoordinatorClientConfig &config)
     : rpc_context_{CreateClientContext(config)},
       rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
                   &rpc_context_},
@@ -107,5 +107,5 @@ auto CoordinatorClient::SendFailoverRpc(
   return false;
 }
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::coordination
 #endif

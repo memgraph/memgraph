@@ -18,7 +18,7 @@
 
 namespace memgraph {
 
-namespace replication {
+namespace coordination {
 
 void FailoverReq::Save(const FailoverReq &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
 
@@ -28,31 +28,31 @@ void FailoverRes::Save(const FailoverRes &self, memgraph::slk::Builder *builder)
 
 void FailoverRes::Load(FailoverRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 
-}  // namespace replication
+}  // namespace coordination
 
-constexpr utils::TypeInfo replication::FailoverReq::kType{utils::TypeId::COORD_FAILOVER_REQ, "CoordFailoverReq",
-                                                          nullptr};
+constexpr utils::TypeInfo coordination::FailoverReq::kType{utils::TypeId::COORD_FAILOVER_REQ, "CoordFailoverReq",
+                                                           nullptr};
 
-constexpr utils::TypeInfo replication::FailoverRes::kType{utils::TypeId::COORD_FAILOVER_RES, "CoordFailoverRes",
-                                                          nullptr};
+constexpr utils::TypeInfo coordination::FailoverRes::kType{utils::TypeId::COORD_FAILOVER_RES, "CoordFailoverRes",
+                                                           nullptr};
 
 namespace slk {
 
-void Save(const memgraph::replication::FailoverRes &self, memgraph::slk::Builder *builder) {
+void Save(const memgraph::coordination::FailoverRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
 }
 
-void Load(memgraph::replication::FailoverRes *self, memgraph::slk::Reader *reader) {
+void Load(memgraph::coordination::FailoverRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
 }
 
-void Save(const memgraph::replication::FailoverReq &self, memgraph::slk::Builder *builder) {
+void Save(const memgraph::coordination::FailoverReq &self, memgraph::slk::Builder *builder) {
   std::function<void(const ReplicationClientInfo &, Builder *)> item_save_function =
       [](const auto &item, auto *builder) -> void { memgraph::slk::Save(item, builder); };
   memgraph::slk::Save(self.replication_clients_info, builder, item_save_function);
 }
 
-void Load(memgraph::replication::FailoverReq *self, memgraph::slk::Reader *reader) {
+void Load(memgraph::coordination::FailoverReq *self, memgraph::slk::Reader *reader) {
   std::function<void(ReplicationClientInfo *, Reader *)> item_load_function = [](auto *item, auto *reader) -> void {
     memgraph::slk::Load(item, reader);
   };

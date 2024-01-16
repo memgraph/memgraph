@@ -15,7 +15,7 @@
 
 #include "utils/exceptions.hpp"
 
-namespace memgraph::replication {
+namespace memgraph::coordination {
 class CoordinatorFailoverException final : public utils::BasicException {
  public:
   explicit CoordinatorFailoverException(const std::string_view what) noexcept
@@ -28,5 +28,5 @@ class CoordinatorFailoverException final : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorFailoverException)
 };
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::coordination
 #endif

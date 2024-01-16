@@ -377,19 +377,19 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
     const auto [replication_ip, replication_port] = *maybe_replication_ip_port;
     const auto [coordinator_server_ip, coordinator_server_port] = *maybe_coordinator_ip_port;
-    const auto repl_config = replication::CoordinatorClientConfig::ReplicationClientInfo{
+    const auto repl_config = coordination::CoordinatorClientConfig::ReplicationClientInfo{
         .instance_name = instance_name,
         .replication_mode = convertToReplicationMode(sync_mode),
         .replication_ip_address = replication_ip,
         .replication_port = replication_port};
 
     const auto coordinator_client_config =
-        replication::CoordinatorClientConfig{.instance_name = instance_name,
-                                             .ip_address = coordinator_server_ip,
-                                             .port = coordinator_server_port,
-                                             .health_check_frequency = instance_check_frequency,
-                                             .replication_client_info = repl_config,
-                                             .ssl = std::nullopt};
+        coordination::CoordinatorClientConfig{.instance_name = instance_name,
+                                              .ip_address = coordinator_server_ip,
+                                              .port = coordinator_server_port,
+                                              .health_check_frequency = instance_check_frequency,
+                                              .replication_client_info = repl_config,
+                                              .ssl = std::nullopt};
 
     if (const auto ret = handler_.RegisterReplicaOnCoordinator(coordinator_client_config); ret.HasError()) {
       throw QueryRuntimeException("Couldn't register replica on coordinator!");
@@ -409,11 +409,11 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       throw QueryRuntimeException("Invalid socket address!");
     }
     const auto [ip, port] = *maybe_ip_and_port;
-    const auto config = replication::CoordinatorClientConfig{.instance_name = instance_name,
-                                                             .ip_address = ip,
-                                                             .port = port,
-                                                             .health_check_frequency = instance_check_frequency,
-                                                             .ssl = std::nullopt};
+    const auto config = coordination::CoordinatorClientConfig{.instance_name = instance_name,
+                                                              .ip_address = ip,
+                                                              .port = port,
+                                                              .health_check_frequency = instance_check_frequency,
+                                                              .ssl = std::nullopt};
 
     if (const auto ret = handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
       throw QueryRuntimeException("Couldn't register main on coordinator!");
@@ -439,10 +439,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   }
 
   std::vector<MainReplicaStatus> ShowMainReplicaStatus(
-      const std::vector<replication::CoordinatorEntityInfo> &replicas,
+      const std::vector<coordination::CoordinatorEntityInfo> &replicas,
       const std::unordered_map<std::string_view, bool> &health_check_replicas,
-      const std::optional<replication::CoordinatorEntityInfo> &main,
-      const std::optional<replication::CoordinatorEntityHealthInfo> &health_check_main) const override {
+      const std::optional<coordination::CoordinatorEntityInfo> &main,
+      const std::optional<coordination::CoordinatorEntityHealthInfo> &health_check_main) const override {
     std::vector<MainReplicaStatus> result{};
     result.reserve(replicas.size() + 1);  // replicas + 1 main
     std::ranges::transform(
@@ -536,7 +536,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   }
 
 #ifdef MG_ENTERPRISE
-  std::vector<replication::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const override {
+  std::vector<coordination::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const override {
     return handler_.ShowReplicasOnCoordinator();
   }
 
@@ -544,11 +544,11 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     return handler_.PingReplicasOnCoordinator();
   }
 
-  std::optional<replication::CoordinatorEntityInfo> ShowMainOnCoordinator() const override {
+  std::optional<coordination::CoordinatorEntityInfo> ShowMainOnCoordinator() const override {
     return handler_.ShowMainOnCoordinator();
   }
 
-  std::optional<replication::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const override {
+  std::optional<coordination::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const override {
     return handler_.PingMainOnCoordinator();
   }
 #endif

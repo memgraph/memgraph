@@ -124,26 +124,26 @@ class ReplicationQueryHandler {
                                              const std::string &instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<replication::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const = 0;
+  virtual std::vector<coordination::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<replication::CoordinatorEntityInfo> ShowMainOnCoordinator() const = 0;
+  virtual std::optional<coordination::CoordinatorEntityInfo> ShowMainOnCoordinator() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::unordered_map<std::string_view, bool> PingReplicasOnCoordinator() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<replication::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const = 0;
+  virtual std::optional<coordination::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void DoFailover() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<MainReplicaStatus> ShowMainReplicaStatus(
-      const std::vector<replication::CoordinatorEntityInfo> &replicas,
+      const std::vector<coordination::CoordinatorEntityInfo> &replicas,
       const std::unordered_map<std::string_view, bool> &health_check_replicas,
-      const std::optional<replication::CoordinatorEntityInfo> &main,
-      const std::optional<replication::CoordinatorEntityHealthInfo> &health_check_main) const = 0;
+      const std::optional<coordination::CoordinatorEntityInfo> &main,
+      const std::optional<coordination::CoordinatorEntityHealthInfo> &health_check_main) const = 0;
 
 #endif
 

@@ -17,7 +17,7 @@
 
 #include <string>
 
-namespace memgraph::replication {
+namespace memgraph::coordination {
 
 struct CoordinatorEntityInfo {
   std::string_view name;
@@ -29,6 +29,6 @@ struct CoordinatorEntityHealthInfo {
   bool alive;
 };
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::coordination
 
 #endif

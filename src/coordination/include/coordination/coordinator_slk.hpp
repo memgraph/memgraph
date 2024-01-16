@@ -19,7 +19,7 @@
 
 namespace memgraph::slk {
 
-using ReplicationClientInfo = replication::CoordinatorClientConfig::ReplicationClientInfo;
+using ReplicationClientInfo = coordination::CoordinatorClientConfig::ReplicationClientInfo;
 
 inline void Save(replication::ReplicationMode obj, Builder *builder) {
   Save(static_cast<std::underlying_type_t<replication::ReplicationMode>>(obj), builder);

@@ -11,7 +11,6 @@ target_sources(mg-replication
         include/replication/status.hpp
         include/replication/replication_client.hpp
         include/replication/replication_server.hpp
-        include/replication/replication_utils.hpp
 
         PRIVATE
         state.cpp

@@ -24,7 +24,7 @@
 #include <list>
 #include <variant>
 
-namespace memgraph::replication {
+namespace memgraph::coordination {
 
 enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
   NAME_EXISTS,
@@ -90,5 +90,5 @@ class CoordinatorState {
   std::variant<CoordinatorData, CoordinatorMainReplicaData> data_;
 };
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::coordination
 #endif
