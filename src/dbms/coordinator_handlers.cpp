@@ -21,10 +21,9 @@
 namespace memgraph::dbms {
 
 void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
-  using Callable = std::function<void(slk::Reader * req_reader, slk::Builder * res_builder)>;
   auto &server = dbms_handler.CoordinatorState().GetCoordinatorServer();
 
-  server.Register<Callable, coordination::FailoverRpc>(
+  server.Register<coordination::FailoverRpc>(
       [&dbms_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         spdlog::info("Received FailoverRpc from coordinator server");
         CoordinatorHandlers::FailoverHandler(dbms_handler, req_reader, res_builder);
@@ -34,62 +33,70 @@ void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
 void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
                                           slk::Builder *res_builder) {
   auto &repl_state = dbms_handler.ReplicationState();
-  MG_ASSERT(repl_state.IsReplica(), "Failover must be performed on replica!");
+
+  if (repl_state.IsReplica()) {
+    spdlog::error("Failover must be performed on replica!");
+    slk::Save(coordination::FailoverRes{false}, res_builder);
+    return;
+  }
+
+  if (bool success = memgraph::dbms::DoReplicaToMainPromotion(dbms_handler); !success) {
+    spdlog::error("Promoting replica to main failed!");
+    slk::Save(coordination::FailoverRes{false}, res_builder);
+    return;
+  }
+
   coordination::FailoverReq req;
   slk::Load(&req, req_reader);
 
-  bool success = true;
-  try {
-    success = memgraph::dbms::DoReplicaToMainPromotion(dbms_handler);
+  std::vector<replication::ReplicationClientConfig> clients_config;
+  clients_config.reserve(req.replication_clients_info.size());
+  std::ranges::transform(req.replication_clients_info, std::back_inserter(clients_config),
+                         [](const auto &repl_info_config) {
+                           return replication::ReplicationClientConfig{
+                               .name = repl_info_config.instance_name,
+                               .mode = repl_info_config.replication_mode,
+                               .ip_address = repl_info_config.replication_ip_address,
+                               .port = repl_info_config.replication_port,
+                           };
+                         });
 
-    // STEP 4) Convert ReplicationClientInfo to ReplicationClientConfig
-    std::vector<replication::ReplicationClientConfig> clients_config;
-    clients_config.reserve(req.replication_clients_info.size());
-    std::ranges::transform(req.replication_clients_info, std::back_inserter(clients_config),
-                           [](const auto &repl_info_config) {
-                             return replication::ReplicationClientConfig{
-                                 .name = repl_info_config.instance_name,
-                                 .mode = repl_info_config.replication_mode,
-                                 .ip_address = repl_info_config.replication_ip_address,
-                                 .port = repl_info_config.replication_port,
-                             };
-                           });
-
-    // STEP 5) Register received replicas
-    std::ranges::for_each(clients_config, [&dbms_handler, &repl_state](const auto &config) {
-      auto instance_client = repl_state.RegisterReplica(config);
-      if (instance_client.HasError()) switch (instance_client.GetError()) {
-          case memgraph::replication::RegisterReplicaError::NOT_MAIN:
-            throw coordination::CoordinatorFailoverException("Failover must be performed to main!");
-          case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
-            throw coordination::CoordinatorFailoverException("Replica with the same name already exists!");
-          case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
-            throw coordination::CoordinatorFailoverException("Replica with the same endpoint already exists!");
-          case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-            throw coordination::CoordinatorFailoverException("Registered replica could not be persisted!");
-          case memgraph::replication::RegisterReplicaError::SUCCESS:
-            break;
-        }
-
-      auto &instance_client_ptr = instance_client.GetValue();
-      const bool all_clients_good = memgraph::dbms::RegisterAllDatabasesClients(dbms_handler, *instance_client_ptr);
-
-      if (!all_clients_good) {
-        spdlog::error("Failed to register all databases to the REPLICA \"{}\"", config.name);
-        throw coordination::CoordinatorFailoverException("Failed to register all databases to the REPLICA!");
+  std::ranges::for_each(clients_config, [&dbms_handler, &repl_state, &res_builder](const auto &config) {
+    auto instance_client = repl_state.RegisterReplica(config);
+    if (instance_client.HasError()) switch (instance_client.GetError()) {
+        case memgraph::replication::RegisterReplicaError::NOT_MAIN:
+          spdlog::error("Failover must be performed to main!");
+          slk::Save(coordination::FailoverRes{false}, res_builder);
+          return;
+        case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
+          spdlog::error("Replica with the same name already exists!");
+          slk::Save(coordination::FailoverRes{false}, res_builder);
+          return;
+        case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
+          spdlog::error("Replica with the same endpoint already exists!");
+          slk::Save(coordination::FailoverRes{false}, res_builder);
+          return;
+        case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+          spdlog::error("Registered replica could not be persisted!");
+          slk::Save(coordination::FailoverRes{false}, res_builder);
+          return;
+        case memgraph::replication::RegisterReplicaError::SUCCESS:
+          break;
       }
 
-      StartReplicaClient(dbms_handler, *instance_client.GetValue());
-    });
+    auto &instance_client_ptr = instance_client.GetValue();
+    const bool all_clients_good = memgraph::dbms::RegisterAllDatabasesClients(dbms_handler, *instance_client_ptr);
 
-  } catch (coordination::CoordinatorFailoverException &e) {
-    spdlog::error("Failover failed: {}", e.what());
-    success = false;
-  }
+    if (!all_clients_good) {
+      spdlog::error("Failed to register all databases to the REPLICA \"{}\"", config.name);
+      slk::Save(coordination::FailoverRes{false}, res_builder);
+      return;
+    }
 
-  coordination::FailoverRes res{success};
-  slk::Save(res, res_builder);
-  spdlog::info("Failover handler finished execution!");
+    StartReplicaClient(dbms_handler, *instance_client.GetValue());
+  });
+
+  slk::Save(coordination::FailoverRes{true}, res_builder);
 }
 
 }  // namespace memgraph::dbms

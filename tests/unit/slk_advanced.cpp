@@ -119,7 +119,7 @@ TEST(SlkAdvanced, PropertyValueComplex) {
 }
 
 TEST(SlkAdvanced, ReplicationClientConfigs) {
-  using ReplicationClientInfo = memgraph::replication::CoordinatorClientConfig::ReplicationClientInfo;
+  using ReplicationClientInfo = memgraph::coordination::CoordinatorClientConfig::ReplicationClientInfo;
   using ReplicationClientInfoVec = std::vector<ReplicationClientInfo>;
   using ReplicationMode = memgraph::replication::ReplicationMode;
 

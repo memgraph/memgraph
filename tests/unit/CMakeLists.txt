@@ -389,7 +389,7 @@ endif()
 # Test mg-slk
 if(MG_ENTERPRISE)
   add_unit_test(slk_advanced.cpp)
-  target_link_libraries(${test_prefix}slk_advanced mg-storage-v2)
+  target_link_libraries(${test_prefix}slk_advanced mg-storage-v2 mg-coordination)
 endif()
 
 add_unit_test(slk_core.cpp)
