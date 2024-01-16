@@ -30,24 +30,26 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
+BOLT_PORTS = {"main": 7687, "replica_1": 7688, "replica_2": 7689}
+REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
 
 MEMGRAPH_INSTANCES_DESCRIPTION = {
     "replica_1": {
-        "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+        "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
         "log_file": "replica1.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        "setup_queries": [f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"],
     },
     "replica_2": {
-        "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+        "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
         "log_file": "replica2.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+        "setup_queries": [f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};"],
     },
     "main": {
-        "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+        "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
         "log_file": "main.log",
         "setup_queries": [
-            "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';",
-            "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002';",
+            f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+            f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
         ],
     },
 }
@@ -58,7 +60,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
     "replica_1": {
         "args": [
             "--bolt-port",
-            "7688",
+            f"{BOLT_PORTS['replica_1']}",
             "--log-level=TRACE",
             "--replication-restore-state-on-startup",
             "--data-recovery-on-startup",
@@ -69,7 +71,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
     "replica_2": {
         "args": [
             "--bolt-port",
-            "7689",
+            f"{BOLT_PORTS['replica_2']}",
             "--log-level=TRACE",
             "--replication-restore-state-on-startup",
             "--data-recovery-on-startup",
@@ -80,7 +82,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
     "main": {
         "args": [
             "--bolt-port",
-            "7687",
+            f"{BOLT_PORTS['main']}",
             "--log-level=TRACE",
             "--replication-restore-state-on-startup",
             "--data-recovery-on-startup",
@@ -100,15 +102,27 @@ def safe_execute(function, *args):
 
 def setup_replication(connection):
     # Setup replica1
-    cursor = connection(7688, "replica").cursor()
-    execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+    cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    execute_and_fetch_all(cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};")
     # Setup replica2
-    cursor = connection(7689, "replica").cursor()
-    execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10002;")
+    cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+    execute_and_fetch_all(cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};")
     # Setup main
-    cursor = connection(7687, "main").cursor()
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002';")
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    execute_and_fetch_all(cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';")
+    execute_and_fetch_all(cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';")
+
+
+def setup_main(main_cursor):
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
 
 
 def show_replicas_func(cursor, db_name):
@@ -144,7 +158,7 @@ def get_number_of_edges_func(cursor, db_name):
 
 def test_manual_databases_create_multitenancy_replication(connection):
     # Goal: to show that replication can be established against REPLICA which already
-    # has the database we need (which was unused so far)
+    # has the clean databases we need
     # 0/ MAIN CREATE DATABASE A + B
     #    REPLICA CREATE DATABASE A + B
     #    Setup replication
@@ -153,38 +167,38 @@ def test_manual_databases_create_multitenancy_replication(connection):
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
             "log_file": "replica1.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "CREATE DATABASE B;",
-                "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
         },
         "replica_2": {
-            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
             "log_file": "replica2.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "CREATE DATABASE B;",
-                "SET REPLICATION ROLE TO REPLICA WITH PORT 10002;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
             ],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
             "log_file": "main.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "CREATE DATABASE B;",
-                "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002';",
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
             ],
         },
     }
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
-    cursor = connection(7687, "main").cursor()
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(cursor, "USE DATABASE A;")
@@ -194,26 +208,24 @@ def test_manual_databases_create_multitenancy_replication(connection):
 
     # 2/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 1, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "A"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "A"))
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 1, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "B"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "B"))
 
-    cursor_replica = connection(7688, "replica_1").cursor()
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     assert get_number_of_nodes_func(cursor_replica, "A")() == 1
     assert get_number_of_edges_func(cursor_replica, "A")() == 0
     assert get_number_of_nodes_func(cursor_replica, "B")() == 2
     assert get_number_of_edges_func(cursor_replica, "B")() == 1
 
-    cursor_replica2 = connection(7688, "replica_2").cursor()
+    cursor_replica2 = connection(BOLT_PORTS["replica_1"], "replica_2").cursor()
     assert get_number_of_nodes_func(cursor_replica2, "A")() == 1
     assert get_number_of_edges_func(cursor_replica2, "A")() == 0
     assert get_number_of_nodes_func(cursor_replica2, "B")() == 2
@@ -222,15 +234,15 @@ def test_manual_databases_create_multitenancy_replication(connection):
 
 def test_manual_databases_create_multitenancy_replication_branching(connection):
     # Goal: to show that replication can be established against REPLICA which already
-    # has the database we need (which was unused so far)
+    # has all the databases and the same data
     # 0/ MAIN CREATE DATABASE A + B and fill with data
     #    REPLICA CREATE DATABASE A + B and fil with exact data
     #    Setup REPLICA
-    # 1/ Registering REPLICA on MAIN should fail due to branching (even though the data is the same)
+    # 1/ Registering REPLICA on MAIN should not fail due to tenant branching
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
             "log_file": "replica1.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -239,11 +251,11 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
                 "CREATE DATABASE B;",
                 "USE DATABASE B;",
                 "CREATE ()-[:EDGE]->()",
-                "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
         },
         "replica_2": {
-            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
             "log_file": "replica2.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -252,11 +264,11 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
                 "CREATE DATABASE B;",
                 "USE DATABASE B;",
                 "CREATE ()-[:EDGE]->()",
-                "SET REPLICATION ROLE TO REPLICA WITH PORT 10002;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
             ],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
             "log_file": "main.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -271,19 +283,22 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
-    cursor = connection(7687, "main").cursor()
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     failed = False
     try:
-        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
+        execute_and_fetch_all(
+            cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"
+        )
     except mgclient.DatabaseError:
         failed = True
     assert not failed
-    # Updated the test, since the consensus was that this shouldn't fail, instead the replica should follow main at any cost.
 
     try:
-        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002';")
+        execute_and_fetch_all(
+            cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
+        )
     except mgclient.DatabaseError:
         failed = True
     assert not failed
@@ -291,7 +306,7 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
 
 def test_manual_databases_create_multitenancy_replication_dirty_replica(connection):
     # Goal: to show that replication can be established against REPLICA which already
-    # has the database we need (which was unused so far)
+    # has all the databases we need, even when they branched
     # 0/ MAIN CREATE DATABASE A
     #    REPLICA CREATE DATABASE A
     #    REPLICA write to A
@@ -300,27 +315,27 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
             "log_file": "replica1.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
                 "CREATE (:Node{from:'A'})",
-                "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
         },
         "replica_2": {
-            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
             "log_file": "replica2.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
                 "CREATE (:Node{from:'A'})",
-                "SET REPLICATION ROLE TO REPLICA WITH PORT 10002;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
             ],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
             "log_file": "main.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -330,27 +345,30 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
-    cursor = connection(7687, "main").cursor()
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     failed = False
     try:
-        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
+        execute_and_fetch_all(
+            cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"
+        )
     except mgclient.DatabaseError:
         failed = True
     assert not failed
-    # Updated the test, since the consensus was that this shouldn't fail, instead the replica should follow main at any cost.
 
     try:
-        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002';")
+        execute_and_fetch_all(
+            cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
+        )
     except mgclient.DatabaseError:
         failed = True
     assert not failed
 
 
 def test_manual_databases_create_multitenancy_replication_main_behind(connection):
-    # Goal: to show that replication can be established against REPLICA which already
-    # has the database we need (which was unused so far)
+    # Goal: to show that replication can be established against REPLICA which has
+    # different branched databases
     # 0/ REPLICA CREATE DATABASE A
     #    REPLICA write to A
     #    Setup replication
@@ -359,64 +377,61 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
             "log_file": "replica1.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
                 "CREATE (:Node{from:'A'})",
-                "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
         },
         "replica_2": {
-            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
             "log_file": "replica2.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
                 "CREATE (:Node{from:'A'})",
-                "SET REPLICATION ROLE TO REPLICA WITH PORT 10002;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
             ],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
             "log_file": "main.log",
             "setup_queries": [
-                "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002';",
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
             ],
         },
     }
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
-    main_cursor = connection(7687, "main").cursor()
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
 
     # 2/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 0, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 0, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
 
     databases_on_main = show_databases_func(main_cursor)()
 
-    replica_cursor = connection(7688, "replica").cursor()
-    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
-    assert databases_on_main == databases_on_replica
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
 
-    replica_cursor = connection(7689, "replica").cursor()
-    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
-    assert databases_on_main == databases_on_replica
+    replica_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+    mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
 
 
 def test_automatic_databases_create_multitenancy_replication(connection):
     # Goal: to show that replication can be established against REPLICA where a new databases
-    # needs replicating over
+    # needs replication
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A
     # 2/ Write to MAIN A
@@ -424,7 +439,7 @@ def test_automatic_databases_create_multitenancy_replication(connection):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    main_cursor = connection(7687, "main").cursor()
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
@@ -439,26 +454,24 @@ def test_automatic_databases_create_multitenancy_replication(connection):
 
     # 3/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 7, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 7, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 0, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 0, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
 
-    cursor_replica = connection(7688, "replica_1").cursor()
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     assert get_number_of_nodes_func(cursor_replica, "A")() == 7
     assert get_number_of_edges_func(cursor_replica, "A")() == 3
     assert get_number_of_nodes_func(cursor_replica, "B")() == 0
     assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
-    cursor_replica = connection(7689, "replica_2").cursor()
+    cursor_replica = connection(BOLT_PORTS["replica_2"], "replica").cursor()
     assert get_number_of_nodes_func(cursor_replica, "A")() == 7
     assert get_number_of_edges_func(cursor_replica, "A")() == 3
     assert get_number_of_nodes_func(cursor_replica, "B")() == 0
@@ -466,8 +479,8 @@ def test_automatic_databases_create_multitenancy_replication(connection):
 
 
 def test_automatic_databases_multitenancy_replication_predefined(connection):
-    # Goal: to show that replication can be established against REPLICA which already
-    # has the database we need (which was unused so far)
+    # Goal: to show that replication can be established against REPLICA which doesn't
+    # have any additional databases; MAIN's database clean at registration time
     # 0/ MAIN CREATE DATABASE A + B
     #    Setup replication
     # 1/ Write to MAIN A, Write to MAIN B
@@ -475,26 +488,26 @@ def test_automatic_databases_multitenancy_replication_predefined(connection):
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
             "log_file": "replica1.log",
             "setup_queries": [
-                "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
             "log_file": "main.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "CREATE DATABASE B;",
-                "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';",
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
             ],
         },
     }
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
-    cursor = connection(7687, "main").cursor()
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(cursor, "USE DATABASE A;")
@@ -504,25 +517,23 @@ def test_automatic_databases_multitenancy_replication_predefined(connection):
 
     # 2/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "A"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "A"))
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "B"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "B"))
 
-    cursor_replica = connection(7688, "replica_1").cursor()
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     assert get_number_of_nodes_func(cursor_replica, "A")() == 1
     assert get_number_of_edges_func(cursor_replica, "A")() == 0
 
 
 def test_automatic_databases_create_multitenancy_replication_dirty_main(connection):
-    # Goal: to show that replication can be established against REPLICA which already
-    # has the database we need (which was unused so far)
+    # Goal: to show that replication can be established against REPLICA which doesn't
+    # have any additional databases; MAIN's database dirty at registration time
     # 0/ MAIN CREATE DATABASE A
     #    MAIN write to A
     #    Setup replication
@@ -530,36 +541,35 @@ def test_automatic_databases_create_multitenancy_replication_dirty_main(connecti
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
             "log_file": "replica1.log",
             "setup_queries": [
-                "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
             "log_file": "main.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
                 "CREATE (:Node{from:'A'})",
-                "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';",
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
             ],
         },
     }
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
-    cursor = connection(7687, "main").cursor()
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "A"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "A"))
 
-    cursor_replica = connection(7688, "replica_1").cursor()
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
     actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
     assert actual_data[0][0] == 1  # one node
@@ -567,9 +577,9 @@ def test_automatic_databases_create_multitenancy_replication_dirty_main(connecti
     assert actual_data[0][0] == 0  # zero relationships
 
 
-def test_multitenancy_replication_restart_replica_w_fc(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
-    # needs replicating over
+@pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
+def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name):
+    # Goal: show that a replica can be recovered with the frequent checker
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A and B
     # 2/ Write on MAIN to A and B
@@ -578,51 +588,47 @@ def test_multitenancy_replication_restart_replica_w_fc(connection):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    main_cursor = connection(7687, "main").cursor()
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
     execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
 
     # 2/
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
+    setup_main(main_cursor)
 
     # 3/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
     time.sleep(3)  # In order for the frequent check to run
     # Check that the FC did invalidate
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
+        "replica_1": {
+            ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 0, 0, "invalid"),
+            ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 7, 0, "ready"),
+        },
+        "replica_2": {
+            ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 7, 0, "ready"),
+            ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 0, 0, "invalid"),
+        },
     }
-    assert expected_data == show_replicas_func(main_cursor, "A")()
+    assert expected_data[replica_name] == show_replicas_func(main_cursor, "A")()
     # Restart
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
 
     # 4/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 7, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 7, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 3, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 3, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 3, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 3, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
 
-    cursor_replica = connection(7688, "replica_1").cursor()
+    cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
 
     assert get_number_of_nodes_func(cursor_replica, "A")() == 7
     assert get_number_of_edges_func(cursor_replica, "A")() == 3
@@ -630,8 +636,9 @@ def test_multitenancy_replication_restart_replica_w_fc(connection):
     assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
-def test_multitenancy_replication_restart_replica_async_w_fc(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
+@pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
+def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name):
+    # Goal: show that a replica can be recovered without the frequent checker detecting it being down
     # needs replicating over
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A and B
@@ -641,160 +648,42 @@ def test_multitenancy_replication_restart_replica_async_w_fc(connection):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    main_cursor = connection(7687, "main").cursor()
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
     execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
 
     # 2/
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
+    setup_main(main_cursor)
 
     # 3/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
-    time.sleep(3)  # In order for the frequent check to run
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
 
     # 4/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 7, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 7, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 3, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 3, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 3, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 3, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
 
-    cursor_replica = connection(7688, "replica_2").cursor()
+    cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
     assert get_number_of_nodes_func(cursor_replica, "A")() == 7
     assert get_number_of_edges_func(cursor_replica, "A")() == 3
     assert get_number_of_nodes_func(cursor_replica, "B")() == 2
     assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
-def test_multitenancy_replication_restart_replica_wo_fc(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
-    # needs replicating over
-    # 0/ Setup replication
-    # 1/ MAIN CREATE DATABASE A and B
-    # 2/ Write on MAIN to A and B
-    # 3/ Restart replica
-    # 4/ Validate data on replica
-
-    # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    main_cursor = connection(7687, "main").cursor()
-
-    # 1/
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
-
-    # 2/
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-
-    # 3/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
-
-    # 4/
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
-    }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-    assert actual_data == expected_data
-
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 3, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 3, 0, "ready"),
-    }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
-    assert actual_data == expected_data
-
-    cursor_replica = connection(7688, "replica_1").cursor()
-    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
-    assert get_number_of_edges_func(cursor_replica, "A")() == 3
-    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
-    assert get_number_of_edges_func(cursor_replica, "B")() == 0
-
-
-def test_multitenancy_replication_restart_replica_async_wo_fc(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
-    # needs replicating over
-    # 0/ Setup replication
-    # 1/ MAIN CREATE DATABASE A and B
-    # 2/ Write on MAIN to A and B
-    # 3/ Restart replica
-    # 4/ Validate data on replica
-
-    # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    main_cursor = connection(7687, "main").cursor()
-
-    # 1/
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
-
-    # 2/
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-
-    # 3/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
-
-    # 4/
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
-    }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-    assert actual_data == expected_data
-
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 3, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 3, 0, "ready"),
-    }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
-    assert actual_data == expected_data
-
-    cursor_replica = connection(7688, "replica_1").cursor()
-    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
-    assert get_number_of_edges_func(cursor_replica, "A")() == 3
-    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
-    assert get_number_of_edges_func(cursor_replica, "B")() == 0
-
-
-def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
+@pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
+def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection, replica_name):
+    # Goal: show that a replica recovers data on reconnect
     # needs replicating over
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A and B
@@ -807,101 +696,36 @@ def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection):
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY)
     setup_replication(connection)
-    main_cursor = connection(7687, "main").cursor()
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
     execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
 
     # 2/
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
+    setup_main(main_cursor)
 
     # 3/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, "replica_1")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, replica_name)
     safe_execute(execute_and_fetch_all, main_cursor, "USE DATABASE A;")
     safe_execute(execute_and_fetch_all, main_cursor, "CREATE (:Node{on:'A'});")
     safe_execute(execute_and_fetch_all, main_cursor, "USE DATABASE B;")
     safe_execute(execute_and_fetch_all, main_cursor, "CREATE (:Node{on:'B'});")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, "replica_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, replica_name)
 
     # 4/
-    cursor_replica = connection(7688, "replica_1").cursor()
+    cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
 
-    nodes_on_replica = mg_sleep_and_assert(8, get_number_of_nodes_func(cursor_replica, "A"))
-    assert nodes_on_replica == 8
-    edges_on_replica = mg_sleep_and_assert(3, get_number_of_edges_func(cursor_replica, "A"))
-    assert edges_on_replica == 3
+    mg_sleep_and_assert(8, get_number_of_nodes_func(cursor_replica, "A"))
+    mg_sleep_and_assert(3, get_number_of_edges_func(cursor_replica, "A"))
 
-    nodes_on_replica = mg_sleep_and_assert(3, get_number_of_nodes_func(cursor_replica, "B"))
-    assert nodes_on_replica == 3
-    edges_on_replica = mg_sleep_and_assert(0, get_number_of_edges_func(cursor_replica, "B"))
-    assert edges_on_replica == 0
+    mg_sleep_and_assert(3, get_number_of_nodes_func(cursor_replica, "B"))
+    mg_sleep_and_assert(0, get_number_of_edges_func(cursor_replica, "B"))
 
 
-def test_multitenancy_replication_restart_replica_async_w_fc_w_rec(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
-    # needs replicating over
-    # 0/ Setup replication
-    # 1/ MAIN CREATE DATABASE A and B
-    # 2/ Write on MAIN to A and B
-    # 3/ Restart replica
-    # 4/ Validate data on replica
-
-    # 0/
-    # Tmp dir should already be removed, but sometimes its not...
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY)
-    setup_replication(connection)
-    main_cursor = connection(7687, "main").cursor()
-
-    # 1/
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
-
-    # 2/
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-
-    # 3/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, "replica_2")
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, "replica_2")
-
-    # 4/
-    cursor_replica = connection(7688, "replica_2").cursor()
-
-    nodes_on_replica = mg_sleep_and_assert(8, get_number_of_nodes_func(cursor_replica, "A"))
-    assert nodes_on_replica == 8
-    edges_on_replica = mg_sleep_and_assert(3, get_number_of_edges_func(cursor_replica, "A"))
-    assert edges_on_replica == 3
-
-    nodes_on_replica = mg_sleep_and_assert(3, get_number_of_nodes_func(cursor_replica, "B"))
-    assert nodes_on_replica == 3
-    edges_on_replica = mg_sleep_and_assert(0, get_number_of_edges_func(cursor_replica, "B"))
-    assert edges_on_replica == 0
-
-
-def test_multitenancy_replication_drop_replica(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
-    # needs replicating over
+@pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
+def test_multitenancy_replication_drop_replica(connection, replica_name):
+    # Goal: show that the cluster can recover if a replica is dropped and registered again
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A and B
     # 2/ Write on MAIN to A and B
@@ -910,97 +734,37 @@ def test_multitenancy_replication_drop_replica(connection):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    main_cursor = connection(7687, "main").cursor()
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
     execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
 
     # 2/
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
+    setup_main(main_cursor)
 
     # 3/
-    execute_and_fetch_all(main_cursor, "DROP REPLICA replica_1;")
-    execute_and_fetch_all(main_cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(main_cursor, f"DROP REPLICA {replica_name};")
+    sync = {"replica_1": "SYNC", "replica_2": "ASYNC"}
+    execute_and_fetch_all(
+        main_cursor,
+        f"REGISTER REPLICA  {replica_name} {sync[replica_name]} TO '127.0.0.1:{REPLICATION_PORTS[replica_name]}';",
+    )
 
     # 4/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 7, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 7, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 3, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 3, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 3, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 3, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
 
-    cursor_replica = connection(7688, "replica_1").cursor()
-    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
-    assert get_number_of_edges_func(cursor_replica, "A")() == 3
-    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
-    assert get_number_of_edges_func(cursor_replica, "B")() == 0
-
-
-def test_multitenancy_replication_drop_replica_async(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
-    # needs replicating over
-    # 0/ Setup replication
-    # 1/ MAIN CREATE DATABASE A and B
-    # 2/ Write on MAIN to A and B
-    # 3/ Drop and add the same replica
-    # 4/ Validate data on replica
-
-    # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    main_cursor = connection(7687, "main").cursor()
-
-    # 1/
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
-
-    # 2/
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-
-    # 3/
-    execute_and_fetch_all(main_cursor, "DROP REPLICA replica_2;")
-    execute_and_fetch_all(main_cursor, "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002';")
-
-    # 4/
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
-    }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-    assert actual_data == expected_data
-
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 3, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 3, 0, "ready"),
-    }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
-    assert actual_data == expected_data
-
-    cursor_replica = connection(7688, "replica_2").cursor()
+    cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
     assert get_number_of_nodes_func(cursor_replica, "A")() == 7
     assert get_number_of_edges_func(cursor_replica, "A")() == 3
     assert get_number_of_nodes_func(cursor_replica, "B")() == 2
@@ -1008,8 +772,7 @@ def test_multitenancy_replication_drop_replica_async(connection):
 
 
 def test_multitenancy_replication_restart_main(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
-    # needs replicating over
+    # Goal: show that the cluster can restore to a correct state if the MAIN restarts
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A and B
     # 2/ Write on MAIN to A and B
@@ -1021,27 +784,19 @@ def test_multitenancy_replication_restart_main(connection):
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY)
     setup_replication(connection)
-    main_cursor = connection(7687, "main").cursor()
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
     execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
 
     # 2/
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
+    setup_main(main_cursor)
 
     # 3/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, "main")
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, "main")
-    main_cursor = connection(7687, "main").cursor()
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     execute_and_fetch_all(main_cursor, "USE DATABASE A;")
     execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
@@ -1049,7 +804,14 @@ def test_multitenancy_replication_restart_main(connection):
     execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
 
     # 4/
-    cursor_replica = connection(7688, "replica_1").cursor()
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 8
+    assert get_number_of_edges_func(cursor_replica, "A")() == 3
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 3
+    assert get_number_of_edges_func(cursor_replica, "B")() == 0
+
+    cursor_replica = connection(BOLT_PORTS["replica_2"], "replica").cursor()
     execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
     assert get_number_of_nodes_func(cursor_replica, "A")() == 8
     assert get_number_of_edges_func(cursor_replica, "A")() == 3
@@ -1058,8 +820,7 @@ def test_multitenancy_replication_restart_main(connection):
 
 
 def test_automatic_databases_drop_multitenancy_replication(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
-    # needs replicating over
+    # Goal: show that drop database can be replicated
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A
     # 2/ Write to MAIN A
@@ -1069,7 +830,7 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    main_cursor = connection(7687, "main").cursor()
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
@@ -1081,18 +842,16 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
 
     # 3/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 1, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 0, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 0, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
 
     # 4/
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
@@ -1102,18 +861,16 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
     # 5/
     databases_on_main = show_databases_func(main_cursor)()
 
-    replica_cursor = connection(7688, "replica").cursor()
-    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
-    assert databases_on_main == databases_on_replica
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
 
-    replica_cursor = connection(7689, "replica").cursor()
-    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
-    assert databases_on_main == databases_on_replica
+    replica_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+    mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
 
 
-def test_drop_multitenancy_replication_restart_replica(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
-    # needs replicating over
+@pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
+def test_drop_multitenancy_replication_restart_replica(connection, replica_name):
+    # Goal: show that the drop database can be restored
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A and B
     # 2/ Write on MAIN to A and B
@@ -1122,90 +879,33 @@ def test_drop_multitenancy_replication_restart_replica(connection):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    main_cursor = connection(7687, "main").cursor()
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
     execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
 
     # 2/
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
+    setup_main(main_cursor)
 
     # 3/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
     execute_and_fetch_all(main_cursor, "DROP DATABASE B;")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
 
     # 4/
     databases_on_main = show_databases_func(main_cursor)()
 
-    replica_cursor = connection(7688, "replica").cursor()
-    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
-    assert databases_on_main == databases_on_replica
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
 
-    replica_cursor = connection(7689, "replica").cursor()
-    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
-    assert databases_on_main == databases_on_replica
+    replica_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+    mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
 
 
-def test_drop_multitenancy_replication_restart_replica_async(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
-    # needs replicating over
-    # 0/ Setup replication
-    # 1/ MAIN CREATE DATABASE A and B
-    # 2/ Write on MAIN to A and B
-    # 3/ Restart ASYNC replica and drop database
-    # 4/ Validate data on replica
-
-    # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    main_cursor = connection(7687, "main").cursor()
-
-    # 1/
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
-
-    # 2/
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
-
-    # 3/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
-    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
-    execute_and_fetch_all(main_cursor, "DROP DATABASE B;")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
-
-    # 4/
-    databases_on_main = show_databases_func(main_cursor)()
-
-    replica_cursor = connection(7688, "replica").cursor()
-    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
-    assert databases_on_main == databases_on_replica
-
-    replica_cursor = connection(7689, "replica").cursor()
-    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
-    assert databases_on_main == databases_on_replica
-
-
-def test_create_multitenancy_replication_restart_replica(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
-    # needs replicating over
+def test_multitenancy_drop_while_replica_using(connection):
+    # Goal: show that the replica can handle a transaction on a database being dropped (will persist until tx finishes)
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A
     # 2/ Write to MAIN A
@@ -1216,7 +916,7 @@ def test_create_multitenancy_replication_restart_replica(connection):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    main_cursor = connection(7687, "main").cursor()
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
@@ -1227,15 +927,14 @@ def test_create_multitenancy_replication_restart_replica(connection):
 
     # 3/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 1, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
 
     # 4/
-    replica1_cursor = connection(7688, "replica").cursor()
-    replica2_cursor = connection(7689, "replica").cursor()
+    replica1_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    replica2_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
 
     execute_and_fetch_all(replica1_cursor, "USE DATABASE A;")
     execute_and_fetch_all(replica1_cursor, "BEGIN")
@@ -1250,14 +949,13 @@ def test_create_multitenancy_replication_restart_replica(connection):
     execute_and_fetch_all(main_cursor, "USE DATABASE B;")
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 0, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 0, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
 
     # 6/
-    assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 1  # one node
+    assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 1
     execute_and_fetch_all(replica1_cursor, "COMMIT")
     failed = False
     try:
@@ -1275,7 +973,8 @@ def test_create_multitenancy_replication_restart_replica(connection):
 
 
 def test_multitenancy_drop_and_recreate_while_replica_using(connection):
-    # Goal: to show that replication can be established against REPLICA where a new databases
+    # Goal: show that the replica can handle a transaction on a database being dropped and the same name reused
+    # Original storage should persist in a nameless state until tx is over
     # needs replicating over
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A
@@ -1287,7 +986,7 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    main_cursor = connection(7687, "main").cursor()
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
@@ -1298,15 +997,14 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
 
     # 3/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 1, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
 
     # 4/
-    replica1_cursor = connection(7688, "replica").cursor()
-    replica2_cursor = connection(7689, "replica").cursor()
+    replica1_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    replica2_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
 
     execute_and_fetch_all(replica1_cursor, "USE DATABASE A;")
     execute_and_fetch_all(replica1_cursor, "BEGIN")
@@ -1320,14 +1018,13 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
     execute_and_fetch_all(main_cursor, "USE DATABASE A;")
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
+        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 0, 0, "ready"),
+        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 0, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-    assert actual_data == expected_data
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
 
     # 6/
-    assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 1  # one node
+    assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 1
     execute_and_fetch_all(replica1_cursor, "COMMIT")
     failed = False
     try:
@@ -1342,14 +1039,6 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
     except mgclient.DatabaseError:
         failed = True
     assert failed
-
-
-# start main and replica
-# add databases
-# kill main
-# start main with replication state recovery, no data recovery
-# note: just for future-proofing
-# ???
 
 
 if __name__ == "__main__":

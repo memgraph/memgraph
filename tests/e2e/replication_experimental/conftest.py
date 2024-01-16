@@ -13,16 +13,6 @@ import pytest
 from common import connect, execute_and_fetch_all
 
 
-# The fixture here is more complex because the connection has to be
-# parameterized based on the test parameters (info has to be available on both
-# sides).
-#
-# https://docs.pytest.org/en/latest/example/parametrize.html#indirect-parametrization
-# is not an elegant/feasible solution here.
-#
-# The solution was independently developed and then I stumbled upon the same
-# approach here https://stackoverflow.com/a/68286553/4888809 which I think is
-# optimal.
 @pytest.fixture(scope="function")
 def connection():
     connection_holder = None

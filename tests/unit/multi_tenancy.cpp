@@ -65,13 +65,21 @@ auto RunMtQuery(auto &interpreter, const std::string &query, std::string_view re
   ASSERT_FALSE(stream.GetSummary().at("has_more").ValueBool());
   ASSERT_EQ(stream.GetResults()[0].size(), 1U);
   ASSERT_EQ(stream.GetResults()[0][0].ValueString(), res);
-};
+}
 
 auto RunQuery(auto &interpreter, const std::string &query) {
   auto [stream, qid] = interpreter.Prepare(query);
   interpreter.Pull(&stream, 1);
   return stream.GetResults();
-};
+}
+
+void UseDatabase(auto &interpreter, const std::string &name, std::string_view res) {
+  RunMtQuery(interpreter, "USE DATABASE " + name, res);
+}
+
+void DropDatabase(auto &interpreter, const std::string &name, std::string_view res) {
+  RunMtQuery(interpreter, "DROP DATABASE " + name, res);
+}
 }  // namespace
 
 class MultiTenantTest : public ::testing::Test {
@@ -151,28 +159,20 @@ TEST_F(MultiTenantTest, SimpleCreateDrop) {
   create(interpreter2, "db4", true);
 
   // 3
-  auto use = [&](auto &interpreter, const std::string &name, std::string_view res) {
-    RunMtQuery(interpreter, "USE DATABASE " + name, res);
-  };
+  UseDatabase(interpreter1, "db2", "Using db2");
+  UseDatabase(interpreter1, "db2", "Already using db2");
+  UseDatabase(interpreter2, "db2", "Using db2");
+  UseDatabase(interpreter1, "db4", "Using db4");
 
-  auto drop = [&](auto &interpreter, const std::string &name, std::string_view res) {
-    RunMtQuery(interpreter, "DROP DATABASE " + name, res);
-  };
-
-  use(interpreter1, "db2", "Using db2");
-  use(interpreter1, "db2", "Already using db2");
-  use(interpreter2, "db2", "Using db2");
-  use(interpreter1, "db4", "Using db4");
-
-  ASSERT_THROW(drop(interpreter1, memgraph::dbms::kDefaultDB.data(), ""),
+  ASSERT_THROW(DropDatabase(interpreter1, memgraph::dbms::kDefaultDB.data(), ""),
                memgraph::query::QueryRuntimeException);  // default db
 
-  drop(interpreter1, "db1", "Successfully deleted db1");
-  ASSERT_THROW(drop(interpreter2, "db1", ""), memgraph::query::QueryRuntimeException);  // No db1
-  ASSERT_THROW(drop(interpreter1, "db1", ""), memgraph::query::QueryRuntimeException);  // No db1
+  DropDatabase(interpreter1, "db1", "Successfully deleted db1");
+  ASSERT_THROW(DropDatabase(interpreter2, "db1", ""), memgraph::query::QueryRuntimeException);  // No db1
+  ASSERT_THROW(DropDatabase(interpreter1, "db1", ""), memgraph::query::QueryRuntimeException);  // No db1
 
-  ASSERT_THROW(drop(interpreter1, "db2", ""), memgraph::query::QueryRuntimeException);  // i2 using db2
-  ASSERT_THROW(drop(interpreter1, "db4", ""), memgraph::query::QueryRuntimeException);  // i1 using db4
+  ASSERT_THROW(DropDatabase(interpreter1, "db2", ""), memgraph::query::QueryRuntimeException);  // i2 using db2
+  ASSERT_THROW(DropDatabase(interpreter1, "db4", ""), memgraph::query::QueryRuntimeException);  // i1 using db4
 }
 
 TEST_F(MultiTenantTest, DbmsNewTryDelete) {
@@ -192,12 +192,8 @@ TEST_F(MultiTenantTest, DbmsNewTryDelete) {
   ASSERT_FALSE(dbms.New("db4").HasError());
 
   // 3
-  auto use = [&](auto &interpreter, const std::string &name, std::string_view res) {
-    RunMtQuery(interpreter, "USE DATABASE " + name, res);
-  };
-
-  use(interpreter2, "db2", "Using db2");
-  use(interpreter1, "db4", "Using db4");
+  UseDatabase(interpreter2, "db2", "Using db2");
+  UseDatabase(interpreter1, "db4", "Using db4");
 
   ASSERT_FALSE(dbms.TryDelete("db1").HasError());
   ASSERT_TRUE(dbms.TryDelete("db2").HasError());
@@ -288,12 +284,8 @@ TEST_F(MultiTenantTest, DbmsNewDelete) {
   ASSERT_FALSE(dbms.New("db4").HasError());
 
   // 3
-  auto use = [&](auto &interpreter, const std::string &name, std::string_view res) {
-    RunMtQuery(interpreter, "USE DATABASE " + name, res);
-  };
-
-  use(interpreter2, "db2", "Using db2");
-  use(interpreter1, "db4", "Using db4");
+  UseDatabase(interpreter2, "db2", "Using db2");
+  UseDatabase(interpreter1, "db4", "Using db4");
 
   RunQuery(interpreter1, "CREATE (:Node{on:\"db4\"})");
   RunQuery(interpreter1, "CREATE (:Node{on:\"db4\"})");
@@ -343,12 +335,8 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
   ASSERT_FALSE(dbms.New("db4").HasError());
 
   // 3
-  auto use = [&](auto &interpreter, const std::string &name, std::string_view res) {
-    RunMtQuery(interpreter, "USE DATABASE " + name, res);
-  };
-
-  use(interpreter2, "db2", "Using db2");
-  use(interpreter1, "db4", "Using db4");
+  UseDatabase(interpreter2, "db2", "Using db2");
+  UseDatabase(interpreter1, "db4", "Using db4");
 
   RunQuery(interpreter1, "CREATE (:Node{on:\"db4\"})");
   RunQuery(interpreter1, "CREATE (:Node{on:\"db4\"})");
@@ -385,6 +373,6 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
 
   // 6
-  use(interpreter2, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
-  use(interpreter1, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
+  UseDatabase(interpreter2, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
+  UseDatabase(interpreter1, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
 }
