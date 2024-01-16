@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "dbms/coordinator_handlers.hpp"
+#include "dbms/utils.hpp"
 
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_rpc.hpp"
@@ -39,24 +40,7 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
 
   bool success = true;
   try {
-    // STEP 1) Prepare for new epoch
-    dbms_handler.ForEach([](Database *database) {
-      auto *storage = database->storage();
-      // Remember old epoch + storage timestamp association
-      storage->PrepareForNewEpoch();
-    });
-
-    // STEP 2) Change to MAIN = Kill replication server
-    if (!repl_state.SetReplicationRoleMain()) {
-      success = false;
-    }
-
-    // STEP 3) We are now MAIN, update storage local epoch
-    const auto &epoch = std::get<replication::RoleMainData>(std::as_const(repl_state).ReplicationData()).epoch_;
-    dbms_handler.ForEach([&epoch](Database *database) {
-      auto *storage = database->storage();
-      storage->repl_storage_state_.epoch_ = epoch;
-    });
+    success = memgraph::dbms::DoReplicaToMainPromotion(dbms_handler);
 
     // STEP 4) Convert ReplicationClientInfo to ReplicationClientConfig
     std::vector<replication::ReplicationClientConfig> clients_config;
@@ -87,34 +71,8 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
             break;
         }
 
-      if (!allow_mt_repl && dbms_handler.All().size() > 1) {
-        spdlog::warn("Multi-tenant replication is currently not supported!");
-      }
-
-      bool all_clients_good = true;
-
-      // Add database specific clients (NOTE Currently all databases are connected to each replica)
-      dbms_handler.ForEach([&all_clients_good, &instance_client](Database *database) {
-        auto *storage = database->storage();
-        if (!allow_mt_repl && storage->id() != kDefaultDB) {
-          return;
-        }
-        if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
-
-        all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
-            [storage, &instance_client](auto &storage_clients) {
-              auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client.GetValue());
-              client->Start(storage);
-              // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
-              // MAYBE_BEHIND isn't a statement of the current state, this is the default value
-              // Failed to start due to branching of MAIN and REPLICA
-              if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
-                return false;
-              }
-              storage_clients.push_back(std::move(client));
-              return true;
-            });
-      });
+      auto &instance_client_ptr = instance_client.GetValue();
+      const bool all_clients_good = memgraph::dbms::RegisterAllDatabasesClients(dbms_handler, *instance_client_ptr);
 
       if (!all_clients_good) {
         spdlog::error("Failed to register all databases to the REPLICA \"{}\"", config.name);
