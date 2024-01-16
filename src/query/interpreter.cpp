@@ -36,7 +36,6 @@
 #include "coordination/coordinator_entity_info.hpp"
 #include "csv/parsing.hpp"
 #include "dbms/database.hpp"
-#include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/replication.hpp"
@@ -103,6 +102,7 @@
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include "dbms/coordinator_handler.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/replication_handler.hpp"
 #include "query/auth_query_handler.hpp"
@@ -277,7 +277,8 @@ inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode
 
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(dbms::DbmsHandler *dbms_handler) : dbms_handler_(dbms_handler), handler_{*dbms_handler} {}
+  explicit ReplQueryHandler(dbms::DbmsHandler *dbms_handler)
+      : dbms_handler_(dbms_handler), handler_{*dbms_handler}, coordinator_handler_(*dbms_handler) {}
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
@@ -391,7 +392,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                                               .replication_client_info = repl_config,
                                               .ssl = std::nullopt};
 
-    if (const auto ret = handler_.RegisterReplicaOnCoordinator(coordinator_client_config); ret.HasError()) {
+    if (const auto ret = coordinator_handler_.RegisterReplicaOnCoordinator(coordinator_client_config); ret.HasError()) {
       throw QueryRuntimeException("Couldn't register replica on coordinator!");
     }
   }
@@ -415,7 +416,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
                                                               .health_check_frequency = instance_check_frequency,
                                                               .ssl = std::nullopt};
 
-    if (const auto ret = handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
+    if (const auto ret = coordinator_handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
       throw QueryRuntimeException("Couldn't register main on coordinator!");
     }
   }
@@ -426,7 +427,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       throw QueryRuntimeException("Only coordinator can register coordinator server!");
     }
 
-    auto status = handler_.DoFailover();
+    auto status = coordinator_handler_.DoFailover();
     switch (status) {
       using enum memgraph::dbms::DoFailoverStatus;
       case ALL_REPLICAS_DOWN:
@@ -537,25 +538,26 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
 #ifdef MG_ENTERPRISE
   std::vector<coordination::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const override {
-    return handler_.ShowReplicasOnCoordinator();
+    return coordinator_handler_.ShowReplicasOnCoordinator();
   }
 
   std::unordered_map<std::string_view, bool> PingReplicasOnCoordinator() const override {
-    return handler_.PingReplicasOnCoordinator();
+    return coordinator_handler_.PingReplicasOnCoordinator();
   }
 
   std::optional<coordination::CoordinatorEntityInfo> ShowMainOnCoordinator() const override {
-    return handler_.ShowMainOnCoordinator();
+    return coordinator_handler_.ShowMainOnCoordinator();
   }
 
   std::optional<coordination::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const override {
-    return handler_.PingMainOnCoordinator();
+    return coordinator_handler_.PingMainOnCoordinator();
   }
 #endif
 
  private:
   dbms::DbmsHandler *dbms_handler_;
   dbms::ReplicationHandler handler_;
+  dbms::CoordinatorHandler coordinator_handler_;
 };
 
 /// returns false if the replication role can't be set

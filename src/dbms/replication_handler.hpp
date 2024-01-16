@@ -21,14 +21,6 @@ struct ReplicationServerConfig;
 struct ReplicationClientConfig;
 }  // namespace memgraph::replication
 
-#ifdef MG_ENTERPRISE
-namespace memgraph::coordination {
-struct CoordinatorEntityInfo;
-struct CoordinatorEntityHealthInfo;
-struct CoordinatorClientConfig;
-}  // namespace memgraph::coordination
-#endif
-
 namespace memgraph::dbms {
 
 class DbmsHandler;
@@ -41,16 +33,6 @@ enum class UnregisterReplicaResult : uint8_t {
   CAN_NOT_UNREGISTER,
   SUCCESS,
 };
-
-enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
-  NAME_EXISTS,
-  END_POINT_EXISTS,
-  COULD_NOT_BE_PERSISTED,
-  NOT_COORDINATOR,
-  SUCCESS
-};
-
-enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN, MAIN_ALIVE };
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 /// TODO: extend to do multiple storages
@@ -66,25 +48,6 @@ struct ReplicationHandler {
   // as MAIN, define and connect to REPLICAs
   auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterReplicaError>;
-
-#ifdef MG_ENTERPRISE
-  auto RegisterReplicaOnCoordinator(const memgraph::coordination::CoordinatorClientConfig &config)
-      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
-
-  auto RegisterMainOnCoordinator(const memgraph::coordination::CoordinatorClientConfig &config)
-      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
-
-  auto ShowReplicasOnCoordinator() const -> std::vector<memgraph::coordination::CoordinatorEntityInfo>;
-
-  auto ShowMainOnCoordinator() const -> std::optional<memgraph::coordination::CoordinatorEntityInfo>;
-
-  auto PingReplicasOnCoordinator() const -> std::unordered_map<std::string_view, bool>;
-
-  auto PingMainOnCoordinator() const -> std::optional<memgraph::coordination::CoordinatorEntityHealthInfo>;
-
-  auto DoFailover() const -> DoFailoverStatus;
-
-#endif
 
   // as MAIN, remove a REPLICA connection
   auto UnregisterReplica(std::string_view name) -> UnregisterReplicaResult;

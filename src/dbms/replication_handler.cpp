@@ -11,7 +11,6 @@
 
 #include "dbms/replication_handler.hpp"
 
-#include "coordination/coordinator_state.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
@@ -20,7 +19,6 @@
 #include "dbms/utils.hpp"
 #include "replication/state.hpp"
 
-using memgraph::replication::ReplicationState;
 using memgraph::replication::RoleMainData;
 using memgraph::replication::RoleReplicaData;
 
@@ -123,80 +121,6 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   StartReplicaClient(dbms_handler_, *instance_client.GetValue());
   return {};
 }
-
-#ifdef MG_ENTERPRISE
-auto ReplicationHandler::RegisterReplicaOnCoordinator(const memgraph::coordination::CoordinatorClientConfig &config)
-    -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus> {
-  auto instance_client = dbms_handler_.CoordinatorState().RegisterReplica(config);
-  using repl_status = memgraph::coordination::RegisterMainReplicaCoordinatorStatus;
-  using dbms_status = memgraph::dbms::RegisterMainReplicaCoordinatorStatus;
-  if (instance_client.HasError()) switch (instance_client.GetError()) {
-      case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR:
-        MG_ASSERT(false, "Only coordinator instance can register main and replica!");
-        return {};
-      case repl_status::NAME_EXISTS:
-        return dbms_status::NAME_EXISTS;
-      case repl_status::END_POINT_EXISTS:
-        return dbms_status::END_POINT_EXISTS;
-      case repl_status::COULD_NOT_BE_PERSISTED:
-        return dbms_status::COULD_NOT_BE_PERSISTED;
-      case repl_status::SUCCESS:
-        break;
-    }
-
-  instance_client.GetValue()->StartFrequentCheck();
-  return {};
-}
-
-auto ReplicationHandler::RegisterMainOnCoordinator(const memgraph::coordination::CoordinatorClientConfig &config)
-    -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus> {
-  auto instance_client = dbms_handler_.CoordinatorState().RegisterMain(config);
-  if (instance_client.HasError()) switch (instance_client.GetError()) {
-      case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR:
-        MG_ASSERT(false, "Only coordinator instance can register main and replica!");
-      case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::NAME_EXISTS:
-        return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
-      case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS:
-        return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS;
-      case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::COULD_NOT_BE_PERSISTED:
-        return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::COULD_NOT_BE_PERSISTED;
-      case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::SUCCESS:
-        break;
-    }
-
-  instance_client.GetValue()->StartFrequentCheck();
-  return {};
-}
-
-auto ReplicationHandler::ShowReplicasOnCoordinator() const -> std::vector<coordination::CoordinatorEntityInfo> {
-  return dbms_handler_.CoordinatorState().ShowReplicas();
-}
-
-auto ReplicationHandler::PingReplicasOnCoordinator() const -> std::unordered_map<std::string_view, bool> {
-  return dbms_handler_.CoordinatorState().PingReplicas();
-}
-
-auto ReplicationHandler::ShowMainOnCoordinator() const -> std::optional<coordination::CoordinatorEntityInfo> {
-  return dbms_handler_.CoordinatorState().ShowMain();
-}
-
-auto ReplicationHandler::PingMainOnCoordinator() const -> std::optional<coordination::CoordinatorEntityHealthInfo> {
-  return dbms_handler_.CoordinatorState().PingMain();
-}
-
-auto ReplicationHandler::DoFailover() const -> DoFailoverStatus {
-  auto status = dbms_handler_.CoordinatorState().DoFailover();
-  switch (status) {
-    case memgraph::coordination::DoFailoverStatus::ALL_REPLICAS_DOWN:
-      return memgraph::dbms::DoFailoverStatus::ALL_REPLICAS_DOWN;
-    case memgraph::coordination::DoFailoverStatus::SUCCESS:
-      return memgraph::dbms::DoFailoverStatus::SUCCESS;
-    case memgraph::coordination::DoFailoverStatus::MAIN_ALIVE:
-      return memgraph::dbms::DoFailoverStatus::MAIN_ALIVE;
-  }
-}
-
-#endif
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterReplicaResult {
   auto const replica_handler = [](RoleReplicaData const &) -> UnregisterReplicaResult {
