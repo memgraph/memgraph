@@ -21,17 +21,6 @@ namespace memgraph::slk {
 
 using ReplicationClientInfo = coordination::CoordinatorClientConfig::ReplicationClientInfo;
 
-inline void Save(replication::ReplicationMode obj, Builder *builder) {
-  Save(static_cast<std::underlying_type_t<replication::ReplicationMode>>(obj), builder);
-}
-
-inline void Load(replication::ReplicationMode *obj, Reader *reader) {
-  using enum_type = std::underlying_type_t<replication::ReplicationMode>;
-  enum_type obj_encoded{};
-  slk::Load(&obj_encoded, reader);
-  *obj = replication::ReplicationMode(utils::MemcpyCast<enum_type>(obj_encoded));
-}
-
 inline void Save(const ReplicationClientInfo &obj, Builder *builder) {
   Save(obj.instance_name, builder);
   Save(obj.replication_mode, builder);

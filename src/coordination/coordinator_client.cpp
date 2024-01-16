@@ -46,12 +46,12 @@ CoordinatorClient::~CoordinatorClient() {
 void CoordinatorClient::StartFrequentCheck() {
   MG_ASSERT(config_.health_check_frequency > std::chrono::seconds(0), "Health check frequency must be greater than 0");
   replica_checker_.Run("Coord checker", config_.health_check_frequency,
-                       [last_response_time_sec = &last_response_time_sec_, rpc_client = &rpc_client_] {
+                       [last_response_time = &last_response_time_, rpc_client = &rpc_client_] {
                          try {
                            {
                              auto stream{rpc_client->Stream<memgraph::replication::FrequentHeartbeatRpc>()};
                              stream.AwaitResponse();
-                             last_response_time_sec->store(std::chrono::system_clock::now(), std::memory_order_acq_rel);
+                             last_response_time->store(std::chrono::system_clock::now(), std::memory_order_acq_rel);
                            }
                          } catch (const rpc::RpcFailedException &) {
                            // Nothing to do...wait for a reconnect

@@ -492,4 +492,17 @@ inline void Load(utils::TypeId *obj, Reader *reader) {
   *obj = utils::TypeId(utils::MemcpyCast<enum_type>(obj_encoded));
 }
 
+template <utils::Enum T>
+void Save(const T &enum_value, slk::Builder *builder) {
+  slk::Save(utils::UnderlyingCast(enum_value), builder);
+}
+
+template <utils::Enum T>
+void Load(T *enum_value, slk::Reader *reader) {
+  using UnderlyingType = std::underlying_type_t<T>;
+  UnderlyingType value;
+  slk::Load(&value, reader);
+  *enum_value = static_cast<T>(value);
+}
+
 }  // namespace memgraph::slk
