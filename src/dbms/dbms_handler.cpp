@@ -359,7 +359,7 @@ AllSyncReplicaStatus DbmsHandler::Commit() {
 
   auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
   // TODO Create a system client that can handle all of this automatically
-  switch (delta.action) {
+  switch (delta.action) {  // TODO for
     using enum SystemTransaction::Delta::Action;
     case CREATE_DATABASE: {
       // Replication
@@ -407,6 +407,9 @@ AllSyncReplicaStatus DbmsHandler::Commit() {
       auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
       std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
     } break;
+    case UPDATE_AUTH_DATA:  // TODO
+    case DROP_AUTH_DATA:    // TODO
+      break;
   }
 
   durability_->Put(kLastCommitedSystemTsKey, std::to_string(system_transaction_->system_timestamp));
@@ -427,6 +430,8 @@ AllSyncReplicaStatus DbmsHandler::Commit() {
     using enum SystemTransaction::Delta::Action;
     case CREATE_DATABASE:
     case DROP_DATABASE:
+    case UPDATE_AUTH_DATA:  // TODO Do we want to have auth replication under community?
+    case DROP_AUTH_DATA:    // TODO Do we want to have auth replication under community?
       /* Community edition doesn't support multi-tenant replication */
       break;
   }
