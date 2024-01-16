@@ -271,7 +271,7 @@ namespace system_replication {
 void SystemHeartbeatHandler(const uint64_t ts, slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::SystemHeartbeatReq req;
   replication::SystemHeartbeatReq::Load(&req, req_reader);
-  memgraph::slk::Load(&req, req_reader);
+
   replication::SystemHeartbeatRes res(ts);
   memgraph::slk::Save(res, res_builder);
 }
