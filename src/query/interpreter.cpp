@@ -3758,7 +3758,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       if (!system_unique.try_lock_for(std::chrono::milliseconds(100))) {
         throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
       }
-      system_transaction.emplace(std::move(system_unique), *interpreter_context_->dbms_handler);
+      system_transaction_.emplace(std::move(system_unique), *interpreter_context_->dbms_handler);
     }
 
     // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
@@ -3916,9 +3916,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     throw;
   }
 }
+
 void Interpreter::SetupDatabaseTransaction(bool couldCommit, bool unique) {
   current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, unique);
 }
+
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
@@ -4052,18 +4054,31 @@ void Interpreter::Commit() {
   current_transaction_.reset();
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
     // No database nor db transaction; check for system transaction
-    if (!system_transaction) return;
-    // TODO Distinguish between data and system transaction states
-    auto expected = TransactionStatus::ACTIVE;
-    if (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_COMMITTING))
-      return;  // NOT SYSTEM
+    if (!system_transaction_) return;
+
+    // TODO Distinguish between data and system transaction state
+    // Think about updating the status to a struct with bitfield
     // Clean transaction status on exit
     utils::OnScopeExit clean_status([this]() {
-      system_transaction.reset();
-      transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+      system_transaction_.reset();
+      // System transactions are not terminable
+      // Durability has happened at time of PULL
+      // Commit is doing replication and timestamp update
+      // The DBMS does not support MVCC, so doing durability here doesn't change the overall logic; we cannot abort!
+      // What we are trying to do is set the transaction back to IDLE
+      // We cannot simply put it to IDLE, since the status is used as a syncronization method and we have to follow
+      // its logic. There are 2 states when we could update to IDLE (ACTIVE and TERMINATED).
+      auto expected = TransactionStatus::ACTIVE;
+      while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+        if (expected == TransactionStatus::TERMINATED) {
+          continue;
+        }
+        expected = TransactionStatus::ACTIVE;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
     });
 
-    system_transaction->Commit();
+    system_transaction_->Commit();
     return;
   }
   auto *db = current_db_.db_acc_->get();

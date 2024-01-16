@@ -100,15 +100,46 @@ def safe_execute(function, *args):
 
 def setup_replication(connection):
     # Setup replica1
-    cursor = connection(7688, "replica1").cursor()
+    cursor = connection(7688, "replica").cursor()
     execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
     # Setup replica2
-    cursor = connection(7689, "replica2").cursor()
+    cursor = connection(7689, "replica").cursor()
     execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10002;")
     # Setup main
     cursor = connection(7687, "main").cursor()
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002';")
+
+
+def show_replicas_func(cursor, db_name):
+    def func():
+        execute_and_fetch_all(cursor, f"USE DATABASE {db_name};")
+        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    return func
+
+
+def show_databases_func(cursor):
+    def func():
+        return execute_and_fetch_all(cursor, "SHOW DATABASES;")
+
+    return func
+
+
+def get_number_of_nodes_func(cursor, db_name):
+    def func():
+        execute_and_fetch_all(cursor, f"USE DATABASE {db_name};")
+        return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(*);")[0][0]
+
+    return func
+
+
+def get_number_of_edges_func(cursor, db_name):
+    def func():
+        execute_and_fetch_all(cursor, f"USE DATABASE {db_name};")
+        return execute_and_fetch_all(cursor, "MATCH ()-[r]->() RETURN count(*);")[0][0]
+
+    return func
 
 
 def test_manual_databases_create_multitenancy_replication(connection):
@@ -162,53 +193,31 @@ def test_manual_databases_create_multitenancy_replication(connection):
     execute_and_fetch_all(cursor, "CREATE ()-[:EDGE]->();")
 
     # 2/
-    def retrieve_data():
-        execute_and_fetch_all(cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "A"))
     assert actual_data == expected_data
 
-    def retrieve_data():
-        execute_and_fetch_all(cursor, "USE DATABASE B;")
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "B"))
     assert actual_data == expected_data
 
     cursor_replica = connection(7688, "replica_1").cursor()
-    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 1  # one node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
-
-    execute_and_fetch_all(cursor_replica, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 2  # two nodes
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 1  # one relationship
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 1
+    assert get_number_of_edges_func(cursor_replica, "A")() == 0
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
+    assert get_number_of_edges_func(cursor_replica, "B")() == 1
 
     cursor_replica2 = connection(7688, "replica_2").cursor()
-    execute_and_fetch_all(cursor_replica2, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica2, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 1  # one node
-    actual_data = execute_and_fetch_all(cursor_replica2, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
-
-    execute_and_fetch_all(cursor_replica2, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica2, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 2  # two nodes
-    actual_data = execute_and_fetch_all(cursor_replica2, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 1  # one relationship
+    assert get_number_of_nodes_func(cursor_replica2, "A")() == 1
+    assert get_number_of_edges_func(cursor_replica2, "A")() == 0
+    assert get_number_of_nodes_func(cursor_replica2, "B")() == 2
+    assert get_number_of_edges_func(cursor_replica2, "B")() == 1
 
 
 def test_manual_databases_create_multitenancy_replication_branching(connection):
@@ -387,27 +396,22 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
 
     # 2/
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
     assert actual_data == expected_data
 
-    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
-    expected_data = set(execute_and_fetch_all(main_cursor, "SHOW DATABASES"))
+    databases_on_main = show_databases_func(main_cursor)()
 
-    def retrieve_data(cursor):
-        return set(execute_and_fetch_all(cursor, "SHOW DATABASES;"))
+    replica_cursor = connection(7688, "replica").cursor()
+    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+    assert databases_on_main == databases_on_replica
 
-    actual_data = mg_sleep_and_assert(expected_data, partial(retrieve_data, connection(7688, "replica1").cursor()))
-    assert actual_data == expected_data
-    actual_data = mg_sleep_and_assert(expected_data, partial(retrieve_data, connection(7689, "replica2").cursor()))
-    assert actual_data == expected_data
+    replica_cursor = connection(7689, "replica").cursor()
+    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+    assert databases_on_main == databases_on_replica
 
 
 def test_automatic_databases_create_multitenancy_replication(connection):
@@ -434,53 +438,31 @@ def test_automatic_databases_create_multitenancy_replication(connection):
     execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
 
     # 3/
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
     assert actual_data == expected_data
-
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
 
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
     assert actual_data == expected_data
 
     cursor_replica = connection(7688, "replica_1").cursor()
-    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 7  # seven node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 3  # three relationships
-
-    execute_and_fetch_all(cursor_replica, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
+    assert get_number_of_edges_func(cursor_replica, "A")() == 3
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 0
+    assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
     cursor_replica = connection(7689, "replica_2").cursor()
-    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 7  # seven node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 3  # three relationships
-
-    execute_and_fetch_all(cursor_replica, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
+    assert get_number_of_edges_func(cursor_replica, "A")() == 3
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 0
+    assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
 def test_automatic_databases_multitenancy_replication_predefined(connection):
@@ -521,32 +503,21 @@ def test_automatic_databases_multitenancy_replication_predefined(connection):
     execute_and_fetch_all(cursor, "CREATE ()-[:EDGE]->();")
 
     # 2/
-    def retrieve_data():
-        execute_and_fetch_all(cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "A"))
     assert actual_data == expected_data
 
-    def retrieve_data():
-        execute_and_fetch_all(cursor, "USE DATABASE B;")
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "B"))
     assert actual_data == expected_data
 
     cursor_replica = connection(7688, "replica_1").cursor()
-    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 1  # one node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 1
+    assert get_number_of_edges_func(cursor_replica, "A")() == 0
 
 
 def test_automatic_databases_create_multitenancy_replication_dirty_main(connection):
@@ -582,14 +553,10 @@ def test_automatic_databases_create_multitenancy_replication_dirty_main(connecti
     cursor = connection(7687, "main").cursor()
 
     # 1/
-    def retrieve_data():
-        execute_and_fetch_all(cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "A"))
     assert actual_data == expected_data
 
     cursor_replica = connection(7688, "replica_1").cursor()
@@ -631,44 +598,36 @@ def test_multitenancy_replication_restart_replica_w_fc(connection):
     # 3/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
     time.sleep(3)  # In order for the frequent check to run
+    # Check that the FC did invalidate
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
+        ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
+    }
+    assert expected_data == show_replicas_func(main_cursor, "A")()
+    # Restart
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
-    time.sleep(3)  # In order for the frequent check to run
 
     # 4/
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
     assert actual_data == expected_data
-
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
 
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 3, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 3, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
     assert actual_data == expected_data
 
     cursor_replica = connection(7688, "replica_1").cursor()
-    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 7  # seven node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 3  # three relationships
 
-    execute_and_fetch_all(cursor_replica, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 2  # two node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
+    assert get_number_of_edges_func(cursor_replica, "A")() == 3
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
+    assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
 def test_multitenancy_replication_restart_replica_async_w_fc(connection):
@@ -703,43 +662,27 @@ def test_multitenancy_replication_restart_replica_async_w_fc(connection):
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
     time.sleep(3)  # In order for the frequent check to run
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
-    time.sleep(3)  # In order for the frequent check to run
 
     # 4/
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
     assert actual_data == expected_data
-
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
 
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 3, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 3, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
     assert actual_data == expected_data
 
     cursor_replica = connection(7688, "replica_2").cursor()
-    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 7  # seven node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 3  # three relationships
-
-    execute_and_fetch_all(cursor_replica, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 2  # two node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
+    assert get_number_of_edges_func(cursor_replica, "A")() == 3
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
+    assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
 def test_multitenancy_replication_restart_replica_wo_fc(connection):
@@ -775,40 +718,25 @@ def test_multitenancy_replication_restart_replica_wo_fc(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
 
     # 4/
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
     assert actual_data == expected_data
-
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
 
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 3, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 3, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
     assert actual_data == expected_data
 
     cursor_replica = connection(7688, "replica_1").cursor()
-    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 7  # seven node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 3  # three relationships
-
-    execute_and_fetch_all(cursor_replica, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 2  # two node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
+    assert get_number_of_edges_func(cursor_replica, "A")() == 3
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
+    assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
 def test_multitenancy_replication_restart_replica_async_wo_fc(connection):
@@ -844,40 +772,25 @@ def test_multitenancy_replication_restart_replica_async_wo_fc(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
 
     # 4/
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
     assert actual_data == expected_data
-
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
 
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 3, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 3, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
     assert actual_data == expected_data
 
     cursor_replica = connection(7688, "replica_1").cursor()
-    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 7  # seven node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 3  # three relationships
-
-    execute_and_fetch_all(cursor_replica, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 2  # two node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
+    assert get_number_of_edges_func(cursor_replica, "A")() == 3
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
+    assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
 def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection):
@@ -919,21 +832,18 @@ def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection):
     safe_execute(execute_and_fetch_all, main_cursor, "CREATE (:Node{on:'B'});")
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, "replica_1")
 
-    time.sleep(3)  # Wait for the frequent check to get called
-
     # 4/
     cursor_replica = connection(7688, "replica_1").cursor()
-    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 8  # seven node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 3  # three relationships
 
-    execute_and_fetch_all(cursor_replica, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 3  # two node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
+    nodes_on_replica = mg_sleep_and_assert(8, get_number_of_nodes_func(cursor_replica, "A"))
+    assert nodes_on_replica == 8
+    edges_on_replica = mg_sleep_and_assert(3, get_number_of_edges_func(cursor_replica, "A"))
+    assert edges_on_replica == 3
+
+    nodes_on_replica = mg_sleep_and_assert(3, get_number_of_nodes_func(cursor_replica, "B"))
+    assert nodes_on_replica == 3
+    edges_on_replica = mg_sleep_and_assert(0, get_number_of_edges_func(cursor_replica, "B"))
+    assert edges_on_replica == 0
 
 
 def test_multitenancy_replication_restart_replica_async_w_fc_w_rec(connection):
@@ -975,21 +885,18 @@ def test_multitenancy_replication_restart_replica_async_w_fc_w_rec(connection):
     execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, "replica_2")
 
-    time.sleep(3)  # Wait for the frequent check to get called
-
     # 4/
     cursor_replica = connection(7688, "replica_2").cursor()
-    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 8  # seven node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 3  # three relationships
 
-    execute_and_fetch_all(cursor_replica, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 3  # two node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
+    nodes_on_replica = mg_sleep_and_assert(8, get_number_of_nodes_func(cursor_replica, "A"))
+    assert nodes_on_replica == 8
+    edges_on_replica = mg_sleep_and_assert(3, get_number_of_edges_func(cursor_replica, "A"))
+    assert edges_on_replica == 3
+
+    nodes_on_replica = mg_sleep_and_assert(3, get_number_of_nodes_func(cursor_replica, "B"))
+    assert nodes_on_replica == 3
+    edges_on_replica = mg_sleep_and_assert(0, get_number_of_edges_func(cursor_replica, "B"))
+    assert edges_on_replica == 0
 
 
 def test_multitenancy_replication_drop_replica(connection):
@@ -1025,40 +932,25 @@ def test_multitenancy_replication_drop_replica(connection):
     execute_and_fetch_all(main_cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
 
     # 4/
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
     assert actual_data == expected_data
-
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
 
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 3, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 3, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
     assert actual_data == expected_data
 
     cursor_replica = connection(7688, "replica_1").cursor()
-    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 7  # seven node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 3  # three relationships
-
-    execute_and_fetch_all(cursor_replica, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 2  # two node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
+    assert get_number_of_edges_func(cursor_replica, "A")() == 3
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
+    assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
 def test_multitenancy_replication_drop_replica_async(connection):
@@ -1094,40 +986,25 @@ def test_multitenancy_replication_drop_replica_async(connection):
     execute_and_fetch_all(main_cursor, "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002';")
 
     # 4/
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 7, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 7, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
     assert actual_data == expected_data
-
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
 
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 3, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 3, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
     assert actual_data == expected_data
 
     cursor_replica = connection(7688, "replica_2").cursor()
-    execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 7  # seven node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 3  # three relationships
-
-    execute_and_fetch_all(cursor_replica, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 2  # two node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
+    assert get_number_of_edges_func(cursor_replica, "A")() == 3
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
+    assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
 def test_multitenancy_replication_restart_main(connection):
@@ -1174,16 +1051,10 @@ def test_multitenancy_replication_restart_main(connection):
     # 4/
     cursor_replica = connection(7688, "replica_1").cursor()
     execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 8  # seven node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 3  # three relationships
-
-    execute_and_fetch_all(cursor_replica, "USE DATABASE B;")
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH (n) RETURN count(*);")
-    assert actual_data[0][0] == 3  # two node
-    actual_data = execute_and_fetch_all(cursor_replica, "MATCH ()-[r]->() RETURN count(*);")
-    assert actual_data[0][0] == 0  # zero relationships
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 8
+    assert get_number_of_edges_func(cursor_replica, "A")() == 3
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 3
+    assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
 def test_automatic_databases_drop_multitenancy_replication(connection):
@@ -1209,26 +1080,18 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
     execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
 
     # 3/
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
     assert actual_data == expected_data
-
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE B;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
 
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
     assert actual_data == expected_data
 
     # 4/
@@ -1237,15 +1100,15 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
     execute_and_fetch_all(main_cursor, "DROP DATABASE B;")
 
     # 5/
-    expected_data = execute_and_fetch_all(main_cursor, "SHOW DATABASES;")
+    databases_on_main = show_databases_func(main_cursor)()
 
-    def retrieve_data(cursor):
-        return execute_and_fetch_all(cursor, "SHOW DATABASES;")
+    replica_cursor = connection(7688, "replica").cursor()
+    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+    assert databases_on_main == databases_on_replica
 
-    actual_data = mg_sleep_and_assert(expected_data, partial(retrieve_data, connection(7688, "replica_1").cursor()))
-    assert actual_data == expected_data
-    actual_data = mg_sleep_and_assert(expected_data, partial(retrieve_data, connection(7689, "replica_2").cursor()))
-    assert actual_data == expected_data
+    replica_cursor = connection(7689, "replica").cursor()
+    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+    assert databases_on_main == databases_on_replica
 
 
 def test_drop_multitenancy_replication_restart_replica(connection):
@@ -1283,15 +1146,15 @@ def test_drop_multitenancy_replication_restart_replica(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
 
     # 4/
-    expected_data = execute_and_fetch_all(main_cursor, "SHOW DATABASES;")
+    databases_on_main = show_databases_func(main_cursor)()
 
-    def retrieve_data(cursor):
-        return execute_and_fetch_all(cursor, "SHOW DATABASES;")
+    replica_cursor = connection(7688, "replica").cursor()
+    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+    assert databases_on_main == databases_on_replica
 
-    actual_data = mg_sleep_and_assert(expected_data, partial(retrieve_data, connection(7688, "replica_1").cursor()))
-    assert actual_data == expected_data
-    actual_data = mg_sleep_and_assert(expected_data, partial(retrieve_data, connection(7689, "replica_2").cursor()))
-    assert actual_data == expected_data
+    replica_cursor = connection(7689, "replica").cursor()
+    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+    assert databases_on_main == databases_on_replica
 
 
 def test_drop_multitenancy_replication_restart_replica_async(connection):
@@ -1329,15 +1192,15 @@ def test_drop_multitenancy_replication_restart_replica_async(connection):
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
 
     # 4/
-    expected_data = execute_and_fetch_all(main_cursor, "SHOW DATABASES;")
+    databases_on_main = show_databases_func(main_cursor)()
 
-    def retrieve_data(cursor):
-        return execute_and_fetch_all(cursor, "SHOW DATABASES;")
+    replica_cursor = connection(7688, "replica").cursor()
+    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+    assert databases_on_main == databases_on_replica
 
-    actual_data = mg_sleep_and_assert(expected_data, partial(retrieve_data, connection(7688, "replica_1").cursor()))
-    assert actual_data == expected_data
-    actual_data = mg_sleep_and_assert(expected_data, partial(retrieve_data, connection(7689, "replica_2").cursor()))
-    assert actual_data == expected_data
+    replica_cursor = connection(7689, "replica").cursor()
+    databases_on_replica = mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+    assert databases_on_main == databases_on_replica
 
 
 def test_create_multitenancy_replication_restart_replica(connection):
@@ -1363,15 +1226,11 @@ def test_create_multitenancy_replication_restart_replica(connection):
     execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
 
     # 3/
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
     assert actual_data == expected_data
 
     # 4/
@@ -1390,14 +1249,11 @@ def test_create_multitenancy_replication_restart_replica(connection):
     execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
     execute_and_fetch_all(main_cursor, "USE DATABASE B;")
 
-    def retrieve_data():
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
     assert actual_data == expected_data
 
     # 6/
@@ -1441,15 +1297,11 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
     execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
 
     # 3/
-    def retrieve_data():
-        execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 1, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 1, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
     assert actual_data == expected_data
 
     # 4/
@@ -1467,14 +1319,11 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
     execute_and_fetch_all(main_cursor, "USE DATABASE A;")
 
-    def retrieve_data():
-        return set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
-
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
     }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
     assert actual_data == expected_data
 
     # 6/
