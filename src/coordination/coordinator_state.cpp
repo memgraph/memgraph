@@ -30,14 +30,6 @@ namespace memgraph::coordination {
 
 namespace {
 
-bool CheckEndpointExists(const std::list<CoordinatorClient> &replicas, const CoordinatorClientConfig &config) {
-  auto endpoint_matches = [&config](auto const &replica) {
-    const auto &ep = replica.Endpoint();
-    return ep.address == config.ip_address && ep.port == config.port;
-  };
-  return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
-};
-
 bool CheckName(const std::list<CoordinatorClient> &replicas, const CoordinatorClientConfig &config) {
   auto name_matches = [&instance_name = config.instance_name](auto const &replica) {
     return replica.InstanceName() == instance_name;
@@ -64,19 +56,16 @@ CoordinatorState::CoordinatorState() {
 auto CoordinatorState::RegisterReplica(const CoordinatorClientConfig &config)
     -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> {
   const auto name_endpoint_status =
-      std::visit(memgraph::utils::Overloaded{
-                     [](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
-                       return RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR;
-                     },
-                     [&config](const CoordinatorData &coordinator_data) {
-                       if (memgraph::coordination::CheckName(coordinator_data.registered_replicas_, config)) {
-                         return RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
-                       }
-                       if (memgraph::coordination::CheckEndpointExists(coordinator_data.registered_replicas_, config)) {
-                         return RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS;
-                       }
-                       return RegisterMainReplicaCoordinatorStatus::SUCCESS;
-                     }},
+      std::visit(memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+                                               return RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR;
+                                             },
+                                             [&config](const CoordinatorData &coordinator_data) {
+                                               if (memgraph::coordination::CheckName(
+                                                       coordinator_data.registered_replicas_, config)) {
+                                                 return RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
+                                               }
+                                               return RegisterMainReplicaCoordinatorStatus::SUCCESS;
+                                             }},
                  data_);
 
   if (name_endpoint_status != RegisterMainReplicaCoordinatorStatus::SUCCESS) {
@@ -89,18 +78,13 @@ auto CoordinatorState::RegisterReplica(const CoordinatorClientConfig &config)
 
 auto CoordinatorState::RegisterMain(const CoordinatorClientConfig &config)
     -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> {
-  const auto endpoint_status =
-      std::visit(memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
-                                               return RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR;
-                                             },
-                                             [&config](const CoordinatorData &coordinator_data) {
-                                               if (memgraph::coordination::CheckEndpointExists(
-                                                       coordinator_data.registered_replicas_, config)) {
-                                                 return RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS;
-                                               }
-                                               return RegisterMainReplicaCoordinatorStatus::SUCCESS;
-                                             }},
-                 data_);
+  const auto endpoint_status = std::visit(
+      memgraph::utils::Overloaded{
+          [](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+            return RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR;
+          },
+          [](const CoordinatorData & /*coordinator_data*/) { return RegisterMainReplicaCoordinatorStatus::SUCCESS; }},
+      data_);
 
   if (endpoint_status != RegisterMainReplicaCoordinatorStatus::SUCCESS) {
     return endpoint_status;
