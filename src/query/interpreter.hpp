@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -258,13 +258,13 @@ class Interpreter final {
     dbms::DbmsHandler *dbms_handler_;
   };
 
-  std::optional<SystemTransaction> system_transaction{};
+  std::optional<SystemTransaction> system_transaction_{};
 
  private:
   void ResetInterpreter() {
     query_executions_.clear();
     system_guard.reset();
-    system_transaction.reset();
+    system_transaction_.reset();
     transaction_queries_->clear();
     if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
       current_db_.db_acc_.reset();
