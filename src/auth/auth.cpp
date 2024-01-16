@@ -252,6 +252,7 @@ void Auth::SaveUser(const User &user) {
   if (!success) {
     throw AuthException("Couldn't save user '{}'!", user.username());
   }
+  // TODO system delta
 }
 
 void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) {
@@ -305,6 +306,7 @@ bool Auth::RemoveUser(const std::string &username_orig) {
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove user '{}'!", username);
   }
+  // TODO system delta
   return true;
 }
 
@@ -342,6 +344,7 @@ void Auth::SaveRole(const Role &role) {
   if (!storage_.Put(kRolePrefix + role.rolename(), role.Serialize().dump())) {
     throw AuthException("Couldn't save role '{}'!", role.rolename());
   }
+  // TODO system delta
 }
 
 std::optional<Role> Auth::AddRole(const std::string &rolename) {
@@ -368,6 +371,7 @@ bool Auth::RemoveRole(const std::string &rolename_orig) {
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }
+  // TODO system delta
   return true;
 }
 
