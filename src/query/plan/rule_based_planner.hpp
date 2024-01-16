@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -380,6 +380,7 @@ class RuleBasedPlanner {
     if (pattern.identifier_->user_declared_) {
       std::vector<Symbol> path_elements;
       for (const PatternAtom *atom : pattern.atoms_) path_elements.emplace_back(symbol_table.at(*atom->identifier_));
+      bound_symbols.insert(symbol_table.at(*pattern.identifier_));
       last_op = std::make_unique<ConstructNamedPath>(std::move(last_op), symbol_table.at(*pattern.identifier_),
                                                      path_elements);
     }

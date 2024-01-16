@@ -38,21 +38,21 @@ def get_memory(cursor):
 
 
 def test_gc_periodic(connection):
-    """
-    This test checks that periodic gc works.
-    It does so by checking that the allocated memory is lowered by at least 1/4 of the memory allocated by creating nodes.
-    If we choose a number a high number the test will become flaky because the memory only gets fully cleared after a while
-    due to jemalloc holding some memory for a while. If we'd wait for jemalloc to fully release the memory the test would take too long.
-    """
     cursor = connection.cursor()
 
     memory_pre_creation = get_memory(cursor)
-    execute_and_fetch_all(cursor, "UNWIND range(1, 1000) AS index CREATE (:Node);")
+    execute_and_fetch_all(cursor, "UNWIND range(1, 100000) AS index CREATE (:Node);")
     memory_after_creation = get_memory(cursor)
-    time.sleep(5)
-    memory_after_gc = get_memory(cursor)
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
 
-    assert memory_after_gc < memory_pre_creation + (memory_after_creation - memory_pre_creation) / 4 * 3
+    for i in range(5):
+        time.sleep(2)
+        memory_after_gc = get_memory(cursor)
+
+        if memory_after_gc < memory_pre_creation + (memory_after_creation - memory_pre_creation) / 4:
+            return
+
+    raise MemoryError("GC didn't clean the memory after 10 seconds")
 
 
 if __name__ == "__main__":

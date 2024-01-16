@@ -37,6 +37,7 @@
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/stripped.hpp"
+#include "query/parameters.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
@@ -119,7 +120,8 @@ class AstGenerator : public Base {
  public:
   Query *ParseQuery(const std::string &query_string) override {
     ::frontend::opencypher::Parser parser(query_string);
-    CypherMainVisitor visitor(context_, &ast_storage_);
+    Parameters parameters;
+    CypherMainVisitor visitor(context_, &ast_storage_, &parameters);
     visitor.visit(parser.tree());
     return visitor.query();
   }
@@ -152,6 +154,7 @@ class ClonedAstGenerator : public Base {
  public:
   Query *ParseQuery(const std::string &query_string) override {
     ::frontend::opencypher::Parser parser(query_string);
+    Parameters parameters;
     AstStorage tmp_storage;
     {
       // Add a label, property and edge type into temporary storage so
@@ -160,7 +163,7 @@ class ClonedAstGenerator : public Base {
       tmp_storage.GetPropertyIx("fdjakfjdklfjdaslk");
       tmp_storage.GetEdgeTypeIx("fdjkalfjdlkajfdkla");
     }
-    CypherMainVisitor visitor(context_, &tmp_storage);
+    CypherMainVisitor visitor(context_, &tmp_storage, &parameters);
     visitor.visit(parser.tree());
     return visitor.query()->Clone(&ast_storage_);
   }
@@ -183,8 +186,9 @@ class CachedAstGenerator : public Base {
     StrippedQuery stripped(query_string);
     parameters_ = stripped.literals();
     ::frontend::opencypher::Parser parser(stripped.query());
+    Parameters parameters;
     AstStorage tmp_storage;
-    CypherMainVisitor visitor(context_, &tmp_storage);
+    CypherMainVisitor visitor(context_, &tmp_storage, &parameters);
     visitor.visit(parser.tree());
     return visitor.query()->Clone(&ast_storage_);
   }
