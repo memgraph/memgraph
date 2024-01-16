@@ -23,7 +23,7 @@ void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
   using Callable = std::function<void(slk::Reader * req_reader, slk::Builder * res_builder)>;
   auto &server = dbms_handler.CoordinatorState().GetCoordinatorServer();
 
-  server.Register<Callable, replication::FailoverRpc>(
+  server.Register<Callable, coordination::FailoverRpc>(
       [&dbms_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         spdlog::info("Received FailoverRpc from coordinator server");
         CoordinatorHandlers::FailoverHandler(dbms_handler, req_reader, res_builder);
@@ -34,7 +34,7 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
                                           slk::Builder *res_builder) {
   auto &repl_state = dbms_handler.ReplicationState();
   MG_ASSERT(repl_state.IsReplica(), "Failover must be performed on replica!");
-  replication::FailoverReq req;
+  coordination::FailoverReq req;
   slk::Load(&req, req_reader);
 
   bool success = true;
@@ -76,13 +76,13 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
       auto instance_client = repl_state.RegisterReplica(config);
       if (instance_client.HasError()) switch (instance_client.GetError()) {
           case memgraph::replication::RegisterReplicaError::NOT_MAIN:
-            throw replication::CoordinatorFailoverException("Failover must be performed to main!");
+            throw coordination::CoordinatorFailoverException("Failover must be performed to main!");
           case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
-            throw replication::CoordinatorFailoverException("Replica with the same name already exists!");
+            throw coordination::CoordinatorFailoverException("Replica with the same name already exists!");
           case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
-            throw replication::CoordinatorFailoverException("Replica with the same endpoint already exists!");
+            throw coordination::CoordinatorFailoverException("Replica with the same endpoint already exists!");
           case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-            throw replication::CoordinatorFailoverException("Registered replica could not be persisted!");
+            throw coordination::CoordinatorFailoverException("Registered replica could not be persisted!");
           case memgraph::replication::RegisterReplicaError::SUCCESS:
             break;
         }
@@ -118,18 +118,18 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
 
       if (!all_clients_good) {
         spdlog::error("Failed to register all databases to the REPLICA \"{}\"", config.name);
-        throw replication::CoordinatorFailoverException("Failed to register all databases to the REPLICA!");
+        throw coordination::CoordinatorFailoverException("Failed to register all databases to the REPLICA!");
       }
 
       StartReplicaClient(dbms_handler, *instance_client.GetValue());
     });
 
-  } catch (replication::CoordinatorFailoverException &e) {
+  } catch (coordination::CoordinatorFailoverException &e) {
     spdlog::error("Failover failed: {}", e.what());
     success = false;
   }
 
-  replication::FailoverRes res{success};
+  coordination::FailoverRes res{success};
   slk::Save(res, res_builder);
   spdlog::info("Failover handler finished execution!");
 }

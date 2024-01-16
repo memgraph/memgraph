@@ -14,14 +14,13 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_config.hpp"
-#include "replication/messages.hpp"
 #include "rpc/client.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/thread_pool.hpp"
 
 #include <string_view>
 
-namespace memgraph::replication {
+namespace memgraph::coordination {
 
 class CoordinatorClient {
  public:
@@ -62,10 +61,9 @@ class CoordinatorClient {
   mutable rpc::Client rpc_client_;
   CoordinatorClientConfig config_;
 
-  // TODO (antoniofilipovic) change to atomic
   std::atomic<std::chrono::system_clock::time_point> last_response_time{};
   static constexpr int alive_response_time_difference{5};
 };
 #endif
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::coordination

@@ -13,14 +13,14 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "replication/config.hpp"
+#include "coordination/coordinator_config.hpp"
 #include "rpc/server.hpp"
 
-namespace memgraph::replication {
+namespace memgraph::coordination {
 
 class CoordinatorServer {
  public:
-  explicit CoordinatorServer(const memgraph::replication::ReplicationServerConfig &config);
+  explicit CoordinatorServer(const CoordinatorServerConfig &config);
   CoordinatorServer(const CoordinatorServer &) = delete;
   CoordinatorServer(CoordinatorServer &&) = delete;
   CoordinatorServer &operator=(const CoordinatorServer &) = delete;
@@ -40,5 +40,5 @@ class CoordinatorServer {
   rpc::Server rpc_server_;
 };
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::coordination
 #endif

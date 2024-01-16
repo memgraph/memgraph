@@ -17,7 +17,7 @@
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 
-namespace memgraph::replication {
+namespace memgraph::coordination {
 
 struct FailoverReq {
   static const utils::TypeInfo kType;
@@ -48,18 +48,18 @@ struct FailoverRes {
 
 using FailoverRpc = rpc::RequestResponse<FailoverReq, FailoverRes>;
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::coordination
 
 // SLK serialization declarations
 namespace memgraph::slk {
 
-void Save(const memgraph::replication::FailoverRes &self, memgraph::slk::Builder *builder);
+void Save(const memgraph::coordination::FailoverRes &self, memgraph::slk::Builder *builder);
 
-void Load(memgraph::replication::FailoverRes *self, memgraph::slk::Reader *reader);
+void Load(memgraph::coordination::FailoverRes *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::replication::FailoverReq &self, memgraph::slk::Builder *builder);
+void Save(const memgraph::coordination::FailoverReq &self, memgraph::slk::Builder *builder);
 
-void Load(memgraph::replication::FailoverReq *self, memgraph::slk::Reader *reader);
+void Load(memgraph::coordination::FailoverReq *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

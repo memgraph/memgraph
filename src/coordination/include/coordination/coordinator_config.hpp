@@ -20,7 +20,9 @@
 #include <optional>
 #include <string>
 
-namespace memgraph::replication {
+namespace memgraph::coordination {
+
+inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 
 struct CoordinatorClientConfig {
   const std::string instance_name;
@@ -36,7 +38,7 @@ struct CoordinatorClientConfig {
   struct ReplicationClientInfo {
     // Should be the same as CoordinatorClientConfig's instance_name
     std::string instance_name;
-    ReplicationMode replication_mode{};
+    replication::ReplicationMode replication_mode{};
     std::string replication_ip_address;
     uint16_t replication_port{};
 
@@ -73,5 +75,5 @@ struct CoordinatorServerConfig {
   friend bool operator==(CoordinatorServerConfig const &, CoordinatorServerConfig const &) = default;
 };
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::coordination
 #endif

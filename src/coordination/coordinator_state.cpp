@@ -24,15 +24,15 @@
 #include <exception>
 #include <optional>
 
-namespace memgraph::replication {
+namespace memgraph::coordination {
 
 CoordinatorState::CoordinatorState() {
   MG_ASSERT(!(FLAGS_coordinator && FLAGS_coordinator_server_port),
             "Instance cannot be a coordinator and have registered coordinator server.");
 
   if (FLAGS_coordinator_server_port) {
-    auto const config = memgraph::replication::ReplicationServerConfig{
-        .ip_address = memgraph::replication::kDefaultReplicationServerIp,
+    auto const config = CoordinatorServerConfig{
+        .ip_address = kDefaultReplicationServerIp,
         .port = static_cast<uint16_t>(FLAGS_coordinator_server_port),
     };
 
@@ -235,5 +235,5 @@ auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
             "Cannot get coordinator server since variant holds wrong alternative");
   return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
 }
-}  // namespace memgraph::replication
+}  // namespace memgraph::coordination
 #endif
