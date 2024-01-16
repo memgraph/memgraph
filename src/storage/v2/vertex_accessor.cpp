@@ -283,7 +283,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
                 .search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt()), .return_fields = {"data"}};
 
             auto search_result = memcxx::text_search::search(*index_context, search_input);
-            // memcxx::text_search::delete_document(*index_context, search_input, true);
+            memcxx::text_search::delete_document(*index_context, search_input, true);
             auto new_properties = search_result.docs[0].data;  // TODO (pending real Tantivy results): parse result to
                                                                // JSON, set property and convert back to string
             auto new_properties_document = memcxx::text_search::DocumentInput{.data = new_properties};
@@ -372,7 +372,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
                 .search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt()), .return_fields = {"data"}};
 
             auto search_result = memcxx::text_search::search(*index_context, search_input);
-            // memcxx::text_search::delete_document(*index_context, search_input, true);
+            memcxx::text_search::delete_document(*index_context, search_input, true);
             auto new_properties = search_result.docs[0].data;  // TODO (pending real Tantivy results): parse result to
                                                                // JSON, set property and convert back to string
             auto new_properties_document = memcxx::text_search::DocumentInput{.data = new_properties};
@@ -429,7 +429,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
           for (auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
             auto search_input =
                 memcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt())};
-            // memcxx::text_search::delete_document(*index_context, search_input, true);
+            memcxx::text_search::delete_document(*index_context, search_input, true);
           }
         }
       }};
