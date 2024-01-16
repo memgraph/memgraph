@@ -185,7 +185,8 @@ DbmsHandler::DbmsHandler(
     if (entry.is_directory() && !name.empty() && name.front() != '.') {
       auto itr = directories.find(name);
       if (itr == directories.end()) {
-        std::filesystem::remove_all(entry);
+        std::error_code dummy;
+        std::filesystem::remove_all(entry, dummy);
       } else {
         directories.erase(itr);
       }
