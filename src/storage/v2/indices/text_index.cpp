@@ -17,12 +17,18 @@
 
 namespace memgraph::storage {
 
-void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) const {}
+void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) const {
+  // Add node to this label's text index
+}
 
-void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) const {}
+void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) const {
+  // Remove node from this label's text index
+}
 
 void TextIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                    const Transaction &tx) const {}
+                                    const Transaction &tx) const {
+  // Delete this node's document and re-add the it with the new value
+}
 
 std::vector<memcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(Vertex *vertex) {
   std::vector<memcxx::text_search::Context *> applicable_text_indices;

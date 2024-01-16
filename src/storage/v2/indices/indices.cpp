@@ -41,16 +41,19 @@ void Indices::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) cons
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   label_index_->UpdateOnAddLabel(label, vertex, tx);
   label_property_index_->UpdateOnAddLabel(label, vertex, tx);
+  text_index_->UpdateOnAddLabel(label, vertex, tx);
 }
 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   label_index_->UpdateOnRemoveLabel(label, vertex, tx);
   label_property_index_->UpdateOnRemoveLabel(label, vertex, tx);
+  text_index_->UpdateOnRemoveLabel(label, vertex, tx);
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                   const Transaction &tx) const {
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
+  text_index_->UpdateOnSetProperty(property, value, vertex, tx);
 }
 
 Indices::Indices(const Config &config, StorageMode storage_mode) {
