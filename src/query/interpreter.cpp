@@ -277,8 +277,12 @@ inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode
 
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(dbms::DbmsHandler *dbms_handler)
-      : dbms_handler_(dbms_handler), handler_{*dbms_handler}, coordinator_handler_(*dbms_handler) {}
+  explicit ReplQueryHandler(dbms::DbmsHandler *dbms_handler) : dbms_handler_(dbms_handler), handler_ { *dbms_handler }
+#ifdef MG_ENTERPRISE
+  , coordinator_handler_(*dbms_handler)
+#endif
+  {
+  }
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
@@ -557,7 +561,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
  private:
   dbms::DbmsHandler *dbms_handler_;
   dbms::ReplicationHandler handler_;
+#ifdef MG_ENTERPRISE
   dbms::CoordinatorHandler coordinator_handler_;
+#endif
 };
 
 /// returns false if the replication role can't be set
