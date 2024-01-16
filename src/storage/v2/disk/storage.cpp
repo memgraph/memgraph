@@ -2055,7 +2055,8 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices()};
+  auto *text_index = storage_->indices_.text_index_.get();
+  return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices(), text_index->ListIndices()};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);

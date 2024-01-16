@@ -2168,7 +2168,8 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices()};
+  auto *text_index = storage_->indices_.text_index_.get();
+  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices(), text_index->ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
