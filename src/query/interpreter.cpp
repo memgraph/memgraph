@@ -148,6 +148,7 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
 namespace memgraph::query {
 
 constexpr std::string_view kSchemaAssert = "SCHEMA.ASSERT";
+constexpr int kSystemTxTryMS = 100;  //!< Duration of the unique try_lock_for
 
 template <typename>
 constexpr auto kAlwaysFalse = false;
@@ -274,7 +275,7 @@ inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode
 
 class ReplQueryHandler {
  public:
-  struct Replica {
+  struct ReplicaInfo {
     std::string name;
     std::string socket_address;
     ReplicationQuery::SyncMode sync_mode;
@@ -364,7 +365,7 @@ class ReplQueryHandler {
     }
   }
 
-  std::vector<Replica> ShowReplicas(const dbms::Database &db) const {
+  std::vector<ReplicaInfo> ShowReplicas(const dbms::Database &db) const {
     if (handler_.IsReplica()) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
@@ -373,11 +374,11 @@ class ReplQueryHandler {
     // TODO: Combine results? Have a single place with clients???
     //       Also authentication checks (replica + database visibility)
     const auto repl_infos = db.storage()->ReplicasInfo();
-    std::vector<Replica> replicas;
+    std::vector<ReplicaInfo> replicas;
     replicas.reserve(repl_infos.size());
 
-    const auto from_info = [](const auto &repl_info) -> Replica {
-      Replica replica;
+    const auto from_info = [](const auto &repl_info) -> ReplicaInfo {
+      ReplicaInfo replica;
       replica.name = repl_info.name;
       replica.socket_address = repl_info.endpoint.SocketAddress();
       switch (repl_info.mode) {
@@ -3755,7 +3756,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       // TODO: Ordering between system and data queries
       // Start a system transaction
       auto system_unique = std::unique_lock{interpreter_context_->dbms_handler->system_lock_, std::defer_lock};
-      if (!system_unique.try_lock_for(std::chrono::milliseconds(100))) {
+      if (!system_unique.try_lock_for(std::chrono::milliseconds(kSystemTxTryMS))) {
         throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
       }
       system_transaction_.emplace(std::move(system_unique), *interpreter_context_->dbms_handler);

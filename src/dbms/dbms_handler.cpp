@@ -19,6 +19,7 @@
 #include "dbms/replication_client.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
@@ -46,12 +47,6 @@ struct Durability {
 
   struct MigrationException : public utils::BasicException {
     MigrationException() : utils::BasicException("Failed to migrate to the current durability version!") {}
-  };
-
-  static DurabilityVersion StringToVersion(std::string_view str) {
-    if (str == "V0") return DurabilityVersion::V0;
-    if (str == "V1") return DurabilityVersion::V1;
-    throw VersionException();
   };
 
   static DurabilityVersion VersionCheck(std::optional<std::string_view> val) {
@@ -94,7 +89,9 @@ struct Durability {
           // Move directory to new UUID dir
           path = root / kMultiTenantDir / std::string{uuid};
           std::filesystem::path old_dir(root / kMultiTenantDir / key);
-          std::filesystem::rename(old_dir, path);
+          std::error_code ec;
+          std::filesystem::rename(old_dir, path, ec);
+          MG_ASSERT(!ec, "Failed to upgrade durability: cannot move default directory.");
         }
         // Generate json and update value
         auto new_data = GenVal(uuid, std::filesystem::relative(path, root));
