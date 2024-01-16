@@ -46,7 +46,10 @@ std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
 ReplicationHandler::ReplicationHandler(DbmsHandler &dbms_handler) : dbms_handler_(dbms_handler) {}
 
 bool ReplicationHandler::SetReplicationRoleMain() {
-  auto const main_handler = [](RoleMainData &) { return false; };
+  auto const main_handler = [](RoleMainData &) {
+    // If we are already MAIN, we don't want to change anything
+    return false;
+  };
 
   auto const replica_handler = [this](RoleReplicaData const &) {
     return memgraph::dbms::DoReplicaToMainPromotion(dbms_handler_);

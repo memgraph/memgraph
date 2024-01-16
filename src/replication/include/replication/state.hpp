@@ -31,24 +31,20 @@
 namespace memgraph::replication {
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
+
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
 struct RoleMainData {
   RoleMainData() = default;
-
-  explicit RoleMainData(ReplicationEpoch epoch) : epoch_(std::move(epoch)) {}
-
+  explicit RoleMainData(ReplicationEpoch e) : epoch_(std::move(e)) {}
   ~RoleMainData() = default;
 
   RoleMainData(RoleMainData const &) = delete;
   RoleMainData &operator=(RoleMainData const &) = delete;
-
-  RoleMainData(RoleMainData &&other) noexcept = default;
-
-  RoleMainData &operator=(RoleMainData &&other) noexcept = default;
+  RoleMainData(RoleMainData &&) = default;
+  RoleMainData &operator=(RoleMainData &&) = default;
 
   ReplicationEpoch epoch_;
-
   std::list<ReplicationClient> registered_replicas_{};
 };
 
@@ -72,8 +68,6 @@ struct ReplicationState {
     PARSE_ERROR,
   };
 
-  // CoordinatorState: ReplicationClients for replicas and for main.
-
   using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData>;
   using FetchReplicationResult_t = utils::BasicResult<FetchReplicationError, ReplicationData_t>;
   auto FetchReplicationData() -> FetchReplicationResult_t;
@@ -86,9 +80,7 @@ struct ReplicationState {
   bool IsReplica() const { return GetRole() == ReplicationRole::REPLICA; }
 
   bool ShouldPersist() const { return nullptr != durability_; }
-
   bool TryPersistRoleMain(std::string new_epoch);
-
   bool TryPersistRoleReplica(const ReplicationServerConfig &config);
   bool TryPersistUnregisterReplica(std::string_view name);
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config);
@@ -107,7 +99,6 @@ struct ReplicationState {
 
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
-  // CoordinatorState state;
   std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
 };
 

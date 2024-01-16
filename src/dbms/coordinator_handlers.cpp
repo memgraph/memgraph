@@ -21,10 +21,9 @@
 namespace memgraph::dbms {
 
 void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
-  using Callable = std::function<void(slk::Reader * req_reader, slk::Builder * res_builder)>;
   auto &server = dbms_handler.CoordinatorState().GetCoordinatorServer();
 
-  server.Register<Callable, coordination::FailoverRpc>(
+  server.Register<coordination::FailoverRpc>(
       [&dbms_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         spdlog::info("Received FailoverRpc from coordinator server");
         CoordinatorHandlers::FailoverHandler(dbms_handler, req_reader, res_builder);
@@ -34,7 +33,13 @@ void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
 void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
                                           slk::Builder *res_builder) {
   auto &repl_state = dbms_handler.ReplicationState();
-  MG_ASSERT(repl_state.IsReplica(), "Failover must be performed on replica!");
+
+  if (repl_state.IsReplica()) {
+    spdlog::error("Failover must be performed on replica!");
+    slk::Save(coordination::FailoverRes{false}, res_builder);
+    return;
+  }
+
   coordination::FailoverReq req;
   slk::Load(&req, req_reader);
 

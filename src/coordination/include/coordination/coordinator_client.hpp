@@ -61,8 +61,8 @@ class CoordinatorClient {
   mutable rpc::Client rpc_client_;
   CoordinatorClientConfig config_;
 
-  std::atomic<std::chrono::system_clock::time_point> last_response_time{};
-  static constexpr int alive_response_time_difference{5};
+  std::atomic<std::chrono::system_clock::time_point> last_response_time_{};
+  static constexpr int alive_response_time_difference_sec_{5};
 };
 #endif
 
