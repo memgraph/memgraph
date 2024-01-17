@@ -4142,7 +4142,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // }
 
 #ifdef MG_ENTERPRISE
-    if (FLAGS_coordinator && !utils::Downcast<ReplicationQuery>(parsed_query.query) &&
+    if (FLAGS_coordinator && !utils::Downcast<CoordinatorQuery>(parsed_query.query) &&
         !utils::Downcast<SettingQuery>(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only replication queries!");
     }
