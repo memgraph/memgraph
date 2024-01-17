@@ -46,6 +46,8 @@ const std::string kRolePrefix = "role:";
 const std::string kLinkPrefix = "link:";
 const std::string kVersion = "version";
 
+static constexpr auto kVersionV1 = "V1";
+
 /**
  * All data stored in the `Auth` storage is stored in an underlying
  * `kvstore::KVStore`. Because we are using a key-value store to store the data,
@@ -65,13 +67,14 @@ const std::string kVersion = "version";
 
 namespace {
 void MigrateVersions(kvstore::KVStore &store) {
+  static constexpr auto kPasswordHashV0V1 = "password_hash";
   auto version_str = store.Get(kVersion);
 
   if (!version_str) {
     using namespace std::string_literals;
 
     // pre versioning, add version to the store
-    auto puts = std::map<std::string, std::string>{{kVersion, "V1"}};
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV1}};
 
     // also add hash kind into durability
 
@@ -86,15 +89,16 @@ void MigrateVersions(kvstore::KVStore &store) {
         auto const &[key, value] = *it;
         try {
           auto user_data = nlohmann::json::parse(value);
-          auto password_hash = user_data["password_hash"];
+
+          auto password_hash = user_data[kPasswordHashV0V1];
           if (!password_hash.is_string()) {
             throw AuthException("Couldn't load user data!");
           }
           // upgrade the password_hash to include the hash algortihm
           if (password_hash.empty()) {
-            user_data["password_hash"] = nullptr;
+            user_data[kPasswordHashV0V1] = nullptr;
           } else {
-            user_data["password_hash"] = HashedPassword{hash_algo, password_hash};
+            user_data[kPasswordHashV0V1] = HashedPassword{hash_algo, password_hash};
           }
           puts.emplace(key, user_data.dump());
         } catch (const nlohmann::json::parse_error &e) {
@@ -105,7 +109,7 @@ void MigrateVersions(kvstore::KVStore &store) {
 
     // Perform migration to V1
     store.PutMultiple(puts);
-    version_str = "V1";
+    version_str = kVersionV1;
   }
 }
 };  // namespace
