@@ -47,16 +47,11 @@ void Load(memgraph::coordination::FailoverRes *self, memgraph::slk::Reader *read
 }
 
 void Save(const memgraph::coordination::FailoverReq &self, memgraph::slk::Builder *builder) {
-  std::function<void(const ReplicationClientInfo &, Builder *)> item_save_function =
-      [](const auto &item, auto *builder) -> void { memgraph::slk::Save(item, builder); };
-  memgraph::slk::Save(self.replication_clients_info, builder, item_save_function);
+  memgraph::slk::Save(self.replication_clients_info, builder);
 }
 
 void Load(memgraph::coordination::FailoverReq *self, memgraph::slk::Reader *reader) {
-  std::function<void(ReplicationClientInfo *, Reader *)> item_load_function = [](auto *item, auto *reader) -> void {
-    memgraph::slk::Load(item, reader);
-  };
-  memgraph::slk::Load(&self->replication_clients_info, reader, item_load_function);
+  memgraph::slk::Load(&self->replication_clients_info, reader);
 }
 
 }  // namespace slk

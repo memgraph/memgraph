@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
-#include "replication/mode.hpp"
+#include "replication_coordination_glue/mode.hpp"
 
 namespace memgraph::replication {
 
@@ -24,7 +24,7 @@ inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 
 struct ReplicationClientConfig {
   std::string name;
-  ReplicationMode mode{};
+  replication_coordination_glue::ReplicationMode mode{};
   std::string ip_address;
   uint16_t port{};
 

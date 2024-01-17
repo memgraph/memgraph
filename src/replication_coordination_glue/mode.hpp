@@ -10,7 +10,9 @@
 // licenses/APL.txt.
 
 #pragma once
+
 #include <cstdint>
-namespace memgraph::replication {
+
+namespace memgraph::replication_coordination_glue {
 enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
-}  // namespace memgraph::replication
+}  // namespace memgraph::replication_coordination_glue

@@ -14,7 +14,7 @@
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 
-namespace memgraph::replication {
+namespace memgraph::replication_coordination_glue {
 
 struct FrequentHeartbeatReq {
   static const utils::TypeInfo kType;  // TODO: make constexpr?
@@ -41,4 +41,4 @@ using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, Frequent
 
 void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::replication_coordination_glue

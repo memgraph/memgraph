@@ -22,6 +22,7 @@
 
 using namespace memgraph::replication::durability;
 using namespace memgraph::replication;
+using namespace memgraph::replication_coordination_glue;
 
 TEST(ReplicationDurability, V1Main) {
   auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V1,

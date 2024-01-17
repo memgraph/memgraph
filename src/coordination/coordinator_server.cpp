@@ -12,7 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_server.hpp"
-#include "replication/messages.hpp"
+#include "replication_coordination_glue/messages.hpp"
 
 namespace memgraph::coordination {
 
@@ -36,9 +36,9 @@ CoordinatorServer::CoordinatorServer(const CoordinatorServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
       rpc_server_{io::network::Endpoint{config.ip_address, config.port}, &rpc_server_context_,
                   kCoordinatorServerThreads} {
-  rpc_server_.Register<replication::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
+  rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received FrequentHeartbeatRpc on coordinator server");
-    replication::FrequentHeartbeatHandler(req_reader, res_builder);
+    replication_coordination_glue::FrequentHeartbeatHandler(req_reader, res_builder);
   });
 }
 

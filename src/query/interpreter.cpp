@@ -262,17 +262,18 @@ bool IsAllShortestPathsQuery(const std::vector<memgraph::query::Clause *> &claus
   return false;
 }
 
-inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode) -> replication::ReplicationMode {
+inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode)
+    -> replication_coordination_glue::ReplicationMode {
   switch (sync_mode) {
     case ReplicationQuery::SyncMode::ASYNC: {
-      return replication::ReplicationMode::ASYNC;
+      return replication_coordination_glue::ReplicationMode::ASYNC;
     }
     case ReplicationQuery::SyncMode::SYNC: {
-      return replication::ReplicationMode::SYNC;
+      return replication_coordination_glue::ReplicationMode::SYNC;
     }
   }
   // TODO: C++23 std::unreachable()
-  return replication::ReplicationMode::ASYNC;
+  return replication_coordination_glue::ReplicationMode::ASYNC;
 }
 
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
@@ -506,10 +507,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       replica.name = repl_info.name;
       replica.socket_address = repl_info.endpoint.SocketAddress();
       switch (repl_info.mode) {
-        case memgraph::replication::ReplicationMode::SYNC:
+        case replication_coordination_glue::ReplicationMode::SYNC:
           replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
           break;
-        case memgraph::replication::ReplicationMode::ASYNC:
+        case replication_coordination_glue::ReplicationMode::ASYNC:
           replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
           break;
       }

@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "replication/mode.hpp"
+#include "replication_coordination_glue/mode.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -38,7 +38,7 @@ struct CoordinatorClientConfig {
   struct ReplicationClientInfo {
     // Should be the same as CoordinatorClientConfig's instance_name
     std::string instance_name;
-    replication::ReplicationMode replication_mode{};
+    replication_coordination_glue::ReplicationMode replication_mode{};
     std::string replication_ip_address;
     uint16_t replication_port{};
 

@@ -14,7 +14,7 @@
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_slk.hpp"
 #include "replication/config.hpp"
-#include "replication/mode.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "slk_common.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/slk.hpp"
@@ -121,7 +121,7 @@ TEST(SlkAdvanced, PropertyValueComplex) {
 TEST(SlkAdvanced, ReplicationClientConfigs) {
   using ReplicationClientInfo = memgraph::coordination::CoordinatorClientConfig::ReplicationClientInfo;
   using ReplicationClientInfoVec = std::vector<ReplicationClientInfo>;
-  using ReplicationMode = memgraph::replication::ReplicationMode;
+  using ReplicationMode = memgraph::replication_coordination_glue::ReplicationMode;
 
   ReplicationClientInfoVec original{ReplicationClientInfo{.instance_name = "replica1",
                                                           .replication_mode = ReplicationMode::SYNC,

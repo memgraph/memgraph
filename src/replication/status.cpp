@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -95,7 +95,7 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   auto seconds = j.at(kCheckFrequency).get<std::chrono::seconds::rep>();
   auto config = ReplicationClientConfig{
       .name = j.at(kReplicaName).get<std::string>(),
-      .mode = j.at(kSyncMode).get<ReplicationMode>(),
+      .mode = j.at(kSyncMode).get<replication_coordination_glue::ReplicationMode>(),
       .ip_address = j.at(kIpAddress).get<std::string>(),
       .port = j.at(kPort).get<uint16_t>(),
       .replica_check_frequency = std::chrono::seconds{seconds},

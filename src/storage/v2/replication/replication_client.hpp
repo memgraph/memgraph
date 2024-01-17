@@ -13,8 +13,8 @@
 
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
-#include "replication/messages.hpp"
 #include "replication/replication_client.hpp"
+#include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/id_types.hpp"
@@ -93,7 +93,7 @@ class ReplicationStorageClient {
   ~ReplicationStorageClient() = default;
 
   // TODO Remove the client related functions
-  auto Mode() const -> memgraph::replication::ReplicationMode { return client_.mode_; }
+  auto Mode() const -> memgraph::replication_coordination_glue::ReplicationMode { return client_.mode_; }
   auto Name() const -> std::string const & { return client_.name_; }
   auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
 
