@@ -666,6 +666,17 @@ TEST(AuthWithoutStorage, UserSerializeDeserialize) {
   ASSERT_EQ(user, output);
 }
 
+TEST(AuthWithoutStorage, UserSerializeDeserializeWithOutPassword) {
+  auto user = User("test");
+  user.permissions().Grant(Permission::MATCH);
+  user.permissions().Deny(Permission::MERGE);
+
+  auto data = user.Serialize();
+
+  auto output = User::Deserialize(data);
+  ASSERT_EQ(user, output);
+}
+
 TEST(AuthWithoutStorage, RoleSerializeDeserialize) {
   auto role = Role("test");
   role.permissions().Grant(Permission::MATCH);
