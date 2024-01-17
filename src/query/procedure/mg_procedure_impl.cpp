@@ -1838,9 +1838,10 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     const auto prop_key =
         std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, v->graph->impl);
 
-    const auto result = std::visit(
-        [prop_key, property_value](auto &impl) { return impl.SetProperty(prop_key, ToPropertyValue(*property_value)); },
-        v->impl);
+    const auto result =
+        std::visit([prop_key, property_value](
+                       auto &impl) { return impl.SetProperty(prop_key, ToPropertyValue(*property_value), true); },
+                   v->impl);
     if (result.HasError()) {
       switch (result.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -1896,7 +1897,7 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
           v->graph->impl));
     }
 
-    const auto result = v->getImpl().UpdateProperties(props);
+    const auto result = v->getImpl().UpdateProperties(props, true);
     if (result.HasError()) {
       switch (result.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -1953,7 +1954,7 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
       throw ImmutableObjectException{"Cannot add a label to an immutable vertex!"};
     }
 
-    const auto result = std::visit([label_id](auto &impl) { return impl.AddLabel(label_id); }, v->impl);
+    const auto result = std::visit([label_id](auto &impl) { return impl.AddLabel(label_id, true); }, v->impl);
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -1995,7 +1996,7 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot remove a label from an immutable vertex!"};
     }
-    const auto result = std::visit([label_id](auto &impl) { return impl.RemoveLabel(label_id); }, v->impl);
+    const auto result = std::visit([label_id](auto &impl) { return impl.RemoveLabel(label_id, true); }, v->impl);
 
     if (result.HasError()) {
       switch (result.GetError()) {

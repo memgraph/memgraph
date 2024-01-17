@@ -152,6 +152,8 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
     return std::optional<VertexAccessor>{};
   }
 
+  // TODO antepusic remove from text index
+
   const auto &[vertices, edges] = *value;
 
   MG_ASSERT(vertices.size() <= 1, "The number of deleted vertices is not less or equal to 1!");
@@ -183,6 +185,8 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
   if (res.HasError()) {
     return res.GetError();
   }
+
+  // TODO antepusic remove from text index
 
   auto &value = res.GetValue();
   if (!value) {
@@ -273,6 +277,8 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   }
 
   auto deleted_vertices = maybe_deleted_vertices.GetValue();
+
+  // delete from text inde here
 
   return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }

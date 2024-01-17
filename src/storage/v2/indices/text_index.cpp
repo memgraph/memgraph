@@ -17,17 +17,75 @@
 
 namespace memgraph::storage {
 
-void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) const {
-  // Add node to this label's text index
+void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
+                        const std::vector<memcxx::text_search::Context *> &applicable_text_indices) {
+  // NOTE: Text indexes are presently all-property indices. If we allow text indexes restricted to specific properties,
+  // an indexable document should be created for each applicable index.
+  nlohmann::json document = {};
+  nlohmann::json properties = {};
+  for (const auto &[prop_id, prop_value] : vertex_after_update->properties.Properties()) {
+    if (!prop_value.IsString()) continue;
+    properties[storage->PropertyToName(prop_id)] = prop_value.ValueString();
+  }
+
+  document["data"] = properties;
+  document["metadata"] = {};
+  document["metadata"]["gid"] = vertex_after_update->gid.AsInt();
+  // TODO add txid
+  document["metadata"]["deleted"] = false;
+  document["metadata"]["is_node"] = true;
+
+  for (auto *index_context : applicable_text_indices) {
+    memcxx::text_search::add(*index_context, memcxx::text_search::DocumentInput{.data = document.dump()}, false);
+  }
 }
 
-void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) const {
-  // Remove node from this label's text index
+void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage) {
+  auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
+  if (applicable_text_indices.empty()) return;
+  AddNode(vertex_after_update, storage, applicable_text_indices);
 }
 
-void TextIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                    const Transaction &tx) const {
-  // Delete this node's document and re-add the it with the new value
+void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage) {
+  auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
+  if (applicable_text_indices.empty()) return;
+  RemoveNode(vertex_after_update, applicable_text_indices);
+  AddNode(vertex_after_update, storage, applicable_text_indices);
+}
+
+void TextIndex::RemoveNode(Vertex *vertex_after_update,
+                           const std::vector<memcxx::text_search::Context *> &applicable_text_indices) {
+  auto search_node_to_be_deleted = memcxx::text_search::SearchInput{
+      .search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
+
+  for (auto *index_context : applicable_text_indices) {
+    memcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, false);
+  }
+}
+
+void TextIndex::RemoveNode(Vertex *vertex_after_update) {
+  auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
+  if (applicable_text_indices.empty()) return;
+  RemoveNode(vertex_after_update, applicable_text_indices);
+}
+
+void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, Storage *storage,
+                                 const Transaction &tx) {
+  if (!label_to_index_.contains(added_label)) {
+    return;
+  }
+  AddNode(vertex_after_update, storage, {&index_.at(label_to_index_.at(added_label))});
+}
+
+void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) {
+  if (!label_to_index_.contains(removed_label)) {
+    return;
+  }
+  RemoveNode(vertex_after_update, {&index_.at(label_to_index_.at(removed_label))});
+}
+
+void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage, const Transaction &tx) {
+  UpdateNode(vertex_after_update, storage);
 }
 
 std::vector<memcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(Vertex *vertex) {

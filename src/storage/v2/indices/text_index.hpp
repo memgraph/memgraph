@@ -22,8 +22,15 @@ class DbAccessor;
 }
 
 namespace memgraph::storage {
+class Storage;
 
 class TextIndex {
+ private:
+  void AddNode(Vertex *vertex, Storage *storage,
+               const std::vector<memcxx::text_search::Context *> &applicable_text_indices);
+
+  void RemoveNode(Vertex *vertex, const std::vector<memcxx::text_search::Context *> &applicable_text_indices);
+
  public:
   TextIndex() = default;
 
@@ -37,12 +44,17 @@ class TextIndex {
   std::map<std::string, memcxx::text_search::Context> index_;
   std::map<LabelId, std::string> label_to_index_;
 
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) const;
+  void AddNode(Vertex *vertex, Storage *storage);
 
-  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) const;
+  void UpdateNode(Vertex *vertex, Storage *storage);
 
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) const;
+  void RemoveNode(Vertex *vertex);
+
+  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, Storage *storage, const Transaction &tx);
+
+  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx);
+
+  void UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage, const Transaction &tx);
 
   std::vector<memcxx::text_search::Context *> GetApplicableTextIndices(Vertex *vertex);
 

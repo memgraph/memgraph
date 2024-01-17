@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -788,6 +788,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto &property_value = delta.vertex_edge_set_property.value;
 
           vertex->properties.SetProperty(property_id, property_value);
+          // TODO antepusic: update text index here or at the end of LoadWal()?
 
           break;
         }

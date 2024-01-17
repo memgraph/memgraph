@@ -102,7 +102,7 @@ bool VertexAccessor::IsVisible(View view) const {
   return exists && (for_deleted_ || !deleted);
 }
 
-Result<bool> VertexAccessor::AddLabel(LabelId label) {
+Result<bool> VertexAccessor::AddLabel(LabelId label, bool update_text_index) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -126,14 +126,14 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
   transaction_->constraint_verification_info.AddedLabel(vertex_);
-  storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_);
+  storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_, storage_, update_text_index);
   transaction_->manyDeltasCache.Invalidate(vertex_, label);
 
   return true;
 }
 
 /// TODO: move to after update and change naming to vertex after update
-Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
+Result<bool> VertexAccessor::RemoveLabel(LabelId label, bool update_text_index) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -154,7 +154,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
 
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
-  storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_);
+  storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_, update_text_index);
   transaction_->manyDeltasCache.Invalidate(vertex_, label);
 
   return true;
@@ -254,7 +254,8 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   return std::move(labels);
 }
 
-Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value,
+                                                  bool update_text_index) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -275,21 +276,8 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   // transactions get a SERIALIZATION_ERROR.
 
   utils::AtomicMemoryBlock atomic_memory_block{
-      [transaction = transaction_, storage = storage_, vertex = vertex_, &value, &property, &current_value]() {
+      [transaction = transaction_, vertex = vertex_, &value, &property, &current_value]() {
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
-        if (flags::run_time::GetTextSearchEnabled()) {
-          for (auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
-            auto search_input = memcxx::text_search::SearchInput{
-                .search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt()), .return_fields = {"data"}};
-
-            auto search_result = memcxx::text_search::search(*index_context, search_input);
-            memcxx::text_search::delete_document(*index_context, search_input, true);
-            auto new_properties = search_result.docs[0].data;  // TODO (pending real Tantivy results): parse result to
-                                                               // JSON, set property and convert back to string
-            auto new_properties_document = memcxx::text_search::DocumentInput{.data = new_properties};
-            memcxx::text_search::add(*index_context, new_properties_document, true);
-          }
-        }
         vertex->properties.SetProperty(property, value);
       }};
   std::invoke(atomic_memory_block);
@@ -299,13 +287,28 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   } else {
     transaction_->constraint_verification_info.RemovedProperty(vertex_);
   }
-  storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_);
+  storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_, storage_, update_text_index);
   transaction_->manyDeltasCache.Invalidate(vertex_, property);
+
+  // if (flags::run_time::GetTextSearchEnabled() && update_text_index) {
+  //   for (auto *index_context : storage_->indices_.text_index_->GetApplicableTextIndices(vertex_)) {
+  //     auto search_input = memcxx::text_search::SearchInput{
+  //         .search_query = fmt::format("metadata.gid:{}", vertex_->gid.AsInt()), .return_fields = {"data"}};
+
+  //     auto search_result = memcxx::text_search::search(*index_context, search_input);
+  //     memcxx::text_search::delete_document(*index_context, search_input, true);
+  //     auto new_properties = search_result.docs[0].data;  // TODO (pending real Tantivy results): parse result to
+  //                                                        // JSON, set property and convert back to string
+  //     auto new_properties_document = memcxx::text_search::DocumentInput{.data = new_properties};
+  //     memcxx::text_search::add(*index_context, new_properties_document, true);
+  //   }
+  // }
 
   return std::move(current_value);
 }
 
-Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                                            bool update_text_index) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -318,22 +321,14 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   bool result{false};
   utils::AtomicMemoryBlock atomic_memory_block{
-      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_]() {
+      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, update_text_index]() {
         if (!vertex->properties.InitProperties(properties)) {
           result = false;
           return;
         }
-        if (flags::run_time::GetTextSearchEnabled()) {
-          for (auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
-            auto new_properties_document =
-                memcxx::text_search::DocumentInput{};  // TODO (pending real Tantivy operation): create a JSON, set
-                                                       // properties and convert to string
-            memcxx::text_search::add(*index_context, new_properties_document, true);
-          }
-        }
         for (const auto &[property, value] : properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
-          storage->indices_.UpdateOnSetProperty(property, value, vertex, *transaction);
+          storage->indices_.UpdateOnSetProperty(property, value, vertex, *transaction, storage, update_text_index);
           transaction->manyDeltasCache.Invalidate(vertex, property);
           if (!value.IsNull()) {
             transaction->constraint_verification_info.AddedProperty(vertex);
@@ -345,11 +340,20 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
       }};
   std::invoke(atomic_memory_block);
 
+  // if (flags::run_time::GetTextSearchEnabled() && update_text_index) {
+  //   for (auto *index_context : storage_->indices_.text_index_->GetApplicableTextIndices(vertex_)) {
+  //     auto new_properties_document =
+  //         memcxx::text_search::DocumentInput{};  // TODO (pending real Tantivy operation): create a JSON, set
+  //                                                // properties and convert to string
+  //     memcxx::text_search::add(*index_context, new_properties_document, true);
+  //   }
+  // }
+
   return result;
 }
 
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> VertexAccessor::UpdateProperties(
-    std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+    std::map<storage::PropertyId, storage::PropertyValue> &properties, bool update_text_index) const {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -363,43 +367,43 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
   using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
-  utils::AtomicMemoryBlock atomic_memory_block{
-      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &id_old_new_change]() {
-        id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
-        if (flags::run_time::GetTextSearchEnabled()) {
-          for (auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
-            auto search_input = memcxx::text_search::SearchInput{
-                .search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt()), .return_fields = {"data"}};
+  utils::AtomicMemoryBlock atomic_memory_block{[storage = storage_, transaction = transaction_, vertex = vertex_,
+                                                &properties, &id_old_new_change, update_text_index]() {
+    id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
+    // if (flags::run_time::GetTextSearchEnabled()) {
+    //   for (auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
+    //     auto search_input = memcxx::text_search::SearchInput{
+    //         .search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt()), .return_fields = {"data"}};
 
-            auto search_result = memcxx::text_search::search(*index_context, search_input);
-            memcxx::text_search::delete_document(*index_context, search_input, true);
-            auto new_properties = search_result.docs[0].data;  // TODO (pending real Tantivy results): parse result to
-                                                               // JSON, set property and convert back to string
-            auto new_properties_document = memcxx::text_search::DocumentInput{.data = new_properties};
-            memcxx::text_search::add(*index_context, new_properties_document, true);
-          }
-        }
+    //     auto search_result = memcxx::text_search::search(*index_context, search_input);
+    //     memcxx::text_search::delete_document(*index_context, search_input, true);
+    //     auto new_properties = search_result.docs[0].data;  // TODO (pending real Tantivy results): parse result to
+    //                                                        // JSON, set property and convert back to string
+    //     auto new_properties_document = memcxx::text_search::DocumentInput{.data = new_properties};
+    //     memcxx::text_search::add(*index_context, new_properties_document, true);
+    //   }
+    // }
 
-        if (!id_old_new_change.has_value()) {
-          return;
-        }
-        for (auto &[id, old_value, new_value] : *id_old_new_change) {
-          storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
-          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, std::move(old_value));
-          transaction->manyDeltasCache.Invalidate(vertex, id);
-          if (!new_value.IsNull()) {
-            transaction->constraint_verification_info.AddedProperty(vertex);
-          } else {
-            transaction->constraint_verification_info.RemovedProperty(vertex);
-          }
-        }
-      }};
+    if (!id_old_new_change.has_value()) {
+      return;
+    }
+    for (auto &[id, old_value, new_value] : *id_old_new_change) {
+      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction, storage, update_text_index);
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, std::move(old_value));
+      transaction->manyDeltasCache.Invalidate(vertex, id);
+      if (!new_value.IsNull()) {
+        transaction->constraint_verification_info.AddedProperty(vertex);
+      } else {
+        transaction->constraint_verification_info.RemovedProperty(vertex);
+      }
+    }
+  }};
   std::invoke(atomic_memory_block);
 
   return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
 }
 
-Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
+Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties(bool update_text_index) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -412,26 +416,28 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   using ReturnType = decltype(vertex_->properties.Properties());
   std::optional<ReturnType> properties;
   utils::AtomicMemoryBlock atomic_memory_block{
-      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties]() {
+      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, update_text_index]() {
         properties.emplace(vertex->properties.Properties());
         if (!properties.has_value()) {
           return;
         }
         for (const auto &[property, value] : *properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, value);
-          storage->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex, *transaction);
+          storage->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex, *transaction, storage,
+                                                update_text_index);
           transaction->constraint_verification_info.RemovedProperty(vertex);
           transaction->manyDeltasCache.Invalidate(vertex, property);
         }
 
         vertex->properties.ClearProperties();
-        if (flags::run_time::GetTextSearchEnabled()) {
-          for (auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
-            auto search_input =
-                memcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt())};
-            memcxx::text_search::delete_document(*index_context, search_input, true);
-          }
-        }
+        // if (flags::run_time::GetTextSearchEnabled()) {
+        //   for (auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
+        //     auto search_input =
+        //         memcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}",
+        //         vertex->gid.AsInt())};
+        //     memcxx::text_search::delete_document(*index_context, search_input, true);
+        //   }
+        // }
       }};
   std::invoke(atomic_memory_block);
 

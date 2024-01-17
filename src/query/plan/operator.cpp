@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -217,7 +217,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   auto new_node = dba.InsertVertex();
   context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
   for (auto label : node_info.labels) {
-    auto maybe_error = new_node.AddLabel(label);
+    auto maybe_error = new_node.AddLabel(label, false);
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
@@ -250,6 +250,11 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
     }
   }
   MultiPropsInitChecked(&new_node, properties);
+
+  // TODO antepusic check if text search is turned on
+  if (flags::run_time::GetTextSearchEnabled()) {
+    // new_node.AddToTextSearch()
+  }
 
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
@@ -2819,6 +2824,10 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
                                                                      TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
+      // TODO antepusic: update text index
+      // new_node.UpdateInTextSearch()
+      if (flags::run_time::GetTextSearchEnabled()) {
+      }
       break;
     }
     case TypedValue::Type::Edge: {
@@ -2975,6 +2984,10 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     case TypedValue::Type::Vertex: {
       PropertiesMap new_properties = get_props(rhs.ValueVertex());
       update_props(new_properties);
+      // TODO antepusic: update text index
+      // new_node.UpdateInTextSearch()
+      if (flags::run_time::GetTextSearchEnabled()) {
+      }
       break;
     }
     case TypedValue::Type::Map: {
@@ -3102,7 +3115,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 #endif
 
   for (auto label : self_.labels_) {
-    auto maybe_value = vertex.AddLabel(label);
+    auto maybe_value = vertex.AddLabel(label, false);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
@@ -3119,6 +3132,11 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (context.trigger_context_collector && *maybe_value) {
       context.trigger_context_collector->RegisterSetVertexLabel(vertex, label);
     }
+  }
+
+  // TODO antepusic check if text search is turned on
+  if (flags::run_time::GetTextSearchEnabled()) {
+    // new_node.UpdateInTextSearch()
   }
 
   return true;
@@ -3262,7 +3280,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 #endif
 
   for (auto label : self_.labels_) {
-    auto maybe_value = vertex.RemoveLabel(label);
+    auto maybe_value = vertex.RemoveLabel(label, false);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
@@ -3280,6 +3298,11 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     if (context.trigger_context_collector && *maybe_value) {
       context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
     }
+  }
+
+  // TODO antepusic check if text search is turned on
+  if (flags::run_time::GetTextSearchEnabled()) {
+    // new_node.UpdateInTextSearch()
   }
 
   return true;

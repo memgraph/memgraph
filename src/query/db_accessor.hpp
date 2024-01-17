@@ -115,9 +115,13 @@ class VertexAccessor final {
 
   auto Labels(storage::View view) const { return impl_.Labels(view); }
 
-  storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
+  storage::Result<bool> AddLabel(storage::LabelId label, bool update_text_index) {
+    return impl_.AddLabel(label, update_text_index);
+  }
 
-  storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
+  storage::Result<bool> RemoveLabel(storage::LabelId label, bool update_text_index) {
+    return impl_.RemoveLabel(label, update_text_index);
+  }
 
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
     return impl_.HasLabel(label, view);
@@ -129,25 +133,29 @@ class VertexAccessor final {
     return impl_.GetProperty(key, view);
   }
 
-  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
-    return impl_.SetProperty(key, value);
+  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value,
+                                                      bool update_text_index = false) {
+    return impl_.SetProperty(key, value, update_text_index);
   }
 
-  storage::Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-    return impl_.InitProperties(properties);
+  storage::Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                                       bool update_text_index = false) {
+    return impl_.InitProperties(properties, update_text_index);
   }
 
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
-  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
-    return impl_.UpdateProperties(properties);
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                   bool update_text_index = false) const {
+    return impl_.UpdateProperties(properties, update_text_index);
   }
 
-  storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
-    return SetProperty(key, storage::PropertyValue());
+  storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key, bool update_text_index = true) {
+    return SetProperty(key, storage::PropertyValue(), update_text_index);
   }
 
-  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
-    return impl_.ClearProperties();
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties(
+      bool update_text_index = false) {
+    return impl_.ClearProperties(update_text_index);
   }
 
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
@@ -254,9 +262,13 @@ class SubgraphVertexAccessor final {
 
   auto Labels(storage::View view) const { return impl_.Labels(view); }
 
-  storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
+  storage::Result<bool> AddLabel(storage::LabelId label, bool update_text_index) {
+    return impl_.AddLabel(label, update_text_index);
+  }
 
-  storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
+  storage::Result<bool> RemoveLabel(storage::LabelId label, bool update_text_index) {
+    return impl_.RemoveLabel(label, update_text_index);
+  }
 
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
     return impl_.HasLabel(view, label);
@@ -274,13 +286,15 @@ class SubgraphVertexAccessor final {
 
   storage::Result<size_t> OutDegree(storage::View view) const { return impl_.OutDegree(view); }
 
-  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
-    return impl_.SetProperty(key, value);
+  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value,
+                                                      bool update_text_index = false) {
+    return impl_.SetProperty(key, value, update_text_index);
   }
 
   storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
-  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
-    return impl_.UpdateProperties(properties);
+  UpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                   bool update_text_index = false) const {
+    return impl_.UpdateProperties(properties, update_text_index);
   }
 
   VertexAccessor GetVertexAccessor() const;

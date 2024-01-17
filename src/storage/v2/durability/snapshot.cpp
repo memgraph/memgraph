@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -799,6 +799,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
           SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for vertex {}.",
                        name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
           props.SetProperty(get_property_from_id(*key), *value);
+          // TODO antepusic: update text index here or at the end of LoadSnapshot()?
         }
       }
 

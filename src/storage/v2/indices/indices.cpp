@@ -38,22 +38,44 @@ void Indices::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) cons
       ->RemoveObsoleteEntries(oldest_active_start_timestamp);
 }
 
-void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
+// void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
+//   label_index_->UpdateOnAddLabel(label, vertex, tx);
+//   label_property_index_->UpdateOnAddLabel(label, vertex, tx);
+// }
+
+// void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
+//   label_index_->UpdateOnRemoveLabel(label, vertex, tx);
+//   label_property_index_->UpdateOnRemoveLabel(label, vertex, tx);
+// }
+
+// void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+//                                   const Transaction &tx) const {
+//   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
+// }
+
+void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx, Storage *storage,
+                               bool update_text_index) const {
   label_index_->UpdateOnAddLabel(label, vertex, tx);
   label_property_index_->UpdateOnAddLabel(label, vertex, tx);
-  text_index_->UpdateOnAddLabel(label, vertex, tx);
+  if (update_text_index) {
+    text_index_->UpdateOnAddLabel(label, vertex, storage, tx);
+  }
 }
 
-void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
+void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx, bool update_text_index) const {
   label_index_->UpdateOnRemoveLabel(label, vertex, tx);
   label_property_index_->UpdateOnRemoveLabel(label, vertex, tx);
-  text_index_->UpdateOnRemoveLabel(label, vertex, tx);
+  if (update_text_index) {
+    text_index_->UpdateOnRemoveLabel(label, vertex, tx);
+  }
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                  const Transaction &tx) const {
+                                  const Transaction &tx, Storage *storage, bool update_text_index) const {
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
-  text_index_->UpdateOnSetProperty(property, value, vertex, tx);
+  if (update_text_index) {
+    text_index_->UpdateOnSetProperty(vertex, storage, tx);
+  }
 }
 
 Indices::Indices(const Config &config, StorageMode storage_mode) {
