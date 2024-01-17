@@ -34,7 +34,7 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
                                           slk::Builder *res_builder) {
   auto &repl_state = dbms_handler.ReplicationState();
 
-  if (repl_state.IsReplica()) {
+  if (!repl_state.IsReplica()) {
     spdlog::error("Failover must be performed on replica!");
     slk::Save(coordination::FailoverRes{false}, res_builder);
     return;

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -59,7 +59,7 @@ bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *s
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); });
       const auto finalized = client->FinalizeTransactionReplication(storage);
 
-      if (client->Mode() == memgraph::replication::ReplicationMode::SYNC) {
+      if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
         finalized_on_all_replicas = finalized && finalized_on_all_replicas;
       }
     }

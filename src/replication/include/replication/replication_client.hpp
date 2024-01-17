@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,7 @@
 #pragma once
 
 #include "replication/config.hpp"
-#include "replication/messages.hpp"
+#include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/thread_pool.hpp"
@@ -42,7 +42,7 @@ struct ReplicationClient {
         try {
           bool success = false;
           {
-            auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
+            auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
             success = stream.AwaitResponse().success;
           }
           if (success) {
@@ -60,7 +60,7 @@ struct ReplicationClient {
   rpc::Client rpc_client_;
   std::chrono::seconds replica_check_frequency_;
 
-  memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
+  replication_coordination_glue::ReplicationMode mode_{replication_coordination_glue::ReplicationMode::SYNC};
   // This thread pool is used for background tasks so we don't
   // block the main storage thread
   // We use only 1 thread for 2 reasons:

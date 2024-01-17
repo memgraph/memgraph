@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -201,7 +201,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage) 
     }
   };
 
-  if (client_.mode_ == memgraph::replication::ReplicationMode::ASYNC) {
+  if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
     client_.thread_pool_.AddTask([task = std::move(task)] { (void)task(); });
     return true;
   }

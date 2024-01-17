@@ -23,6 +23,7 @@ add_subdirectory(flags)
 add_subdirectory(distributed)
 add_subdirectory(replication)
 add_subdirectory(coordination)
+add_subdirectory(replication_coordination_glue)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 

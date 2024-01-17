@@ -350,7 +350,7 @@ add_unit_test(storage_v2_wal_file.cpp)
 target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 storage_test_utils fmt)
 
 add_unit_test(storage_v2_replication.cpp)
-target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 mg-dbms fmt)
+target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 mg-dbms fmt mg-repl_coord_glue)
 
 add_unit_test(storage_v2_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
@@ -389,7 +389,7 @@ endif()
 # Test mg-slk
 if(MG_ENTERPRISE)
   add_unit_test(slk_advanced.cpp)
-  target_link_libraries(${test_prefix}slk_advanced mg-storage-v2 mg-coordination)
+  target_link_libraries(${test_prefix}slk_advanced mg-storage-v2 mg-replication mg-coordination mg-repl_coord_glue)
 endif()
 
 add_unit_test(slk_core.cpp)
