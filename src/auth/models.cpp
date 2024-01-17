@@ -555,11 +555,11 @@ Databases Databases::Deserialize(const nlohmann::json &data) {
 User::User() = default;
 
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
-User::User(const std::string &username, std::string password_hash, const Permissions &permissions)
+User::User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions)
     : username_(utils::ToLowerCase(username)), password_hash_(std::move(password_hash)), permissions_(permissions) {}
 
 #ifdef MG_ENTERPRISE
-User::User(const std::string &username, std::string password_hash, const Permissions &permissions,
+User::User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
            FineGrainedAccessHandler fine_grained_access_handler, Databases db_access)
     : username_(utils::ToLowerCase(username)),
       password_hash_(std::move(password_hash)),
@@ -569,13 +569,12 @@ User::User(const std::string &username, std::string password_hash, const Permiss
 #endif
 
 bool User::CheckPassword(const std::string &password) {
-  if (password_hash_.empty()) return true;
-  return VerifyPassword(password, password_hash_);
+  return password_hash_ ? password_hash_->VerifyPassword(password) : true;
 }
 
 void User::UpdatePassword(const std::optional<std::string> &password) {
   if (!password) {
-    password_hash_ = "";
+    password_hash_.reset();
     return;
   }
   password_hash_ = EncryptPassword(*password);
@@ -638,7 +637,11 @@ const Role *User::role() const {
 nlohmann::json User::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data["username"] = username_;
-  data["password_hash"] = password_hash_;
+  if (password_hash_.has_value()) {
+    data["password_hash"] = *password_hash_;
+  } else {
+    data["password_hash"] = nullptr;
+  }
   data["permissions"] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
@@ -657,9 +660,17 @@ User User::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load user data!");
   }
-  if (!data["username"].is_string() || !data["password_hash"].is_string() || !data["permissions"].is_object()) {
+  auto password_hash_json = data["password_hash"];
+  if (!data["username"].is_string() || !(password_hash_json.is_object() || password_hash_json.is_null()) ||
+      !data["permissions"].is_object()) {
     throw AuthException("Couldn't load user data!");
   }
+
+  std::optional<HashedPassword> password_hash{};
+  if (password_hash_json.is_object()) {
+    password_hash = password_hash_json.get<HashedPassword>();
+  }
+
   auto permissions = Permissions::Deserialize(data["permissions"]);
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
@@ -677,10 +688,10 @@ User User::Deserialize(const nlohmann::json &data) {
     if (data["fine_grained_access_handler"].is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
     }
-    return {data["username"], data["password_hash"], permissions, std::move(fine_grained_access_handler), db_access};
+    return {data["username"], std::move(password_hash), permissions, std::move(fine_grained_access_handler), db_access};
   }
 #endif
-  return {data["username"], data["password_hash"], permissions};
+  return {data["username"], std::move(password_hash), permissions};
 }
 
 bool operator==(const User &first, const User &second) {

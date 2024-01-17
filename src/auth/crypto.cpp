@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -22,10 +22,14 @@
 
 namespace {
 using namespace std::literals;
+
+constexpr auto kHashAlgo = "hash_algo";
+constexpr auto kPasswordHash = "password_hash";
+
 inline constexpr std::array password_encryption_mappings{
-    std::pair{"bcrypt"sv, memgraph::auth::PasswordEncryptionAlgorithm::BCRYPT},
-    std::pair{"sha256"sv, memgraph::auth::PasswordEncryptionAlgorithm::SHA256},
-    std::pair{"sha256-multiple"sv, memgraph::auth::PasswordEncryptionAlgorithm::SHA256_MULTIPLE}};
+    std::pair{"bcrypt"sv, memgraph::auth::PasswordHashAlgorithm::BCRYPT},
+    std::pair{"sha256"sv, memgraph::auth::PasswordHashAlgorithm::SHA256},
+    std::pair{"sha256-multiple"sv, memgraph::auth::PasswordHashAlgorithm::SHA256_MULTIPLE}};
 
 inline constexpr uint64_t ONE_SHA_ITERATION = 1;
 inline constexpr uint64_t MULTIPLE_SHA_ITERATIONS = 1024;
@@ -143,42 +147,71 @@ bool VerifyPassword(const std::string &password, const std::string &hash, const 
 }
 }  // namespace SHA
 
-bool VerifyPassword(const std::string &password, const std::string &hash) {
-  const auto password_encryption_algorithm = utils::StringToEnum<PasswordEncryptionAlgorithm>(
-      FLAGS_password_encryption_algorithm, password_encryption_mappings);
+HashedPassword EncryptPassword(const std::string &password) {
+  auto const hash_algo = CurrentEncryptionAlgorithm();
+  auto password_hash = std::invoke([&] {
+    switch (hash_algo) {
+      case PasswordHashAlgorithm::BCRYPT:
+        return BCrypt::EncryptPassword(password);
+      case PasswordHashAlgorithm::SHA256:
+        return SHA::EncryptPassword(password, ONE_SHA_ITERATION);
+      case PasswordHashAlgorithm::SHA256_MULTIPLE:
+        return SHA::EncryptPassword(password, MULTIPLE_SHA_ITERATIONS);
+    }
+  });
+  return HashedPassword{hash_algo, std::move(password_hash)};
+};
 
-  if (!password_encryption_algorithm.has_value()) {
-    throw AuthException("Invalid password encryption flag '{}'!", FLAGS_password_encryption_algorithm);
+namespace {
+
+auto InternalParseEncryptionAlgorithm(std::string const &algo) -> PasswordHashAlgorithm {
+  auto maybe_parsed = utils::StringToEnum<PasswordHashAlgorithm>(algo, password_encryption_mappings);
+  if (!maybe_parsed) {
+    throw AuthException("Invalid password encryption '{}'!", algo);
   }
-
-  switch (password_encryption_algorithm.value()) {
-    case PasswordEncryptionAlgorithm::BCRYPT:
-      return BCrypt::VerifyPassword(password, hash);
-    case PasswordEncryptionAlgorithm::SHA256:
-      return SHA::VerifyPassword(password, hash, ONE_SHA_ITERATION);
-    case PasswordEncryptionAlgorithm::SHA256_MULTIPLE:
-      return SHA::VerifyPassword(password, hash, MULTIPLE_SHA_ITERATIONS);
-  }
-
-  throw AuthException("Invalid password encryption flag '{}'!", FLAGS_password_encryption_algorithm);
+  return *maybe_parsed;
 }
 
-std::string EncryptPassword(const std::string &password) {
-  const auto password_encryption_algorithm = utils::StringToEnum<PasswordEncryptionAlgorithm>(
-      FLAGS_password_encryption_algorithm, password_encryption_mappings);
+PasswordHashAlgorithm &InternalCurrentEncryptionAlgorithm() {
+  static auto current = PasswordHashAlgorithm::BCRYPT;
+  static std::once_flag flag;
+  std::call_once(flag, [] { current = InternalParseEncryptionAlgorithm(FLAGS_password_encryption_algorithm); });
+  return current;
+}
+}  // namespace
 
-  if (!password_encryption_algorithm.has_value()) {
-    throw AuthException("Invalid password encryption flag '{}'!", FLAGS_password_encryption_algorithm);
-  }
+auto CurrentEncryptionAlgorithm() -> PasswordHashAlgorithm { return InternalCurrentEncryptionAlgorithm(); }
 
-  switch (password_encryption_algorithm.value()) {
-    case PasswordEncryptionAlgorithm::BCRYPT:
-      return BCrypt::EncryptPassword(password);
-    case PasswordEncryptionAlgorithm::SHA256:
-      return SHA::EncryptPassword(password, ONE_SHA_ITERATION);
-    case PasswordEncryptionAlgorithm::SHA256_MULTIPLE:
-      return SHA::EncryptPassword(password, MULTIPLE_SHA_ITERATIONS);
+void SetEncryptionAlgorithm(const std::string &algo) {
+  auto &current = InternalCurrentEncryptionAlgorithm();
+  current = InternalParseEncryptionAlgorithm(algo);
+}
+
+auto AsString(PasswordHashAlgorithm enc_algo) -> std::string_view {
+  return *utils::EnumToString<PasswordHashAlgorithm>(enc_algo, password_encryption_mappings);
+}
+
+bool HashedPassword::VerifyPassword(const std::string &password) {
+  switch (hash_algo) {
+    case PasswordHashAlgorithm::BCRYPT:
+      return BCrypt::VerifyPassword(password, password_hash);
+    case PasswordHashAlgorithm::SHA256:
+      return SHA::VerifyPassword(password, password_hash, ONE_SHA_ITERATION);
+    case PasswordHashAlgorithm::SHA256_MULTIPLE:
+      return SHA::VerifyPassword(password, password_hash, MULTIPLE_SHA_ITERATIONS);
   }
+}
+
+void to_json(nlohmann::json &j, const HashedPassword &p) {
+  j = nlohmann::json{{kHashAlgo, p.hash_algo}, {kPasswordHash, p.password_hash}};
+}
+
+void from_json(const nlohmann::json &j, HashedPassword &p) {
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  PasswordHashAlgorithm hash_algo;
+  j.at(kHashAlgo).get_to(hash_algo);
+  auto password_hash = j.value(kPasswordHash, std::string());
+  p = HashedPassword{hash_algo, std::move(password_hash)};
 }
 
 }  // namespace memgraph::auth

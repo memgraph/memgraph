@@ -13,6 +13,7 @@
 
 #include <fmt/format.h>
 
+#include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "license/license.hpp"
 #include "utils/flag_validation.hpp"
@@ -43,6 +44,7 @@ namespace memgraph::auth {
 const std::string kUserPrefix = "user:";
 const std::string kRolePrefix = "role:";
 const std::string kLinkPrefix = "link:";
+const std::string kVersion = "version";
 
 /**
  * All data stored in the `Auth` storage is stored in an underlying
@@ -61,8 +63,57 @@ const std::string kLinkPrefix = "link:";
  * key="link:<username>", value="<rolename>"
  */
 
+namespace {
+void MigrateVersions(kvstore::KVStore &store) {
+  auto version_str = store.Get(kVersion);
+
+  if (!version_str) {
+    using namespace std::string_literals;
+
+    // pre versioning, add version to the store
+    auto puts = std::map<std::string, std::string>{{kVersion, "V1"}};
+
+    // also add hash kind into durability
+
+    auto it = store.begin(kUserPrefix);
+    auto const e = store.end(kUserPrefix);
+
+    if (it != e) {
+      const auto hash_algo = CurrentEncryptionAlgorithm();
+      spdlog::info("Updating auth durability, assuming previously stored as {}", AsString(hash_algo));
+
+      for (; it != e; ++it) {
+        auto const &[key, value] = *it;
+        try {
+          auto user_data = nlohmann::json::parse(value);
+          auto password_hash = user_data["password_hash"];
+          if (!password_hash.is_string()) {
+            throw AuthException("Couldn't load user data!");
+          }
+          // upgrade the password_hash to include the hash algortihm
+          if (password_hash.empty()) {
+            user_data["password_hash"] = nullptr;
+          } else {
+            user_data["password_hash"] = HashedPassword{hash_algo, password_hash};
+          }
+          puts.emplace(key, user_data.dump());
+        } catch (const nlohmann::json::parse_error &e) {
+          throw AuthException("Couldn't load user data!");
+        }
+      }
+    }
+
+    // Perform migration to V1
+    store.PutMultiple(puts);
+    version_str = "V1";
+  }
+}
+};  // namespace
+
 Auth::Auth(std::string storage_directory, Config config)
-    : storage_(std::move(storage_directory)), module_(FLAGS_auth_module_executable), config_{std::move(config)} {}
+    : storage_(std::move(storage_directory)), module_(FLAGS_auth_module_executable), config_{std::move(config)} {
+  MigrateVersions(storage_);
+}
 
 std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
   if (module_.IsUsed()) {

@@ -15,6 +15,7 @@
 
 #include <json/json.hpp>
 #include <utility>
+#include "crypto.hpp"
 #include "dbms/constants.hpp"
 #include "utils/logging.hpp"
 
@@ -332,9 +333,9 @@ class User final {
   User();
 
   explicit User(const std::string &username);
-  User(const std::string &username, std::string password_hash, const Permissions &permissions);
+  User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions);
 #ifdef MG_ENTERPRISE
-  User(const std::string &username, std::string password_hash, const Permissions &permissions,
+  User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {});
 #endif
   User(const User &) = default;
@@ -382,7 +383,7 @@ class User final {
 
  private:
   std::string username_;
-  std::string password_hash_;
+  std::optional<HashedPassword> password_hash_;
   Permissions permissions_;
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
