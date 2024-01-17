@@ -9,6 +9,7 @@
 #pragma once
 
 #include <json/json.hpp>
+#include <optional>
 #include <string>
 
 namespace memgraph::auth {
@@ -34,16 +35,16 @@ struct HashedPassword {
 
   bool VerifyPassword(const std::string &password);
 
+  friend void to_json(nlohmann::json &j, const HashedPassword &p);
+  friend void from_json(const nlohmann::json &j, HashedPassword &p);
+
  private:
   PasswordHashAlgorithm hash_algo{PasswordHashAlgorithm::BCRYPT};
   std::string password_hash{};
-
-  friend void to_json(nlohmann::json &j, const HashedPassword &p);
-  friend void from_json(const nlohmann::json &j, HashedPassword &p);
 };
 
 /// @throw AuthException if unable to encrypt the password.
-HashedPassword EncryptPassword(const std::string &password);
+HashedPassword EncryptPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo = {});
 
 /// @throw AuthException if unable to verify the password.
 bool VerifyPassword(const std::string &password, const HashedPassword &hash);

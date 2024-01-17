@@ -994,3 +994,14 @@ TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256_1024) {
   ASSERT_TRUE(user);
   ASSERT_EQ(user->username(), "alice");
 }
+
+TEST(Serialize, HashedPassword) {
+  for (auto algo :
+       {PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE}) {
+    auto sut = EncryptPassword("password", algo);
+    nlohmann::json j = sut;
+    auto ret = j.get<HashedPassword>();
+    ASSERT_EQ(sut, ret);
+    ASSERT_TRUE(ret.VerifyPassword("password"));
+  }
+}

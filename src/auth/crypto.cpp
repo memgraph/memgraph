@@ -147,8 +147,8 @@ bool VerifyPassword(const std::string &password, const std::string &hash, const 
 }
 }  // namespace SHA
 
-HashedPassword EncryptPassword(const std::string &password) {
-  auto const hash_algo = CurrentEncryptionAlgorithm();
+HashedPassword EncryptPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo) {
+  auto const hash_algo = override_algo.value_or(CurrentEncryptionAlgorithm());
   auto password_hash = std::invoke([&] {
     switch (hash_algo) {
       case PasswordHashAlgorithm::BCRYPT:
