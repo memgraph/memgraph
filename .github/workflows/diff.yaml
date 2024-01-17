@@ -358,7 +358,7 @@ jobs:
           source /opt/toolchain-v4/activate
           ./init
           cd build
-          cmake -DCMAKE_BUILD_TYPE=Release -DMG_EXPERIMENTAL_HIGH_AVAILABILITY ..
+          cmake -DCMAKE_BUILD_TYPE=Release -DMG_EXPERIMENTAL_HIGH_AVAILABILITY=ON ..
           make -j$THREADS
       - name: Run unit tests
         run: |
