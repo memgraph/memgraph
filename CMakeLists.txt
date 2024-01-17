@@ -271,6 +271,17 @@ endif()
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)
 
+option(MG_EXPERIMENTAL_HIGH_AVAILABILITY "Feature flag for experimental high availability" OFF)
+
+if (NOT MG_ENTERPRISE AND MG_EXPERIMENTAL_HIGH_AVAILABILITY)
+    set(MG_EXPERIMENTAL_HIGH_AVAILABILITY OFF)
+    message(FATAL_ERROR "MG_EXPERIMENTAL_HIGH_AVAILABILITY must be used with enterpise version of the code.")
+endif ()
+
+if (MG_EXPERIMENTAL_HIGH_AVAILABILITY)
+    add_compile_definitions(MG_EXPERIMENTAL_HIGH_AVAILABILITY)
+endif ()
+
 # Optional subproject configuration -------------------------------------------
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)

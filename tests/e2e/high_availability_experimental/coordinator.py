@@ -62,11 +62,11 @@ def test_coordinator_cannot_call_show_replicas(connection):
     "port, role",
     [(7687, "main"), (7688, "replica"), (7689, "replica")],
 )
-def test_main_and_relicas_cannot_call_show_repl_cluster(port, role, connection):
+def test_main_and_replicas_cannot_call_show_repl_cluster(port, role, connection):
     cursor = connection(port, role).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")
-    assert str(e.value) == "Only on coordinator you can call SHOW REPLICATION CLUSTER."
+    assert str(e.value) == "Only coordinator can run SHOW REPLICATION CLUSTER."
 
 
 @pytest.mark.parametrize(

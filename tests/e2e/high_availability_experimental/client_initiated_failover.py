@@ -11,7 +11,6 @@
 
 import os
 import sys
-from time import sleep
 
 import interactive_mg_runner
 import pytest

@@ -33,7 +33,6 @@
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
-#include "coordination/coordinator_entity_info.hpp"
 #include "csv/parsing.hpp"
 #include "dbms/database.hpp"
 #include "dbms/global.hpp"
@@ -108,6 +107,11 @@
 #include "query/auth_query_handler.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
+
+#ifdef MG_ENTERPRISE
+#include "coordination/constants.hpp"
+#include "coordination/coordinator_entity_info.hpp"
+#endif
 
 namespace memgraph::metrics {
 extern Event ReadQuery;
@@ -939,6 +943,14 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         throw QueryException("Trying to use enterprise feature without a valid license.");
       }
 #ifdef MG_ENTERPRISE
+      if constexpr (!coordination::allow_ha) {
+        throw QueryRuntimeException(
+            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
+            "be able to use this functionality.");
+      }
+      if (!FLAGS_coordinator) {
+        throw QueryRuntimeException("Only coordinator can register coordinator server!");
+      }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
       EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
@@ -964,6 +976,14 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         throw QueryException("Trying to use enterprise feature without a valid license.");
       }
 #ifdef MG_ENTERPRISE
+      if constexpr (!coordination::allow_ha) {
+        throw QueryRuntimeException(
+            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
+            "be able to use this functionality.");
+      }
+      if (!FLAGS_coordinator) {
+        throw QueryRuntimeException("Only coordinator can register coordinator server!");
+      }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
       EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
@@ -990,8 +1010,13 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         throw QueryException("Trying to use enterprise feature without a valid license.");
       }
 #ifdef MG_ENTERPRISE
+      if constexpr (!coordination::allow_ha) {
+        throw QueryRuntimeException(
+            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
+            "be able to use this functionality.");
+      }
       if (!FLAGS_coordinator) {
-        throw QueryRuntimeException("Only on coordinator you can call SHOW REPLICATION CLUSTER.");
+        throw QueryRuntimeException("Only coordinator can run SHOW REPLICATION CLUSTER.");
       }
 
       callback.header = {"name", "socket_address", "alive", "role"};
@@ -1018,6 +1043,11 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         throw QueryException("Trying to use enterprise feature without a valid license.");
       }
 #ifdef MG_ENTERPRISE
+      if constexpr (!coordination::allow_ha) {
+        throw QueryRuntimeException(
+            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
+            "be able to use this functionality.");
+      }
       if (!FLAGS_coordinator) {
         throw QueryRuntimeException("Only coordinator can run DO FAILOVER!");
       }
