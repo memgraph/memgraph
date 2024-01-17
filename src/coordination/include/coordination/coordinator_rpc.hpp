@@ -19,47 +19,47 @@
 
 namespace memgraph::coordination {
 
-struct FailoverReq {
+struct PromoteReplicaToMainReq {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(FailoverReq *self, memgraph::slk::Reader *reader);
-  static void Save(const FailoverReq &self, memgraph::slk::Builder *builder);
+  static void Load(PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader);
+  static void Save(const PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder);
 
-  explicit FailoverReq(std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info)
+  explicit PromoteReplicaToMainReq(std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info)
       : replication_clients_info(std::move(replication_clients_info)) {}
-  FailoverReq() = default;
+  PromoteReplicaToMainReq() = default;
 
   std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info;
 };
 
-struct FailoverRes {
+struct PromoteReplicaToMainRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(FailoverRes *self, memgraph::slk::Reader *reader);
-  static void Save(const FailoverRes &self, memgraph::slk::Builder *builder);
+  static void Load(PromoteReplicaToMainRes *self, memgraph::slk::Reader *reader);
+  static void Save(const PromoteReplicaToMainRes &self, memgraph::slk::Builder *builder);
 
-  explicit FailoverRes(bool success) : success(success) {}
-  FailoverRes() = default;
+  explicit PromoteReplicaToMainRes(bool success) : success(success) {}
+  PromoteReplicaToMainRes() = default;
 
   bool success;
 };
 
-using FailoverRpc = rpc::RequestResponse<FailoverReq, FailoverRes>;
+using PromoteReplicaToMainRpc = rpc::RequestResponse<PromoteReplicaToMainReq, PromoteReplicaToMainRes>;
 
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
 namespace memgraph::slk {
 
-void Save(const memgraph::coordination::FailoverRes &self, memgraph::slk::Builder *builder);
+void Save(const memgraph::coordination::PromoteReplicaToMainRes &self, memgraph::slk::Builder *builder);
 
-void Load(memgraph::coordination::FailoverRes *self, memgraph::slk::Reader *reader);
+void Load(memgraph::coordination::PromoteReplicaToMainRes *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::coordination::FailoverReq &self, memgraph::slk::Builder *builder);
+void Save(const memgraph::coordination::PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder);
 
-void Load(memgraph::coordination::FailoverReq *self, memgraph::slk::Reader *reader);
+void Load(memgraph::coordination::PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

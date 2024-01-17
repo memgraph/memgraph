@@ -87,6 +87,8 @@ auto CoordinatorHandler::DoFailover() const -> DoFailoverStatus {
       return memgraph::dbms::DoFailoverStatus::SUCCESS;
     case memgraph::coordination::DoFailoverStatus::MAIN_ALIVE:
       return memgraph::dbms::DoFailoverStatus::MAIN_ALIVE;
+    case memgraph::coordination::DoFailoverStatus::CLUSTER_UNINITIALIZED:
+      return memgraph::dbms::DoFailoverStatus::CLUSTER_UNINITIALIZED;
   }
 }
 

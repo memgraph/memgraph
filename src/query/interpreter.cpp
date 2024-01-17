@@ -469,10 +469,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                         const std::chrono::seconds instance_check_frequency,
                                         const std::string &instance_name,
                                         CoordinatorQuery::SyncMode sync_mode) override {
-    if (!FLAGS_coordinator) {
-      throw QueryRuntimeException("Only coordinator can register coordinator server!");
-    }
-
     const auto maybe_replication_ip_port =
         io::network::Endpoint::ParseSocketOrAddress(replication_socket_address, std::nullopt);
     if (!maybe_replication_ip_port) {
@@ -509,10 +505,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   void RegisterMainCoordinatorServer(const std::string &coordinator_socket_address,
                                      const std::chrono::seconds instance_check_frequency,
                                      const std::string &instance_name) override {
-    if (!FLAGS_coordinator) {
-      throw QueryRuntimeException("Only coordinator can register coordinator server!");
-    }
-
     const auto maybe_ip_and_port =
         io::network::Endpoint::ParseSocketOrAddress(coordinator_socket_address, std::nullopt);
     if (!maybe_ip_and_port) {
@@ -543,6 +535,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Failover aborted since all replicas are down!");
       case MAIN_ALIVE:
         throw QueryRuntimeException("Failover aborted since main is alive!");
+      case CLUSTER_UNINITIALIZED:
+        throw QueryRuntimeException("Failover aborted since cluster is uninitialized!");
       case SUCCESS:
         break;
     }

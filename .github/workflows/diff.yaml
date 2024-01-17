@@ -373,6 +373,7 @@ jobs:
           cd e2e
           ./run.sh "Coordinator"
           ./run.sh "Client initiated failover"
+          ./run.sh "Uninitialized cluster"
       - name: Save test data
         uses: actions/upload-artifact@v3
         if: always()
