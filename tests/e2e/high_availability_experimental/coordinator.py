@@ -20,21 +20,21 @@ def test_disable_cypher_queries(connection):
     cursor = connection(7690, "coordinator").cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "CREATE (n:TestNode {prop: 'test'})")
-    assert str(e.value) == "Coordinator can run only replication queries!"
+    assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
 def test_coordinator_cannot_be_replica_role(connection):
     cursor = connection(7690, "coordinator").cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
-    assert str(e.value) == "Coordinator cannot become a replica!"
+    assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
 def test_coordinator_cannot_run_show_repl_role(connection):
     cursor = connection(7690, "coordinator").cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SHOW REPLICATION ROLE;")
-    assert str(e.value) == "Coordinator doesn't have a replication role!"
+    assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
 def test_coordinator_show_replication_cluster(connection):
@@ -55,7 +55,7 @@ def test_coordinator_cannot_call_show_replicas(connection):
     cursor = connection(7690, "coordinator").cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SHOW REPLICAS;")
-    assert str(e.value) == "Coordinator cannot call SHOW REPLICAS! Use SHOW REPLICATION CLUSTER instead."
+    assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
 @pytest.mark.parametrize(
