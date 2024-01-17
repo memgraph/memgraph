@@ -90,11 +90,11 @@ void CoordinatorClient::UpdateTimeCheck(const std::chrono::system_clock::time_po
 
 auto CoordinatorClient::GetLastTimeResponse() -> std::chrono::system_clock::time_point { return last_response_time_; }
 
-auto CoordinatorClient::SendFailoverRpc(
+auto CoordinatorClient::SendPromoteReplicaToMainRpc(
     std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const -> bool {
   try {
     {
-      auto stream{rpc_client_.Stream<FailoverRpc>(std::move(replication_clients_info))};
+      auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(std::move(replication_clients_info))};
       if (!stream.AwaitResponse().success) {
         spdlog::error("Failed to perform failover!");
         return false;

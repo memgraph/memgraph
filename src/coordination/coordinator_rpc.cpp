@@ -20,37 +20,45 @@ namespace memgraph {
 
 namespace coordination {
 
-void FailoverReq::Save(const FailoverReq &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
+void PromoteReplicaToMainReq::Save(const PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
 
-void FailoverReq::Load(FailoverReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+void PromoteReplicaToMainReq::Load(PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
 
-void FailoverRes::Save(const FailoverRes &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
+void PromoteReplicaToMainRes::Save(const PromoteReplicaToMainRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
 
-void FailoverRes::Load(FailoverRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+void PromoteReplicaToMainRes::Load(PromoteReplicaToMainRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
 
 }  // namespace coordination
 
-constexpr utils::TypeInfo coordination::FailoverReq::kType{utils::TypeId::COORD_FAILOVER_REQ, "CoordFailoverReq",
-                                                           nullptr};
+constexpr utils::TypeInfo coordination::PromoteReplicaToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ,
+                                                                       "CoordPromoteReplicaToMainReq", nullptr};
 
-constexpr utils::TypeInfo coordination::FailoverRes::kType{utils::TypeId::COORD_FAILOVER_RES, "CoordFailoverRes",
-                                                           nullptr};
+constexpr utils::TypeInfo coordination::PromoteReplicaToMainRes::kType{utils::TypeId::COORD_FAILOVER_RES,
+                                                                       "CoordPromoteReplicaToMainRes", nullptr};
 
 namespace slk {
 
-void Save(const memgraph::coordination::FailoverRes &self, memgraph::slk::Builder *builder) {
+void Save(const memgraph::coordination::PromoteReplicaToMainRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
 }
 
-void Load(memgraph::coordination::FailoverRes *self, memgraph::slk::Reader *reader) {
+void Load(memgraph::coordination::PromoteReplicaToMainRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
 }
 
-void Save(const memgraph::coordination::FailoverReq &self, memgraph::slk::Builder *builder) {
+void Save(const memgraph::coordination::PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.replication_clients_info, builder);
 }
 
-void Load(memgraph::coordination::FailoverReq *self, memgraph::slk::Reader *reader) {
+void Load(memgraph::coordination::PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->replication_clients_info, reader);
 }
 

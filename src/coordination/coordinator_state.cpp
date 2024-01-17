@@ -192,7 +192,7 @@ auto CoordinatorState::DoFailover() -> DoFailoverStatus {
   potential_new_main->UpdateTimeCheck(chosen_replica->GetLastTimeResponse());
 
   // 4.
-  if (!chosen_replica->SendFailoverRpc(std::move(repl_clients_info))) {
+  if (!chosen_replica->SendPromoteReplicaToMainRpc(std::move(repl_clients_info))) {
     spdlog::error("Sent RPC message, but exception was caught, aborting Failover");
     // TODO: new status and rollback all changes that were done...
     MG_ASSERT(false, "RPC message failed");
