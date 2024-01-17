@@ -368,7 +368,7 @@ add_unit_test(storage_v2_storage_mode.cpp)
 target_link_libraries(${test_prefix}storage_v2_storage_mode mg-storage-v2 storage_test_utils mg-query mg-glue)
 
 add_unit_test(replication_persistence_helper.cpp)
-target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
+target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2 mg-repl_coord_glue)
 
 add_unit_test(auth_checker.cpp)
 target_link_libraries(${test_prefix}auth_checker mg-glue mg-auth)
