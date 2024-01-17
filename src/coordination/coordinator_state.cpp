@@ -96,9 +96,8 @@ auto CoordinatorState::RegisterMain(const CoordinatorClientConfig &config)
 }
 
 auto CoordinatorState::ShowReplicas() const -> std::vector<CoordinatorEntityInfo> {
-  if (!std::holds_alternative<CoordinatorData>(data_)) {
-    MG_ASSERT(false, "Can't call show replicas on data_, as variant holds wrong alternative");
-  }
+  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+            "Can't call show replicas on data_, as variant holds wrong alternative");
   std::vector<CoordinatorEntityInfo> result;
   const auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
   result.reserve(registered_replicas.size());
@@ -109,9 +108,8 @@ auto CoordinatorState::ShowReplicas() const -> std::vector<CoordinatorEntityInfo
 }
 
 auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorEntityInfo> {
-  if (!std::holds_alternative<CoordinatorData>(data_)) {
-    MG_ASSERT(false, "Can't call show main on data_, as variant holds wrong alternative");
-  }
+  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+            "Can't call show main on data_, as variant holds wrong alternative");
   const auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
   if (registered_main) {
     return CoordinatorEntityInfo{registered_main->InstanceName(), registered_main->Endpoint()};
@@ -120,9 +118,8 @@ auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorEntityInfo> 
 }
 
 auto CoordinatorState::PingReplicas() const -> std::unordered_map<std::string_view, bool> {
-  if (!std::holds_alternative<CoordinatorData>(data_)) {
-    MG_ASSERT(false, "Can't call ping replicas on data_, as variant holds wrong alternative");
-  }
+  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+            "Can't call ping replicas on data_, as variant holds wrong alternative");
   std::unordered_map<std::string_view, bool> result;
   const auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
   result.reserve(registered_replicas.size());
@@ -134,9 +131,8 @@ auto CoordinatorState::PingReplicas() const -> std::unordered_map<std::string_vi
 }
 
 auto CoordinatorState::PingMain() const -> std::optional<CoordinatorEntityHealthInfo> {
-  if (!std::holds_alternative<CoordinatorData>(data_)) {
-    MG_ASSERT(false, "Can't call show main on data_, as variant holds wrong alternative");
-  }
+  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+            "Can't call show main on data_, as variant holds wrong alternative");
   const auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
   if (registered_main) {
     return CoordinatorEntityHealthInfo{registered_main->InstanceName(), registered_main->DoHealthCheck()};
@@ -159,6 +155,11 @@ auto CoordinatorState::DoFailover() -> DoFailoverStatus {
 
   // 1.
   auto &current_main = std::get<CoordinatorData>(data_).registered_main_;
+
+  if (!current_main) {
+    return DoFailoverStatus::CLUSTER_UNINITIALIZED;
+  }
+
   if (current_main->DoHealthCheck()) {
     return DoFailoverStatus::MAIN_ALIVE;
   }
@@ -177,8 +178,9 @@ auto CoordinatorState::DoFailover() -> DoFailoverStatus {
   std::vector<ReplicationClientInfo> repl_clients_info;
   repl_clients_info.reserve(registered_replicas.size() - 1);
   std::ranges::for_each(registered_replicas, [&chosen_replica, &repl_clients_info](const CoordinatorClient &replica) {
-    if (replica == *chosen_replica) return;
-    repl_clients_info.emplace_back(replica.ReplicationClientInfo());
+    if (replica != *chosen_replica) {
+      repl_clients_info.emplace_back(replica.ReplicationClientInfo());
+    }
   });
 
   // 3.
@@ -191,11 +193,9 @@ auto CoordinatorState::DoFailover() -> DoFailoverStatus {
 
   // 4.
   if (!chosen_replica->SendFailoverRpc(std::move(repl_clients_info))) {
-    // TODO: rollback all changes that were done...
     spdlog::error("Sent RPC message, but exception was caught, aborting Failover");
-    // TODO: new status
+    // TODO: new status and rollback all changes that were done...
     MG_ASSERT(false, "RPC message failed");
-    // return DoFailoverStatus::FAIL;
   }
 
   // 5.

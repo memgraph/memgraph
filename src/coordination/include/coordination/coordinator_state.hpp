@@ -34,7 +34,7 @@ enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
   SUCCESS
 };
 
-enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN, MAIN_ALIVE };
+enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN, MAIN_ALIVE, CLUSTER_UNINITIALIZED };
 
 class CoordinatorState {
  public:
