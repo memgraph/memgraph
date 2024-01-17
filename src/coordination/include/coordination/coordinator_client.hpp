@@ -64,6 +64,6 @@ class CoordinatorClient {
   std::atomic<std::chrono::system_clock::time_point> last_response_time_{};
   static constexpr int alive_response_time_difference_sec_{5};
 };
-#endif
 
 }  // namespace memgraph::coordination
+#endif

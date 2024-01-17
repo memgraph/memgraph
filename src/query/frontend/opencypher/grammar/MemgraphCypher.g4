@@ -153,6 +153,7 @@ query : cypherQuery
       | multiDatabaseQuery
       | showDatabases
       | edgeImportModeQuery
+      | coordinatorQuery
       ;
 
 cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -181,11 +182,8 @@ authQuery : createRole
 replicationQuery : setReplicationRole
                  | showReplicationRole
                  | registerReplica
-                 | registerCoordinatorServer
                  | dropReplica
                  | showReplicas
-                 | showReplicationCluster
-                 | doFailover
                  ;
 
 coordinatorQuery : registerCoordinatorServer

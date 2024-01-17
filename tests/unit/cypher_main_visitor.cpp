@@ -2653,7 +2653,7 @@ TEST_P(CypherMainVisitorTest, TestRegisterCoordinatorServer) {
 
     ASSERT_TRUE(full_query_parsed);
     EXPECT_EQ(full_query_parsed->action_, CoordinatorQuery::Action::REGISTER_MAIN_COORDINATOR_SERVER);
-    EXPECT_EQ(full_query_parsed->role_, ReplicationQuery::ReplicationRole::MAIN);
+    EXPECT_EQ(full_query_parsed->role_, CoordinatorQuery::ReplicationRole::MAIN);
     EXPECT_EQ(full_query_parsed->instance_name_, "main");
     ast_generator.CheckLiteral(full_query_parsed->coordinator_socket_address_, "127.0.0.1:10011");
     ASSERT_EQ(full_query_parsed->socket_address_, nullptr);
@@ -3717,7 +3717,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
     ASSERT_EQ(single_query->clauses_.size(), 2U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    [[maybe_unused]] auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   }
 
   {
@@ -3777,7 +3777,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
     ASSERT_EQ(single_query->clauses_.size(), 1U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    [[maybe_unused]] auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   }
 }
 
