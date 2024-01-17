@@ -331,7 +331,7 @@ void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk
   }
 
   try {
-    // NOTE: Single communication channel can exist at a time, no other database can be deleted/created aat the moment.
+    // NOTE: Single communication channel can exist at a time, no other database can be deleted/created at the moment.
     auto new_db = dbms_handler.Delete(req.uuid);
     if (new_db.HasError()) {
       if (new_db.GetError() == DeleteError::NON_EXISTENT) {
