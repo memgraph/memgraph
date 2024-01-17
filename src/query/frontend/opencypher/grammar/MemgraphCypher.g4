@@ -188,6 +188,11 @@ replicationQuery : setReplicationRole
                  | doFailover
                  ;
 
+coordinatorQuery : registerCoordinatorServer
+                 | showReplicationCluster
+                 | doFailover
+                 ;
+
 triggerQuery : createTrigger
              | dropTrigger
              | showTriggers
@@ -330,6 +335,7 @@ privilege : CREATE
           | STORAGE_MODE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
+          | COORDINATOR
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;

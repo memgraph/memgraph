@@ -89,6 +89,45 @@ class ReplicationQueryHandler {
     ReplicationQuery::ReplicaState state;
   };
 
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual ReplicationQuery::ReplicationRole ShowReplicationRole() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void RegisterReplica(const std::string &name, const std::string &socket_address,
+                               ReplicationQuery::SyncMode sync_mode,
+                               const std::chrono::seconds replica_check_frequency) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void DropReplica(std::string_view replica_name) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<Replica> ShowReplicas() const = 0;
+};
+
+class CoordinatorQueryHandler {
+ public:
+  CoordinatorQueryHandler() = default;
+  virtual ~CoordinatorQueryHandler() = default;
+
+  CoordinatorQueryHandler(const CoordinatorQueryHandler &) = default;
+  CoordinatorQueryHandler &operator=(const CoordinatorQueryHandler &) = default;
+
+  CoordinatorQueryHandler(CoordinatorQueryHandler &&) = default;
+  CoordinatorQueryHandler &operator=(CoordinatorQueryHandler &&) = default;
+
+  struct Replica {
+    std::string name;
+    std::string socket_address;
+    ReplicationQuery::SyncMode sync_mode;
+    std::optional<double> timeout;
+    uint64_t current_timestamp_of_replica;
+    uint64_t current_number_of_timestamp_behind_master;
+    ReplicationQuery::ReplicaState state;
+  };
+
 #ifdef MG_ENTERPRISE
   struct MainReplicaStatus {
     std::string_view name;
@@ -101,24 +140,13 @@ class ReplicationQueryHandler {
   };
 #endif
 
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual ReplicationQuery::ReplicationRole ShowReplicationRole() const = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterReplica(const std::string &name, const std::string &socket_address,
-                               ReplicationQuery::SyncMode sync_mode,
-                               const std::chrono::seconds replica_check_frequency) = 0;
-
 #ifdef MG_ENTERPRISE
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RegisterReplicaCoordinatorServer(const std::string &replication_socket_address,
                                                 const std::string &coordinator_socket_address,
                                                 const std::chrono::seconds instance_check_frequency,
                                                 const std::string &instance_name,
-                                                ReplicationQuery::SyncMode sync_mode) = 0;
+                                                CoordinatorQuery::SyncMode sync_mode) = 0;
   virtual void RegisterMainCoordinatorServer(const std::string &socket_address,
                                              const std::chrono::seconds instance_check_frequency,
                                              const std::string &instance_name) = 0;
@@ -146,12 +174,6 @@ class ReplicationQueryHandler {
       const std::optional<coordination::CoordinatorEntityHealthInfo> &health_check_main) const = 0;
 
 #endif
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DropReplica(std::string_view replica_name) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<Replica> ShowReplicas() const = 0;
 };
 
 class AnalyzeGraphQueryHandler {

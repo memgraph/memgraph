@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -62,7 +62,8 @@ const std::vector<Permission> kPermissionsAll = {Permission::MATCH,
                                                  Permission::TRANSACTION_MANAGEMENT,
                                                  Permission::STORAGE_MODE,
                                                  Permission::MULTI_DATABASE_EDIT,
-                                                 Permission::MULTI_DATABASE_USE};
+                                                 Permission::MULTI_DATABASE_USE,
+                                                 Permission::COORDINATOR};
 
 }  // namespace
 
@@ -118,6 +119,8 @@ std::string PermissionToString(Permission permission) {
       return "MULTI_DATABASE_EDIT";
     case Permission::MULTI_DATABASE_USE:
       return "MULTI_DATABASE_USE";
+    case Permission::COORDINATOR:
+      return "COORDINATOR";
   }
 }
 

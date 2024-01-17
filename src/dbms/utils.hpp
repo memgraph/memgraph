@@ -8,6 +8,7 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+#pragma once
 
 #include "dbms/dbms_handler.hpp"
 #include "dbms/replication_handler.hpp"
@@ -16,7 +17,7 @@
 
 namespace memgraph::dbms {
 
-static bool DoReplicaToMainPromotion(dbms::DbmsHandler &dbms_handler) {
+inline bool DoReplicaToMainPromotion(dbms::DbmsHandler &dbms_handler) {
   auto &repl_state = dbms_handler.ReplicationState();
   // STEP 1) Prepare for new epoch
   dbms_handler.ForEach([](Database *database) {
@@ -39,7 +40,7 @@ static bool DoReplicaToMainPromotion(dbms::DbmsHandler &dbms_handler) {
   return true;
 };
 
-static bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
+inline bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
                                         replication::ReplicationClient &instance_client) {
   if (!allow_mt_repl && dbms_handler.All().size() > 1) {
     spdlog::warn("Multi-tenant replication is currently not supported!");
@@ -74,7 +75,7 @@ static bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
   return all_clients_good;
 }
 
-static std::optional<RegisterReplicaError> HandleErrorOnReplicaClient(
+inline std::optional<RegisterReplicaError> HandleErrorOnReplicaClient(
     utils::BasicResult<replication::RegisterReplicaError, replication::ReplicationClient *> &instance_client) {
   if (instance_client.HasError()) switch (instance_client.GetError()) {
       case replication::RegisterReplicaError::NOT_MAIN:

@@ -221,28 +221,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return ReplicationQuery*
    */
-  antlrcpp::Any visitShowReplicationCluster(MemgraphCypher::ShowReplicationClusterContext *ctx) override;
-
-  /**
-   * @return ReplicationQuery*
-   */
   antlrcpp::Any visitRegisterReplica(MemgraphCypher::RegisterReplicaContext *ctx) override;
-
-  /**
-   * @return ReplicationQuery*
-   */
-  antlrcpp::Any visitRegisterCoordinatorServer(MemgraphCypher::RegisterCoordinatorServerContext *ctx) override;
-
-  /**
-   * @return ReplicationQuery*
-   */
-  antlrcpp::Any visitRegisterMainCoordinatorServer(MemgraphCypher::RegisterMainCoordinatorServerContext *ctx) override;
-
-  /**
-   * @return ReplicationQuery*
-   */
-  antlrcpp::Any visitRegisterReplicaCoordinatorServer(
-      MemgraphCypher::RegisterReplicaCoordinatorServerContext *ctx) override;
 
   /**
    * @return ReplicationQuery*
@@ -255,7 +234,33 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowReplicas(MemgraphCypher::ShowReplicasContext *ctx) override;
 
   /**
-   * @return ReplicationQuery*
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitCoordinatorQuery(MemgraphCypher::CoordinatorQueryContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitRegisterCoordinatorServer(MemgraphCypher::RegisterCoordinatorServerContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitRegisterMainCoordinatorServer(MemgraphCypher::RegisterMainCoordinatorServerContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitRegisterReplicaCoordinatorServer(
+      MemgraphCypher::RegisterReplicaCoordinatorServerContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitShowReplicationCluster(MemgraphCypher::ShowReplicationClusterContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
    */
   antlrcpp::Any visitDoFailover(MemgraphCypher::DoFailoverContext *ctx) override;
 

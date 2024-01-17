@@ -2849,6 +2849,7 @@ class AuthQuery : public memgraph::query::Query {
     TRANSACTION_MANAGEMENT,
     MULTI_DATABASE_EDIT,
     MULTI_DATABASE_USE,
+    COORDINATOR
   };
 
   enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE_DELETE };
@@ -2927,7 +2928,8 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {AuthQuery::Privilege::
                                                           AuthQuery::Privilege::TRANSACTION_MANAGEMENT,
                                                           AuthQuery::Privilege::STORAGE_MODE,
                                                           AuthQuery::Privilege::MULTI_DATABASE_EDIT,
-                                                          AuthQuery::Privilege::MULTI_DATABASE_USE};
+                                                          AuthQuery::Privilege::MULTI_DATABASE_USE,
+                                                          AuthQuery::Privilege::COORDINATOR};
 
 class DatabaseInfoQuery : public memgraph::query::Query {
  public:
@@ -3025,17 +3027,7 @@ class ReplicationQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action {
-    SET_REPLICATION_ROLE,
-    SHOW_REPLICATION_ROLE,
-    REGISTER_REPLICA,
-    DROP_REPLICA,
-    SHOW_REPLICAS,
-    REGISTER_MAIN_COORDINATOR_SERVER,
-    REGISTER_REPLICA_COORDINATOR_SERVER,
-    SHOW_REPLICATION_CLUSTER,
-    DO_FAILOVER
-  };
+  enum class Action { SET_REPLICATION_ROLE, SHOW_REPLICATION_ROLE, REGISTER_REPLICA, DROP_REPLICA, SHOW_REPLICAS };
 
   enum class ReplicationRole { MAIN, REPLICA };
 
@@ -3062,6 +3054,50 @@ class ReplicationQuery : public memgraph::query::Query {
     object->instance_name_ = instance_name_;
     object->socket_address_ = socket_address_ ? socket_address_->Clone(storage) : nullptr;
     object->port_ = port_ ? port_->Clone(storage) : nullptr;
+    object->sync_mode_ = sync_mode_;
+    object->coordinator_socket_address_ =
+        coordinator_socket_address_ ? coordinator_socket_address_->Clone(storage) : nullptr;
+
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class CoordinatorQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action {
+    REGISTER_MAIN_COORDINATOR_SERVER,
+    REGISTER_REPLICA_COORDINATOR_SERVER,
+    SHOW_REPLICATION_CLUSTER,
+    DO_FAILOVER
+  };
+
+  enum class ReplicationRole { MAIN, REPLICA };
+
+  enum class SyncMode { SYNC, ASYNC };
+
+  CoordinatorQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::CoordinatorQuery::Action action_;
+  memgraph::query::CoordinatorQuery::ReplicationRole role_;
+  std::string instance_name_;
+  memgraph::query::Expression *socket_address_{nullptr};
+  memgraph::query::Expression *coordinator_socket_address_{nullptr};
+  memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
+
+  CoordinatorQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<CoordinatorQuery>();
+    object->action_ = action_;
+    object->role_ = role_;
+    object->instance_name_ = instance_name_;
+    object->socket_address_ = socket_address_ ? socket_address_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
     object->coordinator_socket_address_ =
         coordinator_socket_address_ ? coordinator_socket_address_->Clone(storage) : nullptr;
