@@ -48,7 +48,7 @@ class GenericRpcFailedException : public RpcFailedException {
 class SlkRpcFailedException : public RpcFailedException {
  public:
   SlkRpcFailedException()
-      : RpcFailedException("Received malformed message from cluster. Please raise an issue with Memgraph developer.") {}
+      : RpcFailedException("Received malformed message from cluster. Please raise an issue on Memgraph GitHub issues.") {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(SlkRpcFailedException);
 };
