@@ -495,8 +495,20 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                               .replication_client_info = repl_config,
                                               .ssl = std::nullopt};
 
-    if (const auto ret = coordinator_handler_.RegisterReplicaOnCoordinator(coordinator_client_config); ret.HasError()) {
-      throw QueryRuntimeException("Couldn't register replica on coordinator!");
+    auto status = coordinator_handler_.RegisterReplicaOnCoordinator(coordinator_client_config);
+    switch (status) {
+      using enum memgraph::coordination::RegisterMainReplicaCoordinatorStatus;
+      case NAME_EXISTS:
+        throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
+      case END_POINT_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance since instance with such endpoint already exists!");
+      case COULD_NOT_BE_PERSISTED:
+        throw QueryRuntimeException("Couldn't register replica instance since it couldn't be persisted!");
+      case NOT_COORDINATOR:
+        throw QueryRuntimeException("Couldn't register replica instance since this instance is not a coordinator!");
+      case SUCCESS:
+        break;
     }
   }
 
@@ -515,8 +527,20 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                                               .health_check_frequency_sec = instance_check_frequency,
                                                               .ssl = std::nullopt};
 
-    if (const auto ret = coordinator_handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
-      throw QueryRuntimeException("Couldn't register main on coordinator!");
+    auto status = coordinator_handler_.RegisterMainOnCoordinator(config);
+    switch (status) {
+      using enum memgraph::coordination::RegisterMainReplicaCoordinatorStatus;
+      case NAME_EXISTS:
+        throw QueryRuntimeException("Couldn't register main instance since instance with such name already exists!");
+      case END_POINT_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't register main instance since instance with such endpoint already exists!");
+      case COULD_NOT_BE_PERSISTED:
+        throw QueryRuntimeException("Couldn't register main instance since it couldn't be persisted!");
+      case NOT_COORDINATOR:
+        throw QueryRuntimeException("Couldn't register main instance since this instance is not a coordinator!");
+      case SUCCESS:
+        break;
     }
   }
 
@@ -528,7 +552,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
     auto status = coordinator_handler_.DoFailover();
     switch (status) {
-      using enum memgraph::dbms::DoFailoverStatus;
+      using enum memgraph::coordination::DoFailoverStatus;
       case ALL_REPLICAS_DOWN:
         throw QueryRuntimeException("Failover aborted since all replicas are down!");
       case MAIN_ALIVE:

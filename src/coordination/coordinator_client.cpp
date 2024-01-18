@@ -46,29 +46,18 @@ CoordinatorClient::~CoordinatorClient() {
 void CoordinatorClient::StartFrequentCheck() {
   MG_ASSERT(config_.health_check_frequency_sec > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
-  replica_checker_.Run(
-      "Coord checker", config_.health_check_frequency_sec,
-      [last_response_time = &last_response_time_, rpc_client = &rpc_client_] {
-        try {
-          {
-            auto stream{rpc_client->Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
-            stream.AwaitResponse();
-            last_response_time->store(std::chrono::system_clock::now(), std::memory_order_acq_rel);
-          }
-        } catch (const rpc::RpcFailedException &) {
-          // Nothing to do...wait for a reconnect
-        }
-      });
+  replica_checker_.Run("Coord checker", config_.health_check_frequency_sec, [rpc_client = &rpc_client_] {
+    try {
+      auto stream{rpc_client->Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
+      stream.AwaitResponse();
+      // last_response_time->store(std::chrono::system_clock::now(), std::memory_order_acq_rel);
+    } catch (const rpc::RpcFailedException &) {
+      // Nothing to do...wait for a reconnect
+    }
+  });
 }
 
 void CoordinatorClient::StopFrequentCheck() { replica_checker_.Stop(); }
-
-bool CoordinatorClient::DoHealthCheck() const {
-  auto current_time = std::chrono::system_clock::now();
-  auto duration = std::chrono::duration_cast<std::chrono::seconds>(current_time -
-                                                                   last_response_time_.load(std::memory_order_acquire));
-  return duration.count() <= alive_response_time_difference_sec_;
-}
 
 auto CoordinatorClient::InstanceName() const -> std::string_view { return config_.instance_name; }
 auto CoordinatorClient::Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
@@ -85,12 +74,6 @@ auto CoordinatorClient::ReplicationClientInfo() -> std::optional<CoordinatorClie
   MG_ASSERT(config_.replication_client_info.has_value(), "No ReplicationClientInfo for MAIN instance!");
   return config_.replication_client_info;
 }
-
-void CoordinatorClient::UpdateTimeCheck(const std::chrono::system_clock::time_point &last_checked_time) {
-  last_response_time_.store(last_checked_time, std::memory_order_acq_rel);
-}
-
-auto CoordinatorClient::GetLastTimeResponse() -> std::chrono::system_clock::time_point { return last_response_time_; }
 
 auto CoordinatorClient::SendPromoteReplicaToMainRpc(
     std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const -> bool {

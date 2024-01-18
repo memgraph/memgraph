@@ -24,6 +24,9 @@ namespace memgraph::coordination {
 
 class CoordinatorClient {
  public:
+  using ReplClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
+  using ReplicationClientsInfo = std::vector<ReplClientInfo>;
+
   explicit CoordinatorClient(const CoordinatorClientConfig &config);
 
   ~CoordinatorClient();
@@ -37,17 +40,13 @@ class CoordinatorClient {
   void StartFrequentCheck();
   void StopFrequentCheck();
 
-  auto DoHealthCheck() const -> bool;
-  auto SendPromoteReplicaToMainRpc(
-      std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const -> bool;
+  auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
 
   auto InstanceName() const -> std::string_view;
   auto Endpoint() const -> io::network::Endpoint const &;
   auto Config() const -> CoordinatorClientConfig const &;
-  auto ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo const &;
-  auto ReplicationClientInfo() -> std::optional<CoordinatorClientConfig::ReplicationClientInfo> &;
-  void UpdateTimeCheck(const std::chrono::system_clock::time_point &last_checked_time);
-  auto GetLastTimeResponse() -> std::chrono::system_clock::time_point;
+  auto ReplicationClientInfo() const -> ReplClientInfo const &;
+  auto ReplicationClientInfo() -> std::optional<ReplClientInfo> &;
 
   friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
     return first.config_ == second.config_;
@@ -59,10 +58,8 @@ class CoordinatorClient {
 
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
-  CoordinatorClientConfig config_;
 
-  std::atomic<std::chrono::system_clock::time_point> last_response_time_{};
-  static constexpr int alive_response_time_difference_sec_{5};
+  CoordinatorClientConfig config_;
 };
 
 }  // namespace memgraph::coordination

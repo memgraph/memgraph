@@ -10,11 +10,11 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_state.hpp"
-#include <span>
-#include "coordination/coordinator_client.hpp"
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_client.hpp"
+#include "coordination/coordinator_cluster_config.hpp"
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_entity_info.hpp"
 #include "flags/replication.hpp"
@@ -53,8 +53,8 @@ CoordinatorState::CoordinatorState() {
   }
 }
 
-auto CoordinatorState::RegisterReplica(const CoordinatorClientConfig &config)
-    -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> {
+/// TODO: Don't return client, start here the client
+auto CoordinatorState::RegisterReplica(const CoordinatorClientConfig &config) -> RegisterMainReplicaCoordinatorStatus {
   const auto name_endpoint_status =
       std::visit(memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
                                                return RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR;
@@ -72,12 +72,32 @@ auto CoordinatorState::RegisterReplica(const CoordinatorClientConfig &config)
     return name_endpoint_status;
   }
 
+  auto callback = [&]() -> void {
+    MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+              "Can't execute CoordinatorClient's callback since variant holds wrong alternative");
+    auto &registered_replicas_info = std::get<CoordinatorData>(data_).registered_replicas_info_;
+
+    auto replica_client_info = std::ranges::find_if(
+        registered_replicas_info,
+        [&config](const CoordinatorClientInfo &replica) { return replica.instance_name_ == config.instance_name; });
+
+    MG_ASSERT(replica_client_info == registered_replicas_info.end(), "Replica {} not found in registered replicas info",
+              config.instance_name);
+
+    auto sec_since_last_response = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now() - replica_client_info->last_response_time_.load(std::memory_order_acquire));
+
+    replica_client_info->is_alive_ =
+        sec_since_last_response.count() <= CoordinatorClusterConfig::alive_response_time_difference_sec_;
+  };
+
   // Maybe no need to return client if you can start replica client here
-  return &std::get<CoordinatorData>(data_).registered_replicas_.emplace_back(config);
+  auto *replica_client = &std::get<CoordinatorData>(data_).registered_replicas_.emplace_back(config);
+  replica_client->StartFrequentCheck();
+  return RegisterMainReplicaCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorState::RegisterMain(const CoordinatorClientConfig &config)
-    -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> {
+auto CoordinatorState::RegisterMain(const CoordinatorClientConfig &config) -> RegisterMainReplicaCoordinatorStatus {
   const auto endpoint_status = std::visit(
       memgraph::utils::Overloaded{
           [](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
@@ -92,7 +112,39 @@ auto CoordinatorState::RegisterMain(const CoordinatorClientConfig &config)
 
   auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
   registered_main = std::make_unique<CoordinatorClient>(config);
-  return registered_main.get();
+
+  auto cb = [&]() -> void {
+    MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+              "Can't execute CoordinatorClient's callback since variant holds wrong alternative");
+
+    auto &registered_main_info = std::get<CoordinatorData>(data_).registered_main_info_;
+    MG_ASSERT(registered_main_info.instance_name_ == config.instance_name,
+              "Registered main instance name {} does not match config instance name {}",
+              registered_main_info.instance_name_, config.instance_name);
+
+    auto sec_since_last_response = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now() - registered_main_info.last_response_time_.load(std::memory_order_acquire));
+    registered_main_info.is_alive_ =
+        sec_since_last_response.count() <= CoordinatorClusterConfig::alive_response_time_difference_sec_;
+
+    if (!registered_main_info.is_alive_) {
+      spdlog::warn("Main is not alive, starting failover");
+      switch (auto failover_status = DoFailover(); failover_status) {
+        using enum DoFailoverStatus;
+        case ALL_REPLICAS_DOWN:
+          spdlog::warn("Failover aborted since all replicas are down!");
+        case MAIN_ALIVE:
+          spdlog::warn("Failover aborted since main is alive!");
+        case CLUSTER_UNINITIALIZED:
+          spdlog::warn("Failover aborted since cluster is uninitialized!");
+        case SUCCESS:
+          break;
+      }
+    }
+  };
+
+  registered_main->StartFrequentCheck();
+  return RegisterMainReplicaCoordinatorStatus::SUCCESS;
 }
 
 auto CoordinatorState::ShowReplicas() const -> std::vector<CoordinatorEntityInfo> {
@@ -123,9 +175,9 @@ auto CoordinatorState::PingReplicas() const -> std::unordered_map<std::string_vi
   std::unordered_map<std::string_view, bool> result;
   const auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
   result.reserve(registered_replicas.size());
-  for (const CoordinatorClient &replica_client : registered_replicas) {
-    result.emplace(replica_client.InstanceName(), replica_client.DoHealthCheck());
-  }
+  // for (const CoordinatorClient &replica_client : registered_replicas) {
+  //   result.emplace(replica_client.InstanceName(), replica_client.DoHealthCheck());
+  // }
 
   return result;
 }
@@ -135,12 +187,12 @@ auto CoordinatorState::PingMain() const -> std::optional<CoordinatorEntityHealth
             "Can't call show main on data_, as variant holds wrong alternative");
   const auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
   if (registered_main) {
-    return CoordinatorEntityHealthInfo{registered_main->InstanceName(), registered_main->DoHealthCheck()};
+    // return CoordinatorEntityHealthInfo{registered_main->InstanceName(), registered_main->DoHealthCheck()};
   }
   return std::nullopt;
 }
 
-auto CoordinatorState::DoFailover() -> DoFailoverStatus {
+[[nodiscard]] auto CoordinatorState::DoFailover() -> DoFailoverStatus {
   // 1. MAIN is already down, stop sending frequent checks
   // 2. find new replica (coordinator)
   // 3. make copy replica's client as potential new main client (coordinator)
@@ -149,7 +201,7 @@ auto CoordinatorState::DoFailover() -> DoFailoverStatus {
   // 6. remove replica which was promoted to main from all replicas -> this will shut down RPC frequent check client
   // (coordinator)
   // 7. for new main start frequent checks (coordinator)
-
+  /*
   MG_ASSERT(std::holds_alternative<CoordinatorData>(data_), "Cannot do failover since variant holds wrong alternative");
   using ReplicationClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
 
@@ -208,7 +260,7 @@ auto CoordinatorState::DoFailover() -> DoFailoverStatus {
 
   // 7.
   current_main->StartFrequentCheck();
-
+  */
   return DoFailoverStatus::SUCCESS;
 }
 
