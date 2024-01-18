@@ -14,8 +14,11 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_client.hpp"
+#include "coordination/coordinator_client_info.hpp"
 #include "coordination/coordinator_entity_info.hpp"
 #include "coordination/coordinator_server.hpp"
+#include "coordination/failover_status.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
 #include "rpc/server.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -26,16 +29,6 @@
 
 namespace memgraph::coordination {
 
-enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
-  NAME_EXISTS,
-  END_POINT_EXISTS,
-  COULD_NOT_BE_PERSISTED,
-  NOT_COORDINATOR,
-  SUCCESS
-};
-
-enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN, MAIN_ALIVE, CLUSTER_UNINITIALIZED };
-
 class CoordinatorState {
  public:
   CoordinatorState();
@@ -44,21 +37,12 @@ class CoordinatorState {
   CoordinatorState(const CoordinatorState &) = delete;
   CoordinatorState &operator=(const CoordinatorState &) = delete;
 
-  CoordinatorState(CoordinatorState &&other) noexcept : data_(std::move(other.data_)) {}
+  CoordinatorState(CoordinatorState &&) noexcept = delete;
+  CoordinatorState &operator=(CoordinatorState &&) noexcept = delete;
 
-  CoordinatorState &operator=(CoordinatorState &&other) noexcept {
-    if (this == &other) {
-      return *this;
-    }
-    data_ = std::move(other.data_);
-    return *this;
-  }
+  [[nodiscard]] auto RegisterReplica(const CoordinatorClientConfig &config) -> RegisterMainReplicaCoordinatorStatus;
 
-  auto RegisterReplica(const CoordinatorClientConfig &config)
-      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *>;
-
-  auto RegisterMain(const CoordinatorClientConfig &config)
-      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *>;
+  [[nodiscard]] auto RegisterMain(const CoordinatorClientConfig &config) -> RegisterMainReplicaCoordinatorStatus;
 
   auto ShowReplicas() const -> std::vector<CoordinatorEntityInfo>;
 
@@ -71,18 +55,17 @@ class CoordinatorState {
   // The client code must check that the server exists before calling this method.
   auto GetCoordinatorServer() const -> CoordinatorServer &;
 
-  auto DoFailover() -> DoFailoverStatus;
+  [[nodiscard]] auto DoFailover() -> DoFailoverStatus;
 
  private:
   // TODO: Data is not thread safe
-
-  // Coordinator stores registered replicas and main
   struct CoordinatorData {
     std::list<CoordinatorClient> registered_replicas_;
+    std::vector<CoordinatorClientInfo> registered_replicas_info_;
     std::unique_ptr<CoordinatorClient> registered_main_;
+    CoordinatorClientInfo registered_main_info_;
   };
 
-  // Data which each main and replica stores
   struct CoordinatorMainReplicaData {
     std::unique_ptr<CoordinatorServer> coordinator_server_;
   };

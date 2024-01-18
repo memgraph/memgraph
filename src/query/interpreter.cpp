@@ -497,8 +497,20 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                               .replication_client_info = repl_config,
                                               .ssl = std::nullopt};
 
-    if (const auto ret = coordinator_handler_.RegisterReplicaOnCoordinator(coordinator_client_config); ret.HasError()) {
-      throw QueryRuntimeException("Couldn't register replica on coordinator!");
+    auto status = coordinator_handler_.RegisterReplicaOnCoordinator(coordinator_client_config);
+    switch (status) {
+      using enum memgraph::coordination::RegisterMainReplicaCoordinatorStatus;
+      case NAME_EXISTS:
+        throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
+      case END_POINT_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance since instance with such endpoint already exists!");
+      case COULD_NOT_BE_PERSISTED:
+        throw QueryRuntimeException("Couldn't register replica instance since it couldn't be persisted!");
+      case NOT_COORDINATOR:
+        throw QueryRuntimeException("Couldn't register replica instance since this instance is not a coordinator!");
+      case SUCCESS:
+        break;
     }
   }
 
@@ -517,8 +529,20 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                                               .health_check_frequency_sec = instance_check_frequency,
                                                               .ssl = std::nullopt};
 
-    if (const auto ret = coordinator_handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
-      throw QueryRuntimeException("Couldn't register main on coordinator!");
+    auto status = coordinator_handler_.RegisterMainOnCoordinator(config);
+    switch (status) {
+      using enum memgraph::coordination::RegisterMainReplicaCoordinatorStatus;
+      case NAME_EXISTS:
+        throw QueryRuntimeException("Couldn't register main instance since instance with such name already exists!");
+      case END_POINT_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't register main instance since instance with such endpoint already exists!");
+      case COULD_NOT_BE_PERSISTED:
+        throw QueryRuntimeException("Couldn't register main instance since it couldn't be persisted!");
+      case NOT_COORDINATOR:
+        throw QueryRuntimeException("Couldn't register main instance since this instance is not a coordinator!");
+      case SUCCESS:
+        break;
     }
   }
 
@@ -530,7 +554,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
     auto status = coordinator_handler_.DoFailover();
     switch (status) {
-      using enum memgraph::dbms::DoFailoverStatus;
+      using enum memgraph::coordination::DoFailoverStatus;
       case ALL_REPLICAS_DOWN:
         throw QueryRuntimeException("Failover aborted since all replicas are down!");
       case MAIN_ALIVE:
@@ -1025,11 +1049,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 dbms::DbmsHandler *dbms_handler, const query::InterpreterConfig &config,
                                 std::vector<Notification> *notifications) {
-  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
-  // the argument to Callback.
-  EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
-  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-
   Callback callback;
   switch (coordinator_query->action_) {
     case CoordinatorQuery::Action::REGISTER_MAIN_COORDINATOR_SERVER: {
@@ -1045,6 +1064,11 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       if (!FLAGS_coordinator) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
+      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+      // the argument to Callback.
+      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
       auto coordinator_socket_address_tv = coordinator_query->coordinator_socket_address_->Accept(evaluator);
       callback.fn = [handler = CoordQueryHandler{dbms_handler}, coordinator_socket_address_tv,
                      main_check_frequency = config.replication_replica_check_frequency,
