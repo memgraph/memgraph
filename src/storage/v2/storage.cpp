@@ -148,6 +148,7 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
   }
 
   // TODO antepusic remove from text index
+  vertex->storage_->indices_.text_index_->RemoveNode(vertex->vertex_);
 
   const auto &value = res.GetValue();
   if (!value) {
@@ -187,6 +188,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
   }
 
   // TODO antepusic remove from text index
+  vertex->storage_->indices_.text_index_->RemoveNode(vertex->vertex_);
 
   auto &value = res.GetValue();
   if (!value) {
@@ -276,9 +278,12 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     return maybe_deleted_vertices.GetError();
   }
 
-  auto deleted_vertices = maybe_deleted_vertices.GetValue();
+  // TODO antepusic delete from text index here
+  for (auto node : nodes_to_delete) {
+    storage_->indices_.text_index_->RemoveNode(node);
+  }
 
-  // delete from text inde here
+  auto deleted_vertices = maybe_deleted_vertices.GetValue();
 
   return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }
