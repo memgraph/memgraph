@@ -292,15 +292,15 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   // if (flags::run_time::GetTextSearchEnabled() && update_text_index) {
   //   for (auto *index_context : storage_->indices_.text_index_->GetApplicableTextIndices(vertex_)) {
-  //     auto search_input = memcxx::text_search::SearchInput{
+  //     auto search_input = mgcxx::text_search::SearchInput{
   //         .search_query = fmt::format("metadata.gid:{}", vertex_->gid.AsInt()), .return_fields = {"data"}};
 
-  //     auto search_result = memcxx::text_search::search(*index_context, search_input);
-  //     memcxx::text_search::delete_document(*index_context, search_input, true);
+  //     auto search_result = mgcxx::text_search::search(*index_context, search_input);
+  //     mgcxx::text_search::delete_document(*index_context, search_input, true);
   //     auto new_properties = search_result.docs[0].data;  // TODO (pending real Tantivy results): parse result to
   //                                                        // JSON, set property and convert back to string
-  //     auto new_properties_document = memcxx::text_search::DocumentInput{.data = new_properties};
-  //     memcxx::text_search::add(*index_context, new_properties_document, true);
+  //     auto new_properties_document = mgcxx::text_search::DocumentInput{.data = new_properties};
+  //     mgcxx::text_search::add_document(*index_context, new_properties_document, true);
   //   }
   // }
 
@@ -343,9 +343,9 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   // if (flags::run_time::GetTextSearchEnabled() && update_text_index) {
   //   for (auto *index_context : storage_->indices_.text_index_->GetApplicableTextIndices(vertex_)) {
   //     auto new_properties_document =
-  //         memcxx::text_search::DocumentInput{};  // TODO (pending real Tantivy operation): create a JSON, set
+  //         mgcxx::text_search::DocumentInput{};  // TODO (pending real Tantivy operation): create a JSON, set
   //                                                // properties and convert to string
-  //     memcxx::text_search::add(*index_context, new_properties_document, true);
+  //     mgcxx::text_search::add_document(*index_context, new_properties_document, true);
   //   }
   // }
 
@@ -372,15 +372,15 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
     // if (flags::run_time::GetTextSearchEnabled()) {
     //   for (auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
-    //     auto search_input = memcxx::text_search::SearchInput{
+    //     auto search_input = mgcxx::text_search::SearchInput{
     //         .search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt()), .return_fields = {"data"}};
 
-    //     auto search_result = memcxx::text_search::search(*index_context, search_input);
-    //     memcxx::text_search::delete_document(*index_context, search_input, true);
+    //     auto search_result = mgcxx::text_search::search(*index_context, search_input);
+    //     mgcxx::text_search::delete_document(*index_context, search_input, true);
     //     auto new_properties = search_result.docs[0].data;  // TODO (pending real Tantivy results): parse result to
     //                                                        // JSON, set property and convert back to string
-    //     auto new_properties_document = memcxx::text_search::DocumentInput{.data = new_properties};
-    //     memcxx::text_search::add(*index_context, new_properties_document, true);
+    //     auto new_properties_document = mgcxx::text_search::DocumentInput{.data = new_properties};
+    //     mgcxx::text_search::add_document(*index_context, new_properties_document, true);
     //   }
     // }
 
@@ -433,9 +433,9 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties(bool
         // if (flags::run_time::GetTextSearchEnabled()) {
         //   for (auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
         //     auto search_input =
-        //         memcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}",
+        //         mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}",
         //         vertex->gid.AsInt())};
-        //     memcxx::text_search::delete_document(*index_context, search_input, true);
+        //     mgcxx::text_search::delete_document(*index_context, search_input, true);
         //   }
         // }
       }};

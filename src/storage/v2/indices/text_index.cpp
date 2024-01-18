@@ -18,7 +18,7 @@
 namespace memgraph::storage {
 
 void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
-                        const std::vector<memcxx::text_search::Context *> &applicable_text_indices) {
+                        const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
   // NOTE: Text indexes are presently all-property indices. If we allow text indexes restricted to specific properties,
   // an indexable document should be created for each applicable index.
   nlohmann::json document = {};
@@ -36,7 +36,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
   document["metadata"]["is_node"] = true;
 
   for (auto *index_context : applicable_text_indices) {
-    memcxx::text_search::add(*index_context, memcxx::text_search::DocumentInput{.data = document.dump()}, false);
+    mgcxx::text_search::add_document(*index_context, mgcxx::text_search::DocumentInput{.data = document.dump()}, false);
   }
 }
 
@@ -64,12 +64,12 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage, const 
 }
 
 void TextIndex::RemoveNode(Vertex *vertex_after_update,
-                           const std::vector<memcxx::text_search::Context *> &applicable_text_indices) {
-  auto search_node_to_be_deleted = memcxx::text_search::SearchInput{
-      .search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
+                           const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
+  auto search_node_to_be_deleted =
+      mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
 
   for (auto *index_context : applicable_text_indices) {
-    memcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, false);
+    mgcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, false);
   }
 }
 
@@ -98,8 +98,8 @@ void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storag
   UpdateNode(vertex_after_update, storage);
 }
 
-std::vector<memcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(const std::vector<LabelId> &labels) {
-  std::vector<memcxx::text_search::Context *> applicable_text_indices;
+std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(const std::vector<LabelId> &labels) {
+  std::vector<mgcxx::text_search::Context *> applicable_text_indices;
   for (const auto &label : labels) {
     if (label_to_index_.contains(label)) {
       applicable_text_indices.push_back(&index_.at(label_to_index_.at(label)));
@@ -108,8 +108,8 @@ std::vector<memcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(
   return applicable_text_indices;
 }
 
-std::vector<memcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(Vertex *vertex) {
-  std::vector<memcxx::text_search::Context *> applicable_text_indices;
+std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(Vertex *vertex) {
+  std::vector<mgcxx::text_search::Context *> applicable_text_indices;
   for (const auto &label : vertex->labels) {
     if (label_to_index_.contains(label)) {
       applicable_text_indices.push_back(&index_.at(label_to_index_.at(label)));
@@ -124,8 +124,8 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
   mappings["properties"]["metadata"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
   mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
 
-  index_.emplace(index_name, memcxx::text_search::create_index(
-                                 index_name, memcxx::text_search::IndexConfig{.mappings = mappings.dump()}));
+  index_.emplace(index_name, mgcxx::text_search::create_index(
+                                 index_name, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}));
   label_to_index_.emplace(label, index_name);
 
   bool has_schema = false;
@@ -157,13 +157,14 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
     document["metadata"]["deleted"] = false;
     document["metadata"]["is_node"] = true;
 
-    memcxx::text_search::add(index_.at(index_name), memcxx::text_search::DocumentInput{.data = document.dump()}, false);
+    mgcxx::text_search::add_document(index_.at(index_name), mgcxx::text_search::DocumentInput{.data = document.dump()},
+                                     false);
   }
   return true;
 }
 
 bool TextIndex::DropIndex(std::string index_name) {
-  memcxx::text_search::drop_index(index_name);
+  mgcxx::text_search::drop_index(index_name);
   index_.erase(index_name);
   std::erase_if(label_to_index_, [index_name](const auto &item) { return item.second == index_name; });
   return true;
@@ -172,15 +173,22 @@ bool TextIndex::DropIndex(std::string index_name) {
 bool TextIndex::IndexExists(std::string index_name) const { return index_.contains(index_name); }
 
 std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_query) {
-  auto input = memcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata"}};
+  auto input = mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata"}};
   // Basic check for search fields in the query (Tantivy syntax delimits them with a `:` to the right)
   if (search_query.find(":") == std::string::npos) {
     input.search_fields = {"data"};
   }
 
   std::vector<Gid> found_nodes;
-  for (const auto &doc : memcxx::text_search::search(index_.at(index_name), input).docs) {
-    found_nodes.push_back(storage::Gid::FromString(nlohmann::json::parse(doc.data.data())["metadata"]["gid"].dump()));
+  auto search_results = mgcxx::text_search::search(index_.at(index_name), input);
+  auto docs = search_results.docs;
+  for (const auto &doc : docs) {
+    auto doc_data = doc.data;
+    std::string doc_string = doc_data.data();
+    auto doc_len = doc_data.length();
+    doc_string.resize(doc_len);
+    auto doc_json = nlohmann::json::parse(doc_string);
+    found_nodes.push_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()));
   }
   return found_nodes;
 }
