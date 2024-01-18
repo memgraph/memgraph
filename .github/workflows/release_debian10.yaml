@@ -201,13 +201,9 @@ jobs:
           # Initialize dependencies.
           ./init
 
-          # Set default build_type to Release
-          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
-          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Debug"}
-
           # Build release binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          cmake -DCMAKE_BUILD_TYPE=Debug..
           make -j$THREADS
 
       - name: Run stress test (large)
