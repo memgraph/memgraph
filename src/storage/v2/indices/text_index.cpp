@@ -36,7 +36,12 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
   document["metadata"]["is_node"] = true;
 
   for (auto *index_context : applicable_text_indices) {
-    mgcxx::text_search::add_document(*index_context, mgcxx::text_search::DocumentInput{.data = document.dump()}, false);
+    try {
+      mgcxx::text_search::add_document(*index_context, mgcxx::text_search::DocumentInput{.data = document.dump()},
+                                       false);
+    } catch (const std::exception &e) {
+      throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
+    }
   }
 }
 
@@ -69,7 +74,11 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update,
       mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
 
   for (auto *index_context : applicable_text_indices) {
-    mgcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, false);
+    try {
+      mgcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, false);
+    } catch (const std::exception &e) {
+      throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
+    }
   }
 }
 
@@ -124,8 +133,12 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
   mappings["properties"]["metadata"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
   mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
 
-  index_.emplace(index_name, mgcxx::text_search::create_index(
-                                 index_name, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}));
+  try {
+    index_.emplace(index_name, mgcxx::text_search::create_index(
+                                   index_name, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}));
+  } catch (const std::exception &e) {
+    throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
+  }
   label_to_index_.emplace(label, index_name);
 
   bool has_schema = false;
@@ -157,14 +170,22 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
     document["metadata"]["deleted"] = false;
     document["metadata"]["is_node"] = true;
 
-    mgcxx::text_search::add_document(index_.at(index_name), mgcxx::text_search::DocumentInput{.data = document.dump()},
-                                     false);
+    try {
+      mgcxx::text_search::add_document(index_.at(index_name),
+                                       mgcxx::text_search::DocumentInput{.data = document.dump()}, false);
+    } catch (const std::exception &e) {
+      throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
+    }
   }
   return true;
 }
 
 bool TextIndex::DropIndex(std::string index_name) {
-  mgcxx::text_search::drop_index(index_name);
+  try {
+    mgcxx::text_search::drop_index(index_name);
+  } catch (const std::exception &e) {
+    throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
+  }
   index_.erase(index_name);
   std::erase_if(label_to_index_, [index_name](const auto &item) { return item.second == index_name; });
   return true;
@@ -180,7 +201,13 @@ std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_qu
   }
 
   std::vector<Gid> found_nodes;
-  auto search_results = mgcxx::text_search::search(index_.at(index_name), input);
+
+  mgcxx::text_search::SearchOutput search_results;
+  try {
+    search_results = mgcxx::text_search::search(index_.at(index_name), input);
+  } catch (const std::exception &e) {
+    throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
+  }
   auto docs = search_results.docs;
   for (const auto &doc : docs) {
     auto doc_data = doc.data;
