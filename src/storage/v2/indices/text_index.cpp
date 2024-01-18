@@ -11,7 +11,6 @@
 
 #include "storage/v2/indices/text_index.hpp"
 #include "query/db_accessor.hpp"
-#include "storage/v2/mgcxx_mock.hpp"
 #include "storage/v2/view.hpp"
 #include "text_search.hpp"
 

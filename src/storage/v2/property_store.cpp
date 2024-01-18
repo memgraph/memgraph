@@ -21,7 +21,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "storage/v2/mgcxx_mock.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"

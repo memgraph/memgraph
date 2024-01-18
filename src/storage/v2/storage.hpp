@@ -28,7 +28,6 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices/indices.hpp"
-#include "storage/v2/mgcxx_mock.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"

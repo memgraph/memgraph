@@ -251,7 +251,6 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   }
   MultiPropsInitChecked(&new_node, properties);
 
-  // TODO antepusic check if text search is turned on
   if (flags::run_time::GetTextSearchEnabled()) {
     new_node.impl_.storage_->indices_.text_index_->AddNode(new_node.impl_.vertex_, new_node.impl_.storage_);
   }
@@ -2824,7 +2823,6 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
                                                                      TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
-      // TODO antepusic: update text index
       if (flags::run_time::GetTextSearchEnabled()) {
         auto new_node = lhs.ValueVertex();
         new_node.impl_.storage_->indices_.text_index_->UpdateNode(new_node.impl_.vertex_, new_node.impl_.storage_);
@@ -2985,7 +2983,6 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     case TypedValue::Type::Vertex: {
       PropertiesMap new_properties = get_props(rhs.ValueVertex());
       update_props(new_properties);
-      // TODO antepusic: update text index
       if (flags::run_time::GetTextSearchEnabled()) {
         auto new_node = rhs.ValueVertex();
         new_node.impl_.storage_->indices_.text_index_->UpdateNode(new_node.impl_.vertex_, new_node.impl_.storage_);
@@ -3136,7 +3133,6 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
   }
 
-  // TODO antepusic check if text search is turned on
   if (flags::run_time::GetTextSearchEnabled()) {
     vertex.impl_.storage_->indices_.text_index_->UpdateNode(vertex.impl_.vertex_, vertex.impl_.storage_);
   }
@@ -3302,7 +3298,6 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     }
   }
 
-  // TODO antepusic check if text search is turned on
   if (flags::run_time::GetTextSearchEnabled()) {
     vertex.impl_.storage_->indices_.text_index_->UpdateNode(vertex.impl_.vertex_, vertex.impl_.storage_, self_.labels_);
   }

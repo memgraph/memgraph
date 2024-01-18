@@ -13,6 +13,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "spdlog/spdlog.h"
 
+#include "flags/run_time_configurable.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
@@ -147,8 +148,9 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
     return res.GetError();
   }
 
-  // TODO antepusic remove from text index
-  vertex->storage_->indices_.text_index_->RemoveNode(vertex->vertex_);
+  if (flags::run_time::GetTextSearchEnabled()) {
+    vertex->storage_->indices_.text_index_->RemoveNode(vertex->vertex_);
+  }
 
   const auto &value = res.GetValue();
   if (!value) {
@@ -187,8 +189,9 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
     return res.GetError();
   }
 
-  // TODO antepusic remove from text index
-  vertex->storage_->indices_.text_index_->RemoveNode(vertex->vertex_);
+  if (flags::run_time::GetTextSearchEnabled()) {
+    vertex->storage_->indices_.text_index_->RemoveNode(vertex->vertex_);
+  }
 
   auto &value = res.GetValue();
   if (!value) {
@@ -278,9 +281,10 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     return maybe_deleted_vertices.GetError();
   }
 
-  // TODO antepusic delete from text index here
-  for (auto node : nodes_to_delete) {
-    storage_->indices_.text_index_->RemoveNode(node);
+  if (flags::run_time::GetTextSearchEnabled()) {
+    for (auto *node : nodes_to_delete) {
+      storage_->indices_.text_index_->RemoveNode(node);
+    }
   }
 
   auto deleted_vertices = maybe_deleted_vertices.GetValue();

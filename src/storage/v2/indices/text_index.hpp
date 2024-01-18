@@ -12,7 +12,6 @@
 #pragma once
 
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/mgcxx_mock.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "text_search.hpp"

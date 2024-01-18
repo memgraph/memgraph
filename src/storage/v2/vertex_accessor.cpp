@@ -17,13 +17,11 @@
 
 #include <fmt/format.h>
 
-#include "flags/run_time_configurable.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
-#include "storage/v2/mgcxx_mock.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
@@ -290,20 +288,6 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_, storage_, update_text_index);
   transaction_->manyDeltasCache.Invalidate(vertex_, property);
 
-  // if (flags::run_time::GetTextSearchEnabled() && update_text_index) {
-  //   for (auto *index_context : storage_->indices_.text_index_->GetApplicableTextIndices(vertex_)) {
-  //     auto search_input = mgcxx::text_search::SearchInput{
-  //         .search_query = fmt::format("metadata.gid:{}", vertex_->gid.AsInt()), .return_fields = {"data"}};
-
-  //     auto search_result = mgcxx::text_search::search(*index_context, search_input);
-  //     mgcxx::text_search::delete_document(*index_context, search_input, true);
-  //     auto new_properties = search_result.docs[0].data;  // TODO (pending real Tantivy results): parse result to
-  //                                                        // JSON, set property and convert back to string
-  //     auto new_properties_document = mgcxx::text_search::DocumentInput{.data = new_properties};
-  //     mgcxx::text_search::add_document(*index_context, new_properties_document, true);
-  //   }
-  // }
-
   return std::move(current_value);
 }
 
@@ -340,15 +324,6 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
       }};
   std::invoke(atomic_memory_block);
 
-  // if (flags::run_time::GetTextSearchEnabled() && update_text_index) {
-  //   for (auto *index_context : storage_->indices_.text_index_->GetApplicableTextIndices(vertex_)) {
-  //     auto new_properties_document =
-  //         mgcxx::text_search::DocumentInput{};  // TODO (pending real Tantivy operation): create a JSON, set
-  //                                                // properties and convert to string
-  //     mgcxx::text_search::add_document(*index_context, new_properties_document, true);
-  //   }
-  // }
-
   return result;
 }
 
@@ -370,19 +345,6 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   utils::AtomicMemoryBlock atomic_memory_block{[storage = storage_, transaction = transaction_, vertex = vertex_,
                                                 &properties, &id_old_new_change, update_text_index]() {
     id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
-    // if (flags::run_time::GetTextSearchEnabled()) {
-    //   for (auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
-    //     auto search_input = mgcxx::text_search::SearchInput{
-    //         .search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt()), .return_fields = {"data"}};
-
-    //     auto search_result = mgcxx::text_search::search(*index_context, search_input);
-    //     mgcxx::text_search::delete_document(*index_context, search_input, true);
-    //     auto new_properties = search_result.docs[0].data;  // TODO (pending real Tantivy results): parse result to
-    //                                                        // JSON, set property and convert back to string
-    //     auto new_properties_document = mgcxx::text_search::DocumentInput{.data = new_properties};
-    //     mgcxx::text_search::add_document(*index_context, new_properties_document, true);
-    //   }
-    // }
 
     if (!id_old_new_change.has_value()) {
       return;
@@ -430,14 +392,6 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties(bool
         }
 
         vertex->properties.ClearProperties();
-        // if (flags::run_time::GetTextSearchEnabled()) {
-        //   for (auto *index_context : storage->indices_.text_index_->GetApplicableTextIndices(vertex)) {
-        //     auto search_input =
-        //         mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}",
-        //         vertex->gid.AsInt())};
-        //     mgcxx::text_search::delete_document(*index_context, search_input, true);
-        //   }
-        // }
       }};
   std::invoke(atomic_memory_block);
 
