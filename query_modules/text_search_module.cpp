@@ -29,7 +29,7 @@ void TextSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
 
   // 1. See if the given label is text-indexed
   if (!mgp::graph_has_text_index(memgraph_graph, label.data())) {
-    return;
+    record_factory.SetErrorMessage("The given text index doesn’t exist in Memgraph");
   }
 
   // 2. Run a text search of that index and return the search results
