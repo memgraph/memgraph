@@ -957,7 +957,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
   }
   if (arg.IsDouble()) {
-    return TypedValue(std::to_string(arg.ValueDouble()), ctx.memory);
+    return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
   }
   if (arg.IsDate()) {
     return TypedValue(arg.ValueDate().ToString(), ctx.memory);

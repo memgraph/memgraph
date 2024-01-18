@@ -17,6 +17,7 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
+#include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
@@ -30,7 +31,8 @@ struct ParsingContext {
 
 class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
  public:
-  explicit CypherMainVisitor(ParsingContext context, AstStorage *storage) : context_(context), storage_(storage) {}
+  explicit CypherMainVisitor(ParsingContext context, AstStorage *storage, Parameters *parameters)
+      : context_(context), storage_(storage), parameters_(parameters) {}
 
  private:
   Expression *CreateBinaryOperatorByToken(size_t token, Expression *e1, Expression *e2) {
@@ -692,6 +694,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitPatternElement(MemgraphCypher::PatternElementContext *ctx) override;
 
   /**
+   * @return Pattern*
+   */
+  antlrcpp::Any visitRelationshipsPattern(MemgraphCypher::RelationshipsPatternContext *ctx) override;
+
+  /**
    * @return vector<pair<EdgeAtom*, NodeAtom*>>
    */
   antlrcpp::Any visitPatternElementChain(MemgraphCypher::PatternElementChainContext *ctx) override;
@@ -855,6 +862,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return Exists* (Expression)
    */
   antlrcpp::Any visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) override;
+
+  /**
+   * @return pattern comprehension (Expression)
+   */
+  antlrcpp::Any visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) override;
 
   /**
    * @return Expression*
@@ -1036,6 +1048,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // We use this variable in visitReturnItem to check if we are in with or
   // return.
   bool in_with_ = false;
+
+  Parameters *parameters_;
 
   QueryInfo query_info_;
 };

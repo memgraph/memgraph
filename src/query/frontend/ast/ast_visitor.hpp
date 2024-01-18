@@ -108,6 +108,7 @@ class Exists;
 class MultiDatabaseQuery;
 class ShowDatabasesQuery;
 class EdgeImportModeQuery;
+class PatternComprehension;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -117,7 +118,7 @@ using TreeCompositeVisitor = utils::CompositeVisitor<
     MapProjectionLiteral, PropertyLookup, AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce,
     Extract, All, Single, Any, None, CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete,
     Where, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv,
-    Foreach, Exists, CallSubquery, CypherQuery>;
+    Foreach, Exists, CallSubquery, CypherQuery, PatternComprehension>;
 
 using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
 
@@ -138,7 +139,7 @@ class ExpressionVisitor
                             ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator,
                             ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup, AllPropertiesLookup,
                             LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
-                            ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch, Exists> {};
+                            ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch, Exists, PatternComprehension> {};
 
 template <class TResult>
 class QueryVisitor
