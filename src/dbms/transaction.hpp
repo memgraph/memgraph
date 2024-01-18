@@ -66,6 +66,8 @@ struct SystemTransaction {
     static constexpr struct DropAuthData {
     } drop_auth_data;
 
+    enum class AuthData { USER, ROLE };
+
     // Multi-tenancy
     Delta(CreateDatabase /*tag*/, storage::SalientConfig config)
         : action(Action::CREATE_DATABASE), config(std::move(config)) {}
@@ -76,8 +78,12 @@ struct SystemTransaction {
         : action(Action::UPDATE_AUTH_DATA), auth_data{std::move(user), std::nullopt} {}
     Delta(UpdateAuthData /*tag*/, std::optional<auth::Role> role)
         : action(Action::UPDATE_AUTH_DATA), auth_data{std::nullopt, std::move(role)} {}
-    Delta(DropAuthData /*tag*/, std::string_view auth_data_key)
-        : action(Action::DROP_AUTH_DATA), auth_data_key{auth_data_key} {}
+    Delta(DropAuthData /*tag*/, AuthData type, std::string_view name)
+        : action(Action::DROP_AUTH_DATA),
+          auth_data_key{
+              .type = type,
+              .name = std::string{name},
+          } {}
 
     // Generic
     Delta(const Delta &) = delete;
@@ -110,7 +116,10 @@ struct SystemTransaction {
         std::optional<auth::User> user;
         std::optional<auth::Role> role;
       } auth_data;
-      std::string auth_data_key;
+      struct {
+        AuthData type;
+        std::string name;
+      } auth_data_key;
     };
   };
 

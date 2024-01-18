@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "auth/models.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 
@@ -37,6 +38,73 @@ struct SystemHeartbeatRes {
 };
 
 using SystemHeartbeatRpc = rpc::RequestResponse<SystemHeartbeatReq, SystemHeartbeatRes>;
+
+struct UpdateAuthDataReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
+  static void Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
+  UpdateAuthDataReq() = default;
+  UpdateAuthDataReq(auth::User user) : user{std::move(user)} {}
+  UpdateAuthDataReq(auth::Role role) : role{std::move(role)} {}
+
+  std::optional<auth::User> user;
+  std::optional<auth::Role> role;
+};
+
+struct UpdateAuthDataRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(UpdateAuthDataRes *self, memgraph::slk::Reader *reader);
+  static void Save(const UpdateAuthDataRes &self, memgraph::slk::Builder *builder);
+  UpdateAuthDataRes() = default;
+  explicit UpdateAuthDataRes(bool success) : success{success} {}
+
+  bool success;
+};
+
+using UpdateAuthDataRpc = rpc::RequestResponse<UpdateAuthDataReq, UpdateAuthDataRes>;
+
+struct DropAuthDataReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(DropAuthDataReq *self, memgraph::slk::Reader *reader);
+  static void Save(const DropAuthDataReq &self, memgraph::slk::Builder *builder);
+  DropAuthDataReq() = default;
+
+  enum class DataType { USER, ROLE };
+
+  DropAuthDataReq(DataType type, std::string_view name) : type{type}, name{name} {}
+
+  DataType type;
+  std::string name;
+};
+
+struct DropAuthDataRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(DropAuthDataRes *self, memgraph::slk::Reader *reader);
+  static void Save(const DropAuthDataRes &self, memgraph::slk::Builder *builder);
+  DropAuthDataRes() = default;
+  explicit DropAuthDataRes(bool success) : success{success} {}
+
+  bool success;
+};
+
+using DropAuthDataRpc = rpc::RequestResponse<DropAuthDataReq, DropAuthDataRes>;
+
+/**
+ * @brief
+ *
+ * @param req_reader
+ * @param res_builder
+ */
+void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+
 }  // namespace memgraph::replication
 
 namespace memgraph::slk {
@@ -44,4 +112,12 @@ void Save(const memgraph::replication::SystemHeartbeatRes &self, memgraph::slk::
 void Load(memgraph::replication::SystemHeartbeatRes *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::SystemHeartbeatReq & /*self*/, memgraph::slk::Builder * /*builder*/);
 void Load(memgraph::replication::SystemHeartbeatReq * /*self*/, memgraph::slk::Reader * /*reader*/);
+void Save(const memgraph::replication::UpdateAuthDataRes &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication::UpdateAuthDataRes *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::replication::UpdateAuthDataReq & /*self*/, memgraph::slk::Builder * /*builder*/);
+void Load(memgraph::replication::UpdateAuthDataReq * /*self*/, memgraph::slk::Reader * /*reader*/);
+void Save(const memgraph::replication::DropAuthDataRes &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::replication::DropAuthDataReq & /*self*/, memgraph::slk::Builder * /*builder*/);
+void Load(memgraph::replication::DropAuthDataReq * /*self*/, memgraph::slk::Reader * /*reader*/);
 }  // namespace memgraph::slk
