@@ -53,6 +53,16 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage) {
   AddNode(vertex_after_update, storage, applicable_text_indices);
 }
 
+void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage, const std::vector<LabelId> &removed_labels) {
+  auto indexes_to_remove_node_from = GetApplicableTextIndices(removed_labels);
+  RemoveNode(vertex_after_update, indexes_to_remove_node_from);
+
+  auto indexes_to_update_node = GetApplicableTextIndices(vertex_after_update);
+  if (indexes_to_update_node.empty()) return;
+  RemoveNode(vertex_after_update, indexes_to_update_node);
+  AddNode(vertex_after_update, storage, indexes_to_update_node);
+}
+
 void TextIndex::RemoveNode(Vertex *vertex_after_update,
                            const std::vector<memcxx::text_search::Context *> &applicable_text_indices) {
   auto search_node_to_be_deleted = memcxx::text_search::SearchInput{
@@ -88,6 +98,16 @@ void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storag
   UpdateNode(vertex_after_update, storage);
 }
 
+std::vector<memcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(const std::vector<LabelId> &labels) {
+  std::vector<memcxx::text_search::Context *> applicable_text_indices;
+  for (const auto &label : labels) {
+    if (label_to_index_.contains(label)) {
+      applicable_text_indices.push_back(&index_.at(label_to_index_.at(label)));
+    }
+  }
+  return applicable_text_indices;
+}
+
 std::vector<memcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(Vertex *vertex) {
   std::vector<memcxx::text_search::Context *> applicable_text_indices;
   for (const auto &label : vertex->labels) {
@@ -111,6 +131,10 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
   bool has_schema = false;
   std::vector<std::pair<PropertyId, std::string>> indexed_properties{};
   for (const auto &v : db->Vertices(View::OLD)) {
+    if (!v.HasLabel(View::OLD, label).GetValue()) {
+      continue;
+    }
+
     if (!has_schema) [[unlikely]] {
       for (const auto &[prop_id, prop_val] : v.Properties(View::OLD).GetValue()) {
         if (prop_val.IsString()) {

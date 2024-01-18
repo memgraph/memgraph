@@ -29,6 +29,8 @@ class TextIndex {
   void AddNode(Vertex *vertex, Storage *storage,
                const std::vector<memcxx::text_search::Context *> &applicable_text_indices);
 
+  std::vector<memcxx::text_search::Context *> GetApplicableTextIndices(const std::vector<LabelId> &labels);
+
   void RemoveNode(Vertex *vertex, const std::vector<memcxx::text_search::Context *> &applicable_text_indices);
 
  public:
@@ -47,6 +49,8 @@ class TextIndex {
   void AddNode(Vertex *vertex, Storage *storage);
 
   void UpdateNode(Vertex *vertex, Storage *storage);
+
+  void UpdateNode(Vertex *vertex, Storage *storage, const std::vector<LabelId> &removed_labels);
 
   void RemoveNode(Vertex *vertex);
 

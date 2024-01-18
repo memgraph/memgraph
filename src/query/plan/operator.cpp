@@ -253,7 +253,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
 
   // TODO antepusic check if text search is turned on
   if (flags::run_time::GetTextSearchEnabled()) {
-    // new_node.AddToTextSearch()
+    new_node.impl_.storage_->indices_.text_index_->AddNode(new_node.impl_.vertex_, new_node.impl_.storage_);
   }
 
   (*frame)[node_info.symbol] = new_node;
@@ -2825,8 +2825,9 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
                                                                      TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
       // TODO antepusic: update text index
-      // new_node.UpdateInTextSearch()
       if (flags::run_time::GetTextSearchEnabled()) {
+        auto new_node = lhs.ValueVertex();
+        new_node.impl_.storage_->indices_.text_index_->UpdateNode(new_node.impl_.vertex_, new_node.impl_.storage_);
       }
       break;
     }
@@ -2985,8 +2986,9 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       PropertiesMap new_properties = get_props(rhs.ValueVertex());
       update_props(new_properties);
       // TODO antepusic: update text index
-      // new_node.UpdateInTextSearch()
       if (flags::run_time::GetTextSearchEnabled()) {
+        auto new_node = rhs.ValueVertex();
+        new_node.impl_.storage_->indices_.text_index_->UpdateNode(new_node.impl_.vertex_, new_node.impl_.storage_);
       }
       break;
     }
@@ -3136,7 +3138,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   // TODO antepusic check if text search is turned on
   if (flags::run_time::GetTextSearchEnabled()) {
-    // new_node.UpdateInTextSearch()
+    vertex.impl_.storage_->indices_.text_index_->UpdateNode(vertex.impl_.vertex_, vertex.impl_.storage_);
   }
 
   return true;
@@ -3302,7 +3304,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 
   // TODO antepusic check if text search is turned on
   if (flags::run_time::GetTextSearchEnabled()) {
-    // new_node.UpdateInTextSearch()
+    vertex.impl_.storage_->indices_.text_index_->UpdateNode(vertex.impl_.vertex_, vertex.impl_.storage_, self_.labels_);
   }
 
   return true;

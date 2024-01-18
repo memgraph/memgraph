@@ -147,12 +147,12 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
     return res.GetError();
   }
 
+  // TODO antepusic remove from text index
+
   const auto &value = res.GetValue();
   if (!value) {
     return std::optional<VertexAccessor>{};
   }
-
-  // TODO antepusic remove from text index
 
   const auto &[vertices, edges] = *value;
 
