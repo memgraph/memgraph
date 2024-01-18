@@ -203,7 +203,7 @@ jobs:
 
           # Build release binaries.
           cd build
-          cmake -DCMAKE_BUILD_TYPE=Debug..
+          cmake -DCMAKE_BUILD_TYPE=Debug ..
           make -j$THREADS
 
       - name: Run stress test (large)
