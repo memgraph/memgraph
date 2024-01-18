@@ -35,13 +35,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs) {
-      return std::make_tuple(from_vertex, to_vertex, timestamp) <
-             std::make_tuple(rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
-    }
-    bool operator==(const Entry &rhs) const {
-      return from_vertex == rhs.from_vertex && to_vertex == rhs.to_vertex && timestamp == rhs.timestamp;
-    }
+    bool operator<(const Entry &rhs) { return edge->gid < rhs.edge->gid; }
+    bool operator==(const Entry &rhs) const { return edge->gid == rhs.edge->gid; }
   };
 
  public:
@@ -86,8 +81,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
      private:
       void AdvanceUntilValid();
-      std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> GetEdgeInfo(Vertex *from_vertex, Vertex *to_vertex,
-                                                                      bool edge_deleted);
+      std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> GetEdgeInfo();
 
       Iterable *self_;
       utils::SkipList<Entry>::Iterator index_iterator_;

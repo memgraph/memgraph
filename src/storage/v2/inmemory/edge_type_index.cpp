@@ -110,7 +110,7 @@ bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Ve
         continue;
       }
 
-      for (const auto &edge : from_vertex.out_edges) {
+      for (auto &edge : from_vertex.out_edges) {
         const auto type = std::get<kEdgeTypeIdPos>(edge);
         if (type == edge_type) {
           auto *to_vertex = std::get<kVertexPos>(edge);
@@ -166,9 +166,8 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
         return true;
       });
 
-      if ((next_it != edges_acc.end() && it->from_vertex == next_it->from_vertex &&
-           it->to_vertex == next_it->to_vertex) ||
-          it->from_vertex->deleted || it->to_vertex->deleted || edge_deleted) {
+      if ((next_it != edges_acc.end() && it->edge->gid == next_it->edge->gid) || it->from_vertex->deleted ||
+          it->to_vertex->deleted || edge_deleted) {
         edges_acc.remove(*it);
       }
 
@@ -227,8 +226,7 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
     }
 
     const bool edge_was_deleted = index_iterator_->edge->deleted;
-    auto [edge_ref, edge_type, deleted_from_vertex, deleted_to_vertex] =
-        GetEdgeInfo(from_vertex, to_vertex, edge_was_deleted);
+    auto [edge_ref, edge_type, deleted_from_vertex, deleted_to_vertex] = GetEdgeInfo();
     if (edge_ref == EdgeRef(nullptr)) {
       MG_ASSERT(false, "Invalid database state!");
     }
@@ -253,9 +251,12 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
   }
 }
 
-std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> InMemoryEdgeTypeIndex::Iterable::Iterator::GetEdgeInfo(
-    Vertex *from_vertex, Vertex *to_vertex, bool edge_deleted) {
-  if (edge_deleted) {
+std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> InMemoryEdgeTypeIndex::Iterable::Iterator::GetEdgeInfo() {
+  auto *from_vertex = index_iterator_->from_vertex;
+  auto *to_vertex = index_iterator_->to_vertex;
+
+  if (index_iterator_->edge->deleted) {
+    // TODO make sure this is aware of the possiblity of multiple edgetypes between nodes if it needs to.
     const auto missing_in_edge = VertexDeletedConnectedEdges(from_vertex, self_->transaction_, self_->view_);
     const auto missing_out_edge = VertexDeletedConnectedEdges(to_vertex, self_->transaction_, self_->view_);
     if (missing_in_edge && missing_out_edge &&
@@ -268,11 +269,13 @@ std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> InMemoryEdgeTypeIndex::Itera
   const auto &from_edges = from_vertex->out_edges;
   const auto &to_edges = to_vertex->in_edges;
 
+  // TODO rework this logic, it should be enough to firstly check
+  // against index_iterator_->edge->gid and go from there.
   auto it = std::find_if(from_edges.begin(), from_edges.end(), [&](const auto &from_entry) {
     const auto &from_edge = std::get<kEdgeRefPos>(from_entry);
     return std::any_of(to_edges.begin(), to_edges.end(), [&](const auto &to_entry) {
       const auto &to_edge = std::get<kEdgeRefPos>(to_entry);
-      return from_edge == to_edge;
+      return index_iterator_->edge->gid == from_edge.ptr->gid && from_edge.ptr->gid == to_edge.ptr->gid;
     });
   });
 

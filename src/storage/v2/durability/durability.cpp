@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,6 +31,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
@@ -142,6 +143,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                         Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+  spdlog::info("Recreating constraints from metadata.");
   RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
   RecoverUniqueConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
 }
@@ -197,9 +199,18 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   }
   spdlog::info("Label+property indices statistics are recreated.");
 
-  spdlog::info("Indices are recreated.");
+  // Recover edge-type indices.
+  spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
+  auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
+  for (const auto &item : indices_metadata.edge) {
+    if (!mem_edge_type_index->CreateIndex(item, vertices->access())) {
+      throw RecoveryFailure("The edge-type index must be created here!");
+    }
+    spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+  }
+  spdlog::info("Edge-type indices are recreated.");
 
-  spdlog::info("Recreating constraints from metadata.");
+  spdlog::info("Indices are recreated.");
 }
 
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,

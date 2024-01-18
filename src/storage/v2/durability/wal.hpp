@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -164,7 +164,7 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
 }
 
 constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type, const uint64_t version = kVersion) {
-  if (version < 16U) {
+  if (version < 17U) {
     return IsWalDeltaDataTypeTransactionEndVersion15(type);
   }
   // All deltas are now handled in a transactional scope

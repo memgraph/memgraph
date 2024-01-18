@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,6 +37,8 @@ enum class Marker : uint8_t {
   SECTION_CONSTRAINTS = 0x25,
   SECTION_DELTA = 0x26,
   SECTION_EPOCH_HISTORY = 0x27,
+  SECTION_EDGE_INDICES = 0x28,
+
   SECTION_OFFSETS = 0x42,
 
   DELTA_VERTEX_CREATE = 0x50,
@@ -85,6 +87,7 @@ static const Marker kMarkersAll[] = {
     Marker::SECTION_CONSTRAINTS,
     Marker::SECTION_DELTA,
     Marker::SECTION_EPOCH_HISTORY,
+    Marker::SECTION_EDGE_INDICES,
     Marker::SECTION_OFFSETS,
     Marker::DELTA_VERTEX_CREATE,
     Marker::DELTA_VERTEX_DELETE,
