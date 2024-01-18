@@ -276,7 +276,7 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name) {
   // Success
   // Save delta
   if (system_transaction_) {
-    system_transaction_->delta.emplace(SystemTransaction::Delta::drop_database, uuid);
+    system_transaction_->deltas.emplace_back(SystemTransaction::Delta::drop_database, uuid);
   }
   return {};
 }
@@ -304,7 +304,7 @@ DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config) {
   if (new_db.HasValue()) {  // Success
                             // Save delta
     if (system_transaction_) {
-      system_transaction_->delta.emplace(SystemTransaction::Delta::create_database, storage_config.salient);
+      system_transaction_->deltas.emplace_back(SystemTransaction::Delta::create_database, storage_config.salient);
     }
     UpdateDurability(storage_config);
     return new_db.GetValue();
@@ -364,118 +364,121 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
 }
 
 AllSyncReplicaStatus DbmsHandler::Commit() {
-  if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt)
+  if (system_transaction_ == std::nullopt || system_transaction_->deltas.empty()) {
     return AllSyncReplicaStatus::AllCommitsConfirmed;  // Nothing to commit
-  const auto &delta = *system_transaction_->delta;
+  }
+
+  std::cout << "system_transaction_->deltas.size() " << system_transaction_->deltas.size() << std::endl;
 
   auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
-  // TODO Create a system client that can handle all of this automatically
-  switch (delta.action) {  // TODO for
-    using enum SystemTransaction::Delta::Action;
-    case CREATE_DATABASE: {
-      // Replication
-      auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-        // TODO: data race issue? registered_replicas_ access not protected
-        // This is sync in any case, as this is the startup
-        for (auto &client : main_data.registered_replicas_) {
-          bool completed = SteamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
-              client,
-              [](const storage::replication::CreateDatabaseRes &response) {
-                return response.result != storage::replication::CreateDatabaseRes::Result::FAILURE;
-              },
-              std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
-              system_transaction_->system_timestamp, delta.config);
-          // TODO: reduce duplicate code
-          if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-            sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+  for (const auto &delta : system_transaction_->deltas) {
+    switch (delta.action) {
+      using enum SystemTransaction::Delta::Action;
+      case CREATE_DATABASE: {
+        // Replication
+        auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
+          // TODO: data race issue? registered_replicas_ access not protected
+          // This is sync in any case, as this is the startup
+          for (auto &client : main_data.registered_replicas_) {
+            bool completed = SteamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
+                client,
+                [](const storage::replication::CreateDatabaseRes &response) {
+                  return response.result != storage::replication::CreateDatabaseRes::Result::FAILURE;
+                },
+                std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
+                system_transaction_->system_timestamp, delta.config);
+            // TODO: reduce duplicate code
+            if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+              sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+            }
           }
-        }
-        // Sync database with REPLICAs
-        // TODO Rename, move outside commit (to new?)
-        // NOTE: The function bellow is used to create ReplicationStorageClient, so it must be called on a new storage
-        // We don't need to have it here, since the function won't fail even if the replication client fails to connect
-        // We will just have everything ready, for recovery at some point.
-        RecoverReplication(Get_(delta.config.name));
-      };
-      auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
-      std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-    } break;
-    case DROP_DATABASE: {
-      // Replication
-      auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-        // TODO: data race issue? registered_replicas_ access not protected
-        // This is sync in any case, as this is the startup
-        for (auto &client : main_data.registered_replicas_) {
-          bool completed = SteamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
-              client,
-              [](const storage::replication::DropDatabaseRes &response) {
-                return response.result != storage::replication::DropDatabaseRes::Result::FAILURE;
-              },
-              std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
-              system_transaction_->system_timestamp, delta.uuid);
-          // TODO: reduce duplicate code
-          if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-            sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+          // Sync database with REPLICAs
+          // TODO Rename, move outside commit (to new?)
+          // NOTE: The function bellow is used to create ReplicationStorageClient, so it must be called on a new storage
+          // We don't need to have it here, since the function won't fail even if the replication client fails to
+          // connect We will just have everything ready, for recovery at some point.
+          RecoverReplication(Get_(delta.config.name));
+        };
+        auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
+        std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
+      } break;
+      case DROP_DATABASE: {
+        // Replication
+        auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
+          // TODO: data race issue? registered_replicas_ access not protected
+          // This is sync in any case, as this is the startup
+          for (auto &client : main_data.registered_replicas_) {
+            bool completed = SteamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
+                client,
+                [](const storage::replication::DropDatabaseRes &response) {
+                  return response.result != storage::replication::DropDatabaseRes::Result::FAILURE;
+                },
+                std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
+                system_transaction_->system_timestamp, delta.uuid);
+            // TODO: reduce duplicate code
+            if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+              sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+            }
           }
-        }
-      };
-      auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
-      std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-    } break;
-    case UPDATE_AUTH_DATA: {
-      // Replication
-      auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-        // TODO: data race issue? registered_replicas_ access not protected
-        // This is sync in any case, as this is the startup
-        for (auto &client : main_data.registered_replicas_) {
-          bool completed = false;
-          if (delta.auth_data.user) {
-            completed = SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-                client, [](const replication::UpdateAuthDataRes &response) { return response.success; },
-                *delta.auth_data.user);
-          } else if (delta.auth_data.role) {
-            completed = SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-                client, [](const replication::UpdateAuthDataRes &response) { return response.success; },
-                *delta.auth_data.role);
-          } else {
-            throw;  //?
+        };
+        auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
+        std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
+      } break;
+      case UPDATE_AUTH_DATA: {
+        // Replication
+        auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
+          // TODO: data race issue? registered_replicas_ access not protected
+          // This is sync in any case, as this is the startup
+          for (auto &client : main_data.registered_replicas_) {
+            bool completed = false;
+            if (delta.auth_data.user) {
+              completed = SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
+                  client, [](const replication::UpdateAuthDataRes &response) { return response.success; },
+                  *delta.auth_data.user);
+            } else if (delta.auth_data.role) {
+              completed = SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
+                  client, [](const replication::UpdateAuthDataRes &response) { return response.success; },
+                  *delta.auth_data.role);
+            } else {
+              throw;  //?
+            }
+            // TODO: reduce duplicate code
+            if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+              sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+            }
           }
-          // TODO: reduce duplicate code
-          if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-            sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+        };
+        auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
+        std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
+      } break;
+      case DROP_AUTH_DATA: {
+        // Replication
+        auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
+          // TODO: data race issue? registered_replicas_ access not protected
+          // This is sync in any case, as this is the startup
+          for (auto &client : main_data.registered_replicas_) {
+            replication::DropAuthDataReq::DataType type;
+            switch (delta.auth_data_key.type) {
+              case SystemTransaction::Delta::AuthData::USER:
+                type = replication::DropAuthDataReq::DataType::USER;
+                break;
+              case SystemTransaction::Delta::AuthData::ROLE:
+                type = replication::DropAuthDataReq::DataType::ROLE;
+                break;
+            }
+            bool completed = SteamAndFinalizeDelta<replication::DropAuthDataRpc>(
+                client, [](const replication::DropAuthDataRes &response) { return response.success; }, type,
+                delta.auth_data_key.name);
+            // TODO: reduce duplicate code
+            if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+              sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+            }
           }
-        }
-      };
-      auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
-      std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-    } break;
-    case DROP_AUTH_DATA: {
-      // Replication
-      auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-        // TODO: data race issue? registered_replicas_ access not protected
-        // This is sync in any case, as this is the startup
-        for (auto &client : main_data.registered_replicas_) {
-          replication::DropAuthDataReq::DataType type;
-          switch (delta.auth_data_key.type) {
-            case SystemTransaction::Delta::AuthData::USER:
-              type = replication::DropAuthDataReq::DataType::USER;
-              break;
-            case SystemTransaction::Delta::AuthData::ROLE:
-              type = replication::DropAuthDataReq::DataType::ROLE;
-              break;
-          }
-          bool completed = SteamAndFinalizeDelta<replication::DropAuthDataRpc>(
-              client, [](const replication::DropAuthDataRes &response) { return response.success; }, type,
-              delta.auth_data_key.name);
-          // TODO: reduce duplicate code
-          if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-            sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
-          }
-        }
-      };
-      auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
-      std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-    } break;
+        };
+        auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
+        std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
+      } break;
+    }
   }
 
   // TODO durability_ is dbms, create another? link?
@@ -488,19 +491,20 @@ AllSyncReplicaStatus DbmsHandler::Commit() {
 #else  // not MG_ENTERPRISE
 
 AllSyncReplicaStatus DbmsHandler::Commit() {
-  if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt) {
+  if (system_transaction_ == std::nullopt || system_transaction_->deltas.empty()) {
     return AllSyncReplicaStatus::AllCommitsConfirmed;  // Nothing to commit
   }
-  const auto &delta = *system_transaction_->delta;
 
-  switch (delta.action) {
-    using enum SystemTransaction::Delta::Action;
-    case CREATE_DATABASE:
-    case DROP_DATABASE:
-    case UPDATE_AUTH_DATA:  // TODO Do we want to have auth replication under community?
-    case DROP_AUTH_DATA:    // TODO Do we want to have auth replication under community?
-      /* Community edition doesn't support multi-tenant replication */
-      break;
+  for (const auto &delta : system_transaction_->deltas) {
+    switch (delta.action) {
+      using enum SystemTransaction::Delta::Action;
+      case CREATE_DATABASE:
+      case DROP_DATABASE:
+      case UPDATE_AUTH_DATA:  // TODO Do we want to have auth replication under community?
+      case DROP_AUTH_DATA:    // TODO Do we want to have auth replication under community?
+        /* Community edition doesn't support multi-tenant replication */
+        break;
+    }
   }
 
   last_commited_system_timestamp_ = system_transaction_->system_timestamp;

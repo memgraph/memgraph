@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <list>
 #include <memory>
 #include <optional>
 #include "auth/models.hpp"
@@ -125,8 +126,7 @@ struct SystemTransaction {
 
   explicit SystemTransaction(uint64_t timestamp) : system_timestamp(timestamp) {}
 
-  // Currently system transitions support a single delta
-  std::optional<Delta> delta{};  // TODO Vector
+  std::list<Delta> deltas{};
   uint64_t system_timestamp;
 };
 
