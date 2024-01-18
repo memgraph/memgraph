@@ -365,9 +365,7 @@ class SkipListGc final {
         leftover.Push(*item);
       }
     }
-    while ((item = leftover.Pop())) {
-      deleted_.Push(*item);
-    }
+    deleted_ = std::move(leftover);
   }
 
   MemoryResource *GetMemoryResource() const { return memory_; }
@@ -384,11 +382,14 @@ class SkipListGc final {
     }
 
     // Delete all items that have to be garbage collected.
-    std::optional<TDeleted> item;
-    while ((item = deleted_.Pop())) {
-      size_t bytes = SkipListNodeSize(*item->second);
-      item->second->~TNode();
-      memory_->Deallocate(item->second, bytes);
+    {
+      std::optional<TDeleted> item;
+      std::unique_lock guard(lock_);
+      while ((item = deleted_.Pop())) {
+        size_t bytes = SkipListNodeSize(*item->second);
+        item->second->~TNode();
+        memory_->Deallocate(item->second, bytes);
+      }
     }
 
     // Reset all variables.
@@ -1028,40 +1029,45 @@ class SkipList final : detail::SkipListNode_base {
         continue;
       }
 
-      std::unique_lock<SpinLock> guards[kSkipListMaxHeight];
-      TNode *pred, *succ, *prev_pred = nullptr;
-      bool valid = true;
-      // The paper has a wrong condition here. In the paper it states that this
-      // loop should have `(layer <= top_layer)`, but that isn't correct.
-      for (int layer = 0; valid && (layer < top_layer); ++layer) {
-        pred = preds[layer];
-        succ = succs[layer];
-        if (pred != prev_pred) {
-          guards[layer] = std::unique_lock<SpinLock>(pred->lock);
-          prev_pred = pred;
+      TNode *new_node;
+      {
+        TNode *prev_pred = nullptr;
+        bool valid = true;
+        std::unique_lock<SpinLock> guards[kSkipListMaxHeight];
+        // The paper has a wrong condition here. In the paper it states that this
+        // loop should have `(layer <= top_layer)`, but that isn't correct.
+        for (int layer = 0; valid && (layer < top_layer); ++layer) {
+          TNode *pred = preds[layer];
+          TNode *succ = succs[layer];
+          if (pred != prev_pred) {
+            guards[layer] = std::unique_lock<SpinLock>(pred->lock);
+            prev_pred = pred;
+          }
+          // Existence test is missing in the paper.
+          valid = !pred->marked.load(std::memory_order_acquire) &&
+                  pred->nexts[layer].load(std::memory_order_acquire) == succ &&
+                  (succ == nullptr || !succ->marked.load(std::memory_order_acquire));
         }
-        // Existence test is missing in the paper.
-        valid = !pred->marked.load(std::memory_order_acquire) &&
-                pred->nexts[layer].load(std::memory_order_acquire) == succ &&
-                (succ == nullptr || !succ->marked.load(std::memory_order_acquire));
-      }
 
-      if (!valid) continue;
+        if (!valid) continue;
 
-      size_t node_bytes = sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
-      void *ptr = GetMemoryResource()->Allocate(node_bytes);
-      // `calloc` would be faster, but the API has no such call.
-      memset(ptr, 0, node_bytes);
-      auto *new_node = static_cast<TNode *>(ptr);
-      // Construct through allocator so it propagates if needed.
-      Allocator<TNode> allocator(GetMemoryResource());
-      allocator.construct(new_node, top_layer, std::forward<TObjUniv>(object));
+        size_t node_bytes = sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
+        MemoryResource *memoryResource = GetMemoryResource();
+        Allocator<TNode> allocator(memoryResource);
 
-      // The paper is also wrong here. It states that the loop should go up to
-      // `top_layer` which is wrong.
-      for (int layer = 0; layer < top_layer; ++layer) {
-        new_node->nexts[layer].store(succs[layer], std::memory_order_release);
-        preds[layer]->nexts[layer].store(new_node, std::memory_order_release);
+        void *ptr = memoryResource->Allocate(node_bytes);
+        // `calloc` would be faster, but the API has no such call.
+        memset(ptr, 0, node_bytes);
+        new_node = static_cast<TNode *>(ptr);
+        // Construct through allocator so it propagates if needed.
+        allocator.construct(new_node, top_layer, std::forward<TObjUniv>(object));
+
+        // The paper is also wrong here. It states that the loop should go up to
+        // `top_layer` which is wrong.
+        for (int layer = 0; layer < top_layer; ++layer) {
+          new_node->nexts[layer].store(succs[layer], std::memory_order_release);
+          preds[layer]->nexts[layer].store(new_node, std::memory_order_release);
+        }
       }
 
       new_node->fully_linked.store(true, std::memory_order_release);

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -225,19 +225,19 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   if (!storage_->config_.salient.items.properties_on_edges) return PropertyValue();
   bool exists = true;
   bool deleted = false;
-  PropertyValue value;
+  std::optional<PropertyValue> value;
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted;
-    value = edge_.ptr->properties.GetProperty(property);
+    value.emplace(edge_.ptr->properties.GetProperty(property));
     delta = edge_.ptr->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         if (delta.property.key == property) {
-          value = delta.property.value;
+          *value = delta.property.value;
         }
         break;
       }
@@ -261,7 +261,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
-  return std::move(value);
+  return *std::move(value);
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
