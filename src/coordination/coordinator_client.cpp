@@ -44,9 +44,10 @@ CoordinatorClient::~CoordinatorClient() {
 }
 
 void CoordinatorClient::StartFrequentCheck() {
-  MG_ASSERT(config_.health_check_frequency > std::chrono::seconds(0), "Health check frequency must be greater than 0");
+  MG_ASSERT(config_.health_check_frequency_sec > std::chrono::seconds(0),
+            "Health check frequency must be greater than 0");
   replica_checker_.Run(
-      "Coord checker", config_.health_check_frequency,
+      "Coord checker", config_.health_check_frequency_sec,
       [last_response_time = &last_response_time_, rpc_client = &rpc_client_] {
         try {
           {

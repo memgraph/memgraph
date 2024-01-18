@@ -493,7 +493,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         coordination::CoordinatorClientConfig{.instance_name = instance_name,
                                               .ip_address = coordinator_server_ip,
                                               .port = coordinator_server_port,
-                                              .health_check_frequency = instance_check_frequency,
+                                              .health_check_frequency_sec = instance_check_frequency,
                                               .replication_client_info = repl_config,
                                               .ssl = std::nullopt};
 
@@ -514,7 +514,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     const auto config = coordination::CoordinatorClientConfig{.instance_name = instance_name,
                                                               .ip_address = ip,
                                                               .port = port,
-                                                              .health_check_frequency = instance_check_frequency,
+                                                              .health_check_frequency_sec = instance_check_frequency,
                                                               .ssl = std::nullopt};
 
     if (const auto ret = coordinator_handler_.RegisterMainOnCoordinator(config); ret.HasError()) {
@@ -1025,9 +1025,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 dbms::DbmsHandler *dbms_handler, const query::InterpreterConfig &config,
                                 std::vector<Notification> *notifications) {
-  EvaluationContext evaluation_context;
-  evaluation_context.timestamp = QueryTimestamp();
-  evaluation_context.parameters = parameters;
+  // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+  // the argument to Callback.
+  EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   Callback callback;
@@ -1045,12 +1045,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       if (!FLAGS_coordinator) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
-      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
-      // the argument to Callback.
-      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
-      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       auto coordinator_socket_address_tv = coordinator_query->coordinator_socket_address_->Accept(evaluator);
-
       callback.fn = [handler = CoordQueryHandler{dbms_handler}, coordinator_socket_address_tv,
                      main_check_frequency = config.replication_replica_check_frequency,
                      instance_name = coordinator_query->instance_name_]() mutable {

@@ -26,12 +26,12 @@ void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
   server.Register<coordination::PromoteReplicaToMainRpc>(
       [&dbms_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         spdlog::info("Received PromoteReplicaToMainRpc from coordinator server");
-        CoordinatorHandlers::FailoverHandler(dbms_handler, req_reader, res_builder);
+        CoordinatorHandlers::PromoteReplicaToMainHandler(dbms_handler, req_reader, res_builder);
       });
 }
 
-void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
-                                          slk::Builder *res_builder) {
+void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
+                                                      slk::Builder *res_builder) {
   auto &repl_state = dbms_handler.ReplicationState();
 
   if (!repl_state.IsReplica()) {
@@ -63,7 +63,8 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
 
   std::ranges::for_each(clients_config, [&dbms_handler, &repl_state, &res_builder](const auto &config) {
     auto instance_client = repl_state.RegisterReplica(config);
-    if (instance_client.HasError()) switch (instance_client.GetError()) {
+    if (instance_client.HasError()) {
+      switch (instance_client.GetError()) {
         case memgraph::replication::RegisterReplicaError::NOT_MAIN:
           spdlog::error("Failover must be performed to main!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
@@ -83,6 +84,7 @@ void CoordinatorHandlers::FailoverHandler(DbmsHandler &dbms_handler, slk::Reader
         case memgraph::replication::RegisterReplicaError::SUCCESS:
           break;
       }
+    }
 
     auto &instance_client_ptr = instance_client.GetValue();
     const bool all_clients_good = memgraph::dbms::RegisterAllDatabasesClients(dbms_handler, *instance_client_ptr);

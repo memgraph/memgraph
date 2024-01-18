@@ -24,7 +24,8 @@ auto CoordinatorHandler::RegisterReplicaOnCoordinator(const memgraph::coordinati
   auto instance_client = dbms_handler_.CoordinatorState().RegisterReplica(config);
   using repl_status = memgraph::coordination::RegisterMainReplicaCoordinatorStatus;
   using dbms_status = memgraph::dbms::RegisterMainReplicaCoordinatorStatus;
-  if (instance_client.HasError()) switch (instance_client.GetError()) {
+  if (instance_client.HasError()) {
+    switch (instance_client.GetError()) {
       case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR:
         MG_ASSERT(false, "Only coordinator instance can register main and replica!");
         return {};
@@ -37,6 +38,7 @@ auto CoordinatorHandler::RegisterReplicaOnCoordinator(const memgraph::coordinati
       case repl_status::SUCCESS:
         break;
     }
+  }
 
   instance_client.GetValue()->StartFrequentCheck();
   return {};

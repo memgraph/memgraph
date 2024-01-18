@@ -30,9 +30,7 @@ struct CoordinatorClientConfig {
   const uint16_t port{};
 
   // Frequency with which coordinator pings main/replicas about it status
-  const std::chrono::seconds health_check_frequency{1};
-
-  const std::chrono::seconds last_response_alive_threshold{1};
+  const std::chrono::seconds health_check_frequency_sec{1};
 
   // Info which coordinator will send to new main when performing failover
   struct ReplicationClientInfo {
