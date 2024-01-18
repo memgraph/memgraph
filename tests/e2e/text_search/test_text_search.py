@@ -23,12 +23,17 @@ GET_RULES_2024_DOCUMENT = """CALL text_search.search('complianceDocuments', 'dat
 def test_create_index(memgraph):
     memgraph.execute("CREATE TEXT INDEX exampleIndex ON :Document;")
 
-    assert True
+    index_info = memgraph.execute_and_fetch("SHOW INDEX INFO")
+
+    assert list(index_info) == [{"index type": "text", "label": "exampleIndex", "property": None, "count": None}]
 
 
 def test_drop_index(memgraph):
     memgraph.execute("DROP TEXT INDEX exampleIndex;")
-    assert True
+
+    index_info = memgraph.execute_and_fetch("SHOW INDEX INFO")
+
+    assert list(index_info) == []
 
 
 def test_text_search_given_property(memgraph_with_text_indexed_data):
@@ -38,6 +43,7 @@ def test_text_search_given_property(memgraph_with_text_indexed_data):
 
 
 def test_text_search_all_properties(memgraph_with_text_indexed_data):
+    # json issue
     result = list(
         memgraph_with_text_indexed_data.execute_and_fetch(
             """CALL text_search.search('complianceDocuments', 'Rules2024') YIELD node
@@ -46,7 +52,7 @@ def test_text_search_all_properties(memgraph_with_text_indexed_data):
         )
     )
 
-    # assert len(result) == 2 and result == [{"title": "Rules2024", "version": 1}, {"title": "Rules2024", "version": 2}]
+    assert len(result) == 2 and result == [{"title": "Rules2024", "version": 1}, {"title": "Rules2024", "version": 2}]
 
 
 def test_create_indexed_node(memgraph_with_text_indexed_data):
@@ -70,6 +76,7 @@ def test_delete_indexed_node(memgraph_with_text_indexed_data):
 
 
 def test_add_indexed_label(memgraph_with_mixed_data):
+    # flaky search results
     memgraph_with_mixed_data.execute("MATCH (n:Revision) SET n:Document;")
 
     result = list(memgraph_with_mixed_data.execute_and_fetch(GET_RULES_2024_DOCUMENT))

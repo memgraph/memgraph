@@ -61,7 +61,7 @@ def memgraph_with_text_indexed_data(**kwargs) -> Memgraph:
 
 
 @pytest.fixture
-def memgraph_with_text_indexed_data(**kwargs) -> Memgraph:
+def memgraph_with_mixed_data(**kwargs) -> Memgraph:
     memgraph = Memgraph()
 
     memgraph.execute("CREATE (:Document:Revision {title: 'Rules2024', version: 1});")
