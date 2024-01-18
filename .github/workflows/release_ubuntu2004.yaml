@@ -281,6 +281,13 @@ jobs:
           cd build
           ctest -R memgraph__unit --output-on-failure
 
+      - name: Ensure Kafka and Pulsar are up
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose up -d
+          cd ../pulsar
+          docker-compose up -d
+
       - name: Run e2e tests
         run: |
           cd tests
@@ -288,6 +295,14 @@ jobs:
           source ve3/bin/activate_e2e
           cd e2e
           ./run.sh
+
+      - name: Ensure Kafka and Pulsar are down
+        if: always()
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose down
+          cd ../pulsar
+          docker-compose down
 
       - name: Run stress test (plain)
         run: |
