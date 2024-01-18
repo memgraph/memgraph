@@ -40,7 +40,7 @@ CoordinatorClient::~CoordinatorClient() {
   });
   const auto endpoint = rpc_client_.Endpoint();
   // Logging can throw
-  spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
+  spdlog::trace("Closing coordinator client on {}:{}", endpoint.address, endpoint.port);
 }
 
 void CoordinatorClient::StartFrequentCheck() {
@@ -74,6 +74,7 @@ auto CoordinatorClient::InstanceName() const -> std::string_view { return config
 auto CoordinatorClient::Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
 auto CoordinatorClient::Config() const -> CoordinatorClientConfig const & { return config_; }
 
+////// AF design choice
 auto CoordinatorClient::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo const & {
   MG_ASSERT(config_.replication_client_info.has_value(), "No ReplicationClientInfo for MAIN instance!");
   return *config_.replication_client_info;
@@ -94,15 +95,13 @@ auto CoordinatorClient::GetLastTimeResponse() -> std::chrono::system_clock::time
 auto CoordinatorClient::SendPromoteReplicaToMainRpc(
     std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const -> bool {
   try {
-    {
-      auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(std::move(replication_clients_info))};
-      if (!stream.AwaitResponse().success) {
-        spdlog::error("Failed to perform failover!");
-        return false;
-      }
-      spdlog::info("Sent failover RPC from coordinator to new main!");
-      return true;
+    auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(std::move(replication_clients_info))};
+    if (!stream.AwaitResponse().success) {
+      spdlog::error("Failed to perform failover!");
+      return false;
     }
+    spdlog::info("Sent failover RPC from coordinator to new main!");
+    return true;
   } catch (const rpc::RpcFailedException &) {
     spdlog::error("Failed to send failover RPC from coordinator to new main!");
   }

@@ -1074,21 +1074,17 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       if (!FLAGS_coordinator) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
-      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
-      // the argument to Callback.
-      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
-      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       auto coordinator_socket_address_tv = coordinator_query->coordinator_socket_address_->Accept(evaluator);
       auto replication_socket_address_tv = coordinator_query->socket_address_->Accept(evaluator);
-      callback.fn = [handler = CoordQueryHandler{dbms_handler}, coordinator_socket_address_tv,
-                     replication_socket_address_tv, main_check_frequency = config.replication_replica_check_frequency,
-                     instance_name = coordinator_query->instance_name_,
-                     sync_mode = coordinator_query->sync_mode_]() mutable {
-        handler.RegisterReplicaCoordinatorServer(std::string(replication_socket_address_tv.ValueString()),
-                                                 std::string(coordinator_socket_address_tv.ValueString()),
-                                                 main_check_frequency, instance_name, sync_mode);
-        return std::vector<std::vector<TypedValue>>();
-      };
+      callback.fn =
+          [handler = CoordQueryHandler{dbms_handler}, coordinator_socket_address_tv, replication_socket_address_tv,
+           replica_check_frequency = config.replication_replica_check_frequency,
+           instance_name = coordinator_query->instance_name_, sync_mode = coordinator_query->sync_mode_]() mutable {
+            handler.RegisterReplicaCoordinatorServer(std::string(replication_socket_address_tv.ValueString()),
+                                                     std::string(coordinator_socket_address_tv.ValueString()),
+                                                     replica_check_frequency, instance_name, sync_mode);
+            return std::vector<std::vector<TypedValue>>();
+          };
 
       notifications->emplace_back(
           SeverityLevel::INFO, NotificationCode::REGISTER_COORDINATOR_SERVER,
