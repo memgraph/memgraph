@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -312,6 +312,7 @@ void ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
+// TODO figure this out... We should encorporate edge-type here somehow...
 void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                                     const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {

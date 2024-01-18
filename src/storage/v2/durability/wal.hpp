@@ -67,6 +67,8 @@ struct WalDeltaData {
     LABEL_PROPERTY_INDEX_DROP,
     LABEL_PROPERTY_INDEX_STATS_SET,
     LABEL_PROPERTY_INDEX_STATS_CLEAR,
+    EDGE_INDEX_CREATE,
+    EDGE_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
     EXISTENCE_CONSTRAINT_DROP,
     UNIQUE_CONSTRAINT_CREATE,
@@ -110,6 +112,10 @@ struct WalDeltaData {
     std::string label;
     std::set<std::string, std::less<>> properties;
   } operation_label_properties;
+
+  struct {
+    std::string edge_type;
+  } operation_edge_type;
 
   struct {
     std::string label;
