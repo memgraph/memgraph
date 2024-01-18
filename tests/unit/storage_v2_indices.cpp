@@ -1649,3 +1649,27 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCountEstimate) {
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id2), 7);
   }
 }
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgeTypeIndexRepeatingEdgeTypesBetweenSameVertices) {
+  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    {
+      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(unique_acc->Commit());
+    }
+
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+    auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+
+    for (int i = 0; i < 5; ++i) {
+      this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+    }
+
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 5);
+
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
+  }
+}
