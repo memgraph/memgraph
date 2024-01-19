@@ -155,29 +155,13 @@ def test_simple_client_initiated_failover(connection):
 
 
 def test_failover_fails_all_replicas_down(connection):
-    # 1. Start all instances
-    # 2. Kill all replicas
-    # 3. Kill main
-    # 4. Run DO FAILOVER on COORDINATOR. Assert exception is being thrown due to all replicas being down
-    # 5. Assert cluster status didn't change
-
-    # 1.
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    # 2.
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
-
-    # 3.
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
     coord_cursor = connection(7690, "coordinator").cursor()
-    # 4.
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(coord_cursor, "DO FAILOVER;")
-    assert str(e.value) == "Failover aborted since all replicas are down!"
-
-    # 5.
 
     def retrieve_data():
         return set(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;"))
@@ -189,16 +173,17 @@ def test_failover_fails_all_replicas_down(connection):
     }
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data)
 
+    # 4.
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coord_cursor, "DO FAILOVER;")
+    assert str(e.value) == "Failover aborted since all replicas are down!"
+
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data)
+
 
 def test_failover_fails_main_is_alive(connection):
-    # 1. Start all instances
-    # 2. Run DO FAILOVER on COORDINATOR. Assert exception is being thrown due to main is still live.
-    # 3. Assert cluster status didn't change
-
-    # 1.
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    # 2.
     coord_cursor = connection(7690, "coordinator").cursor()
 
     def retrieve_data():
@@ -211,12 +196,10 @@ def test_failover_fails_main_is_alive(connection):
     }
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data)
 
-    # 4.
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(coord_cursor, "DO FAILOVER;")
     assert str(e.value) == "Failover aborted since main is alive!"
 
-    # 5.
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data)
 
 

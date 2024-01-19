@@ -19,14 +19,10 @@
 
 namespace memgraph::coordination {
 
-struct CoordinatorEntityInfo {
-  std::string_view name;
-  const io::network::Endpoint &endpoint;
-};
-
-struct CoordinatorEntityHealthInfo {
-  std::string_view name;
-  bool alive;
+struct CoordinatorInstanceStatus {
+  std::string_view instance_name;
+  std::string socket_address;
+  bool is_alive;
 };
 
 }  // namespace memgraph::coordination

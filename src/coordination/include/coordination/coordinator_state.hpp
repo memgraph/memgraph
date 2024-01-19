@@ -15,7 +15,7 @@
 
 #include "coordination/coordinator_client.hpp"
 #include "coordination/coordinator_client_info.hpp"
-#include "coordination/coordinator_entity_info.hpp"
+#include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_server.hpp"
 #include "coordination/failover_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
@@ -40,17 +40,13 @@ class CoordinatorState {
   CoordinatorState(CoordinatorState &&) noexcept = delete;
   CoordinatorState &operator=(CoordinatorState &&) noexcept = delete;
 
-  [[nodiscard]] auto RegisterReplica(const CoordinatorClientConfig &config) -> RegisterMainReplicaCoordinatorStatus;
+  [[nodiscard]] auto RegisterReplica(CoordinatorClientConfig config) -> RegisterMainReplicaCoordinatorStatus;
 
-  [[nodiscard]] auto RegisterMain(const CoordinatorClientConfig &config) -> RegisterMainReplicaCoordinatorStatus;
+  [[nodiscard]] auto RegisterMain(CoordinatorClientConfig config) -> RegisterMainReplicaCoordinatorStatus;
 
-  auto ShowReplicas() const -> std::vector<CoordinatorEntityInfo>;
+  auto ShowReplicas() const -> std::vector<CoordinatorInstanceStatus>;
 
-  auto PingReplicas() const -> std::unordered_map<std::string_view, bool>;
-
-  auto ShowMain() const -> std::optional<CoordinatorEntityInfo>;
-
-  auto PingMain() const -> std::optional<CoordinatorEntityHealthInfo>;
+  auto ShowMain() const -> std::optional<CoordinatorInstanceStatus>;
 
   // The client code must check that the server exists before calling this method.
   auto GetCoordinatorServer() const -> CoordinatorServer &;
@@ -63,7 +59,7 @@ class CoordinatorState {
     std::list<CoordinatorClient> registered_replicas_;
     std::vector<CoordinatorClientInfo> registered_replicas_info_;
     std::unique_ptr<CoordinatorClient> registered_main_;
-    CoordinatorClientInfo registered_main_info_;
+    std::optional<CoordinatorClientInfo> registered_main_info_;
   };
 
   struct CoordinatorMainReplicaData {
