@@ -312,6 +312,7 @@ class Interpreter final {
 
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
+    uint64_t transaction_id_;
 
     static auto Create(std::variant<utils::MonotonicBufferResource, utils::PoolResource> memory_resource,
                        std::optional<PreparedQuery> prepared_query = std::nullopt) -> std::unique_ptr<QueryExecution> {
@@ -407,7 +408,10 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   auto &query_execution = query_executions_[qid_value];
 
   MG_ASSERT(query_execution && query_execution->prepared_query, "Query already finished executing!");
-
+  if (query_execution->transaction_id_ != *current_transaction_) {
+    std::cout << "Transaction id not same:" << query_execution->transaction_id_ << " != " << *current_transaction_
+              << std::endl;
+  }
   // Each prepared query has its own summary so we need to somehow preserve
   // it after it finishes executing because it gets destroyed alongside
   // the prepared query and its execution memory.
@@ -427,8 +431,13 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // If the query finished executing, we have received a value which tells
     // us what to do after.
     if (maybe_res) {
+      if (query_execution->transaction_id_) {
+        std::cout << "removing memory tracking on id: " << query_execution->transaction_id_ << std::endl;
+        memgraph::memory::TryStopTrackingOnTransaction(query_execution->transaction_id_);
+      }
       if (current_transaction_) {
-        memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
+        std::cout << "[BEFORE] removing memory tracking on id: " << *current_transaction_ << std::endl;
+        // memgraph::memory::TryStopTrackingOnTransaction(query_execution->transaction_id_);
       }
       // Save its summary
       maybe_summary.emplace(std::move(query_execution->summary));
@@ -444,9 +453,13 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         switch (*maybe_res) {
           case QueryHandlerResult::COMMIT:
             Commit();
+
             break;
           case QueryHandlerResult::ABORT:
             Abort();
+            // if (current_transaction_) {
+            //   memgraph::memory::TryStopTrackingOnTransaction(query_execution->transaction_id_);
+            // }
             break;
           case QueryHandlerResult::NOTHING:
             // The only cases in which we have nothing to do are those where
@@ -464,6 +477,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         // We can only clear this execution as some of the queries
         // in the transaction can be in unfinished state
         query_execution.reset(nullptr);
+        // if (current_transaction_) {
+        //   memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
+        // }
       }
     }
   } catch (const ExplicitTransactionUsageException &) {

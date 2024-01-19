@@ -1646,6 +1646,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   MG_ASSERT(transaction_id.has_value());
 
   if (memory_limit_) {
+    std::cout << "Memory tracking transaction id: " << *transaction_id << std::endl;
     memgraph::memory::TryStartTrackingOnTransaction(*transaction_id, *memory_limit_);
     memgraph::memory::StartTrackingCurrentThreadTransaction(*transaction_id);
   }
@@ -4172,6 +4173,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                     utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
                     upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
+      query_execution_ptr->get()->transaction_id_ = *current_db_.db_transactional_accessor_->GetTransactionId();
     }
 
 #ifdef MG_ENTERPRISE
