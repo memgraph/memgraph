@@ -403,6 +403,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // If the query finished executing, we have received a value which tells
     // us what to do after.
     if (maybe_res) {
+      if (current_transaction_) {
+        memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
+      }
       // Save its summary
       maybe_summary.emplace(std::move(query_execution->summary));
       if (!query_execution->notifications.empty()) {
@@ -441,9 +444,15 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       }
     }
   } catch (const ExplicitTransactionUsageException &) {
+    if (current_transaction_) {
+      memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
+    }
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &) {
+    if (current_transaction_) {
+      memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
+    }
     // Trigger first failed query
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
