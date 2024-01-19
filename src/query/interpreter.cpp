@@ -110,7 +110,6 @@
 
 #ifdef MG_ENTERPRISE
 #include "coordination/constants.hpp"
-#include "coordination/coordinator_entity_info.hpp"
 #endif
 
 namespace memgraph::metrics {
@@ -487,7 +486,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         .replication_ip_address = replication_ip,
         .replication_port = replication_port};
 
-    const auto coordinator_client_config =
+    auto coordinator_client_config =
         coordination::CoordinatorClientConfig{.instance_name = instance_name,
                                               .ip_address = coordinator_server_ip,
                                               .port = coordinator_server_port,
@@ -495,7 +494,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                               .replication_client_info = repl_config,
                                               .ssl = std::nullopt};
 
-    auto status = coordinator_handler_.RegisterReplicaOnCoordinator(coordinator_client_config);
+    auto status = coordinator_handler_.RegisterReplicaOnCoordinator(std::move(coordinator_client_config));
     switch (status) {
       using enum memgraph::coordination::RegisterMainReplicaCoordinatorStatus;
       case NAME_EXISTS:
@@ -521,13 +520,14 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       throw QueryRuntimeException("Invalid socket address!");
     }
     const auto [ip, port] = *maybe_ip_and_port;
-    const auto config = coordination::CoordinatorClientConfig{.instance_name = instance_name,
-                                                              .ip_address = ip,
-                                                              .port = port,
-                                                              .health_check_frequency_sec = instance_check_frequency,
-                                                              .ssl = std::nullopt};
+    auto coordinator_client_config =
+        coordination::CoordinatorClientConfig{.instance_name = instance_name,
+                                              .ip_address = ip,
+                                              .port = port,
+                                              .health_check_frequency_sec = instance_check_frequency,
+                                              .ssl = std::nullopt};
 
-    auto status = coordinator_handler_.RegisterMainOnCoordinator(config);
+    auto status = coordinator_handler_.RegisterMainOnCoordinator(std::move(coordinator_client_config));
     switch (status) {
       using enum memgraph::coordination::RegisterMainReplicaCoordinatorStatus;
       case NAME_EXISTS:
@@ -564,20 +564,17 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
+  // TODO: Remove this method, probably not needed.
   std::vector<MainReplicaStatus> ShowMainReplicaStatus(
-      const std::vector<coordination::CoordinatorEntityInfo> &replicas,
-      const std::unordered_map<std::string_view, bool> &health_check_replicas,
-      const std::optional<coordination::CoordinatorEntityInfo> &main,
-      const std::optional<coordination::CoordinatorEntityHealthInfo> &health_check_main) const override {
+      const std::vector<coordination::CoordinatorInstanceStatus> &replicas,
+      const std::optional<coordination::CoordinatorInstanceStatus> &main) const override {
     std::vector<MainReplicaStatus> result{};
     result.reserve(replicas.size() + 1);  // replicas + 1 main
-    std::ranges::transform(
-        replicas, std::back_inserter(result), [&health_check_replicas](const auto &replica) -> MainReplicaStatus {
-          return {replica.name, replica.endpoint.SocketAddress(), health_check_replicas.at(replica.name), false};
-        });
+    std::ranges::transform(replicas, std::back_inserter(result), [](const auto &replica) -> MainReplicaStatus {
+      return {replica.instance_name, replica.socket_address, replica.is_alive, false};
+    });
     if (main) {
-      bool is_main_alive = health_check_main.has_value() ? health_check_main.value().alive : false;
-      result.emplace_back(main->name, main->endpoint.SocketAddress(), is_main_alive, true);
+      result.emplace_back(main->instance_name, main->socket_address, main->is_alive, true);
     }
     return result;
   }
@@ -585,20 +582,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 #endif
 
 #ifdef MG_ENTERPRISE
-  std::vector<coordination::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const override {
+  std::vector<coordination::CoordinatorInstanceStatus> ShowReplicasOnCoordinator() const override {
     return coordinator_handler_.ShowReplicasOnCoordinator();
   }
 
-  std::unordered_map<std::string_view, bool> PingReplicasOnCoordinator() const override {
-    return coordinator_handler_.PingReplicasOnCoordinator();
-  }
-
-  std::optional<coordination::CoordinatorEntityInfo> ShowMainOnCoordinator() const override {
+  std::optional<coordination::CoordinatorInstanceStatus> ShowMainOnCoordinator() const override {
     return coordinator_handler_.ShowMainOnCoordinator();
-  }
-
-  std::optional<coordination::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const override {
-    return coordinator_handler_.PingMainOnCoordinator();
   }
 #endif
 
@@ -1094,11 +1083,18 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
             "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
             "be able to use this functionality.");
       }
+
       if (!FLAGS_coordinator) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
+
+      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+      // the argument to Callback.
+      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       auto coordinator_socket_address_tv = coordinator_query->coordinator_socket_address_->Accept(evaluator);
       auto replication_socket_address_tv = coordinator_query->socket_address_->Accept(evaluator);
+
       callback.fn =
           [handler = CoordQueryHandler{dbms_handler}, coordinator_socket_address_tv, replication_socket_address_tv,
            replica_check_frequency = config.replication_replica_check_frequency,
@@ -1132,10 +1128,8 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.header = {"name", "socket_address", "alive", "role"};
       callback.fn = [handler = CoordQueryHandler{dbms_handler}, replica_nfields = callback.header.size()]() mutable {
-        const auto main = handler.ShowMainOnCoordinator();
-        const auto health_check_main = main ? handler.PingMainOnCoordinator() : std::nullopt;
-        const auto result_status = handler.ShowMainReplicaStatus(
-            handler.ShowReplicasOnCoordinator(), handler.PingReplicasOnCoordinator(), main, health_check_main);
+        const auto result_status =
+            handler.ShowMainReplicaStatus(handler.ShowReplicasOnCoordinator(), handler.ShowMainOnCoordinator());
         std::vector<std::vector<TypedValue>> result{};
         result.reserve(result_status.size());
 
@@ -1166,10 +1160,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       callback.header = {"name", "socket_address", "alive", "role"};
       callback.fn = [handler = CoordQueryHandler{dbms_handler}]() mutable {
         handler.DoFailover();
-        const auto main = handler.ShowMainOnCoordinator();
-        const auto health_check_main = main ? handler.PingMainOnCoordinator() : std::nullopt;
-        const auto result_status = handler.ShowMainReplicaStatus(
-            handler.ShowReplicasOnCoordinator(), handler.PingReplicasOnCoordinator(), main, health_check_main);
+
+        const auto result_status =
+            handler.ShowMainReplicaStatus(handler.ShowReplicasOnCoordinator(), handler.ShowMainOnCoordinator());
         std::vector<std::vector<TypedValue>> result{};
         result.reserve(result_status.size());
 
@@ -1180,6 +1173,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                                });
         return result;
       };
+
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::DO_FAILOVER,
                                   "DO FAILOVER called on coordinator.");
       return callback;

@@ -15,7 +15,6 @@
 
 #include <gflags/gflags.h>
 
-#include "coordination/coordinator_entity_info.hpp"
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "memory/query_memory_control.hpp"
@@ -52,6 +51,10 @@
 #include "utils/thread_pool.hpp"
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
+
+#ifdef MG_ENTERPRISE
+#include "coordination/coordinator_instance_status.hpp"
+#endif
 
 namespace memgraph::metrics {
 extern const Event FailedQuery;
@@ -114,26 +117,18 @@ class CoordinatorQueryHandler {
                                              const std::string &instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<coordination::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const = 0;
+  virtual std::vector<coordination::CoordinatorInstanceStatus> ShowReplicasOnCoordinator() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<coordination::CoordinatorEntityInfo> ShowMainOnCoordinator() const = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::unordered_map<std::string_view, bool> PingReplicasOnCoordinator() const = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<coordination::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const = 0;
+  virtual std::optional<coordination::CoordinatorInstanceStatus> ShowMainOnCoordinator() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void DoFailover() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<MainReplicaStatus> ShowMainReplicaStatus(
-      const std::vector<coordination::CoordinatorEntityInfo> &replicas,
-      const std::unordered_map<std::string_view, bool> &health_check_replicas,
-      const std::optional<coordination::CoordinatorEntityInfo> &main,
-      const std::optional<coordination::CoordinatorEntityHealthInfo> &health_check_main) const = 0;
+      const std::vector<coordination::CoordinatorInstanceStatus> &replicas,
+      const std::optional<coordination::CoordinatorInstanceStatus> &main) const = 0;
 
 #endif
 };

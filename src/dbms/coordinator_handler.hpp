@@ -16,7 +16,7 @@
 #include "utils/result.hpp"
 
 #include "coordination/coordinator_config.hpp"
-#include "coordination/coordinator_entity_info.hpp"
+#include "coordination/coordinator_instance_status.hpp"
 #include "coordination/failover_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 
@@ -32,19 +32,15 @@ class CoordinatorHandler {
  public:
   explicit CoordinatorHandler(DbmsHandler &dbms_handler);
 
-  auto RegisterReplicaOnCoordinator(const coordination::CoordinatorClientConfig &config)
+  auto RegisterReplicaOnCoordinator(coordination::CoordinatorClientConfig config)
       -> coordination::RegisterMainReplicaCoordinatorStatus;
 
-  auto RegisterMainOnCoordinator(const coordination::CoordinatorClientConfig &config)
+  auto RegisterMainOnCoordinator(coordination::CoordinatorClientConfig config)
       -> coordination::RegisterMainReplicaCoordinatorStatus;
 
-  auto ShowReplicasOnCoordinator() const -> std::vector<coordination::CoordinatorEntityInfo>;
+  auto ShowReplicasOnCoordinator() const -> std::vector<coordination::CoordinatorInstanceStatus>;
 
-  auto ShowMainOnCoordinator() const -> std::optional<coordination::CoordinatorEntityInfo>;
-
-  auto PingReplicasOnCoordinator() const -> std::unordered_map<std::string_view, bool>;
-
-  auto PingMainOnCoordinator() const -> std::optional<coordination::CoordinatorEntityHealthInfo>;
+  auto ShowMainOnCoordinator() const -> std::optional<coordination::CoordinatorInstanceStatus>;
 
   auto DoFailover() const -> coordination::DoFailoverStatus;
 

@@ -19,30 +19,22 @@ namespace memgraph::dbms {
 
 CoordinatorHandler::CoordinatorHandler(DbmsHandler &dbms_handler) : dbms_handler_(dbms_handler) {}
 
-auto CoordinatorHandler::RegisterReplicaOnCoordinator(const coordination::CoordinatorClientConfig &config)
+auto CoordinatorHandler::RegisterReplicaOnCoordinator(coordination::CoordinatorClientConfig config)
     -> coordination::RegisterMainReplicaCoordinatorStatus {
-  return dbms_handler_.CoordinatorState().RegisterReplica(config);
+  return dbms_handler_.CoordinatorState().RegisterReplica(std::move(config));
 }
 
-auto CoordinatorHandler::RegisterMainOnCoordinator(const memgraph::coordination::CoordinatorClientConfig &config)
+auto CoordinatorHandler::RegisterMainOnCoordinator(memgraph::coordination::CoordinatorClientConfig config)
     -> coordination::RegisterMainReplicaCoordinatorStatus {
-  return dbms_handler_.CoordinatorState().RegisterMain(config);
+  return dbms_handler_.CoordinatorState().RegisterMain(std::move(config));
 }
 
-auto CoordinatorHandler::ShowReplicasOnCoordinator() const -> std::vector<coordination::CoordinatorEntityInfo> {
+auto CoordinatorHandler::ShowReplicasOnCoordinator() const -> std::vector<coordination::CoordinatorInstanceStatus> {
   return dbms_handler_.CoordinatorState().ShowReplicas();
 }
 
-auto CoordinatorHandler::PingReplicasOnCoordinator() const -> std::unordered_map<std::string_view, bool> {
-  return dbms_handler_.CoordinatorState().PingReplicas();
-}
-
-auto CoordinatorHandler::ShowMainOnCoordinator() const -> std::optional<coordination::CoordinatorEntityInfo> {
+auto CoordinatorHandler::ShowMainOnCoordinator() const -> std::optional<coordination::CoordinatorInstanceStatus> {
   return dbms_handler_.CoordinatorState().ShowMain();
-}
-
-auto CoordinatorHandler::PingMainOnCoordinator() const -> std::optional<coordination::CoordinatorEntityHealthInfo> {
-  return dbms_handler_.CoordinatorState().PingMain();
 }
 
 auto CoordinatorHandler::DoFailover() const -> coordination::DoFailoverStatus {

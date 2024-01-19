@@ -27,7 +27,7 @@ class CoordinatorClient {
   using ReplClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
   using ReplicationClientsInfo = std::vector<ReplClientInfo>;
 
-  explicit CoordinatorClient(const CoordinatorClientConfig &config);
+  explicit CoordinatorClient(CoordinatorClientConfig config, std::function<void(std::string_view)> freq_check_cb);
 
   ~CoordinatorClient();
 
@@ -43,10 +43,12 @@ class CoordinatorClient {
   auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
 
   auto InstanceName() const -> std::string_view;
-  auto Endpoint() const -> io::network::Endpoint const &;
+  auto Endpoint() const -> const io::network::Endpoint *;
   auto Config() const -> CoordinatorClientConfig const &;
   auto ReplicationClientInfo() const -> ReplClientInfo const &;
   auto ReplicationClientInfo() -> std::optional<ReplClientInfo> &;
+  // TODO: We should add copy constructor and then there won't be need for this
+  auto Callback() const -> std::function<void(std::string_view)> const &;
 
   friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
     return first.config_ == second.config_;
@@ -60,6 +62,7 @@ class CoordinatorClient {
   mutable rpc::Client rpc_client_;
 
   CoordinatorClientConfig config_;
+  std::function<void(std::string_view)> freq_check_cb_;
 };
 
 }  // namespace memgraph::coordination
