@@ -548,6 +548,7 @@ int main(int argc, char **argv) {
 
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
 
+  python_gc_scheduler.Stop();
   Py_END_ALLOW_THREADS;
   // Shutdown Python
   Py_Finalize();
