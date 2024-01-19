@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -392,8 +392,10 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
 
   auto *load_csv = storage_->Create<LoadCsv>();
   // handle file name
-  if (ctx->csvFile()->literal()->StringLiteral()) {
+  if (ctx->csvFile()->literal()) {
     load_csv->file_ = std::any_cast<Expression *>(ctx->csvFile()->accept(this));
+  } else if (ctx->csvFile()->parameter()) {
+    load_csv->file_ = std::any_cast<ParameterLookup *>(ctx->csvFile()->accept(this));
   } else {
     throw SemanticException("CSV file path should be a string literal");
   }
