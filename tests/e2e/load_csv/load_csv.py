@@ -52,5 +52,19 @@ def test_given_one_row_in_db_when_load_csv_after_match_then_pass():
     assert len(list(results)) == 4
 
 
+def test_load_csv_with_parameters():
+    memgraph = Memgraph("localhost", 7687)
+
+    results = memgraph.execute_and_fetch(
+        f"""LOAD CSV
+        FROM $file WITH HEADER AS row
+        RETURN row.name as name
+        """,
+        parameters={"file": get_file_path(SIMPLE_CSV_FILE)},
+    )
+
+    assert len(list(results)) == 4
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
