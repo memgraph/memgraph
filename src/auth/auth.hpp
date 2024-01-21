@@ -19,8 +19,12 @@
 #include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/settings.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::auth {
+
+class Auth;
+using SynchedAuth = memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>;
 
 static const constexpr char *const kAllDatabases = "*";
 

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
+#include "auth/auth.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/replication_handler.hpp"
 #include "replication/include/replication/state.hpp"
@@ -45,7 +46,8 @@ inline bool DoReplicaToMainPromotion(dbms::DbmsHandler &dbms_handler) {
 };
 
 inline bool SetReplicationRoleReplica(dbms::DbmsHandler &dbms_handler,
-                                      const memgraph::replication::ReplicationServerConfig &config) {
+                                      const memgraph::replication::ReplicationServerConfig &config,
+                                      auth::SynchedAuth &auth) {
   if (dbms_handler.ReplicationState().IsReplica()) {
     return false;
   }
@@ -68,8 +70,8 @@ inline bool SetReplicationRoleReplica(dbms::DbmsHandler &dbms_handler,
                                                       // ASSERT
                                                       return false;
                                                     },
-                                                    [&dbms_handler](replication::RoleReplicaData const &data) {
-                                                      return StartRpcServer(dbms_handler, data);
+                                                    [&dbms_handler, &auth](replication::RoleReplicaData const &data) {
+                                                      return StartRpcServer(dbms_handler, data, auth);
                                                     }},
                                   dbms_handler.ReplicationState().ReplicationData());
   // TODO Handle error (restore to main?)
@@ -110,18 +112,18 @@ inline bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
   return all_clients_good;
 }
 
-inline std::optional<RegisterReplicaError> HandleRegisterReplicaStatus(
+inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
     utils::BasicResult<replication::RegisterReplicaError, replication::ReplicationClient *> &instance_client) {
   if (instance_client.HasError()) switch (instance_client.GetError()) {
       case replication::RegisterReplicaError::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");
         return {};
       case replication::RegisterReplicaError::NAME_EXISTS:
-        return dbms::RegisterReplicaError::NAME_EXISTS;
+        return query::RegisterReplicaError::NAME_EXISTS;
       case replication::RegisterReplicaError::ENDPOINT_EXISTS:
-        return dbms::RegisterReplicaError::ENDPOINT_EXISTS;
+        return query::RegisterReplicaError::ENDPOINT_EXISTS;
       case replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-        return dbms::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+        return query::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
       case replication::RegisterReplicaError::SUCCESS:
         break;
     }

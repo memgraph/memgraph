@@ -37,9 +37,9 @@
 
 using testing::UnorderedElementsAre;
 
-using memgraph::dbms::RegisterReplicaError;
 using memgraph::dbms::ReplicationHandler;
-using memgraph::dbms::UnregisterReplicaResult;
+using memgraph::query::RegisterReplicaError;
+using memgraph::query::UnregisterReplicaResult;
 using memgraph::replication::ReplicationClientConfig;
 using memgraph::replication::ReplicationServerConfig;
 using memgraph::replication_coordination_glue::ReplicationMode;
@@ -117,16 +117,15 @@ struct MinMemgraph {
         dbms{conf
 #ifdef MG_ENTERPRISE
              ,
-             &auth, true
+             auth, true
 #endif
         },
         repl_state{dbms.ReplicationState()},
         db_acc{dbms.Get()},
         db{*db_acc.get()},
-        repl_handler(dbms) {
+        repl_handler(dbms, auth) {
   }
-
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth;
+  memgraph::auth::SynchedAuth auth;
   memgraph::dbms::DbmsHandler dbms;
   memgraph::replication::ReplicationState &repl_state;
   memgraph::dbms::DatabaseAccess db_acc;

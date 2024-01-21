@@ -11,54 +11,42 @@
 
 #pragma once
 
-#include "replication_coordination_glue/role.hpp"
+#include "auth/auth.hpp"
 #include "dbms/database.hpp"
+#include "query/replication_query_handler.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "utils/result.hpp"
-
-namespace memgraph::replication {
-struct ReplicationState;
-struct ReplicationServerConfig;
-struct ReplicationClientConfig;
-}  // namespace memgraph::replication
 
 namespace memgraph::dbms {
 
 class DbmsHandler;
 
-enum class RegisterReplicaError : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
-
-enum class UnregisterReplicaResult : uint8_t {
-  NOT_MAIN,
-  COULD_NOT_BE_PERSISTED,
-  CAN_NOT_UNREGISTER,
-  SUCCESS,
-};
-
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 /// TODO: extend to do multiple storages
-struct ReplicationHandler {
-  explicit ReplicationHandler(DbmsHandler &dbms_handler);
+struct ReplicationHandler : public query::ReplicationQueryHandler {
+  explicit ReplicationHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth);
 
   // as REPLICA, become MAIN
-  bool SetReplicationRoleMain();
+  bool SetReplicationRoleMain() override;
 
   // as MAIN, become REPLICA
-  bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config);
+  bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config) override;
 
   // as MAIN, define and connect to REPLICAs
   auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
-      -> utils::BasicResult<RegisterReplicaError>;
+      -> utils::BasicResult<query::RegisterReplicaError> override;
 
   // as MAIN, remove a REPLICA connection
-  auto UnregisterReplica(std::string_view name) -> UnregisterReplicaResult;
+  auto UnregisterReplica(std::string_view name) -> query::UnregisterReplicaResult override;
 
   // Helper pass-through (TODO: remove)
-  auto GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole;
-  bool IsMain() const;
-  bool IsReplica() const;
+  auto GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole override;
+  bool IsMain() const override;
+  bool IsReplica() const override;
 
  private:
   DbmsHandler &dbms_handler_;
+  auth::SynchedAuth &auth_;
 };
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
@@ -74,9 +62,9 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
 #endif
 
 /// Register all DBMS level RPC handlers
-void Register(replication::RoleReplicaData const &data, DbmsHandler &dbms_handler);
+void Register(replication::RoleReplicaData const &data, DbmsHandler &dbms_handler, auth::SynchedAuth &auth);
 }  // namespace system_replication
 
-bool StartRpcServer(DbmsHandler &dbms_handler, const replication::RoleReplicaData &data);
+bool StartRpcServer(DbmsHandler &dbms_handler, const replication::RoleReplicaData &data, auth::SynchedAuth &auth);
 
 }  // namespace memgraph::dbms

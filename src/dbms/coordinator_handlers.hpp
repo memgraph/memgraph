@@ -13,6 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "auth/auth.hpp"
 #include "slk/serialization.hpp"
 
 namespace memgraph::dbms {
@@ -21,12 +22,13 @@ class DbmsHandler;
 
 class CoordinatorHandlers {
  public:
-  static void Register(DbmsHandler &dbms_handler);
+  static void Register(DbmsHandler &dbms_handler, auth::SynchedAuth &auth);
 
  private:
   static void PromoteReplicaToMainHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
                                           slk::Builder *res_builder);
-  static void DemoteMainToReplicaHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
+  static void DemoteMainToReplicaHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
+                                         slk::Builder *res_builder);
 };
 
 }  // namespace memgraph::dbms

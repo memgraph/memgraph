@@ -111,8 +111,7 @@ class DbmsHandler {
    * @param auth pointer to the global authenticator
    * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  DbmsHandler(storage::Config config,
-              memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+  DbmsHandler(storage::Config config, auth::SynchedAuth &auth,
               bool recovery_on_startup);  // TODO If more arguments are added use a config struct
 #else
   /**
@@ -421,7 +420,7 @@ class DbmsHandler {
   //! \param args arguments to forward to the rpc request
   //! \return If replica stream is completed or enqueued
   template <typename RPC, typename... Args>
-  bool SteamAndFinalizeDelta(auto &client, auto &&check, Args &&...args) {
+  bool SteamAndFinalizeDelta(auto &client, auto &&check, Args &&... args) {
     try {
       auto stream = client.rpc_client_.template Stream<RPC>(std::forward<Args>(args)...);
       auto task = [&client, check = std::forward<decltype(check)>(check), stream = std::move(stream)]() mutable {
@@ -499,6 +498,10 @@ class DbmsHandler {
     client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::READY; });
   }
 #endif
+
+  std::unique_ptr<query::ReplicationQueryHandler> GenReplHandler() {
+    return std::make_unique<ReplicationHandler>(*this, auth_);
+  }
 
  private:
 #ifdef MG_ENTERPRISE
@@ -677,7 +680,8 @@ class DbmsHandler {
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;       //!< list of active dbs (pointer so we can postpone its creation)
-  coordination::CoordinatorState coordinator_state_;  //!< Replication coordinator
+  coordination::CoordinatorState coordinator_state_;   //!< Replication coordinator
+  auth::SynchedAuth &auth_;                            //!< Synchronized auth::Auth
 #endif
   // TODO: Make an api
  public:

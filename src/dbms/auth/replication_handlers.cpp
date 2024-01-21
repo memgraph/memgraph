@@ -17,27 +17,27 @@ namespace memgraph::dbms {
 
 namespace auth_replication {
 
-void UpdateAuthDataHandler(auth::Auth &auth, slk::Reader *req_reader, slk::Builder *res_builder) {
+void UpdateAuthDataHandler(auth::SynchedAuth &auth, slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::UpdateAuthDataReq req;
   memgraph::slk::Load(&req, req_reader);
 
-  if (req.user) auth.SaveUser(*req.user);
-  if (req.role) auth.SaveRole(*req.role);
+  if (req.user) auth->SaveUser(*req.user);
+  if (req.role) auth->SaveRole(*req.role);
 
   replication::UpdateAuthDataRes res(true);
   memgraph::slk::Save(res, res_builder);
 }
 
-void DropAuthDataHandler(auth::Auth &auth, slk::Reader *req_reader, slk::Builder *res_builder) {
+void DropAuthDataHandler(auth::SynchedAuth &auth, slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::DropAuthDataReq req;
   memgraph::slk::Load(&req, req_reader);
 
   switch (req.type) {
     case replication::DropAuthDataReq::DataType::USER:
-      auth.RemoveUser(req.name);
+      auth->RemoveUser(req.name);
       break;
     case replication::DropAuthDataReq::DataType::ROLE:
-      auth.RemoveRole(req.name);
+      auth->RemoveRole(req.name);
       break;
   }
 

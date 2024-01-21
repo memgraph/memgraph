@@ -387,7 +387,7 @@ int main(int argc, char **argv) {
   memgraph::dbms::DbmsHandler dbms_handler(db_config
 #ifdef MG_ENTERPRISE
                                            ,
-                                           &auth_, FLAGS_data_recovery_on_startup
+                                           auth_, FLAGS_data_recovery_on_startup
 #endif
   );
   auto db_acc = dbms_handler.Get();

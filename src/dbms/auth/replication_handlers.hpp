@@ -18,8 +18,8 @@ namespace memgraph::dbms {
 namespace auth_replication {
 
 // #ifdef MG_ENTERPRISE // TODO Is it???
-void UpdateAuthDataHandler(auth::Auth &auth, slk::Reader *req_reader, slk::Builder *res_builder);
-void DropAuthDataHandler(auth::Auth &auth, slk::Reader *req_reader, slk::Builder *res_builder);
+void UpdateAuthDataHandler(auth::SynchedAuth &auth, slk::Reader *req_reader, slk::Builder *res_builder);
+void DropAuthDataHandler(auth::SynchedAuth &auth, slk::Reader *req_reader, slk::Builder *res_builder);
 // #endif
 
 }  // namespace auth_replication

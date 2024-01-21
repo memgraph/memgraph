@@ -64,6 +64,7 @@
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "query/procedure/module.hpp"
+#include "query/replication_query_handler.hpp"
 #include "query/stream.hpp"
 #include "query/stream/common.hpp"
 #include "query/stream/sources.hpp"
@@ -202,7 +203,8 @@ void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
 
 template <typename T>
 concept HasEmpty = requires(T t) {
-  { t.empty() } -> std::convertible_to<bool>;
+  { t.empty() }
+  ->std::convertible_to<bool>;
 };
 
 template <typename T>
@@ -306,17 +308,17 @@ class ReplQueryHandler {
     ReplicationQuery::ReplicaState state;
   };
 
-  explicit ReplQueryHandler(dbms::DbmsHandler *dbms_handler) : handler_{*dbms_handler} {}
+  explicit ReplQueryHandler(dbms::DbmsHandler *dbms_handler) : handler_{dbms_handler->GenReplHandler()} {}
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) {
     auto ValidatePort = [](std::optional<int64_t> port) -> void {
-      if (*port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
+      if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
         throw QueryRuntimeException("Port number invalid!");
       }
     };
     if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
-      if (!handler_.SetReplicationRoleMain()) {
+      if (!handler_->SetReplicationRoleMain()) {
         throw QueryRuntimeException("Couldn't set replication role to main!");
       }
     } else {
@@ -327,7 +329,7 @@ class ReplQueryHandler {
           .port = static_cast<uint16_t>(*port),
       };
 
-      if (!handler_.SetReplicationRoleReplica(config)) {
+      if (!handler_->SetReplicationRoleReplica(config)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
       }
     }
@@ -335,7 +337,7 @@ class ReplQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   ReplicationQuery::ReplicationRole ShowReplicationRole() const {
-    switch (handler_.GetRole()) {
+    switch (handler_->GetRole()) {
       case memgraph::replication_coordination_glue::ReplicationRole::MAIN:
         return ReplicationQuery::ReplicationRole::MAIN;
       case memgraph::replication_coordination_glue::ReplicationRole::REPLICA:
@@ -349,7 +351,7 @@ class ReplQueryHandler {
                        const ReplicationQuery::SyncMode sync_mode, const std::chrono::seconds replica_check_frequency) {
     // Coordinator is main by default so this check is OK although it should actually be nothing (neither main nor
     // replica)
-    if (handler_.IsReplica()) {
+    if (handler_->IsReplica()) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
     }
@@ -368,7 +370,7 @@ class ReplQueryHandler {
                                                .replica_check_frequency = replica_check_frequency,
                                                .ssl = std::nullopt};
 
-      const auto error = handler_.RegisterReplica(replication_config).HasError();
+      const auto error = handler_->RegisterReplica(replication_config).HasError();
 
       if (error) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
@@ -381,9 +383,9 @@ class ReplQueryHandler {
 
   /// @throw QueryRuntimeException if an error occurred.
   void DropReplica(std::string_view replica_name) {
-    auto const result = handler_.UnregisterReplica(replica_name);
+    auto const result = handler_->UnregisterReplica(replica_name);
     switch (result) {
-      using enum memgraph::dbms::UnregisterReplicaResult;
+      using enum memgraph::query::UnregisterReplicaResult;
       case NOT_MAIN:
         throw QueryRuntimeException("Replica can't unregister a replica!");
       case COULD_NOT_BE_PERSISTED:
@@ -396,7 +398,7 @@ class ReplQueryHandler {
   }
 
   std::vector<ReplicaInfo> ShowReplicas(const dbms::Database &db) const {
-    if (handler_.IsReplica()) {
+    if (handler_->IsReplica()) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
     }
@@ -447,14 +449,14 @@ class ReplQueryHandler {
   }
 
  private:
-  dbms::ReplicationHandler handler_;
+  std::shared_ptr<query::ReplicationQueryHandler> handler_;
 };
 
 class CoordQueryHandler final : public query::CoordinatorQueryHandler {
  public:
-  explicit CoordQueryHandler(dbms::DbmsHandler *dbms_handler) : handler_ { *dbms_handler }
+  explicit CoordQueryHandler(dbms::DbmsHandler *dbms_handler)
 #ifdef MG_ENTERPRISE
-  , coordinator_handler_(*dbms_handler)
+      : coordinator_handler_(*dbms_handler)
 #endif
   {
   }
@@ -497,7 +499,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
-      case END_POINT_EXISTS:
+      case ENDPOINT_EXISTS:
         throw QueryRuntimeException(
             "Couldn't register replica instance since instance with such endpoint already exists!");
       case NOT_COORDINATOR:
@@ -537,7 +539,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 #endif
 
  private:
-  dbms::ReplicationHandler handler_;
 #ifdef MG_ENTERPRISE
   dbms::CoordinatorHandler coordinator_handler_;
 #endif
@@ -2571,8 +2572,8 @@ PreparedQuery PrepareCoordinatorQuery(ParsedQuery parsed_query, bool in_explicit
                          }
 
                          if (pull_plan->Pull(stream, n)) [[likely]] {
-                           return QueryHandlerResult::COMMIT;
-                         }
+                             return QueryHandlerResult::COMMIT;
+                           }
                          return std::nullopt;
                        },
                        RWType::NONE};
@@ -2607,24 +2608,24 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
           case LockPathQuery::Action::LOCK_PATH: {
             const auto lock_success = mem_storage->LockPath();
             if (lock_success.HasError()) [[unlikely]] {
-              throw QueryRuntimeException("Failed to lock the data directory");
-            }
+                throw QueryRuntimeException("Failed to lock the data directory");
+              }
             res = lock_success.GetValue() ? "Data directory is now locked." : "Data directory is already locked.";
             break;
           }
           case LockPathQuery::Action::UNLOCK_PATH: {
             const auto unlock_success = mem_storage->UnlockPath();
             if (unlock_success.HasError()) [[unlikely]] {
-              throw QueryRuntimeException("Failed to unlock the data directory");
-            }
+                throw QueryRuntimeException("Failed to unlock the data directory");
+              }
             res = unlock_success.GetValue() ? "Data directory is now unlocked." : "Data directory is already unlocked.";
             break;
           }
           case LockPathQuery::Action::STATUS: {
             const auto locked_status = mem_storage->IsPathLocked();
             if (locked_status.HasError()) [[unlikely]] {
-              throw QueryRuntimeException("Failed to access the data directory");
-            }
+                throw QueryRuntimeException("Failed to access the data directory");
+              }
             res = locked_status.GetValue() ? "Data directory is locked." : "Data directory is unlocked.";
             break;
           }
@@ -2673,8 +2674,8 @@ PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, bool in_explicit_
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (!pull_plan) [[unlikely]] {
-                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
-                         }
+                             pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                           }
 
                          if (pull_plan->Pull(stream, n)) {
                            return QueryHandlerResult::COMMIT;

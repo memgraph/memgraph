@@ -114,11 +114,8 @@ struct Durability {
   }
 };
 
-DbmsHandler::DbmsHandler(
-    storage::Config config,
-    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-    bool recovery_on_startup)
-    : default_config_{std::move(config)}, repl_state_{ReplicationStateRootPath(default_config_)} {
+DbmsHandler::DbmsHandler(storage::Config config, auth::SynchedAuth &auth, bool recovery_on_startup)
+    : default_config_{std::move(config)}, auth_{auth}, repl_state_{ReplicationStateRootPath(default_config_)} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
 
@@ -164,7 +161,7 @@ DbmsHandler::DbmsHandler(
       system_timestamp_ = last_commited_system_timestamp_;
     }
   } else {  // Clear databases from the durability list and auth
-    auto locked_auth = auth->Lock();
+    auto locked_auth = auth_.Lock();
     auto it = durability_->begin(std::string{kDBPrefix});
     auto end = durability_->end(std::string{kDBPrefix});
     for (; it != end; ++it) {
@@ -205,7 +202,7 @@ DbmsHandler::DbmsHandler(
    * REPLICATION RECOVERY AND STARTUP
    */
   // Startup replication state (if recovered at startup)
-  auto replica = [this](replication::RoleReplicaData const &data) { return StartRpcServer(*this, data); };
+  auto replica = [this](replication::RoleReplicaData const &data) { return StartRpcServer(*this, data, auth_); };
   // Replication recovery and frequent check start
   auto main = [this](replication::RoleMainData &data) {
     for (auto &client : data.registered_replicas_) {
@@ -233,7 +230,7 @@ DbmsHandler::DbmsHandler(
 
   // MAIN or REPLICA instance
   if (FLAGS_coordinator_server_port) {
-    CoordinatorHandlers::Register(*this);
+    CoordinatorHandlers::Register(*this, auth_);
     MG_ASSERT(coordinator_state_.GetCoordinatorServer().Start(), "Failed to start coordinator server!");
   }
 }
@@ -367,8 +364,6 @@ AllSyncReplicaStatus DbmsHandler::Commit() {
   if (system_transaction_ == std::nullopt || system_transaction_->deltas.empty()) {
     return AllSyncReplicaStatus::AllCommitsConfirmed;  // Nothing to commit
   }
-
-  std::cout << "system_transaction_->deltas.size() " << system_transaction_->deltas.size() << std::endl;
 
   auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
   for (const auto &delta : system_transaction_->deltas) {

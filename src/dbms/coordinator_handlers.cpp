@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "auth/auth.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "dbms/coordinator_handlers.hpp"
@@ -23,7 +24,7 @@
 
 namespace memgraph::dbms {
 
-void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
+void CoordinatorHandlers::Register(DbmsHandler &dbms_handler, auth::SynchedAuth &auth) {
   auto &server = dbms_handler.CoordinatorState().GetCoordinatorServer();
 
   server.Register<coordination::PromoteReplicaToMainRpc>(
@@ -33,14 +34,14 @@ void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
       });
 
   server.Register<coordination::DemoteMainToReplicaRpc>(
-      [&dbms_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+      [&dbms_handler, &auth](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         spdlog::info("Received DemoteMainToReplicaRpc from coordinator server");
-        CoordinatorHandlers::DemoteMainToReplicaHandler(dbms_handler, req_reader, res_builder);
+        CoordinatorHandlers::DemoteMainToReplicaHandler(dbms_handler, auth, req_reader, res_builder);
       });
 }
 
-void CoordinatorHandlers::DemoteMainToReplicaHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
-                                                     slk::Builder *res_builder) {
+void CoordinatorHandlers::DemoteMainToReplicaHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth,
+                                                     slk::Reader *req_reader, slk::Builder *res_builder) {
   auto &repl_state = dbms_handler.ReplicationState();
   spdlog::info("Executing SetMainToReplicaHandler");
 
@@ -57,7 +58,7 @@ void CoordinatorHandlers::DemoteMainToReplicaHandler(DbmsHandler &dbms_handler, 
       .ip_address = req.replication_client_info.replication_ip_address,
       .port = req.replication_client_info.replication_port};
 
-  if (bool const success = memgraph::dbms::SetReplicationRoleReplica(dbms_handler, clients_config); !success) {
+  if (bool const success = memgraph::dbms::SetReplicationRoleReplica(dbms_handler, clients_config, auth); !success) {
     spdlog::error("Demoting main to replica failed!");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;

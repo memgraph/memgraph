@@ -13,6 +13,7 @@
 
 #include <algorithm>
 
+#include "dbms/auth/replication_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
@@ -33,9 +34,9 @@ namespace memgraph::dbms {
 
 namespace {
 
-std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
+std::string RegisterReplicaErrorToString(query::RegisterReplicaError error) {
   switch (error) {
-    using enum RegisterReplicaError;
+    using enum query::RegisterReplicaError;
     case NAME_EXISTS:
       return "NAME_EXISTS";
     case ENDPOINT_EXISTS:
@@ -48,7 +49,8 @@ std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
 }
 }  // namespace
 
-ReplicationHandler::ReplicationHandler(DbmsHandler &dbms_handler) : dbms_handler_(dbms_handler) {}
+ReplicationHandler::ReplicationHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth)
+    : dbms_handler_{dbms_handler}, auth_{auth} {}
 
 bool ReplicationHandler::SetReplicationRoleMain() {
   auto const main_handler = [](RoleMainData &) {
@@ -85,19 +87,19 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
   dbms_handler_.ReplicationState().SetReplicationRoleReplica(config);
 
   // Start
-  const auto success =
-      std::visit(utils::Overloaded{[](RoleMainData const &) {
-                                     // ASSERT
-                                     return false;
-                                   },
-                                   [this](RoleReplicaData const &data) { return StartRpcServer(dbms_handler_, data); }},
-                 dbms_handler_.ReplicationState().ReplicationData());
+  const auto success = std::visit(
+      utils::Overloaded{[](RoleMainData const &) {
+                          // ASSERT
+                          return false;
+                        },
+                        [this](RoleReplicaData const &data) { return StartRpcServer(dbms_handler_, data, auth_); }},
+      dbms_handler_.ReplicationState().ReplicationData());
   // TODO Handle error (restore to main?)
   return success;
 }
 
 auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
-    -> memgraph::utils::BasicResult<RegisterReplicaError> {
+    -> memgraph::utils::BasicResult<query::RegisterReplicaError> {
   MG_ASSERT(dbms_handler_.ReplicationState().IsMain(), "Only main instance can register a replica!");
 
   auto maybe_client = dbms_handler_.ReplicationState().RegisterReplica(config);
@@ -107,11 +109,11 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
         MG_ASSERT(false, "Only main instance can register a replica!");
         return {};
       case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
-        return memgraph::dbms::RegisterReplicaError::NAME_EXISTS;
+        return memgraph::query::RegisterReplicaError::NAME_EXISTS;
       case memgraph::replication::RegisterReplicaError::ENDPOINT_EXISTS:
-        return memgraph::dbms::RegisterReplicaError::ENDPOINT_EXISTS;
+        return memgraph::query::RegisterReplicaError::ENDPOINT_EXISTS;
       case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-        return memgraph::dbms::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+        return memgraph::query::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
       case memgraph::replication::RegisterReplicaError::SUCCESS:
         break;
     }
@@ -137,7 +139,7 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   if (!all_clients_good) {
     spdlog::error("Failed to register all databases on the REPLICA \"{}\"", config.name);
     UnregisterReplica(config.name);
-    return RegisterReplicaError::CONNECTION_FAILED;
+    return query::RegisterReplicaError::CONNECTION_FAILED;
   }
 
   // No client error, start instance level client
@@ -145,13 +147,13 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   return {};
 }
 
-auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterReplicaResult {
-  auto const replica_handler = [](RoleReplicaData const &) -> UnregisterReplicaResult {
-    return UnregisterReplicaResult::NOT_MAIN;
+auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::UnregisterReplicaResult {
+  auto const replica_handler = [](RoleReplicaData const &) -> query::UnregisterReplicaResult {
+    return query::UnregisterReplicaResult::NOT_MAIN;
   };
-  auto const main_handler = [this, name](RoleMainData &mainData) -> UnregisterReplicaResult {
+  auto const main_handler = [this, name](RoleMainData &mainData) -> query::UnregisterReplicaResult {
     if (!dbms_handler_.ReplicationState().TryPersistUnregisterReplica(name)) {
-      return UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
+      return query::UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
     }
     // Remove database specific clients
     dbms_handler_.ForEach([name](DatabaseAccess db_acc) {
@@ -162,7 +164,8 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterR
     // Remove instance level clients
     auto const n_unregistered =
         std::erase_if(mainData.registered_replicas_, [name](auto const &client) { return client.name_ == name; });
-    return n_unregistered != 0 ? UnregisterReplicaResult::SUCCESS : UnregisterReplicaResult::CAN_NOT_UNREGISTER;
+    return n_unregistered != 0 ? query::UnregisterReplicaResult::SUCCESS
+                               : query::UnregisterReplicaResult::CAN_NOT_UNREGISTER;
   };
 
   return std::visit(utils::Overloaded{main_handler, replica_handler},
@@ -189,7 +192,7 @@ void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAcces
     for (auto &instance_client : mainData.registered_replicas_) {
       spdlog::info("Replica {} restoration started for {}.", instance_client.name_, db_acc->name());
       const auto &ret = db_acc->storage()->repl_storage_state_.replication_clients_.WithLock(
-          [&, db_acc](auto &storage_clients) mutable -> utils::BasicResult<RegisterReplicaError> {
+          [&, db_acc](auto &storage_clients) mutable -> utils::BasicResult<query::RegisterReplicaError> {
             auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client);
             auto *storage = db_acc->storage();
             client->Start(storage, std::move(db_acc));
@@ -205,7 +208,7 @@ void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAcces
           });
 
       if (ret.HasError()) {
-        MG_ASSERT(RegisterReplicaError::CONNECTION_FAILED != ret.GetError());
+        MG_ASSERT(query::RegisterReplicaError::CONNECTION_FAILED != ret.GetError());
         LOG_FATAL("Failure when restoring replica {}: {}.", instance_client.name_,
                   RegisterReplicaErrorToString(ret.GetError()));
       }
@@ -360,7 +363,7 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
 }
 #endif
 
-void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_handler) {
+void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth) {
 #ifdef MG_ENTERPRISE
   data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
       [&dbms_handler](auto *req_reader, auto *res_builder) {
@@ -382,14 +385,22 @@ void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_
         spdlog::debug("Received SystemRecoveryRpc");
         SystemRecoveryHandler(dbms_handler, req_reader, res_builder);
       });
+  data.server->rpc_server_.Register<replication::UpdateAuthDataRpc>([&auth](auto *req_reader, auto *res_builder) {
+    spdlog::debug("Received UpdateAuthDataRpc");
+    auth_replication::UpdateAuthDataHandler(auth, req_reader, res_builder);
+  });
+  data.server->rpc_server_.Register<replication::DropAuthDataRpc>([&auth](auto *req_reader, auto *res_builder) {
+    spdlog::debug("Received DropAuthDataRpc");
+    auth_replication::DropAuthDataHandler(auth, req_reader, res_builder);
+  });
 #endif
 }
 }  // namespace system_replication
 
-bool StartRpcServer(DbmsHandler &dbms_handler, const replication::RoleReplicaData &data) {
+bool StartRpcServer(DbmsHandler &dbms_handler, const replication::RoleReplicaData &data, auth::SynchedAuth &auth) {
   // Register handlers
   InMemoryReplicationHandlers::Register(&dbms_handler, *data.server);
-  system_replication::Register(data, dbms_handler);
+  system_replication::Register(data, dbms_handler, auth);
   // Start server
   if (!data.server->Start()) {
     spdlog::error("Unable to start the replication server.");
