@@ -12,14 +12,17 @@
 #pragma once
 
 #include "auth/auth.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "slk/streams.hpp"
 
 namespace memgraph::dbms {
 namespace auth_replication {
 
 // #ifdef MG_ENTERPRISE // TODO Is it???
-void UpdateAuthDataHandler(auth::SynchedAuth &auth, slk::Reader *req_reader, slk::Builder *res_builder);
-void DropAuthDataHandler(auth::SynchedAuth &auth, slk::Reader *req_reader, slk::Builder *res_builder);
+void UpdateAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
+                           slk::Builder *res_builder);
+void DropAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
+                         slk::Builder *res_builder);
 // #endif
 
 }  // namespace auth_replication

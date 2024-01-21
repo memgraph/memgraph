@@ -17,31 +17,79 @@ namespace memgraph::dbms {
 
 namespace auth_replication {
 
-void UpdateAuthDataHandler(auth::SynchedAuth &auth, slk::Reader *req_reader, slk::Builder *res_builder) {
+void UpdateAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
+                           slk::Builder *res_builder) {
   replication::UpdateAuthDataReq req;
   memgraph::slk::Load(&req, req_reader);
 
-  if (req.user) auth->SaveUser(*req.user);
-  if (req.role) auth->SaveRole(*req.role);
+  using memgraph::replication::UpdateAuthDataRes;
+  UpdateAuthDataRes res(false);
 
-  replication::UpdateAuthDataRes res(true);
+  // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
+  //       of the set of databases. Hence no history exists to maintain regarding epoch change.
+  //       If MAIN has changed we need to check this new group_timestamp is consistent with
+  //       what we have so far.
+
+  if (req.expected_group_timestamp != dbms_handler.LastCommitedTS()) {
+    spdlog::debug("UpdateAuthDataHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+                  dbms_handler.LastCommitedTS());
+    memgraph::slk::Save(res, res_builder);
+    return;
+  }
+
+  try {
+    // Update
+    if (req.user) auth->SaveUser(*req.user);
+    if (req.role) auth->SaveRole(*req.role);
+    // Success
+    dbms_handler.SetLastCommitedTS(req.new_group_timestamp);
+    res = UpdateAuthDataRes(true);
+    spdlog::debug("UpdateAuthDataHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+  } catch (const auth::AuthException & /* not used */) {
+    // Failure
+  }
+
   memgraph::slk::Save(res, res_builder);
 }
 
-void DropAuthDataHandler(auth::SynchedAuth &auth, slk::Reader *req_reader, slk::Builder *res_builder) {
+void DropAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
+                         slk::Builder *res_builder) {
   replication::DropAuthDataReq req;
   memgraph::slk::Load(&req, req_reader);
 
-  switch (req.type) {
-    case replication::DropAuthDataReq::DataType::USER:
-      auth->RemoveUser(req.name);
-      break;
-    case replication::DropAuthDataReq::DataType::ROLE:
-      auth->RemoveRole(req.name);
-      break;
+  using memgraph::replication::DropAuthDataRes;
+  DropAuthDataRes res(false);
+
+  // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
+  //       of the set of databases. Hence no history exists to maintain regarding epoch change.
+  //       If MAIN has changed we need to check this new group_timestamp is consistent with
+  //       what we have so far.
+
+  if (req.expected_group_timestamp != dbms_handler.LastCommitedTS()) {
+    spdlog::debug("DropAuthDataHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
+                  dbms_handler.LastCommitedTS());
+    memgraph::slk::Save(res, res_builder);
+    return;
   }
 
-  replication::DropAuthDataRes res(true);
+  try {
+    // Remove
+    switch (req.type) {
+      case replication::DropAuthDataReq::DataType::USER:
+        auth->RemoveUser(req.name);
+        break;
+      case replication::DropAuthDataReq::DataType::ROLE:
+        auth->RemoveRole(req.name);
+        break;
+    }
+    // Success
+    dbms_handler.SetLastCommitedTS(req.new_group_timestamp);
+    res = DropAuthDataRes(true);
+    spdlog::debug("DropAuthDataHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+  } catch (const auth::AuthException & /* not used */) {
+    // Failure
+  }
+
   memgraph::slk::Save(res, res_builder);
 }
 

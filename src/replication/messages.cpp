@@ -77,10 +77,16 @@ inline void Load<auth::Role>(std::optional<auth::Role> *obj, Reader *reader) {
 
 // Serialize code for UpdateAuthDataReq
 void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.epoch_id, builder);
+  memgraph::slk::Save(self.expected_group_timestamp, builder);
+  memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.user, builder);
   memgraph::slk::Save(self.role, builder);
 }
 void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->epoch_id, reader);
+  memgraph::slk::Load(&self->expected_group_timestamp, reader);
+  memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->user, reader);
   memgraph::slk::Load(&self->role, reader);
 }
@@ -95,10 +101,16 @@ void Load(memgraph::replication::UpdateAuthDataRes *self, memgraph::slk::Reader 
 
 // Serialize code for DropAuthDataReq
 void Save(const memgraph::replication::DropAuthDataReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.epoch_id, builder);
+  memgraph::slk::Save(self.expected_group_timestamp, builder);
+  memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(utils::EnumToNum<2, uint8_t>(self.type), builder);
   memgraph::slk::Save(self.name, builder);
 }
 void Load(memgraph::replication::DropAuthDataReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->epoch_id, reader);
+  memgraph::slk::Load(&self->expected_group_timestamp, reader);
+  memgraph::slk::Load(&self->new_group_timestamp, reader);
   uint8_t type_tmp = 0;
   memgraph::slk::Load(&type_tmp, reader);
   if (!utils::NumToEnum<2>(type_tmp, self->type)) {

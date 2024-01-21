@@ -429,11 +429,13 @@ AllSyncReplicaStatus DbmsHandler::Commit() {
             if (delta.auth_data.user) {
               completed = SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
                   client, [](const replication::UpdateAuthDataRes &response) { return response.success; },
-                  *delta.auth_data.user);
+                  std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
+                  system_transaction_->system_timestamp, *delta.auth_data.user);
             } else if (delta.auth_data.role) {
               completed = SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
                   client, [](const replication::UpdateAuthDataRes &response) { return response.success; },
-                  *delta.auth_data.role);
+                  std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
+                  system_transaction_->system_timestamp, *delta.auth_data.role);
             } else {
               throw;  //?
             }
@@ -462,8 +464,9 @@ AllSyncReplicaStatus DbmsHandler::Commit() {
                 break;
             }
             bool completed = SteamAndFinalizeDelta<replication::DropAuthDataRpc>(
-                client, [](const replication::DropAuthDataRes &response) { return response.success; }, type,
-                delta.auth_data_key.name);
+                client, [](const replication::DropAuthDataRes &response) { return response.success; },
+                std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
+                system_transaction_->system_timestamp, type, delta.auth_data_key.name);
             // TODO: reduce duplicate code
             if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
               sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;

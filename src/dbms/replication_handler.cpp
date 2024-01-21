@@ -385,14 +385,16 @@ void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_
         spdlog::debug("Received SystemRecoveryRpc");
         SystemRecoveryHandler(dbms_handler, req_reader, res_builder);
       });
-  data.server->rpc_server_.Register<replication::UpdateAuthDataRpc>([&auth](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received UpdateAuthDataRpc");
-    auth_replication::UpdateAuthDataHandler(auth, req_reader, res_builder);
-  });
-  data.server->rpc_server_.Register<replication::DropAuthDataRpc>([&auth](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received DropAuthDataRpc");
-    auth_replication::DropAuthDataHandler(auth, req_reader, res_builder);
-  });
+  data.server->rpc_server_.Register<replication::UpdateAuthDataRpc>(
+      [&dbms_handler, &auth](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received UpdateAuthDataRpc");
+        auth_replication::UpdateAuthDataHandler(dbms_handler, auth, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<replication::DropAuthDataRpc>(
+      [&dbms_handler, &auth](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received DropAuthDataRpc");
+        auth_replication::DropAuthDataHandler(dbms_handler, auth, req_reader, res_builder);
+      });
 #endif
 }
 }  // namespace system_replication

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include "auth/models.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
@@ -46,9 +47,20 @@ struct UpdateAuthDataReq {
   static void Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
   static void Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
   UpdateAuthDataReq() = default;
-  UpdateAuthDataReq(auth::User user) : user{std::move(user)} {}
-  UpdateAuthDataReq(auth::Role role) : role{std::move(role)} {}
+  UpdateAuthDataReq(std::string epoch_id, uint64_t expected_ts, uint64_t new_ts, auth::User user)
+      : epoch_id{std::move(epoch_id)},
+        expected_group_timestamp{expected_ts},
+        new_group_timestamp{new_ts},
+        user{std::move(user)} {}
+  UpdateAuthDataReq(std::string epoch_id, uint64_t expected_ts, uint64_t new_ts, auth::Role role)
+      : epoch_id{std::move(epoch_id)},
+        expected_group_timestamp{expected_ts},
+        new_group_timestamp{new_ts},
+        role{std::move(role)} {}
 
+  std::string epoch_id;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
   std::optional<auth::User> user;
   std::optional<auth::Role> role;
 };
@@ -77,8 +89,16 @@ struct DropAuthDataReq {
 
   enum class DataType { USER, ROLE };
 
-  DropAuthDataReq(DataType type, std::string_view name) : type{type}, name{name} {}
+  DropAuthDataReq(std::string epoch_id, uint64_t expected_ts, uint64_t new_ts, DataType type, std::string_view name)
+      : epoch_id{std::move(epoch_id)},
+        expected_group_timestamp{expected_ts},
+        new_group_timestamp{new_ts},
+        type{type},
+        name{name} {}
 
+  std::string epoch_id;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
   DataType type;
   std::string name;
 };
