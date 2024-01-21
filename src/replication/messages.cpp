@@ -132,11 +132,15 @@ void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *r
 void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.forced_group_timestamp, builder);
   memgraph::slk::Save(self.database_configs, builder);
+  memgraph::slk::Save(self.users, builder);
+  memgraph::slk::Save(self.roles, builder);
 }
 
 void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->forced_group_timestamp, reader);
   memgraph::slk::Load(&self->database_configs, reader);
+  memgraph::slk::Load(&self->users, reader);
+  memgraph::slk::Load(&self->roles, reader);
 }
 
 // Serialize code for SystemRecoveryRes

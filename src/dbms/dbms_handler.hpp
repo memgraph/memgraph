@@ -458,7 +458,7 @@ class DbmsHandler {
   void SetLastCommitedTS(uint64_t new_ts) { last_commited_system_timestamp_.store(new_ts); }
 
 #ifdef MG_ENTERPRISE
-  // When being called by intepreter no need to gain lock, it should already be under a system transaction
+  // When being called by interpreter no need to gain lock, it should already be under a system transaction
   // But concurrently the FrequentCheck is running and will need to lock before reading last_commited_system_timestamp_
   template <bool REQUIRE_LOCK = false>
   void SystemRestore(replication::ReplicationClient &client) {
@@ -469,7 +469,11 @@ class DbmsHandler {
 
     // Try to recover...
     {
-      auto [database_configs, last_commited_system_timestamp] = std::invoke([&] {
+      struct DbInfo {
+        std::vector<storage::SalientConfig> configs;
+        uint64_t last_committed_timestamp;
+      };
+      DbInfo db_info = std::invoke([&] {
         auto sys_guard =
             std::unique_lock{system_lock_, std::defer_lock};  // ensure no other system transaction in progress
         if constexpr (REQUIRE_LOCK) {
@@ -477,11 +481,14 @@ class DbmsHandler {
         }
         auto configs = std::vector<storage::SalientConfig>{};
         ForEach([&configs](DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
-        return std::pair{configs, last_commited_system_timestamp_.load()};
+        return DbInfo{configs, last_commited_system_timestamp_.load()};
       });
       try {
-        auto stream = client.rpc_client_.Stream<replication::SystemRecoveryRpc>(last_commited_system_timestamp,
-                                                                                std::move(database_configs));
+        auto stream = auth_.WithLock([&](auto &locked_auth) {
+          return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
+              db_info.last_committed_timestamp, std::move(db_info.configs), locked_auth.AllUsers(),
+              locked_auth.AllRoles());
+        });
         const auto response = stream.AwaitResponse();
         if (response.result == replication::SystemRecoveryRes::Result::FAILURE) {
           client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });

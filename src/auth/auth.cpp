@@ -323,6 +323,19 @@ std::vector<auth::User> Auth::AllUsers() const {
   return ret;
 }
 
+std::vector<std::string> Auth::AllUsernames() const {
+  std::vector<std::string> ret;
+  for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
+    auto username = it->first.substr(kUserPrefix.size());
+    if (username != utils::ToLowerCase(username)) continue;
+    auto user = GetUser(username);
+    if (user) {
+      ret.push_back(username);
+    }
+  }
+  return ret;
+}
+
 bool Auth::HasUsers() const { return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix); }
 
 std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
@@ -384,6 +397,18 @@ std::vector<auth::Role> Auth::AllRoles() const {
       ret.push_back(*role);
     } else {
       throw AuthException("Couldn't load role '{}'!", rolename);
+    }
+  }
+  return ret;
+}
+
+std::vector<std::string> Auth::AllRolenames() const {
+  std::vector<std::string> ret;
+  for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
+    auto rolename = it->first.substr(kRolePrefix.size());
+    if (rolename != utils::ToLowerCase(rolename)) continue;
+    if (auto role = GetRole(rolename)) {
+      ret.push_back(rolename);
     }
   }
   return ret;

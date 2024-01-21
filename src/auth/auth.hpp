@@ -141,6 +141,13 @@ class Auth final {
   std::vector<User> AllUsers() const;
 
   /**
+   * @brief
+   *
+   * @return std::vector<std::string>
+   */
+  std::vector<std::string> AllUsernames() const;
+
+  /**
    * Returns whether there are users in the storage.
    *
    * @return `true` if the storage contains any users, `false` otherwise
@@ -194,6 +201,13 @@ class Auth final {
    * @throw AuthException if unable to load role data.
    */
   std::vector<Role> AllRoles() const;
+
+  /**
+   * @brief
+   *
+   * @return std::vector<std::string>
+   */
+  std::vector<std::string> AllRolenames() const;
 
   /**
    * Gets all users for a role from the storage.

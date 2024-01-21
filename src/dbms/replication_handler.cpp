@@ -13,6 +13,8 @@
 
 #include <algorithm>
 
+#include "auth/auth.hpp"
+#include "auth/exceptions.hpp"
 #include "dbms/auth/replication_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
@@ -314,7 +316,8 @@ void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk
   memgraph::slk::Save(res, res_builder);
 }
 
-void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
+void SystemRecoveryHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
+                           slk::Builder *res_builder) {
   // TODO Speed up
   memgraph::replication::SystemRecoveryReq req;
   memgraph::slk::Load(&req, req_reader);
@@ -324,9 +327,9 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
 
   utils::OnScopeExit send_on_exit([&]() { memgraph::slk::Save(res, res_builder); });
 
+  /* MULTI-TENANCY */
   // Get all current dbs
   auto old = dbms_handler.All();
-
   // Check/create the incoming dbs
   for (const auto &config : req.database_configs) {
     // Missing db
@@ -356,6 +359,53 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
       return;  // Send failure on exit
     }
   }
+
+  /* AUTHENTICATION */
+  auth.WithLock([&](auto &locked_auth) {
+    // Get all current users
+    auto old_users = locked_auth.AllUsernames();
+    // Save incoming users
+    for (const auto &user : req.users) {
+      // Missing users
+      try {
+        locked_auth.SaveUser(user);
+      } catch (const auth::AuthException &) {
+        spdlog::debug("SystemRecoveryHandler: Failed to save user");
+        return;  // Send failure on exit
+      }
+      const auto it = std::find(old_users.begin(), old_users.end(), user.username());
+      if (it != old_users.end()) old_users.erase(it);
+    }
+    // Delete all the leftover users
+    for (const auto &user : old_users) {
+      if (!locked_auth.RemoveUser(user)) {
+        spdlog::debug("SystemRecoveryHandler: Failed to remove user \"{}\".", user);
+        return;  // Send failure on exit
+      }
+    }
+    // Get all current users
+    auto old_roles = locked_auth.AllRolenames();
+    // Save incoming users
+    for (const auto &role : req.roles) {
+      // Missing users
+      try {
+        locked_auth.SaveRole(role);
+      } catch (const auth::AuthException &) {
+        spdlog::debug("SystemRecoveryHandler: Failed to save user");
+        return;  // Send failure on exit
+      }
+      const auto it = std::find(old_roles.begin(), old_roles.end(), role.rolename());
+      if (it != old_roles.end()) old_roles.erase(it);
+    }
+    // Delete all the leftover users
+    for (const auto &role : old_roles) {
+      if (!locked_auth.RemoveRole(role)) {
+        spdlog::debug("SystemRecoveryHandler: Failed to remove user \"{}\".", role);
+        return;  // Send failure on exit
+      }
+    }
+  });
+
   // Successfully recovered
   dbms_handler.SetLastCommitedTS(req.forced_group_timestamp);
   spdlog::debug("SystemRecoveryHandler: SUCCESS updated LCTS to {}", req.forced_group_timestamp);
@@ -381,9 +431,9 @@ void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_
         DropDatabaseHandler(dbms_handler, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
-      [&dbms_handler](auto *req_reader, auto *res_builder) {
+      [&dbms_handler, &auth](auto *req_reader, auto *res_builder) {
         spdlog::debug("Received SystemRecoveryRpc");
-        SystemRecoveryHandler(dbms_handler, req_reader, res_builder);
+        SystemRecoveryHandler(dbms_handler, auth, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<replication::UpdateAuthDataRpc>(
       [&dbms_handler, &auth](auto *req_reader, auto *res_builder) {

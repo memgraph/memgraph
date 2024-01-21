@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 #include "auth/models.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
@@ -125,11 +126,17 @@ struct SystemRecoveryReq {
   static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
   static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
   SystemRecoveryReq() = default;
-  SystemRecoveryReq(uint64_t forced_group_timestamp, std::vector<storage::SalientConfig> database_configs)
-      : forced_group_timestamp{forced_group_timestamp}, database_configs(std::move(database_configs)) {}
+  SystemRecoveryReq(uint64_t forced_group_timestamp, std::vector<storage::SalientConfig> database_configs,
+                    std::vector<auth::User> users, std::vector<auth::Role> roles)
+      : forced_group_timestamp{forced_group_timestamp},
+        database_configs(std::move(database_configs)),
+        users{std::move(users)},
+        roles{std::move(roles)} {}
 
   uint64_t forced_group_timestamp;
   std::vector<storage::SalientConfig> database_configs;
+  std::vector<auth::User> users;
+  std::vector<auth::Role> roles;
 };
 
 struct SystemRecoveryRes {
