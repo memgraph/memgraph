@@ -15,6 +15,7 @@
 #include "auth/models.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
+#include "storage/v2/config.hpp"
 
 namespace memgraph::replication {
 struct SystemHeartbeatReq {
@@ -117,13 +118,35 @@ struct DropAuthDataRes {
 
 using DropAuthDataRpc = rpc::RequestResponse<DropAuthDataReq, DropAuthDataRes>;
 
-/**
- * @brief
- *
- * @param req_reader
- * @param res_builder
- */
-void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+struct SystemRecoveryReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
+  static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
+  SystemRecoveryReq() = default;
+  SystemRecoveryReq(uint64_t forced_group_timestamp, std::vector<storage::SalientConfig> database_configs)
+      : forced_group_timestamp{forced_group_timestamp}, database_configs(std::move(database_configs)) {}
+
+  uint64_t forced_group_timestamp;
+  std::vector<storage::SalientConfig> database_configs;
+};
+
+struct SystemRecoveryRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(SystemRecoveryRes *self, memgraph::slk::Reader *reader);
+  static void Save(const SystemRecoveryRes &self, memgraph::slk::Builder *builder);
+  SystemRecoveryRes() = default;
+  explicit SystemRecoveryRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using SystemRecoveryRpc = rpc::RequestResponse<SystemRecoveryReq, SystemRecoveryRes>;
 
 }  // namespace memgraph::replication
 
@@ -140,4 +163,8 @@ void Save(const memgraph::replication::DropAuthDataRes &self, memgraph::slk::Bui
 void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::DropAuthDataReq & /*self*/, memgraph::slk::Builder * /*builder*/);
 void Load(memgraph::replication::DropAuthDataReq * /*self*/, memgraph::slk::Reader * /*reader*/);
+void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication::SystemRecoveryRes *self, memgraph::slk::Reader *reader);
 }  // namespace memgraph::slk

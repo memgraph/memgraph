@@ -27,10 +27,9 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_handler.hpp"
 #include "kvstore/kvstore.hpp"
+#include "replication/messages.hpp"
 #include "replication/replication_client.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/thread_pool.hpp"
 #ifdef MG_ENTERPRISE
@@ -481,10 +480,10 @@ class DbmsHandler {
         return std::pair{configs, last_commited_system_timestamp_.load()};
       });
       try {
-        auto stream = client.rpc_client_.Stream<storage::replication::SystemRecoveryRpc>(last_commited_system_timestamp,
-                                                                                         std::move(database_configs));
+        auto stream = client.rpc_client_.Stream<replication::SystemRecoveryRpc>(last_commited_system_timestamp,
+                                                                                std::move(database_configs));
         const auto response = stream.AwaitResponse();
-        if (response.result == storage::replication::SystemRecoveryRes::Result::FAILURE) {
+        if (response.result == replication::SystemRecoveryRes::Result::FAILURE) {
           client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
           return;
         }

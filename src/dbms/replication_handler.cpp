@@ -316,10 +316,10 @@ void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk
 
 void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
   // TODO Speed up
-  memgraph::storage::replication::SystemRecoveryReq req;
+  memgraph::replication::SystemRecoveryReq req;
   memgraph::slk::Load(&req, req_reader);
 
-  using memgraph::storage::replication::SystemRecoveryRes;
+  using memgraph::replication::SystemRecoveryRes;
   SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
 
   utils::OnScopeExit send_on_exit([&]() { memgraph::slk::Save(res, res_builder); });
@@ -380,7 +380,7 @@ void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_
         spdlog::debug("Received DropDatabaseRpc");
         DropDatabaseHandler(dbms_handler, req_reader, res_builder);
       });
-  data.server->rpc_server_.Register<storage::replication::SystemRecoveryRpc>(
+  data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
       [&dbms_handler](auto *req_reader, auto *res_builder) {
         spdlog::debug("Received SystemRecoveryRpc");
         SystemRecoveryHandler(dbms_handler, req_reader, res_builder);

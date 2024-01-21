@@ -273,36 +273,6 @@ struct DropDatabaseRes {
 
 using DropDatabaseRpc = rpc::RequestResponse<DropDatabaseReq, DropDatabaseRes>;
 
-struct SystemRecoveryReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
-  static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
-  SystemRecoveryReq() = default;
-  SystemRecoveryReq(uint64_t forced_group_timestamp, std::vector<storage::SalientConfig> database_configs)
-      : forced_group_timestamp{forced_group_timestamp}, database_configs(std::move(database_configs)) {}
-
-  uint64_t forced_group_timestamp;
-  std::vector<storage::SalientConfig> database_configs;
-};
-
-struct SystemRecoveryRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
-
-  static void Load(SystemRecoveryRes *self, memgraph::slk::Reader *reader);
-  static void Save(const SystemRecoveryRes &self, memgraph::slk::Builder *builder);
-  SystemRecoveryRes() = default;
-  explicit SystemRecoveryRes(Result res) : result(res) {}
-
-  Result result;
-};
-
-using SystemRecoveryRpc = rpc::RequestResponse<SystemRecoveryReq, SystemRecoveryRes>;
-
 }  // namespace memgraph::storage::replication
 
 // SLK serialization declarations
@@ -356,6 +326,10 @@ void Save(const memgraph::storage::replication::AppendDeltasReq &self, memgraph:
 
 void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::Reader *reader);
 
+void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader);
+
 void Save(const memgraph::storage::replication::CreateDatabaseReq &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::CreateDatabaseReq *self, memgraph::slk::Reader *reader);
@@ -371,13 +345,5 @@ void Load(memgraph::storage::replication::DropDatabaseReq *self, memgraph::slk::
 void Save(const memgraph::storage::replication::DropDatabaseRes &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::Reader *reader);
-
-void Save(const memgraph::storage::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader);
-
-void Save(const memgraph::storage::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::SystemRecoveryRes *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk

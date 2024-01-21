@@ -13,6 +13,7 @@
 #include "auth/models.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
+#include "storage/v2/replication/rpc.hpp"
 #include "utils/enum.hpp"
 
 namespace memgraph::slk {
@@ -127,6 +128,30 @@ void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *r
   memgraph::slk::Load(&self->success, reader);
 }
 
+// Serialize code for SystemRecoveryReq
+void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.forced_group_timestamp, builder);
+  memgraph::slk::Save(self.database_configs, builder);
+}
+
+void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->forced_group_timestamp, reader);
+  memgraph::slk::Load(&self->database_configs, reader);
+}
+
+// Serialize code for SystemRecoveryRes
+void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(utils::EnumToNum<uint8_t>(self.result), builder);
+}
+
+void Load(memgraph::replication::SystemRecoveryRes *self, memgraph::slk::Reader *reader) {
+  uint8_t res = 0;
+  memgraph::slk::Load(&res, reader);
+  if (!utils::NumToEnum(res, self->result)) {
+    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
+  }
+}
+
 }  // namespace memgraph::slk
 
 namespace memgraph::replication {
@@ -135,6 +160,12 @@ constexpr utils::TypeInfo SystemHeartbeatReq::kType{utils::TypeId::REP_SYSTEM_HE
 
 constexpr utils::TypeInfo SystemHeartbeatRes::kType{utils::TypeId::REP_SYSTEM_HEARTBEAT_RES, "SystemHeartbeatRes",
                                                     nullptr};
+
+constexpr utils::TypeInfo SystemRecoveryReq::kType{utils::TypeId::REP_SYSTEM_RECOVERY_REQ, "SystemRecoveryReq",
+                                                   nullptr};
+
+constexpr utils::TypeInfo SystemRecoveryRes::kType{utils::TypeId::REP_SYSTEM_RECOVERY_RES, "SystemRecoveryRes",
+                                                   nullptr};
 
 constexpr utils::TypeInfo UpdateAuthDataReq::kType{utils::TypeId::REP_UPDATE_AUTH_DATA_REQ, "UpdateAuthDataReq",
                                                    nullptr};
@@ -156,6 +187,19 @@ void SystemHeartbeatRes::Save(const SystemHeartbeatRes &self, memgraph::slk::Bui
   memgraph::slk::Save(self, builder);
 }
 void SystemHeartbeatRes::Load(SystemHeartbeatRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void SystemRecoveryReq::Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+void SystemRecoveryReq::Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+void SystemRecoveryRes::Save(const SystemRecoveryRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+void SystemRecoveryRes::Load(SystemRecoveryRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
