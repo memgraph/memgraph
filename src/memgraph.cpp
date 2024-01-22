@@ -257,6 +257,8 @@ int main(int argc, char **argv) {
   // register all runtime settings
   memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
                                              memgraph::utils::global_settings);
+  memgraph::utils::OnScopeExit global_license_finalizer([] { memgraph::license::global_license_checker.Finalize(); });
+
   memgraph::flags::run_time::Initialize();
 
   memgraph::license::global_license_checker.CheckEnvLicense();
@@ -546,6 +548,7 @@ int main(int argc, char **argv) {
 
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
 
+  python_gc_scheduler.Stop();
   Py_END_ALLOW_THREADS;
   // Shutdown Python
   Py_Finalize();
