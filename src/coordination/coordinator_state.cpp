@@ -42,11 +42,14 @@ CoordinatorState::CoordinatorState() {
   MG_ASSERT(!(FLAGS_coordinator && FLAGS_coordinator_server_port),
             "Instance cannot be a coordinator and have registered coordinator server.");
 
+  spdlog::info("Executing coordinator constructor");
   if (FLAGS_coordinator_server_port) {
+    spdlog::info("Coordinator server port set");
     auto const config = CoordinatorServerConfig{
         .ip_address = kDefaultReplicationServerIp,
         .port = static_cast<uint16_t>(FLAGS_coordinator_server_port),
     };
+    spdlog::info("Executing coordinator constructor main replica");
 
     data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(config)};
   }
@@ -73,7 +76,13 @@ auto CoordinatorState::RegisterReplica(CoordinatorClientConfig config) -> Regist
     return name_endpoint_status;
   }
 
-  auto freq_check_cb = [&](std::string_view instance_name) -> void {
+  // TODO: Refactor so that we just know about instances, nothing more. Design struct Instance which will know about
+  // role... From CoordinatorState perspective there should just be instances, no specific handling of main vs. replica.
+  // Here after failover it can happen that replica
+  // has become main MG_ASSERT(replica_client_info != registered_replicas_info.end(), "Replica {} not found in
+  // registered replicas info",
+  //          instance_name);
+  auto find_client_info = [&](std::string_view instance_name) -> CoordinatorClientInfo & {
     MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
               "Can't execute CoordinatorClient's callback since variant holds wrong alternative");
     auto &registered_replicas_info = std::get<CoordinatorData>(data_).registered_replicas_info_;
@@ -82,25 +91,33 @@ auto CoordinatorState::RegisterReplica(CoordinatorClientConfig config) -> Regist
         registered_replicas_info,
         [instance_name](const CoordinatorClientInfo &replica) { return replica.instance_name_ == instance_name; });
 
-    // TODO: Refactor so that we just know about instances, nothing more. Here after failover it can happen that replica
-    // has become main MG_ASSERT(replica_client_info != registered_replicas_info.end(), "Replica {} not found in
-    // registered replicas info",
-    //          instance_name);
-
-    if (replica_client_info == registered_replicas_info.end()) {
-      auto &registered_main_info = std::get<CoordinatorData>(data_).registered_main_info_;
-      MG_ASSERT(registered_main_info->instance_name_ == instance_name, "Instance is neither a replica nor main...");
-      registered_main_info->last_response_time_.store(std::chrono::system_clock::now(), std::memory_order_release);
-    } else {
-      replica_client_info->last_response_time_.store(std::chrono::system_clock::now(), std::memory_order_release);
+    if (replica_client_info != registered_replicas_info.end()) {
+      return *replica_client_info;
     }
+
+    auto &registered_main_info = std::get<CoordinatorData>(data_).registered_main_info_;
+    MG_ASSERT(registered_main_info->instance_name_ == instance_name, "Instance is neither a replica nor main...");
+    return *registered_main_info;
   };
 
-  auto *coord_client =
-      &std::get<CoordinatorData>(data_).registered_replicas_.emplace_back(std::move(config), std::move(freq_check_cb));
+  auto repl_succ_cb = [&](std::string_view instance_name) -> void {
+    auto &client_info = find_client_info(instance_name);
+    client_info.UpdateLastResponseTime();
+  };
+
+  auto repl_fail_cb = [&](std::string_view instance_name) -> void {
+    auto &client_info = find_client_info(instance_name);
+    client_info.UpdateInstanceStatus();
+  };
+
+  // CoordinatorClient coord_client{this, std::move(config), std::move(repl_succ_cb), std::move(repl_fail_cb)};
+
+  auto *coord_client = &std::get<CoordinatorData>(data_).registered_replicas_.emplace_back(
+      this, std::move(config), std::move(repl_succ_cb), std::move(repl_fail_cb));
 
   std::get<CoordinatorData>(data_).registered_replicas_info_.emplace_back(coord_client->InstanceName(),
                                                                           coord_client->Endpoint());
+  coord_client->StartFrequentCheck();
 
   return RegisterMainReplicaCoordinatorStatus::SUCCESS;
 }
@@ -121,42 +138,54 @@ auto CoordinatorState::RegisterMain(CoordinatorClientConfig config) -> RegisterM
     return endpoint_status;
   }
 
-  auto freq_check_cb = [&](std::string_view instance_name) -> void {
-    MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+  // TODO: (andi) How does the situation change when restoration of main is implemented regarding callbacks?
+  // We should probably at that point search for main also in instances as for replicas...
+  auto get_client_info = [](CoordinatorState *coord_state, std::string_view instance_name) -> CoordinatorClientInfo & {
+    MG_ASSERT(std::holds_alternative<CoordinatorData>(coord_state->data_),
               "Can't execute CoordinatorClient's callback since variant holds wrong alternative");
-    MG_ASSERT(std::get<CoordinatorData>(data_).registered_main_info_.has_value(),
+    MG_ASSERT(std::get<CoordinatorData>(coord_state->data_).registered_main_info_.has_value(),
               "Main info is not set, but callback is called");
 
     // TODO When we will support restoration of main, we have to assert that the instance is main or replica, not at
     // this point....
-    auto &registered_main_info = std::get<CoordinatorData>(data_).registered_main_info_;
+    auto &registered_main_info = std::get<CoordinatorData>(coord_state->data_).registered_main_info_;
     MG_ASSERT(registered_main_info->instance_name_ == instance_name,
               "Callback called for wrong instance name: {}, expected: {}", instance_name,
               registered_main_info->instance_name_);
+    return *registered_main_info;
+  };
 
-    registered_main_info->last_response_time_.store(std::chrono::system_clock::now(), std::memory_order_release);
+  auto succ_cb = [&get_client_info](CoordinatorState *coord_state, std::string_view instance_name) -> void {
+    spdlog::trace("Executing success callback for main: {}", std::string(instance_name));
+    auto &registered_main_info = get_client_info(coord_state, instance_name);
+    registered_main_info.UpdateLastResponseTime();
+  };
 
-    // if (!registered_main_info->is_alive_) {
-    // spdlog::warn("Main is not alive, starting failover");
-    // switch (auto failover_status = DoFailover(); failover_status) {
-    //   using enum DoFailoverStatus;
-    //   case ALL_REPLICAS_DOWN:
-    //     spdlog::warn("Failover aborted since all replicas are down!");
-    //   case MAIN_ALIVE:
-    //     spdlog::warn("Failover aborted since main is alive!");
-    //   case CLUSTER_UNINITIALIZED:
-    //     spdlog::warn("Failover aborted since cluster is uninitialized!");
-    //   case SUCCESS:
-    //     break;
-    // }
-    // }
+  auto fail_cb = [&get_client_info](CoordinatorState *coord_state, std::string_view instance_name) -> void {
+    auto &registered_main_info = get_client_info(coord_state, instance_name);
+    if (bool main_alive = registered_main_info.UpdateInstanceStatus(); !main_alive) {
+      // spdlog::warn("Main is not alive, starting failover");
+      // switch (auto failover_status = DoFailover(); failover_status) {
+      //   using enum DoFailoverStatus;
+      //   case ALL_REPLICAS_DOWN:
+      //     spdlog::warn("Failover aborted since all replicas are down!");
+      //   case MAIN_ALIVE:
+      //     spdlog::warn("Failover aborted since main is alive!");
+      //   case CLUSTER_UNINITIALIZED:
+      //     spdlog::warn("Failover aborted since cluster is uninitialized!");
+      //   case SUCCESS:
+      //     break;
+      // }
+    }
   };
 
   auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
-  registered_main = std::make_unique<CoordinatorClient>(std::move(config), std::move(freq_check_cb));
+  registered_main =
+      std::make_unique<CoordinatorClient>(this, std::move(config), std::move(succ_cb), std::move(fail_cb));
 
-  auto &registered_main_info = std::get<CoordinatorData>(data_).registered_main_info_;
-  registered_main_info.emplace(registered_main->InstanceName(), registered_main->Endpoint());
+  std::get<CoordinatorData>(data_).registered_main_info_.emplace(registered_main->InstanceName(),
+                                                                 registered_main->Endpoint());
+  registered_main->StartFrequentCheck();
 
   return RegisterMainReplicaCoordinatorStatus::SUCCESS;
 }
@@ -168,19 +197,13 @@ auto CoordinatorState::ShowReplicas() const -> std::vector<CoordinatorInstanceSt
   std::vector<CoordinatorInstanceStatus> instances_status;
   instances_status.reserve(registered_replicas_info.size());
 
-  std::ranges::transform(
-      registered_replicas_info, std::back_inserter(instances_status),
-      [](const CoordinatorClientInfo &coord_client_info) {
-        const auto sec_since_last_response = std::chrono::duration_cast<std::chrono::seconds>(
-                                                 std::chrono::system_clock::now() -
-                                                 coord_client_info.last_response_time_.load(std::memory_order_acquire))
-                                                 .count();
-
-        return CoordinatorInstanceStatus{
-            .instance_name = coord_client_info.instance_name_,
-            .socket_address = coord_client_info.endpoint->SocketAddress(),
-            .is_alive = sec_since_last_response <= CoordinatorClusterConfig::alive_response_time_difference_sec_};
-      });
+  std::ranges::transform(registered_replicas_info, std::back_inserter(instances_status),
+                         [](const CoordinatorClientInfo &coord_client_info) {
+                           return CoordinatorInstanceStatus{
+                               .instance_name = coord_client_info.instance_name_,
+                               .socket_address = coord_client_info.endpoint->SocketAddress(),
+                               .is_alive = coord_client_info.is_alive_};
+                         });
   return instances_status;
 }
 
@@ -191,15 +214,10 @@ auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorInstanceStat
   if (!main.has_value()) {
     return std::nullopt;
   }
-  const auto sec_since_last_response =
-      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() -
-                                                       main->last_response_time_.load(std::memory_order_acquire))
-          .count();
 
-  return CoordinatorInstanceStatus{
-      .instance_name = main->instance_name_,
-      .socket_address = main->endpoint->SocketAddress(),
-      .is_alive = sec_since_last_response <= CoordinatorClusterConfig::alive_response_time_difference_sec_};
+  return CoordinatorInstanceStatus{.instance_name = main->instance_name_,
+                                   .socket_address = main->endpoint->SocketAddress(),
+                                   .is_alive = main->is_alive_};
 };
 
 [[nodiscard]] auto CoordinatorState::DoFailover() -> DoFailoverStatus {
@@ -222,12 +240,7 @@ auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorInstanceStat
     return DoFailoverStatus::CLUSTER_UNINITIALIZED;
   }
 
-  auto sec_since_last_response_main =
-      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() -
-                                                       current_main_info->last_response_time_.load())
-          .count();
-
-  if (sec_since_last_response_main <= CoordinatorClusterConfig::alive_response_time_difference_sec_) {
+  if (current_main_info->is_alive_) {
     return DoFailoverStatus::MAIN_ALIVE;
   }
 
@@ -239,19 +252,14 @@ auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorInstanceStat
   // Get all replicas and find new main
   auto &registered_replicas_info = std::get<CoordinatorData>(data_).registered_replicas_info_;
 
-  const auto chosen_replica_info =
-      std::ranges::find_if(registered_replicas_info, [](const CoordinatorClientInfo &client_info) {
-        auto sec_since_last_response = std::chrono::duration_cast<std::chrono::seconds>(
-                                           std::chrono::system_clock::now() - client_info.last_response_time_.load())
-                                           .count();
-        return sec_since_last_response <= CoordinatorClusterConfig::alive_response_time_difference_sec_;
-      });
+  const auto chosen_replica_info = std::ranges::find_if(
+      registered_replicas_info, [](const CoordinatorClientInfo &client_info) { return client_info.is_alive_; });
   if (chosen_replica_info == registered_replicas_info.end()) {
     return DoFailoverStatus::ALL_REPLICAS_DOWN;
   }
 
   auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
-  const auto chosen_replica =
+  auto chosen_replica =
       std::ranges::find_if(registered_replicas, [&chosen_replica_info](const CoordinatorClient &replica) {
         return replica.InstanceName() == chosen_replica_info->instance_name_;
       });
@@ -270,7 +278,8 @@ auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorInstanceStat
   // Set on coordinator data of new main
   // allocate resources for new main, clear replication info on this replica as main
   // set last response time
-  auto potential_new_main = std::make_unique<CoordinatorClient>(chosen_replica->Config(), chosen_replica->Callback());
+  auto potential_new_main = std::make_unique<CoordinatorClient>(
+      this, chosen_replica->Config(), chosen_replica->SuccCallback(), chosen_replica->FailCallback());
   potential_new_main->ReplicationClientInfo().reset();
   auto potential_new_main_info = *chosen_replica_info;
 
@@ -290,6 +299,8 @@ auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorInstanceStat
   // Check that it doesn't fail when you call StopFrequentCheck if it is already stopped
   registered_replicas.erase(chosen_replica);
   registered_replicas_info.erase(chosen_replica_info);
+
+  current_main->StartFrequentCheck();
 
   return DoFailoverStatus::SUCCESS;
 }

@@ -13,6 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_cluster_config.hpp"
 #include "io/network/endpoint.hpp"
 
 #include <atomic>
@@ -22,18 +23,23 @@ namespace memgraph::coordination {
 
 struct CoordinatorClientInfo {
   CoordinatorClientInfo(std::string_view instance_name, const io::network::Endpoint *endpoint)
-      : last_response_time_(std::chrono::system_clock::now()), instance_name_(instance_name), endpoint(endpoint) {}
+      : last_response_time_(std::chrono::system_clock::now()),
+        is_alive_(true),
+        instance_name_(instance_name),
+        endpoint(endpoint) {}
 
   ~CoordinatorClientInfo() = default;
 
   CoordinatorClientInfo(const CoordinatorClientInfo &other)
       : last_response_time_(other.last_response_time_.load()),
+        is_alive_(other.is_alive_),
         instance_name_(other.instance_name_),
         endpoint(other.endpoint) {}
 
   CoordinatorClientInfo &operator=(const CoordinatorClientInfo &other) {
     if (this != &other) {
       last_response_time_.store(other.last_response_time_.load());
+      is_alive_ = other.is_alive_;
       instance_name_ = other.instance_name_;
       endpoint = other.endpoint;
     }
@@ -42,21 +48,32 @@ struct CoordinatorClientInfo {
 
   CoordinatorClientInfo(CoordinatorClientInfo &&other) noexcept
       : last_response_time_(other.last_response_time_.load()),
+        is_alive_(other.is_alive_),
         instance_name_(other.instance_name_),
         endpoint(other.endpoint) {}
 
   CoordinatorClientInfo &operator=(CoordinatorClientInfo &&other) noexcept {
     if (this != &other) {
       last_response_time_.store(other.last_response_time_.load());
+      is_alive_ = other.is_alive_;
       instance_name_ = other.instance_name_;
       endpoint = other.endpoint;
     }
     return *this;
   }
 
-  /// TODO: Add a method is_alive
+  auto UpdateInstanceStatus() -> bool {
+    is_alive_ =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_response_time_.load())
+            .count() < CoordinatorClusterConfig::alive_response_time_difference_sec_;
+    return is_alive_;
+  }
 
+  auto UpdateLastResponseTime() -> void { last_response_time_.store(std::chrono::system_clock::now()); }
+
+  // TODO: (andi) Wrap in private to forbid modification
   std::atomic<std::chrono::system_clock::time_point> last_response_time_{};
+  bool is_alive_{false};
   std::string_view instance_name_;
   const io::network::Endpoint *endpoint;
 };

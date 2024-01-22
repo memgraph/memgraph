@@ -57,7 +57,7 @@ class CoordinatorState {
   // TODO: Data is not thread safe
   struct CoordinatorData {
     std::list<CoordinatorClient> registered_replicas_;
-    std::vector<CoordinatorClientInfo> registered_replicas_info_;
+    std::list<CoordinatorClientInfo> registered_replicas_info_;
     std::unique_ptr<CoordinatorClient> registered_main_;
     std::optional<CoordinatorClientInfo> registered_main_info_;
   };
