@@ -23,8 +23,26 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
   nlohmann::json document = {};
   nlohmann::json properties = {};
   for (const auto &[prop_id, prop_value] : vertex_after_update->properties.Properties()) {
-    if (!prop_value.IsString()) continue;
-    properties[storage->PropertyToName(prop_id)] = prop_value.ValueString();
+    switch (prop_value.type()) {
+      case PropertyValue::Type::Null:
+      case PropertyValue::Type::Bool:
+        properties[storage->PropertyToName(prop_id)] = prop_value.ValueBool();
+        break;
+      case PropertyValue::Type::Int:
+        properties[storage->PropertyToName(prop_id)] = prop_value.ValueInt();
+        break;
+      case PropertyValue::Type::Double:
+        properties[storage->PropertyToName(prop_id)] = prop_value.ValueDouble();
+        break;
+      case PropertyValue::Type::String:
+        properties[storage->PropertyToName(prop_id)] = prop_value.ValueString();
+        break;
+      case PropertyValue::Type::List:
+      case PropertyValue::Type::Map:
+      case PropertyValue::Type::TemporalData:
+      default:
+        continue;
+    }
   }
 
   document["data"] = properties;
@@ -36,8 +54,11 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
 
   for (auto *index_context : applicable_text_indices) {
     try {
-      mgcxx::text_search::add_document(*index_context, mgcxx::text_search::DocumentInput{.data = document.dump()},
-                                       false);
+      mgcxx::text_search::add_document(
+          *index_context,
+          mgcxx::text_search::DocumentInput{
+              .data = document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
+          false);
     } catch (const std::exception &e) {
       throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
     }
@@ -155,7 +176,7 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
 
     if (!has_schema) [[unlikely]] {
       for (const auto &[prop_id, prop_val] : v.Properties(View::OLD).GetValue()) {
-        if (prop_val.IsString()) {
+        if (prop_val.IsBool() || prop_val.IsInt() || prop_val.IsDouble() || prop_val.IsString()) {
           indexed_properties.emplace_back(std::pair<PropertyId, std::string>{prop_id, db->PropertyToName(prop_id)});
         }
       }
@@ -165,7 +186,27 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
     nlohmann::json document = {};
     nlohmann::json properties = {};
     for (const auto &[prop_id, prop_name] : indexed_properties) {
-      properties[prop_name] = v.GetProperty(View::OLD, prop_id).GetValue().ValueString();
+      const auto &prop_value = v.GetProperty(View::OLD, prop_id).GetValue();
+      switch (prop_value.type()) {
+        case PropertyValue::Type::Null:
+        case PropertyValue::Type::Bool:
+          properties[prop_name] = prop_value.ValueBool();
+          break;
+        case PropertyValue::Type::Int:
+          properties[prop_name] = prop_value.ValueInt();
+          break;
+        case PropertyValue::Type::Double:
+          properties[prop_name] = prop_value.ValueDouble();
+          break;
+        case PropertyValue::Type::String:
+          properties[prop_name] = prop_value.ValueString();
+          break;
+        case PropertyValue::Type::List:
+        case PropertyValue::Type::Map:
+        case PropertyValue::Type::TemporalData:
+        default:
+          continue;
+      }
     }
 
     document["data"] = properties;
@@ -176,8 +217,12 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
     document["metadata"]["is_node"] = true;
 
     try {
-      mgcxx::text_search::add_document(index_.at(index_name),
-                                       mgcxx::text_search::DocumentInput{.data = document.dump()}, false);
+      // auto a = document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+      mgcxx::text_search::add_document(
+          index_.at(index_name),
+          mgcxx::text_search::DocumentInput{
+              .data = document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
+          false);
     } catch (const std::exception &e) {
       throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
     }
