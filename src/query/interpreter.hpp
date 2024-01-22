@@ -96,12 +96,12 @@ class CoordinatorQueryHandler {
 #ifdef MG_ENTERPRISE
   struct MainReplicaStatus {
     std::string_view name;
-    std::string socket_address;
+    std::string_view socket_address;
     bool alive;
     bool is_main;
 
-    MainReplicaStatus(std::string_view name, std::string socket_address, bool alive, bool is_main)
-        : name{name}, socket_address{std::move(socket_address)}, alive{alive}, is_main{is_main} {}
+    MainReplicaStatus(std::string_view name, std::string_view socket_address, bool alive, bool is_main)
+        : name{name}, socket_address{socket_address}, alive{alive}, is_main{is_main} {}
   };
 #endif
 

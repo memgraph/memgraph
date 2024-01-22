@@ -21,61 +21,65 @@
 
 namespace memgraph::coordination {
 
-struct CoordinatorClientInfo {
-  CoordinatorClientInfo(std::string_view instance_name, const io::network::Endpoint *endpoint)
+class CoordinatorClientInfo {
+ public:
+  CoordinatorClientInfo(std::string_view instance_name, std::string_view socket_address)
       : last_response_time_(std::chrono::system_clock::now()),
-        is_alive_(true),
+        is_alive_(true),  // TODO: (andi) Maybe it should be false until the first ping
         instance_name_(instance_name),
-        endpoint(endpoint) {}
+        socket_address_(socket_address) {}
 
   ~CoordinatorClientInfo() = default;
 
   CoordinatorClientInfo(const CoordinatorClientInfo &other)
       : last_response_time_(other.last_response_time_.load()),
-        is_alive_(other.is_alive_),
+        is_alive_(other.is_alive_.load()),
         instance_name_(other.instance_name_),
-        endpoint(other.endpoint) {}
+        socket_address_(other.socket_address_) {}
 
   CoordinatorClientInfo &operator=(const CoordinatorClientInfo &other) {
     if (this != &other) {
-      last_response_time_.store(other.last_response_time_.load());
-      is_alive_ = other.is_alive_;
+      last_response_time_ = other.last_response_time_.load();
+      is_alive_ = other.is_alive_.load();
       instance_name_ = other.instance_name_;
-      endpoint = other.endpoint;
+      socket_address_ = other.socket_address_;
     }
     return *this;
   }
 
   CoordinatorClientInfo(CoordinatorClientInfo &&other) noexcept
       : last_response_time_(other.last_response_time_.load()),
-        is_alive_(other.is_alive_),
+        is_alive_(other.is_alive_.load()),
         instance_name_(other.instance_name_),
-        endpoint(other.endpoint) {}
+        socket_address_(other.socket_address_) {}
 
   CoordinatorClientInfo &operator=(CoordinatorClientInfo &&other) noexcept {
     if (this != &other) {
       last_response_time_.store(other.last_response_time_.load());
-      is_alive_ = other.is_alive_;
+      is_alive_ = other.is_alive_.load();
       instance_name_ = other.instance_name_;
-      endpoint = other.endpoint;
+      socket_address_ = other.socket_address_;
     }
     return *this;
   }
 
   auto UpdateInstanceStatus() -> bool {
-    is_alive_ =
-        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_response_time_.load())
-            .count() < CoordinatorClusterConfig::alive_response_time_difference_sec_;
+    is_alive_ = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() -
+                                                                 last_response_time_.load(std::memory_order_acquire))
+                    .count() < CoordinatorClusterConfig::alive_response_time_difference_sec_;
     return is_alive_;
   }
 
-  auto UpdateLastResponseTime() -> void { last_response_time_.store(std::chrono::system_clock::now()); }
+  auto UpdateLastResponseTime() -> void { last_response_time_ = std::chrono::system_clock::now(); }
+  auto InstanceName() const -> std::string_view { return instance_name_; }
+  auto IsAlive() const -> bool { return is_alive_; }
+  auto SocketAddress() const -> std::string_view { return socket_address_; }
 
-  // TODO: (andi) Wrap in private to forbid modification
+ private:
   std::atomic<std::chrono::system_clock::time_point> last_response_time_{};
-  bool is_alive_{false};
+  std::atomic<bool> is_alive_{false};
   std::string_view instance_name_;
-  const io::network::Endpoint *endpoint;
+  std::string socket_address_;
 };
 
 }  // namespace memgraph::coordination
