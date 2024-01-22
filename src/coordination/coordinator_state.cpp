@@ -161,22 +161,21 @@ auto CoordinatorState::RegisterMain(CoordinatorClientConfig config) -> RegisterM
     registered_main_info.UpdateLastResponseTime();
   };
 
-  auto fail_cb = [get_client_info](CoordinatorState *coord_state, std::string_view instance_name) -> void {
+  auto fail_cb = [this, get_client_info](CoordinatorState *coord_state, std::string_view instance_name) -> void {
     auto &registered_main_info = get_client_info(coord_state, instance_name);
-    // TODO: (andi) Take unique lock
     if (bool main_alive = registered_main_info.UpdateInstanceStatus(); !main_alive) {
-      // spdlog::warn("Main is not alive, starting failover");
-      // switch (auto failover_status = DoFailover(); failover_status) {
-      //   using enum DoFailoverStatus;
-      //   case ALL_REPLICAS_DOWN:
-      //     spdlog::warn("Failover aborted since all replicas are down!");
-      //   case MAIN_ALIVE:
-      //     spdlog::warn("Failover aborted since main is alive!");
-      //   case CLUSTER_UNINITIALIZED:
-      //     spdlog::warn("Failover aborted since cluster is uninitialized!");
-      //   case SUCCESS:
-      //     break;
-      // }
+      spdlog::warn("Main is not alive, starting failover");
+      switch (auto failover_status = DoFailover(); failover_status) {
+        using enum DoFailoverStatus;
+        case ALL_REPLICAS_DOWN:
+          spdlog::warn("Failover aborted since all replicas are down!");
+        case MAIN_ALIVE:
+          spdlog::warn("Failover aborted since main is alive!");
+        case CLUSTER_UNINITIALIZED:
+          spdlog::warn("Failover aborted since cluster is uninitialized!");
+        case SUCCESS:
+          break;
+      }
     }
   };
 
@@ -228,12 +227,14 @@ auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorInstanceStat
   // 6. remove replica which was promoted to main from all replicas -> this will shut down RPC frequent check client
   // (coordinator)
   // 7. for new main start frequent checks (coordinator)
-
-  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_), "Cannot do failover since variant holds wrong alternative");
   using ReplicationClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
+  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_), "Cannot do failover since variant holds wrong alternative");
+  auto &coord_state = std::get<CoordinatorData>(data_);
+
+  // std::lock_guard<utils::RWLock> lock{coord_state.coord_data_lock_};
 
   // 1.
-  auto &current_main_info = std::get<CoordinatorData>(data_).registered_main_info_;
+  auto &current_main_info = coord_state.registered_main_info_;
 
   if (!current_main_info.has_value()) {
     return DoFailoverStatus::CLUSTER_UNINITIALIZED;
@@ -243,13 +244,13 @@ auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorInstanceStat
     return DoFailoverStatus::MAIN_ALIVE;
   }
 
-  auto &current_main = std::get<CoordinatorData>(data_).registered_main_;
+  auto &current_main = coord_state.registered_main_;
   // TODO: stop pinging as soon as you figure out that failover is needed
-  current_main->StopFrequentCheck();
+  current_main->PauseFrequentCheck();
 
   // 2.
   // Get all replicas and find new main
-  auto &registered_replicas_info = std::get<CoordinatorData>(data_).registered_replicas_info_;
+  auto &registered_replicas_info = coord_state.registered_replicas_info_;
 
   const auto chosen_replica_info = std::ranges::find_if(
       registered_replicas_info, [](const CoordinatorClientInfo &client_info) { return client_info.IsAlive(); });
@@ -257,7 +258,7 @@ auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorInstanceStat
     return DoFailoverStatus::ALL_REPLICAS_DOWN;
   }
 
-  auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
+  auto &registered_replicas = coord_state.registered_replicas_;
   auto chosen_replica =
       std::ranges::find_if(registered_replicas, [&chosen_replica_info](const CoordinatorClient &replica) {
         return replica.InstanceName() == chosen_replica_info->InstanceName();
@@ -299,7 +300,7 @@ auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorInstanceStat
   registered_replicas.erase(chosen_replica);
   registered_replicas_info.erase(chosen_replica_info);
 
-  current_main->StartFrequentCheck();
+  current_main->ResumeFrequentCheck();
 
   return DoFailoverStatus::SUCCESS;
 }

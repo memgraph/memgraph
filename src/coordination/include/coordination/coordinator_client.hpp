@@ -43,7 +43,8 @@ class CoordinatorClient {
   CoordinatorClient &operator=(CoordinatorClient &&) noexcept = delete;
 
   void StartFrequentCheck();
-  void StopFrequentCheck();
+  void PauseFrequentCheck();
+  void ResumeFrequentCheck();
 
   auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
 

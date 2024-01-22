@@ -61,3 +61,7 @@ workloads:
   - name: "Client initiated failover"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability_experimental/client_initiated_failover.py"]
+
+  - name: "Automatic failover"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability_experimental/automatic_failover.py"]

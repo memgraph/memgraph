@@ -39,7 +39,7 @@ CoordinatorClient::CoordinatorClient(CoordinatorState *coord_state, CoordinatorC
 
 CoordinatorClient::~CoordinatorClient() {
   auto exit_job = utils::OnScopeExit([&] {
-    StopFrequentCheck();
+    replica_checker_.Stop();
     thread_pool_.Shutdown();
   });
   const auto endpoint = rpc_client_.Endpoint();
@@ -68,7 +68,8 @@ void CoordinatorClient::StartFrequentCheck() {
   });
 }
 
-void CoordinatorClient::StopFrequentCheck() { replica_checker_.Stop(); }
+void CoordinatorClient::PauseFrequentCheck() { replica_checker_.Pause(); }
+void CoordinatorClient::ResumeFrequentCheck() { replica_checker_.Resume(); }
 
 auto CoordinatorClient::InstanceName() const -> std::string_view { return config_.instance_name; }
 auto CoordinatorClient::SocketAddress() const -> std::string { return rpc_client_.Endpoint().SocketAddress(); }
