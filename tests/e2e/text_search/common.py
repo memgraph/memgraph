@@ -49,8 +49,12 @@ def memgraph(**kwargs) -> Memgraph:
 def memgraph_with_text_indexed_data(**kwargs) -> Memgraph:
     memgraph = Memgraph()
 
-    memgraph.execute("CREATE (:Document {title: 'Rules2024', version: 1});")
-    memgraph.execute("CREATE (:Document:Revision {title: 'Rules2024', version: 2});")
+    memgraph.execute(
+        "CREATE (:Document {title: 'Rules2024', version: 1, date: date('2023-11-14'), contents: 'Lorem ipsum dolor sit amet'});"
+    )
+    memgraph.execute(
+        "CREATE (:Document:Revision {title: 'Rules2024', version: 2, date: date('2023-12-15'), contents: 'consectetur adipiscing elit'});"
+    )
     memgraph.execute("CREATE TEXT INDEX complianceDocuments ON :Document;")
 
     yield memgraph
@@ -64,8 +68,12 @@ def memgraph_with_text_indexed_data(**kwargs) -> Memgraph:
 def memgraph_with_mixed_data(**kwargs) -> Memgraph:
     memgraph = Memgraph()
 
-    memgraph.execute("CREATE (:Document:Revision {title: 'Rules2024', version: 1});")
-    memgraph.execute("CREATE (:Revision {title: 'Rules2024', version: 2});")
+    memgraph.execute(
+        "CREATE (:Document:Revision {title: 'Rules2024', version: 1, date: date('2023-11-14'), contents: 'Lorem ipsum dolor sit amet'});"
+    )
+    memgraph.execute(
+        "CREATE (:Revision {title: 'Rules2024', version: 2, date: date('2023-12-15'), contents: 'consectetur adipiscing elit'});"
+    )
     memgraph.execute("CREATE TEXT INDEX complianceDocuments ON :Document;")
 
     yield memgraph
