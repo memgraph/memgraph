@@ -82,10 +82,10 @@ auto CoordinatorState::RegisterReplica(CoordinatorClientConfig config) -> Regist
   // has become main MG_ASSERT(replica_client_info != registered_replicas_info.end(), "Replica {} not found in
   // registered replicas info",
   //          instance_name);
-  auto find_client_info = [&](std::string_view instance_name) -> CoordinatorClientInfo & {
-    MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+  auto find_client_info = [](CoordinatorState *coord_state, std::string_view instance_name) -> CoordinatorClientInfo & {
+    MG_ASSERT(std::holds_alternative<CoordinatorData>(coord_state->data_),
               "Can't execute CoordinatorClient's callback since variant holds wrong alternative");
-    auto &registered_replicas_info = std::get<CoordinatorData>(data_).registered_replicas_info_;
+    auto &registered_replicas_info = std::get<CoordinatorData>(coord_state->data_).registered_replicas_info_;
 
     auto replica_client_info = std::ranges::find_if(
         registered_replicas_info,
@@ -95,22 +95,20 @@ auto CoordinatorState::RegisterReplica(CoordinatorClientConfig config) -> Regist
       return *replica_client_info;
     }
 
-    auto &registered_main_info = std::get<CoordinatorData>(data_).registered_main_info_;
+    auto &registered_main_info = std::get<CoordinatorData>(coord_state->data_).registered_main_info_;
     MG_ASSERT(registered_main_info->instance_name_ == instance_name, "Instance is neither a replica nor main...");
     return *registered_main_info;
   };
 
-  auto repl_succ_cb = [&](std::string_view instance_name) -> void {
-    auto &client_info = find_client_info(instance_name);
+  auto repl_succ_cb = [&find_client_info](CoordinatorState *coord_state, std::string_view instance_name) -> void {
+    auto &client_info = find_client_info(coord_state, instance_name);
     client_info.UpdateLastResponseTime();
   };
 
-  auto repl_fail_cb = [&](std::string_view instance_name) -> void {
-    auto &client_info = find_client_info(instance_name);
+  auto repl_fail_cb = [&find_client_info](CoordinatorState *coord_state, std::string_view instance_name) -> void {
+    auto &client_info = find_client_info(coord_state, instance_name);
     client_info.UpdateInstanceStatus();
   };
-
-  // CoordinatorClient coord_client{this, std::move(config), std::move(repl_succ_cb), std::move(repl_fail_cb)};
 
   auto *coord_client = &std::get<CoordinatorData>(data_).registered_replicas_.emplace_back(
       this, std::move(config), std::move(repl_succ_cb), std::move(repl_fail_cb));
