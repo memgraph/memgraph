@@ -26,12 +26,12 @@ def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
     connection.autocommit = True
     cursor = connection.cursor()
-    execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+    execute_and_fetch_all(cursor, """USE DATABASE memgraph""")
     try:
-        execute_and_fetch_all(cursor, "DROP DATABASE clean")
+        execute_and_fetch_all(cursor, """DROP DATABASE clean""")
     except:
         pass
-    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    execute_and_fetch_all(cursor, """MATCH (n) DETACH DELETE n""")
     yield connection
 
 
@@ -50,16 +50,17 @@ def memgraph_with_text_indexed_data(**kwargs) -> Memgraph:
     memgraph = Memgraph()
 
     memgraph.execute(
-        "CREATE (:Document {title: 'Rules2024', version: 1, date: date('2023-11-14'), contents: 'Lorem ipsum dolor sit amet'});"
+        """CREATE (:Document {title: "Rules2024", version: 1, fulltext: "random fulltext", date: date("2023-11-14")});"""
     )
     memgraph.execute(
-        "CREATE (:Document:Revision {title: 'Rules2024', version: 2, date: date('2023-12-15'), contents: 'consectetur adipiscing elit'});"
+        """CREATE (:Document:Revision {title: "Rules2024", version: 2, fulltext: "random words", date: date("2023-12-15")});"""
     )
-    memgraph.execute("CREATE TEXT INDEX complianceDocuments ON :Document;")
+    memgraph.execute("""CREATE (:Revision {title: "OperationSchema", version: 3, date: date("2023-10-01")});""")
+    memgraph.execute("""CREATE TEXT INDEX complianceDocuments ON :Document;""")
 
     yield memgraph
 
-    memgraph.execute("DROP TEXT INDEX complianceDocuments;")
+    memgraph.execute("""DROP TEXT INDEX complianceDocuments;""")
     memgraph.drop_database()
     memgraph.drop_indexes()
 
@@ -69,15 +70,15 @@ def memgraph_with_mixed_data(**kwargs) -> Memgraph:
     memgraph = Memgraph()
 
     memgraph.execute(
-        "CREATE (:Document:Revision {title: 'Rules2024', version: 1, date: date('2023-11-14'), contents: 'Lorem ipsum dolor sit amet'});"
+        """CREATE (:Document:Revision {title: "Rules2024", version: 1, date: date("2023-11-14"), contents: "Lorem ipsum dolor sit amet"});"""
     )
     memgraph.execute(
-        "CREATE (:Revision {title: 'Rules2024', version: 2, date: date('2023-12-15'), contents: 'consectetur adipiscing elit'});"
+        """CREATE (:Revision {title: "Rules2024", version: 2, date: date("2023-12-15"), contents: "consectetur adipiscing elit"});"""
     )
-    memgraph.execute("CREATE TEXT INDEX complianceDocuments ON :Document;")
+    memgraph.execute("""CREATE TEXT INDEX complianceDocuments ON :Document;""")
 
     yield memgraph
 
-    memgraph.execute("DROP TEXT INDEX complianceDocuments;")
+    memgraph.execute("""DROP TEXT INDEX complianceDocuments;""")
     memgraph.drop_database()
     memgraph.drop_indexes()
