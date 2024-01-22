@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_client.hpp"
 #include "coordination/coordinator_client_info.hpp"
+#include "coordination/coordinator_data.hpp"
 #include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_server.hpp"
 #include "coordination/failover_status.hpp"
@@ -54,18 +55,6 @@ class CoordinatorState {
   [[nodiscard]] auto DoFailover() -> DoFailoverStatus;
 
  private:
-  // TODO: Data is not thread safe
-  struct CoordinatorData {
-    std::list<CoordinatorClient> registered_replicas_;
-    std::list<CoordinatorClientInfo> registered_replicas_info_;
-    std::unique_ptr<CoordinatorClient> registered_main_;
-    std::optional<CoordinatorClientInfo> registered_main_info_;
-  };
-
-  struct CoordinatorMainReplicaData {
-    std::unique_ptr<CoordinatorServer> coordinator_server_;
-  };
-
   std::variant<CoordinatorData, CoordinatorMainReplicaData> data_;
 };
 

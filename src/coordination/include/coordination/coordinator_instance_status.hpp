@@ -15,13 +15,13 @@
 
 #include "io/network/endpoint.hpp"
 
-#include <string>
+#include <string_view>
 
 namespace memgraph::coordination {
 
 struct CoordinatorInstanceStatus {
   std::string_view instance_name;
-  std::string socket_address;
+  std::string_view socket_address;
   bool is_alive;
 };
 

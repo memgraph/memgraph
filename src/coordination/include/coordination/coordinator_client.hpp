@@ -48,11 +48,12 @@ class CoordinatorClient {
   auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
 
   auto InstanceName() const -> std::string_view;
-  auto Endpoint() const -> const io::network::Endpoint *;
+  auto SocketAddress() const -> std::string;
   auto Config() const -> CoordinatorClientConfig const &;
+
   auto ReplicationClientInfo() const -> ReplClientInfo const &;
   auto ReplicationClientInfo() -> std::optional<ReplClientInfo> &;
-  // TODO: We should add copy constructor and then there won't be need for this
+
   auto SuccCallback() const -> HealthCheckCallback const &;
   auto FailCallback() const -> HealthCheckCallback const &;
 

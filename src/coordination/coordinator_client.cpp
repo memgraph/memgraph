@@ -71,8 +71,7 @@ void CoordinatorClient::StartFrequentCheck() {
 void CoordinatorClient::StopFrequentCheck() { replica_checker_.Stop(); }
 
 auto CoordinatorClient::InstanceName() const -> std::string_view { return config_.instance_name; }
-auto CoordinatorClient::Endpoint() const -> const io::network::Endpoint * { return &rpc_client_.Endpoint(); }
-// TODO: remove these method and implement copy constructor
+auto CoordinatorClient::SocketAddress() const -> std::string { return rpc_client_.Endpoint().SocketAddress(); }
 auto CoordinatorClient::Config() const -> CoordinatorClientConfig const & { return config_; }
 auto CoordinatorClient::SuccCallback() const -> HealthCheckCallback const & { return succ_cb_; }
 auto CoordinatorClient::FailCallback() const -> HealthCheckCallback const & { return fail_cb_; }

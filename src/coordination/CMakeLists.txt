@@ -9,6 +9,7 @@ target_sources(mg-coordination
         include/coordination/coordinator_config.hpp
         include/coordination/coordinator_exceptions.hpp
         include/coordination/coordinator_slk.hpp
+        include/coordination/coordinator_data.hpp
         include/coordination/constants.hpp
         include/coordination/failover_status.hpp
         include/coordination/coordinator_client_info.hpp
