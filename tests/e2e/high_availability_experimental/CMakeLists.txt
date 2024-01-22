@@ -2,6 +2,7 @@ find_package(gflags REQUIRED)
 
 copy_e2e_python_files(ha_experimental coordinator.py)
 copy_e2e_python_files(ha_experimental client_initiated_failover.py)
+copy_e2e_python_files(ha_experimental automatic_failover.py)
 copy_e2e_python_files(ha_experimental uninitialized_cluster.py)
 copy_e2e_python_files(ha_experimental common.py)
 copy_e2e_python_files(ha_experimental conftest.py)
