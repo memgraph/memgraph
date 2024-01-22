@@ -25,7 +25,7 @@ class Storage;
 
 class TextIndex {
  private:
-  void AddNode(Vertex *vertex, Storage *storage,
+  void AddNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp,
                const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(const std::vector<LabelId> &labels);
@@ -45,19 +45,23 @@ class TextIndex {
   std::map<std::string, mgcxx::text_search::Context> index_;
   std::map<LabelId, std::string> label_to_index_;
 
-  void AddNode(Vertex *vertex, Storage *storage);
+  void AddNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp);
 
-  void UpdateNode(Vertex *vertex, Storage *storage);
+  void UpdateNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp);
 
-  void UpdateNode(Vertex *vertex, Storage *storage, const std::vector<LabelId> &removed_labels);
+  void UpdateNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp,
+                  const std::vector<LabelId> &removed_labels);
 
   void RemoveNode(Vertex *vertex);
 
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, Storage *storage, const Transaction &tx);
+  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, Storage *storage,
+                        const std::uint64_t transaction_start_timestamp);
 
-  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx);
+  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
+                           const std::uint64_t transaction_start_timestamp);
 
-  void UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage, const Transaction &tx);
+  void UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage,
+                           const std::uint64_t transaction_start_timestamp);
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(Vertex *vertex);
 

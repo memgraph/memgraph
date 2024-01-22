@@ -43,7 +43,7 @@ void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction 
   label_index_->UpdateOnAddLabel(label, vertex, tx);
   label_property_index_->UpdateOnAddLabel(label, vertex, tx);
   if (update_text_index) {
-    text_index_->UpdateOnAddLabel(label, vertex, storage, tx);
+    text_index_->UpdateOnAddLabel(label, vertex, storage, tx.start_timestamp);
   }
 }
 
@@ -51,7 +51,7 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transacti
   label_index_->UpdateOnRemoveLabel(label, vertex, tx);
   label_property_index_->UpdateOnRemoveLabel(label, vertex, tx);
   if (update_text_index) {
-    text_index_->UpdateOnRemoveLabel(label, vertex, tx);
+    text_index_->UpdateOnRemoveLabel(label, vertex, tx.start_timestamp);
   }
 }
 
@@ -59,7 +59,7 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &valu
                                   const Transaction &tx, Storage *storage, bool update_text_index) const {
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
   if (update_text_index) {
-    text_index_->UpdateOnSetProperty(vertex, storage, tx);
+    text_index_->UpdateOnSetProperty(vertex, storage, tx.start_timestamp);
   }
 }
 

@@ -16,7 +16,7 @@
 
 namespace memgraph::storage {
 
-void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
+void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std::uint64_t transaction_start_timestamp,
                         const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
   // NOTE: Text indexes are presently all-property indices. If we allow text indexes restricted to specific properties,
   // an indexable document should be created for each applicable index.
@@ -30,7 +30,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
   document["data"] = properties;
   document["metadata"] = {};
   document["metadata"]["gid"] = vertex_after_update->gid.AsInt();
-  // TODO add txid
+  document["metadata"]["txid"] = transaction_start_timestamp;
   document["metadata"]["deleted"] = false;
   document["metadata"]["is_node"] = true;
 
@@ -44,27 +44,31 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
   }
 }
 
-void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage) {
+void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
+                        const std::uint64_t transaction_start_timestamp) {
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
   if (applicable_text_indices.empty()) return;
-  AddNode(vertex_after_update, storage, applicable_text_indices);
+  AddNode(vertex_after_update, storage, transaction_start_timestamp, applicable_text_indices);
 }
 
-void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage) {
+void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
+                           const std::uint64_t transaction_start_timestamp) {
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
   if (applicable_text_indices.empty()) return;
   RemoveNode(vertex_after_update, applicable_text_indices);
-  AddNode(vertex_after_update, storage, applicable_text_indices);
+  AddNode(vertex_after_update, storage, transaction_start_timestamp, applicable_text_indices);
 }
 
-void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage, const std::vector<LabelId> &removed_labels) {
+void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
+                           const std::uint64_t transaction_start_timestamp,
+                           const std::vector<LabelId> &removed_labels) {
   auto indexes_to_remove_node_from = GetApplicableTextIndices(removed_labels);
   RemoveNode(vertex_after_update, indexes_to_remove_node_from);
 
   auto indexes_to_update_node = GetApplicableTextIndices(vertex_after_update);
   if (indexes_to_update_node.empty()) return;
   RemoveNode(vertex_after_update, indexes_to_update_node);
-  AddNode(vertex_after_update, storage, indexes_to_update_node);
+  AddNode(vertex_after_update, storage, transaction_start_timestamp, indexes_to_update_node);
 }
 
 void TextIndex::RemoveNode(Vertex *vertex_after_update,
@@ -88,22 +92,24 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update) {
 }
 
 void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, Storage *storage,
-                                 const Transaction &tx) {
+                                 const std::uint64_t transaction_start_timestamp) {
   if (!label_to_index_.contains(added_label)) {
     return;
   }
-  AddNode(vertex_after_update, storage, {&index_.at(label_to_index_.at(added_label))});
+  AddNode(vertex_after_update, storage, transaction_start_timestamp, {&index_.at(label_to_index_.at(added_label))});
 }
 
-void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) {
+void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
+                                    const std::uint64_t transaction_start_timestamp) {
   if (!label_to_index_.contains(removed_label)) {
     return;
   }
   RemoveNode(vertex_after_update, {&index_.at(label_to_index_.at(removed_label))});
 }
 
-void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage, const Transaction &tx) {
-  UpdateNode(vertex_after_update, storage);
+void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage,
+                                    std::uint64_t transaction_start_timestamp) {
+  UpdateNode(vertex_after_update, storage, transaction_start_timestamp);
 }
 
 std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(const std::vector<LabelId> &labels) {
@@ -165,7 +171,7 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
     document["data"] = properties;
     document["metadata"] = {};
     document["metadata"]["gid"] = v.Gid().AsInt();
-    // TODO add txid
+    document["metadata"]["txid"] = v.impl_.transaction_->start_timestamp;
     document["metadata"]["deleted"] = false;
     document["metadata"]["is_node"] = true;
 

@@ -252,7 +252,8 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   MultiPropsInitChecked(&new_node, properties);
 
   if (flags::run_time::GetTextSearchEnabled()) {
-    new_node.impl_.storage_->indices_.text_index_->AddNode(new_node.impl_.vertex_, new_node.impl_.storage_);
+    new_node.impl_.storage_->indices_.text_index_->AddNode(new_node.impl_.vertex_, new_node.impl_.storage_,
+                                                           new_node.impl_.transaction_->start_timestamp);
   }
 
   (*frame)[node_info.symbol] = new_node;
@@ -2825,7 +2826,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       }
       if (flags::run_time::GetTextSearchEnabled()) {
         auto new_node = lhs.ValueVertex();
-        new_node.impl_.storage_->indices_.text_index_->UpdateNode(new_node.impl_.vertex_, new_node.impl_.storage_);
+        new_node.impl_.storage_->indices_.text_index_->UpdateNode(new_node.impl_.vertex_, new_node.impl_.storage_,
+                                                                  new_node.impl_.transaction_->start_timestamp);
       }
       break;
     }
@@ -2985,7 +2987,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       update_props(new_properties);
       if (flags::run_time::GetTextSearchEnabled()) {
         auto new_node = rhs.ValueVertex();
-        new_node.impl_.storage_->indices_.text_index_->UpdateNode(new_node.impl_.vertex_, new_node.impl_.storage_);
+        new_node.impl_.storage_->indices_.text_index_->UpdateNode(new_node.impl_.vertex_, new_node.impl_.storage_,
+                                                                  new_node.impl_.transaction_->start_timestamp);
       }
       break;
     }
@@ -3134,7 +3137,8 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   if (flags::run_time::GetTextSearchEnabled()) {
-    vertex.impl_.storage_->indices_.text_index_->UpdateNode(vertex.impl_.vertex_, vertex.impl_.storage_);
+    vertex.impl_.storage_->indices_.text_index_->UpdateNode(vertex.impl_.vertex_, vertex.impl_.storage_,
+                                                            vertex.impl_.transaction_->start_timestamp);
   }
 
   return true;
@@ -3299,7 +3303,8 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   }
 
   if (flags::run_time::GetTextSearchEnabled()) {
-    vertex.impl_.storage_->indices_.text_index_->UpdateNode(vertex.impl_.vertex_, vertex.impl_.storage_, self_.labels_);
+    vertex.impl_.storage_->indices_.text_index_->UpdateNode(vertex.impl_.vertex_, vertex.impl_.storage_,
+                                                            vertex.impl_.transaction_->start_timestamp, self_.labels_);
   }
 
   return true;
