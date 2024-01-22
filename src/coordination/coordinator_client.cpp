@@ -27,15 +27,15 @@ auto CreateClientContext(const memgraph::coordination::CoordinatorClientConfig &
 }
 }  // namespace
 
-CoordinatorClient::CoordinatorClient(CoordinatorClientConfig config,
-                                     std::function<void(std::string_view)> freq_check_cb)
+CoordinatorClient::CoordinatorClient(CoordinatorState *coord_state, CoordinatorClientConfig config,
+                                     HealthCheckCallback succ_cb, HealthCheckCallback fail_cb)
     : rpc_context_{CreateClientContext(config)},
       rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
                   &rpc_context_},
       config_{std::move(config)},
-      freq_check_cb_{std::move(freq_check_cb)} {
-  StartFrequentCheck();
-}
+      coord_state_{coord_state},
+      succ_cb_{std::move(succ_cb)},
+      fail_cb_{std::move(fail_cb)} {}
 
 CoordinatorClient::~CoordinatorClient() {
   auto exit_job = utils::OnScopeExit([&] {
@@ -51,26 +51,31 @@ void CoordinatorClient::StartFrequentCheck() {
   MG_ASSERT(config_.health_check_frequency_sec > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
-  replica_checker_.Run(
-      "Coord checker", config_.health_check_frequency_sec,
-      [instance_name = config_.instance_name, rpc_client = &rpc_client_, freq_check_cb = freq_check_cb_] {
-        try {
-          auto stream{rpc_client->Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
-          stream.AwaitResponse();
-          freq_check_cb(instance_name);
-        } catch (const rpc::RpcFailedException &) {
-          // Nothing to do...wait for a reconnect
-        }
-      });
+  std::string_view instance_name = config_.instance_name;
+  replica_checker_.Run("Coord checker", config_.health_check_frequency_sec, [this, instance_name] {
+    try {
+      spdlog::trace("Sending frequent heartbeat to machine {} on {}:{}", instance_name, rpc_client_.Endpoint().address,
+                    rpc_client_.Endpoint().port);
+      auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
+      if (stream.AwaitResponse().success) {
+        succ_cb_(coord_state_, instance_name);
+      } else {
+        fail_cb_(coord_state_, instance_name);
+      }
+    } catch (const rpc::RpcFailedException &) {
+      fail_cb_(coord_state_, instance_name);
+    }
+  });
 }
 
 void CoordinatorClient::StopFrequentCheck() { replica_checker_.Stop(); }
 
 auto CoordinatorClient::InstanceName() const -> std::string_view { return config_.instance_name; }
 auto CoordinatorClient::Endpoint() const -> const io::network::Endpoint * { return &rpc_client_.Endpoint(); }
-// TODO: remove this method and implement copy constructor
+// TODO: remove these method and implement copy constructor
 auto CoordinatorClient::Config() const -> CoordinatorClientConfig const & { return config_; }
-auto CoordinatorClient::Callback() const -> std::function<void(std::string_view)> const & { return freq_check_cb_; }
+auto CoordinatorClient::SuccCallback() const -> HealthCheckCallback const & { return succ_cb_; }
+auto CoordinatorClient::FailCallback() const -> HealthCheckCallback const & { return fail_cb_; }
 
 ////// AF design choice
 auto CoordinatorClient::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo const & {

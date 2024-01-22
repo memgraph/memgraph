@@ -22,17 +22,22 @@
 
 namespace memgraph::coordination {
 
+class CoordinatorState;
+
 class CoordinatorClient {
  public:
   using ReplClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
   using ReplicationClientsInfo = std::vector<ReplClientInfo>;
 
-  explicit CoordinatorClient(CoordinatorClientConfig config, std::function<void(std::string_view)> freq_check_cb);
+  using HealthCheckCallback = std::function<void(CoordinatorState *, std::string_view)>;
+
+  explicit CoordinatorClient(CoordinatorState *coord_state_, CoordinatorClientConfig config,
+                             HealthCheckCallback succ_cb, HealthCheckCallback fail_cb);
 
   ~CoordinatorClient();
 
-  CoordinatorClient(CoordinatorClient &other) = delete;
-  CoordinatorClient &operator=(CoordinatorClient const &other) = delete;
+  CoordinatorClient(CoordinatorClient &) = delete;
+  CoordinatorClient &operator=(CoordinatorClient const &) = delete;
 
   CoordinatorClient(CoordinatorClient &&) noexcept = delete;
   CoordinatorClient &operator=(CoordinatorClient &&) noexcept = delete;
@@ -48,7 +53,8 @@ class CoordinatorClient {
   auto ReplicationClientInfo() const -> ReplClientInfo const &;
   auto ReplicationClientInfo() -> std::optional<ReplClientInfo> &;
   // TODO: We should add copy constructor and then there won't be need for this
-  auto Callback() const -> std::function<void(std::string_view)> const &;
+  auto SuccCallback() const -> HealthCheckCallback const &;
+  auto FailCallback() const -> HealthCheckCallback const &;
 
   friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
     return first.config_ == second.config_;
@@ -62,7 +68,9 @@ class CoordinatorClient {
   mutable rpc::Client rpc_client_;
 
   CoordinatorClientConfig config_;
-  std::function<void(std::string_view)> freq_check_cb_;
+  CoordinatorState *coord_state_;
+  HealthCheckCallback succ_cb_;
+  HealthCheckCallback fail_cb_;
 };
 
 }  // namespace memgraph::coordination
