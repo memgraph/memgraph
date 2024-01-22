@@ -2195,6 +2195,8 @@ class IndexQuery : public memgraph::query::Query {
 
   enum class Action { CREATE, DROP };
 
+  // IndexQuery distinguishes two types of indices. Lookup indices (label and label & property) make it faster to look
+  // up nodes, whereas text indices enable text search.
   enum class Type { LOOKUP, TEXT };
 
   IndexQuery() = default;
