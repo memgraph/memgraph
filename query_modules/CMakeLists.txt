@@ -58,19 +58,19 @@ install(PROGRAMS $<TARGET_FILE:schema>
 # Also install the source of the example, so user can read it.
 install(FILES schema.cpp DESTINATION lib/memgraph/query_modules/src)
 
-add_library(text_search SHARED text_search_module.cpp)
-target_include_directories(text_search PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(text_search PRIVATE -Wall)
-target_link_libraries(text_search PRIVATE -static-libgcc -static-libstdc++)
+add_library(text SHARED text_search_module.cpp)
+target_include_directories(text PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(text PRIVATE -Wall)
+target_link_libraries(text PRIVATE -static-libgcc -static-libstdc++)
 # Strip C++ example in release build.
 if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET text_search POST_BUILD
-                     COMMAND strip -s $<TARGET_FILE:text_search>
+  add_custom_command(TARGET text POST_BUILD
+                     COMMAND strip -s $<TARGET_FILE:text>
                      COMMENT "Stripping symbols and sections from the C++ text_search module")
 endif()
-install(PROGRAMS $<TARGET_FILE:text_search>
+install(PROGRAMS $<TARGET_FILE:text>
         DESTINATION lib/memgraph/query_modules
-        RENAME text_search.so)
+        RENAME text.so)
 # Also install the source of the example, so user can read it.
 install(FILES text_search_module.cpp DESTINATION lib/memgraph/query_modules/src)
 
