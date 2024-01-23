@@ -727,7 +727,7 @@ TEST(AuthWithoutStorage, CaseInsensitivity) {
   {
     auto perms = Permissions();
     auto fine_grained_access_handler = FineGrainedAccessHandler();
-    auto passwordHash = EncryptPassword("pw");
+    auto passwordHash = HashPassword("pw");
     auto user1 = User("test", passwordHash, perms, fine_grained_access_handler);
     auto user2 = User("Test", passwordHash, perms, fine_grained_access_handler);
     ASSERT_EQ(user1, user2);
@@ -932,49 +932,49 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
 }
 
 TEST(AuthWithoutStorage, Crypto) {
-  auto hash = EncryptPassword("hello");
+  auto hash = HashPassword("hello");
   ASSERT_TRUE(hash.VerifyPassword("hello"));
   ASSERT_FALSE(hash.VerifyPassword("hello1"));
 }
 
 class AuthWithVariousEncryptionAlgorithms : public ::testing::Test {
  protected:
-  void SetUp() override { SetEncryptionAlgorithm("bcrypt"); }
+  void SetUp() override { SetHashAlgorithm("bcrypt"); }
 };
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordDefault) {
-  auto hash = EncryptPassword("hello");
+  auto hash = HashPassword("hello");
   ASSERT_TRUE(hash.VerifyPassword("hello"));
   ASSERT_FALSE(hash.VerifyPassword("hello1"));
 }
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256) {
-  SetEncryptionAlgorithm("sha256");
-  auto hash = EncryptPassword("hello");
+  SetHashAlgorithm("sha256");
+  auto hash = HashPassword("hello");
   ASSERT_TRUE(hash.VerifyPassword("hello"));
   ASSERT_FALSE(hash.VerifyPassword("hello1"));
 }
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256_1024) {
-  SetEncryptionAlgorithm("sha256-multiple");
-  auto hash = EncryptPassword("hello");
+  SetHashAlgorithm("sha256-multiple");
+  auto hash = HashPassword("hello");
   ASSERT_TRUE(hash.VerifyPassword("hello"));
   ASSERT_FALSE(hash.VerifyPassword("hello1"));
 }
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, SetEncryptionAlgorithmNonsenseThrow) {
-  ASSERT_THROW(SetEncryptionAlgorithm("abcd"), AuthException);
+  ASSERT_THROW(SetHashAlgorithm("abcd"), AuthException);
 }
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, SetEncryptionAlgorithmEmptyThrow) {
-  ASSERT_THROW(SetEncryptionAlgorithm(""), AuthException);
+  ASSERT_THROW(SetHashAlgorithm(""), AuthException);
 }
 
 class AuthWithStorageWithVariousEncryptionAlgorithms : public ::testing::Test {
  protected:
   void SetUp() override {
     memgraph::utils::EnsureDir(test_folder_);
-    SetEncryptionAlgorithm("bcrypt");
+    SetHashAlgorithm("bcrypt");
 
     memgraph::license::global_license_checker.EnableTesting();
   }
@@ -993,14 +993,14 @@ TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserDefault) {
 }
 
 TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256) {
-  SetEncryptionAlgorithm("sha256");
+  SetHashAlgorithm("sha256");
   auto user = auth.AddUser("Alice", "alice");
   ASSERT_TRUE(user);
   ASSERT_EQ(user->username(), "alice");
 }
 
 TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256_1024) {
-  SetEncryptionAlgorithm("sha256-multiple");
+  SetHashAlgorithm("sha256-multiple");
   auto user = auth.AddUser("Alice", "alice");
   ASSERT_TRUE(user);
   ASSERT_EQ(user->username(), "alice");
@@ -1009,7 +1009,7 @@ TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256_1024) {
 TEST(Serialize, HashedPassword) {
   for (auto algo :
        {PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE}) {
-    auto sut = EncryptPassword("password", algo);
+    auto sut = HashPassword("password", algo);
     nlohmann::json j = sut;
     auto ret = j.get<HashedPassword>();
     ASSERT_EQ(sut, ret);

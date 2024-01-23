@@ -347,8 +347,18 @@ class User final {
   /// @throw AuthException if unable to verify the password.
   bool CheckPassword(const std::string &password);
 
+  bool UpgradeHash(const std::string password) {
+    if (!password_hash_) return false;
+    if (password_hash_->IsSalted()) return false;
+
+    auto const algo = password_hash_->HashAlgo();
+    UpdatePassword(password, algo);
+    return true;
+  }
+
   /// @throw AuthException if unable to set the password.
-  void UpdatePassword(const std::optional<std::string> &password = std::nullopt);
+  void UpdatePassword(const std::optional<std::string> &password = {},
+                      std::optional<PasswordHashAlgorithm> algo_override = std::nullopt);
 
   void SetRole(const Role &role);
 

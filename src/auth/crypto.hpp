@@ -16,11 +16,11 @@ namespace memgraph::auth {
 /// Need to be stable, auth durability depends on this
 enum class PasswordHashAlgorithm : uint8_t { BCRYPT = 0, SHA256 = 1, SHA256_MULTIPLE = 2 };
 
-void SetEncryptionAlgorithm(std::string const &algo);
+void SetHashAlgorithm(std::string_view algo);
 
-auto CurrentEncryptionAlgorithm() -> PasswordHashAlgorithm;
+auto CurrentHashAlgorithm() -> PasswordHashAlgorithm;
 
-auto AsString(PasswordHashAlgorithm enc_algo) -> std::string_view;
+auto AsString(PasswordHashAlgorithm hash_algo) -> std::string_view;
 
 struct HashedPassword {
   HashedPassword() = default;
@@ -35,6 +35,10 @@ struct HashedPassword {
 
   bool VerifyPassword(const std::string &password);
 
+  bool IsSalted() const;
+
+  auto HashAlgo() const -> PasswordHashAlgorithm { return hash_algo; }
+
   friend void to_json(nlohmann::json &j, const HashedPassword &p);
   friend void from_json(const nlohmann::json &j, HashedPassword &p);
 
@@ -43,9 +47,6 @@ struct HashedPassword {
   std::string password_hash{};
 };
 
-/// @throw AuthException if unable to encrypt the password.
-HashedPassword EncryptPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo = {});
-
-/// @throw AuthException if unable to verify the password.
-bool VerifyPassword(const std::string &password, const HashedPassword &hash);
+/// @throw AuthException if unable to hash the password.
+HashedPassword HashPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo = {});
 }  // namespace memgraph::auth

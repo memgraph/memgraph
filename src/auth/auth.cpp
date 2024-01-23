@@ -82,7 +82,7 @@ void MigrateVersions(kvstore::KVStore &store) {
     auto const e = store.end(kUserPrefix);
 
     if (it != e) {
-      const auto hash_algo = CurrentEncryptionAlgorithm();
+      const auto hash_algo = CurrentHashAlgorithm();
       spdlog::info("Updating auth durability, assuming previously stored as {}", AsString(hash_algo));
 
       for (; it != e; ++it) {
@@ -208,6 +208,10 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
                                           username, "https://memgr.ph/auth"));
       return std::nullopt;
     }
+    if (user->UpgradeHash(password)) {
+      SaveUser(*user);
+    }
+
     return user;
   }
 }

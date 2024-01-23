@@ -588,12 +588,13 @@ bool User::CheckPassword(const std::string &password) {
   return password_hash_ ? password_hash_->VerifyPassword(password) : true;
 }
 
-void User::UpdatePassword(const std::optional<std::string> &password) {
+void User::UpdatePassword(const std::optional<std::string> &password,
+                          std::optional<PasswordHashAlgorithm> algo_override) {
   if (!password) {
     password_hash_.reset();
     return;
   }
-  password_hash_ = EncryptPassword(*password);
+  password_hash_ = HashPassword(*password, algo_override);
 }
 
 void User::SetRole(const Role &role) { role_.emplace(role); }

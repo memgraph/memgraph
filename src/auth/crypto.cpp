@@ -26,7 +26,7 @@ using namespace std::literals;
 constexpr auto kHashAlgo = "hash_algo";
 constexpr auto kPasswordHash = "password_hash";
 
-inline constexpr std::array password_encryption_mappings{
+inline constexpr std::array password_hash_mappings{
     std::pair{"bcrypt"sv, memgraph::auth::PasswordHashAlgorithm::BCRYPT},
     std::pair{"sha256"sv, memgraph::auth::PasswordHashAlgorithm::SHA256},
     std::pair{"sha256-multiple"sv, memgraph::auth::PasswordHashAlgorithm::SHA256_MULTIPLE}};
@@ -39,7 +39,7 @@ inline constexpr uint64_t MULTIPLE_SHA_ITERATIONS = 1024;
 DEFINE_VALIDATED_string(password_encryption_algorithm, "bcrypt",
                         "The password encryption algorithm used for authentication.", {
                           if (const auto result =
-                                  memgraph::utils::IsValidEnumValueString(value, password_encryption_mappings);
+                                  memgraph::utils::IsValidEnumValueString(value, password_hash_mappings);
                               result.HasError()) {
                             const auto error = result.GetError();
                             switch (error) {
@@ -49,7 +49,7 @@ DEFINE_VALIDATED_string(password_encryption_algorithm, "bcrypt",
                               }
                               case memgraph::utils::ValidationError::InvalidValue: {
                                 std::cout << "Invalid value for password encryption algorithm. Allowed values: "
-                                          << memgraph::utils::GetAllowedEnumValuesString(password_encryption_mappings)
+                                          << memgraph::utils::GetAllowedEnumValuesString(password_hash_mappings)
                                           << std::endl;
                                 break;
                               }
@@ -62,7 +62,7 @@ DEFINE_VALIDATED_string(password_encryption_algorithm, "bcrypt",
 
 namespace memgraph::auth {
 namespace BCrypt {
-std::string EncryptPassword(const std::string &password) {
+std::string HashPassword(const std::string &password) {
   char salt[BCRYPT_HASHSIZE];
   char hash[BCRYPT_HASHSIZE];
 
@@ -90,16 +90,30 @@ bool VerifyPassword(const std::string &password, const std::string &hash) {
 }  // namespace BCrypt
 
 namespace SHA {
+
+namespace {
+
+constexpr auto SHA_LENGTH = 64U;
+constexpr auto SALT_SIZE = 16U;
+constexpr auto SALT_SIZE_DURABLE = SALT_SIZE * 2;
+
 #if OPENSSL_VERSION_MAJOR >= 3
-std::string EncryptPasswordOpenSSL3(const std::string &password, const uint64_t number_of_iterations) {
+std::string HashPasswordOpenSSL3(std::string_view password, const uint64_t number_of_iterations,
+                                 std::string_view salt) {
   unsigned char hash[SHA256_DIGEST_LENGTH];
 
   EVP_MD_CTX *ctx = EVP_MD_CTX_new();
   EVP_MD *md = EVP_MD_fetch(nullptr, "SHA2-256", nullptr);
 
   EVP_DigestInit_ex(ctx, md, nullptr);
+
+  if (!salt.empty()) {
+    DMG_ASSERT(salt.size() == SALT_SIZE);
+    EVP_DigestUpdate(ctx, salt.data(), salt.size());
+  }
+
   for (auto i = 0; i < number_of_iterations; i++) {
-    EVP_DigestUpdate(ctx, password.c_str(), password.size());
+    EVP_DigestUpdate(ctx, password.data(), password.size());
   }
   EVP_DigestFinal_ex(ctx, hash, nullptr);
 
@@ -107,6 +121,11 @@ std::string EncryptPasswordOpenSSL3(const std::string &password, const uint64_t 
   EVP_MD_CTX_free(ctx);
 
   std::stringstream result_stream;
+
+  for (unsigned char salt_char : salt) {
+    result_stream << std::hex << std::setw(2) << std::setfill('0') << (((unsigned int)salt_char) & 0xFFU);
+  }
+
   for (auto hash_char : hash) {
     result_stream << std::hex << std::setw(2) << std::setfill('0') << (int)hash_char;
   }
@@ -114,17 +133,27 @@ std::string EncryptPasswordOpenSSL3(const std::string &password, const uint64_t 
   return result_stream.str();
 }
 #else
-std::string EncryptPasswordOpenSSL1_1(const std::string &password, const uint64_t number_of_iterations) {
+std::string HashPasswordOpenSSL1_1(std::string_view password, const uint64_t number_of_iterations,
+                                   std::string_view salt) {
   unsigned char hash[SHA256_DIGEST_LENGTH];
 
   SHA256_CTX sha256;
   SHA256_Init(&sha256);
+
+  if (!salt.empty()) {
+    DMG_ASSERT(salt.size() == SALT_SIZE);
+    SHA256_Update(&sha256, salt.data(), salt.size());
+  }
+
   for (auto i = 0; i < number_of_iterations; i++) {
-    SHA256_Update(&sha256, password.c_str(), password.size());
+    SHA256_Update(&sha256, password.data(), password.size());
   }
   SHA256_Final(hash, &sha256);
 
   std::stringstream ss;
+  for (unsigned char salt_char : salt) {
+    ss << std::hex << std::setw(2) << std::setfill('0') << (((unsigned int)salt_char) & 0xFFU);
+  }
   for (auto hash_char : hash) {
     ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash_char;
   }
@@ -133,30 +162,80 @@ std::string EncryptPasswordOpenSSL1_1(const std::string &password, const uint64_
 }
 #endif
 
-std::string EncryptPassword(const std::string &password, const uint64_t number_of_iterations) {
+std::string HashPassword(std::string_view password, const uint64_t number_of_iterations, std::string_view salt) {
 #if OPENSSL_VERSION_MAJOR >= 3
-  return EncryptPasswordOpenSSL3(password, number_of_iterations);
+  return HashPasswordOpenSSL3(password, number_of_iterations, salt);
 #else
-  return EncryptPasswordOpenSSL1_1(password, number_of_iterations);
+  return HashPasswordOpenSSL1_1(password, number_of_iterations, salt);
 #endif
 }
 
-bool VerifyPassword(const std::string &password, const std::string &hash, const uint64_t number_of_iterations) {
-  auto password_hash = EncryptPassword(password, number_of_iterations);
+auto ExtractSalt(std::string_view salt_durable) -> std::array<char, SALT_SIZE> {
+  static_assert(SALT_SIZE_DURABLE % 2 == 0);
+  static_assert(SALT_SIZE_DURABLE / 2 == SALT_SIZE);
+
+  MG_ASSERT(salt_durable.size() == SALT_SIZE_DURABLE);
+  auto const *b = salt_durable.cbegin();
+  auto const *const e = salt_durable.cend();
+
+  auto salt = std::array<char, SALT_SIZE>{};
+  auto *inserter = salt.begin();
+
+  auto const toval = [](char a) -> uint8_t {
+    if ('0' <= a && a <= '9') {
+      return a - '0';
+    }
+    if ('a' <= a && a <= 'f') {
+      return 10 + (a - 'a');
+    }
+    MG_ASSERT(false, "Currupt hash, can't extract salt");
+    __builtin_unreachable();
+  };
+
+  for (; b != e; b += 2, ++inserter) {
+    *inserter = static_cast<char>(static_cast<uint8_t>(toval(b[0]) << 4U) | toval(b[1]));
+  }
+  return salt;
+}
+
+bool IsSalted(std::string_view hash) { return hash.size() == SHA_LENGTH + SALT_SIZE_DURABLE; }
+
+bool VerifyPassword(std::string_view password, std::string_view hash, const uint64_t number_of_iterations) {
+  auto password_hash = std::invoke([&] {
+    if (hash.size() == SHA_LENGTH) [[unlikely]] {
+      // Just SHA256
+      return HashPassword(password, number_of_iterations, {});
+    } else {
+      // SHA256 + SALT
+      MG_ASSERT(IsSalted(hash));
+      auto const salt_durable = std::string_view{hash.data(), SALT_SIZE_DURABLE};
+      std::array<char, SALT_SIZE> salt = ExtractSalt(salt_durable);
+      return HashPassword(password, number_of_iterations, {salt.data(), salt.size()});
+    }
+  });
   return password_hash == hash;
 }
+
+}  // namespace
+
 }  // namespace SHA
 
-HashedPassword EncryptPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo) {
-  auto const hash_algo = override_algo.value_or(CurrentEncryptionAlgorithm());
+HashedPassword HashPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo) {
+  auto const hash_algo = override_algo.value_or(CurrentHashAlgorithm());
   auto password_hash = std::invoke([&] {
     switch (hash_algo) {
-      case PasswordHashAlgorithm::BCRYPT:
-        return BCrypt::EncryptPassword(password);
+      case PasswordHashAlgorithm::BCRYPT: {
+        return BCrypt::HashPassword(password);
+      }
       case PasswordHashAlgorithm::SHA256:
-        return SHA::EncryptPassword(password, ONE_SHA_ITERATION);
-      case PasswordHashAlgorithm::SHA256_MULTIPLE:
-        return SHA::EncryptPassword(password, MULTIPLE_SHA_ITERATIONS);
+      case PasswordHashAlgorithm::SHA256_MULTIPLE: {
+        auto gen = std::mt19937(std::random_device{}());
+        auto salt = std::array<char, SHA::SALT_SIZE>{};
+        auto dis = std::uniform_int_distribution<unsigned char>(0, 255);
+        std::generate(salt.begin(), salt.end(), [&]() { return dis(gen); });
+        auto iterations = (hash_algo == PasswordHashAlgorithm::SHA256) ? ONE_SHA_ITERATION : MULTIPLE_SHA_ITERATIONS;
+        return SHA::HashPassword(password, iterations, {salt.data(), salt.size()});
+      }
     }
   });
   return HashedPassword{hash_algo, std::move(password_hash)};
@@ -164,31 +243,31 @@ HashedPassword EncryptPassword(const std::string &password, std::optional<Passwo
 
 namespace {
 
-auto InternalParseEncryptionAlgorithm(std::string const &algo) -> PasswordHashAlgorithm {
-  auto maybe_parsed = utils::StringToEnum<PasswordHashAlgorithm>(algo, password_encryption_mappings);
+auto InternalParseHashAlgorithm(std::string_view algo) -> PasswordHashAlgorithm {
+  auto maybe_parsed = utils::StringToEnum<PasswordHashAlgorithm>(algo, password_hash_mappings);
   if (!maybe_parsed) {
     throw AuthException("Invalid password encryption '{}'!", algo);
   }
   return *maybe_parsed;
 }
 
-PasswordHashAlgorithm &InternalCurrentEncryptionAlgorithm() {
+PasswordHashAlgorithm &InternalCurrentHashAlgorithm() {
   static auto current = PasswordHashAlgorithm::BCRYPT;
   static std::once_flag flag;
-  std::call_once(flag, [] { current = InternalParseEncryptionAlgorithm(FLAGS_password_encryption_algorithm); });
+  std::call_once(flag, [] { current = InternalParseHashAlgorithm(FLAGS_password_encryption_algorithm); });
   return current;
 }
 }  // namespace
 
-auto CurrentEncryptionAlgorithm() -> PasswordHashAlgorithm { return InternalCurrentEncryptionAlgorithm(); }
+auto CurrentHashAlgorithm() -> PasswordHashAlgorithm { return InternalCurrentHashAlgorithm(); }
 
-void SetEncryptionAlgorithm(const std::string &algo) {
-  auto &current = InternalCurrentEncryptionAlgorithm();
-  current = InternalParseEncryptionAlgorithm(algo);
+void SetHashAlgorithm(std::string_view algo) {
+  auto &current = InternalCurrentHashAlgorithm();
+  current = InternalParseHashAlgorithm(algo);
 }
 
-auto AsString(PasswordHashAlgorithm enc_algo) -> std::string_view {
-  return *utils::EnumToString<PasswordHashAlgorithm>(enc_algo, password_encryption_mappings);
+auto AsString(PasswordHashAlgorithm hash_algo) -> std::string_view {
+  return *utils::EnumToString<PasswordHashAlgorithm>(hash_algo, password_hash_mappings);
 }
 
 bool HashedPassword::VerifyPassword(const std::string &password) {
@@ -212,6 +291,16 @@ void from_json(const nlohmann::json &j, HashedPassword &p) {
   j.at(kHashAlgo).get_to(hash_algo);
   auto password_hash = j.value(kPasswordHash, std::string());
   p = HashedPassword{hash_algo, std::move(password_hash)};
+}
+
+bool HashedPassword::IsSalted() const {
+  switch (hash_algo) {
+    case PasswordHashAlgorithm::BCRYPT:
+      return true;
+    case PasswordHashAlgorithm::SHA256:
+    case PasswordHashAlgorithm::SHA256_MULTIPLE:
+      return SHA::IsSalted(password_hash);
+  }
 }
 
 }  // namespace memgraph::auth
