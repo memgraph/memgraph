@@ -544,6 +544,71 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
+  void RegisterInstanceOnCoordinator(const std::string &coordinator_socket_address,
+                                     const std::string &replication_socket_address,
+                                     const std::chrono::seconds instance_check_frequency,
+                                     const std::string &instance_name, CoordinatorQuery::SyncMode sync_mode) override {
+    const auto maybe_replication_ip_port =
+        io::network::Endpoint::ParseSocketOrAddress(replication_socket_address, std::nullopt);
+    if (!maybe_replication_ip_port) {
+      throw QueryRuntimeException("Invalid replication socket address!");
+    }
+
+    const auto maybe_coordinator_ip_port =
+        io::network::Endpoint::ParseSocketOrAddress(coordinator_socket_address, std::nullopt);
+    if (!maybe_replication_ip_port) {
+      throw QueryRuntimeException("Invalid replication socket address!");
+    }
+
+    const auto [replication_ip, replication_port] = *maybe_replication_ip_port;
+    const auto [coordinator_server_ip, coordinator_server_port] = *maybe_coordinator_ip_port;
+    const auto repl_config = coordination::CoordinatorClientConfig::ReplicationClientInfo{
+        .instance_name = instance_name,
+        .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
+        .replication_ip_address = replication_ip,
+        .replication_port = replication_port};
+
+    auto coordinator_client_config =
+        coordination::CoordinatorClientConfig{.instance_name = instance_name,
+                                              .ip_address = coordinator_server_ip,
+                                              .port = coordinator_server_port,
+                                              .health_check_frequency_sec = instance_check_frequency,
+                                              .replication_client_info = repl_config,
+                                              .ssl = std::nullopt};
+
+    auto status = coordinator_handler_.RegisterInstanceOnCoordinator(std::move(coordinator_client_config));
+    switch (status) {
+      using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
+      case NAME_EXISTS:
+        throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
+      case END_POINT_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance since instance with such endpoint already exists!");
+      case COULD_NOT_BE_PERSISTED:
+        throw QueryRuntimeException("Couldn't register replica instance since it couldn't be persisted!");
+      case NOT_COORDINATOR:
+        throw QueryRuntimeException("Couldn't register replica instance since this instance is not a coordinator!");
+      case SUCCESS:
+        break;
+    }
+  }
+
+  void SetInstanceToMain(const std::string &instance_name) override {
+    auto status = coordinator_handler_.SetInstanceToMain(instance_name);
+    switch (status) {
+      using enum memgraph::coordination::SetInstanceToMainCoordinatorStatus;
+      case NO_INSTANCE_WITH_NAME:
+        throw QueryRuntimeException("No instance with such name!");
+      case NOT_COORDINATOR:
+        throw QueryRuntimeException("Couldn't set replica instance to main since this instance is not a coordinator!");
+      case COULD_NOT_PROMOTE_TO_MAIN:
+        throw QueryRuntimeException(
+            "Couldn't set replica instance to main. Check coordinator and replica for more logs");
+      case SUCCESS:
+        break;
+    }
+  }
+
   /// @throw QueryRuntimeException if an error ocurred.
   void DoFailover() const override {
     if (!FLAGS_coordinator) {
@@ -1039,24 +1104,8 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       if (!FLAGS_coordinator) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
-      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
-      // the argument to Callback.
-      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
-      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
-      auto coordinator_socket_address_tv = coordinator_query->coordinator_socket_address_->Accept(evaluator);
-      callback.fn = [handler = CoordQueryHandler{dbms_handler}, coordinator_socket_address_tv,
-                     main_check_frequency = config.replication_replica_check_frequency,
-                     instance_name = coordinator_query->instance_name_]() mutable {
-        handler.RegisterMainCoordinatorServer(std::string(coordinator_socket_address_tv.ValueString()),
-                                              main_check_frequency, instance_name);
-        return std::vector<std::vector<TypedValue>>();
-      };
-
-      notifications->emplace_back(
-          SeverityLevel::INFO, NotificationCode::REGISTER_COORDINATOR_SERVER,
-          fmt::format("Coordinator has registered coordinator server on {} for instance {}.",
-                      coordinator_socket_address_tv.ValueString(), coordinator_query->instance_name_));
+      throw QueryRuntimeException("Query is disabled for now");
       return callback;
 #endif
     }
@@ -1075,27 +1124,71 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
 
+      throw QueryRuntimeException("Query is disabled for now");
+      return callback;
+#endif
+    }
+    case CoordinatorQuery::Action::REGISTER_INSTANCE_ON_COORDINATOR: {
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryException("Trying to use enterprise feature without a valid license.");
+      }
+#ifdef MG_ENTERPRISE
+      if constexpr (!coordination::allow_ha) {
+        throw QueryRuntimeException(
+            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
+            "be able to use this functionality.");
+      }
+      if (!FLAGS_coordinator) {
+        throw QueryRuntimeException("Only coordinator can register coordinator server!");
+      }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
       // the argument to Callback.
       EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      auto coordinator_socket_address_tv = coordinator_query->coordinator_socket_address_->Accept(evaluator);
-      auto replication_socket_address_tv = coordinator_query->socket_address_->Accept(evaluator);
 
-      callback.fn =
-          [handler = CoordQueryHandler{dbms_handler}, coordinator_socket_address_tv, replication_socket_address_tv,
-           replica_check_frequency = config.replication_replica_check_frequency,
-           instance_name = coordinator_query->instance_name_, sync_mode = coordinator_query->sync_mode_]() mutable {
-            handler.RegisterReplicaCoordinatorServer(std::string(replication_socket_address_tv.ValueString()),
-                                                     std::string(coordinator_socket_address_tv.ValueString()),
-                                                     replica_check_frequency, instance_name, sync_mode);
-            return std::vector<std::vector<TypedValue>>();
-          };
+      auto coordinator_socket_address_tv = coordinator_query->coordinator_socket_address_->Accept(evaluator);
+      auto replication_socket_address_tv = coordinator_query->replication_socket_address_->Accept(evaluator);
+      callback.fn = [handler = CoordQueryHandler{dbms_handler}, coordinator_socket_address_tv,
+                     replication_socket_address_tv, main_check_frequency = config.replication_replica_check_frequency,
+                     instance_name = coordinator_query->instance_name_,
+                     sync_mode = coordinator_query->sync_mode_]() mutable {
+        handler.RegisterInstanceOnCoordinator(std::string(coordinator_socket_address_tv.ValueString()),
+                                              std::string(replication_socket_address_tv.ValueString()),
+                                              main_check_frequency, instance_name, sync_mode);
+        return std::vector<std::vector<TypedValue>>();
+      };
 
       notifications->emplace_back(
           SeverityLevel::INFO, NotificationCode::REGISTER_COORDINATOR_SERVER,
           fmt::format("Coordinator has registered coordinator server on {} for instance {}.",
                       coordinator_socket_address_tv.ValueString(), coordinator_query->instance_name_));
+      return callback;
+#endif
+    }
+    case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN: {
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryException("Trying to use enterprise feature without a valid license.");
+      }
+#ifdef MG_ENTERPRISE
+      if constexpr (!coordination::allow_ha) {
+        throw QueryRuntimeException(
+            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
+            "be able to use this functionality.");
+      }
+      if (!FLAGS_coordinator) {
+        throw QueryRuntimeException("Only coordinator can register coordinator server!");
+      }
+      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+      // the argument to Callback.
+      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+      callback.fn = [handler = CoordQueryHandler{dbms_handler},
+                     instance_name = coordinator_query->instance_name_]() mutable {
+        handler.SetInstanceToMain(instance_name);
+        return std::vector<std::vector<TypedValue>>();
+      };
+
       return callback;
 #endif
     }

@@ -89,7 +89,9 @@ class Scheduler {
    * @throw std::system_error
    */
   void Stop() {
+    is_paused_.store(false);
     is_working_.store(false);
+    pause_cv_.notify_one();
     condition_variable_.notify_one();
     if (thread_.joinable()) thread_.join();
   }

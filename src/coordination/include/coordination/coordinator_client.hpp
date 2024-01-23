@@ -39,6 +39,7 @@ class CoordinatorClient {
   CoordinatorClient &operator=(CoordinatorClient &&) noexcept = delete;
 
   void StartFrequentCheck();
+  void StopFrequentCheck();
   void PauseFrequentCheck();
   void ResumeFrequentCheck();
 
@@ -49,6 +50,8 @@ class CoordinatorClient {
 
   auto ReplicationClientInfo() const -> const std::optional<ReplClientInfo> &;
   auto ResetReplicationClientInfo() -> void;
+
+  auto SendSetToReplicaRpc(ReplClientInfo replication_client_info) const -> bool;
 
   auto SetSuccCallback(HealthCheckCallback succ_cb) -> void;
   auto SetFailCallback(HealthCheckCallback fail_cb) -> void;

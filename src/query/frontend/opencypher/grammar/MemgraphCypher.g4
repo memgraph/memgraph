@@ -63,6 +63,7 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANT
                       | HEADER
                       | IDENTIFIED
+                      | INSTANCE
                       | NODE_LABELS
                       | NULLIF
                       | IMPORT
@@ -186,7 +187,8 @@ replicationQuery : setReplicationRole
                  | showReplicas
                  ;
 
-coordinatorQuery : registerCoordinatorServer
+coordinatorQuery : registerInstanceOnCoordinator
+                 | setInstanceToMain
                  | showReplicationCluster
                  | doFailover
                  ;
@@ -382,15 +384,14 @@ instanceName : symbolicName ;
 socketAddress : literal ;
 
 coordinatorSocketAddress : literal ;
+replicationSocketAddress : literal ;
 
 registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
 
-registerReplicaCoordinatorServer: REGISTER REPLICA instanceName ( ASYNC | SYNC ) TO socketAddress WITH COORDINATOR SERVER ON coordinatorSocketAddress ;
+registerInstanceOnCoordinator : REGISTER INSTANCE  instanceName ON coordinatorSocketAddress ( AS ASYNC ) ?  WITH  replicationSocketAddress ;
 
-registerMainCoordinatorServer: REGISTER MAIN instanceName WITH COORDINATOR SERVER ON coordinatorSocketAddress ;
-
-registerCoordinatorServer : registerMainCoordinatorServer | registerReplicaCoordinatorServer ;
+setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 
 dropReplica : DROP REPLICA instanceName ;
 

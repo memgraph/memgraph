@@ -38,6 +38,11 @@ class CoordinatorHandler {
   auto RegisterMainOnCoordinator(coordination::CoordinatorClientConfig config)
       -> coordination::RegisterMainReplicaCoordinatorStatus;
 
+  auto RegisterInstanceOnCoordinator(coordination::CoordinatorClientConfig config)
+      -> coordination::RegisterInstanceCoordinatorStatus;
+
+  auto SetInstanceToMain(std::string instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
+
   auto ShowReplicasOnCoordinator() const -> std::vector<coordination::CoordinatorInstanceStatus>;
 
   auto ShowMainOnCoordinator() const -> std::optional<coordination::CoordinatorInstanceStatus>;
