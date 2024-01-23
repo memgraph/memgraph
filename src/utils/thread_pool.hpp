@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,16 @@
 #include "utils/thread.hpp"
 
 namespace memgraph::utils {
+
+template <typename Func>
+struct CopyMovableFunctionWrapper {
+  CopyMovableFunctionWrapper(Func &&func) : func_{std::make_shared<Func>(std::move(func))} {}
+
+  void operator()() { (*func_)(); }
+
+ private:
+  std::shared_ptr<Func> func_;
+};
 
 class ThreadPool {
   using TaskSignature = std::function<void()>;

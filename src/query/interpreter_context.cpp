@@ -56,7 +56,7 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
         std::iter_swap(it, not_found_midpoint);
         auto get_interpreter_db_name = [&]() -> std::string const & {
           static std::string all;
-          return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->id() : all;
+          return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : all;
         };
         if (interpreter->username_ == username || privilege_checker(get_interpreter_db_name())) {
           killed = true;  // Note: this is used by the above `clean_status` (OnScopeExit)

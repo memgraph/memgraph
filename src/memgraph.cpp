@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,6 @@
 
 #include <cstdint>
 #include "audit/log.hpp"
-#include "communication/metrics.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "dbms/constants.hpp"
@@ -33,9 +32,9 @@
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
+#include "storage/v2/durability/durability.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/signals.hpp"
-#include "utils/skip_list.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
@@ -73,7 +72,7 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
         spdlog::warn("{} The rest of the init-file will be run.", e.what());
       }
       if (audit_log) {
-        audit_log->Record("", "", line, {}, memgraph::dbms::kDefaultDB);
+        audit_log->Record("", "", line, {}, std::string{memgraph::dbms::kDefaultDB});
       }
     }
   }
@@ -257,6 +256,8 @@ int main(int argc, char **argv) {
   // register all runtime settings
   memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
                                              memgraph::utils::global_settings);
+  memgraph::utils::OnScopeExit global_license_finalizer([] { memgraph::license::global_license_checker.Finalize(); });
+
   memgraph::flags::run_time::Initialize();
 
   memgraph::license::global_license_checker.CheckEnvLicense();
@@ -298,8 +299,7 @@ int main(int argc, char **argv) {
   memgraph::storage::Config db_config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
-      .items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
-                .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
+
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
@@ -321,7 +321,9 @@ int main(int argc, char **argv) {
                .id_name_mapper_directory = FLAGS_data_directory + "/rocksdb_id_name_mapper",
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
-      .storage_mode = memgraph::flags::ParseStorageMode()};
+      .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
+                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
+      .salient.storage_mode = memgraph::flags::ParseStorageMode()};
 
   memgraph::utils::Scheduler jemalloc_purge_scheduler;
   jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
@@ -386,7 +388,7 @@ int main(int argc, char **argv) {
   memgraph::dbms::DbmsHandler dbms_handler(db_config
 #ifdef MG_ENTERPRISE
                                            ,
-                                           &auth_, FLAGS_data_recovery_on_startup, FLAGS_storage_delete_on_drop
+                                           &auth_, FLAGS_data_recovery_on_startup
 #endif
   );
   auto db_acc = dbms_handler.Get();
@@ -546,6 +548,7 @@ int main(int argc, char **argv) {
 
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
 
+  python_gc_scheduler.Stop();
   Py_END_ALLOW_THREADS;
   // Shutdown Python
   Py_Finalize();

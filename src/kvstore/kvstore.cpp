@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,7 +51,7 @@ KVStore &KVStore::operator=(KVStore &&other) {
   return *this;
 }
 
-bool KVStore::Put(const std::string &key, const std::string &value) {
+bool KVStore::Put(std::string_view key, std::string_view value) {
   auto s = pimpl_->db->Put(rocksdb::WriteOptions(), key, value);
   return s.ok();
 }
@@ -65,7 +65,7 @@ bool KVStore::PutMultiple(const std::map<std::string, std::string> &items) {
   return s.ok();
 }
 
-std::optional<std::string> KVStore::Get(const std::string &key) const noexcept {
+std::optional<std::string> KVStore::Get(std::string_view key) const noexcept {
   std::string value;
   auto s = pimpl_->db->Get(rocksdb::ReadOptions(), key, &value);
   if (!s.ok()) return std::nullopt;

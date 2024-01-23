@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -868,7 +868,10 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 }
 
 void PyCollectGarbage() {
-  if (!Py_IsInitialized() || _Py_IsFinalizing()) {
+  // NOTE: No need to call _Py_IsFinalizing(), we ensure
+  // Python GC thread is stopped before Py_Finalize() is called
+  // in memgraph.cpp
+  if (!Py_IsInitialized()) {
     // Calling EnsureGIL will crash the program if this is true.
     return;
   }

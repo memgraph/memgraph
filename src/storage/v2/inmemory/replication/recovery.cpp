@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,7 +44,7 @@ class InMemoryCurrentWalHandler {
 
 ////// CurrentWalHandler //////
 InMemoryCurrentWalHandler::InMemoryCurrentWalHandler(InMemoryStorage const *storage, rpc::Client &rpc_client)
-    : stream_(rpc_client.Stream<replication::CurrentWalRpc>(storage->id())) {}
+    : stream_(rpc_client.Stream<replication::CurrentWalRpc>(storage->uuid())) {}
 
 void InMemoryCurrentWalHandler::AppendFilename(const std::string &filename) {
   replication::Encoder encoder(stream_.GetBuilder());
@@ -69,10 +69,10 @@ void InMemoryCurrentWalHandler::AppendBufferData(const uint8_t *buffer, const si
 replication::CurrentWalRes InMemoryCurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
 
 ////// ReplicationClient Helpers //////
-replication::WalFilesRes TransferWalFiles(std::string db_name, rpc::Client &client,
+replication::WalFilesRes TransferWalFiles(const utils::UUID &uuid, rpc::Client &client,
                                           const std::vector<std::filesystem::path> &wal_files) {
   MG_ASSERT(!wal_files.empty(), "Wal files list is empty!");
-  auto stream = client.Stream<replication::WalFilesRpc>(std::move(db_name), wal_files.size());
+  auto stream = client.Stream<replication::WalFilesRpc>(uuid, wal_files.size());
   replication::Encoder encoder(stream.GetBuilder());
   for (const auto &wal : wal_files) {
     spdlog::debug("Sending wal file: {}", wal);
@@ -81,8 +81,9 @@ replication::WalFilesRes TransferWalFiles(std::string db_name, rpc::Client &clie
   return stream.AwaitResponse();
 }
 
-replication::SnapshotRes TransferSnapshot(std::string db_name, rpc::Client &client, const std::filesystem::path &path) {
-  auto stream = client.Stream<replication::SnapshotRpc>(std::move(db_name));
+replication::SnapshotRes TransferSnapshot(const utils::UUID &uuid, rpc::Client &client,
+                                          const std::filesystem::path &path) {
+  auto stream = client.Stream<replication::SnapshotRpc>(uuid);
   replication::Encoder encoder(stream.GetBuilder());
   encoder.WriteFile(path);
   return stream.AwaitResponse();

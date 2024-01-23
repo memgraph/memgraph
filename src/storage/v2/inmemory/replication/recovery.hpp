@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,10 +19,11 @@ class InMemoryStorage;
 
 ////// ReplicationClient Helpers //////
 
-replication::WalFilesRes TransferWalFiles(std::string db_name, rpc::Client &client,
+replication::WalFilesRes TransferWalFiles(const utils::UUID &uuid, rpc::Client &client,
                                           const std::vector<std::filesystem::path> &wal_files);
 
-replication::SnapshotRes TransferSnapshot(std::string db_name, rpc::Client &client, const std::filesystem::path &path);
+replication::SnapshotRes TransferSnapshot(const utils::UUID &uuid, rpc::Client &client,
+                                          const std::filesystem::path &path);
 
 uint64_t ReplicateCurrentWal(const InMemoryStorage *storage, rpc::Client &client, durability::WalFile const &wal_file);
 

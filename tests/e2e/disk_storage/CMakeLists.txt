@@ -13,3 +13,5 @@ copy_disk_storage_e2e_python_files(snapshot_disabled.py)
 copy_disk_storage_e2e_python_files(lock_data_dir_disabled.py)
 copy_disk_storage_e2e_python_files(create_edge_from_indices.py)
 copy_disk_storage_e2e_python_files(storage_info.py)
+
+copy_e2e_files(disk_storage workloads.yaml)

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,6 @@
 #pragma once
 
 #include "replication/replication_server.hpp"
-#include "replication/state.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
 namespace memgraph::storage {
