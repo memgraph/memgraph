@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,10 +16,11 @@
 
 namespace memgraph::storage {
 
-void ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage) {
-  replication_clients_.WithLock([=](auto &clients) {
+void ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage,
+                                                    DatabaseAccessProtector db_acc) {
+  replication_clients_.WithLock([=, db_acc = std::move(db_acc)](auto &clients) mutable {
     for (auto &client : clients) {
-      client->StartTransactionReplication(seq_num, storage);
+      client->StartTransactionReplication(seq_num, storage, std::move(db_acc));
     }
   });
 }
@@ -52,12 +53,16 @@ void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperati
   });
 }
 
-bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage) {
-  return replication_clients_.WithLock([=](auto &clients) {
+bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage,
+                                                  DatabaseAccessProtector db_acc) {
+  return replication_clients_.WithLock([=, db_acc = std::move(db_acc)](auto &clients) mutable {
     bool finalized_on_all_replicas = true;
+    MG_ASSERT(clients.empty() || db_acc.has_value(),
+              "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
+              "handle ASYNC tasks");
     for (ReplicationClientPtr &client : clients) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); });
-      const auto finalized = client->FinalizeTransactionReplication(storage);
+      const auto finalized = client->FinalizeTransactionReplication(storage, std::move(db_acc));
 
       if (client->Mode() == memgraph::replication::ReplicationMode::SYNC) {
         finalized_on_all_replicas = finalized && finalized_on_all_replicas;
@@ -83,7 +88,8 @@ std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo(const Storage *st
     std::vector<ReplicaInfo> replica_infos;
     replica_infos.reserve(clients.size());
     auto const asReplicaInfo = [storage](ReplicationClientPtr const &client) -> ReplicaInfo {
-      return {client->Name(), client->Mode(), client->Endpoint(), client->State(), client->GetTimestampInfo(storage)};
+      const auto ts = client->GetTimestampInfo(storage);
+      return {client->Name(), client->Mode(), client->Endpoint(), client->State(), ts};
     };
     std::transform(clients.begin(), clients.end(), std::back_inserter(replica_infos), asReplicaInfo);
     return replica_infos;

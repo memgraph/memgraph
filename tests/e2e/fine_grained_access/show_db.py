@@ -23,13 +23,20 @@ def test_show_databases_w_user():
     user3_connection = common.connect(username="user3", password="test")
 
     assert common.execute_and_fetch_all(admin_connection.cursor(), "SHOW DATABASES") == [
-        ("db1", ""),
-        ("db2", ""),
-        ("memgraph", "*"),
+        ("db1",),
+        ("db2",),
+        ("memgraph",),
     ]
-    assert common.execute_and_fetch_all(user_connection.cursor(), "SHOW DATABASES") == [("db1", ""), ("memgraph", "*")]
-    assert common.execute_and_fetch_all(user2_connection.cursor(), "SHOW DATABASES") == [("db2", "*")]
-    assert common.execute_and_fetch_all(user3_connection.cursor(), "SHOW DATABASES") == [("db1", "*"), ("db2", "")]
+    assert common.execute_and_fetch_all(admin_connection.cursor(), "SHOW DATABASE") == [("memgraph",)]
+
+    assert common.execute_and_fetch_all(user_connection.cursor(), "SHOW DATABASES") == [("db1",), ("memgraph",)]
+    assert common.execute_and_fetch_all(user_connection.cursor(), "SHOW DATABASE") == [("memgraph",)]
+
+    assert common.execute_and_fetch_all(user2_connection.cursor(), "SHOW DATABASES") == [("db2",)]
+    assert common.execute_and_fetch_all(user2_connection.cursor(), "SHOW DATABASE") == [("db2",)]
+
+    assert common.execute_and_fetch_all(user3_connection.cursor(), "SHOW DATABASES") == [("db1",), ("db2",)]
+    assert common.execute_and_fetch_all(user3_connection.cursor(), "SHOW DATABASE") == [("db1",)]
 
 
 if __name__ == "__main__":

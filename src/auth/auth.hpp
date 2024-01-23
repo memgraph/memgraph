@@ -195,7 +195,7 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool SetMainDatabase(const std::string &db, const std::string &name);
+  bool SetMainDatabase(std::string_view db, const std::string &name);
 #endif
 
  private:

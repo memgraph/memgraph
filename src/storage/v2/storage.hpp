@@ -12,6 +12,8 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
+#include <optional>
 #include <semaphore>
 #include <span>
 #include <thread>
@@ -24,6 +26,7 @@
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/database_access.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -52,7 +55,6 @@ extern const Event ActiveLabelPropertyIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
-
 struct Transaction;
 class EdgeAccessor;
 
@@ -108,6 +110,15 @@ struct EdgeInfoForDeletion {
   std::unordered_set<Vertex *> partial_dest_vertices{};
 };
 
+struct CommitReplArgs {
+  // REPLICA on recipt of Deltas will have a desired commit timestamp
+  std::optional<uint64_t> desired_commit_timestamp = std::nullopt;
+
+  bool is_main = true;
+
+  bool IsMain() { return is_main; }
+};
+
 class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
@@ -122,7 +133,9 @@ class Storage {
 
   virtual ~Storage() = default;
 
-  const std::string &id() const { return id_; }
+  const std::string &name() const { return config_.salient.name; }
+
+  const utils::UUID &uuid() const { return config_.salient.uuid; }
 
   class Accessor {
    public:
@@ -216,8 +229,8 @@ class Storage {
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {}, bool is_main = true) = 0;
+    virtual utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
+                                                                      DatabaseAccessProtector db_acc = {}) = 0;
 
     virtual void Abort() = 0;
 
@@ -241,7 +254,7 @@ class Storage {
 
     StorageMode GetCreationStorageMode() const noexcept;
 
-    const std::string &id() const { return storage_->id(); }
+    const std::string &id() const { return storage_->name(); }
 
     std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
 
@@ -399,7 +412,6 @@ class Storage {
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
-  const std::string id_;  //!< High-level assigned ID
 };
 
 }  // namespace memgraph::storage

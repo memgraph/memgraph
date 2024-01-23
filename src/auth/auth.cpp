@@ -255,10 +255,8 @@ void Auth::SaveRole(const Role &role) {
 }
 
 std::optional<Role> Auth::AddRole(const std::string &rolename) {
-  auto existing_role = GetRole(rolename);
-  if (existing_role) return std::nullopt;
-  auto existing_user = GetUser(rolename);
-  if (existing_user) return std::nullopt;
+  if (auto existing_role = GetRole(rolename)) return std::nullopt;
+  if (auto existing_user = GetUser(rolename)) return std::nullopt;
   auto new_role = Role(rolename);
   SaveRole(new_role);
   return new_role;
@@ -285,8 +283,7 @@ std::vector<auth::Role> Auth::AllRoles() const {
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
     if (rolename != utils::ToLowerCase(rolename)) continue;
-    auto role = GetRole(rolename);
-    if (role) {
+    if (auto role = GetRole(rolename)) {
       ret.push_back(*role);
     } else {
       throw AuthException("Couldn't load role '{}'!", rolename);
@@ -296,15 +293,14 @@ std::vector<auth::Role> Auth::AllRoles() const {
 }
 
 std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) const {
-  auto rolename = utils::ToLowerCase(rolename_orig);
+  const auto rolename = utils::ToLowerCase(rolename_orig);
   std::vector<auth::User> ret;
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
     auto username = it->first.substr(kLinkPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
     if (it->second != utils::ToLowerCase(it->second)) continue;
     if (it->second == rolename) {
-      auto user = GetUser(username);
-      if (user) {
+      if (auto user = GetUser(username)) {
         ret.push_back(std::move(*user));
       } else {
         throw AuthException("Couldn't load user '{}'!", username);
@@ -316,8 +312,7 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
 
 #ifdef MG_ENTERPRISE
 bool Auth::GrantDatabaseToUser(const std::string &db, const std::string &name) {
-  auto user = GetUser(name);
-  if (user) {
+  if (auto user = GetUser(name)) {
     if (db == kAllDatabases) {
       user->db_access().GrantAll();
     } else {
@@ -330,8 +325,7 @@ bool Auth::GrantDatabaseToUser(const std::string &db, const std::string &name) {
 }
 
 bool Auth::RevokeDatabaseFromUser(const std::string &db, const std::string &name) {
-  auto user = GetUser(name);
-  if (user) {
+  if (auto user = GetUser(name)) {
     if (db == kAllDatabases) {
       user->db_access().DenyAll();
     } else {
@@ -346,17 +340,15 @@ bool Auth::RevokeDatabaseFromUser(const std::string &db, const std::string &name
 void Auth::DeleteDatabase(const std::string &db) {
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
-    auto user = GetUser(username);
-    if (user) {
+    if (auto user = GetUser(username)) {
       user->db_access().Delete(db);
       SaveUser(*user);
     }
   }
 }
 
-bool Auth::SetMainDatabase(const std::string &db, const std::string &name) {
-  auto user = GetUser(name);
-  if (user) {
+bool Auth::SetMainDatabase(std::string_view db, const std::string &name) {
+  if (auto user = GetUser(name)) {
     if (!user->db_access().SetDefault(db)) {
       throw AuthException("Couldn't set default database '{}' for user '{}'!", db, name);
     }

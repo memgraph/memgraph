@@ -6,3 +6,5 @@ add_subdirectory(procedures)
 
 copy_mock_python_api_e2e_files(common.py)
 copy_mock_python_api_e2e_files(test_compare_mock.py)
+
+copy_e2e_files(mock_python_api workloads.yaml)

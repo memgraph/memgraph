@@ -57,7 +57,7 @@ class AuthQueryHandler {
 
   /// Return true if main database set successfully
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool SetMainDatabase(const std::string &db, const std::string &username) = 0;
+  virtual bool SetMainDatabase(std::string_view db, const std::string &username) = 0;
 
   /// Delete database from all users
   /// @throw QueryRuntimeException if an error ocurred.

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2884,6 +2884,14 @@ antlrcpp::Any CypherMainVisitor::visitDropDatabase(MemgraphCypher::DropDatabaseC
   auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
   mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
   mdb_query->action_ = MultiDatabaseQuery::Action::DROP;
+  query_ = mdb_query;
+  return mdb_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowDatabase(MemgraphCypher::ShowDatabaseContext * /*ctx*/) {
+  auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
+  mdb_query->db_name_ = "";
+  mdb_query->action_ = MultiDatabaseQuery::Action::SHOW;
   query_ = mdb_query;
   return mdb_query;
 }
