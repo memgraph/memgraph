@@ -59,11 +59,11 @@ def test_simple_automatic_failover(connection):
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     main_cursor = connection(7687, "instance_3").cursor()
-    expected_data_on_main = {
+    expected_data_on_main = [
         ("instance_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
         ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-    }
-    actual_data_on_main = set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
+    ]
+    actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
     assert actual_data_on_main == expected_data_on_main
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
@@ -71,24 +71,48 @@ def test_simple_automatic_failover(connection):
     coord_cursor = connection(7690, "coordinator").cursor()
 
     def retrieve_data_show_repl_cluster():
-        return set(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;"))
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;")))
 
-    expected_data_on_coord = {
+    expected_data_on_coord = [
         ("instance_1", "127.0.0.1:10011", True, "main"),
         ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", False, "main"),  # TODO: (andi) Include or exclude dead main from the result?
-    }
+        ("instance_3", "127.0.0.1:10013", False, "replica"),
+    ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
     new_main_cursor = connection(7688, "instance_1").cursor()
 
     def retrieve_data_show_replicas():
-        return set(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;"))
+        return sorted(list(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;")))
 
-    expected_data_on_new_main = {
+    expected_data_on_new_main = [
         ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-    }
+    ]
     mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
+
+
+def test_registering_replica_fails_name_exists(connection):
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    coord_cursor = connection(7690, "coordinator").cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(
+            coord_cursor,
+            "REGISTER REPLICA instance_1 SYNC TO '127.0.0.1:10051' WITH COORDINATOR SERVER ON '127.0.0.1:10111';",
+        )
+    assert str(e.value) == "Couldn't register replica instance since instance with such name already exists!"
+
+
+def test_registering_replica_fails_endpoint_exists(connection):
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    coord_cursor = connection(7690, "coordinator").cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(
+            coord_cursor,
+            "REGISTER REPLICA instance_5 SYNC TO '127.0.0.1:10001' WITH COORDINATOR SERVER ON '127.0.0.1:10013';",
+        )
+    assert str(e.value) == "Couldn't register replica instance since instance with such endpoint already exists!"
 
 
 if __name__ == "__main__":

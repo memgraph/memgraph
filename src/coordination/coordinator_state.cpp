@@ -13,17 +13,11 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_client.hpp"
-#include "coordination/coordinator_cluster_config.hpp"
 #include "coordination/coordinator_config.hpp"
 #include "flags/replication.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
-
-#include <atomic>
-#include <exception>
-#include <optional>
 
 namespace memgraph::coordination {
 

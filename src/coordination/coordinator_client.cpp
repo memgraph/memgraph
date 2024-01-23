@@ -37,70 +37,54 @@ CoordinatorClient::CoordinatorClient(CoordinatorData *coord_data, CoordinatorCli
       succ_cb_{std::move(succ_cb)},
       fail_cb_{std::move(fail_cb)} {}
 
-CoordinatorClient::~CoordinatorClient() {
-  const auto endpoint = rpc_client_.Endpoint();
-  spdlog::trace("Closing coordinator client on {}:{}", endpoint.address, endpoint.port);
-}
+auto CoordinatorClient::InstanceName() const -> std::string { return config_.instance_name; }
+auto CoordinatorClient::SocketAddress() const -> std::string { return rpc_client_.Endpoint().SocketAddress(); }
 
 void CoordinatorClient::StartFrequentCheck() {
   MG_ASSERT(config_.health_check_frequency_sec > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
-  std::string_view instance_name = config_.instance_name;
-  replica_checker_.Run("Coord checker", config_.health_check_frequency_sec, [this, instance_name] {
-    try {
-      spdlog::trace("Sending frequent heartbeat to machine {} on {}:{}", instance_name, rpc_client_.Endpoint().address,
-                    rpc_client_.Endpoint().port);
-      auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
-      if (stream.AwaitResponse().success) {
-        succ_cb_(coord_data_, instance_name);
-      } else {
-        fail_cb_(coord_data_, instance_name);
-      }
-    } catch (const rpc::RpcFailedException &) {
-      fail_cb_(coord_data_, instance_name);
-    }
-  });
+  replica_checker_.Run(
+      "Coord checker", config_.health_check_frequency_sec, [this, instance_name = config_.instance_name] {
+        try {
+          spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
+                        rpc_client_.Endpoint().SocketAddress());
+          auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
+          if (stream.AwaitResponse().success) {
+            succ_cb_(coord_data_, instance_name);
+          } else {
+            fail_cb_(coord_data_, instance_name);
+          }
+        } catch (const rpc::RpcFailedException &) {
+          fail_cb_(coord_data_, instance_name);
+        }
+      });
 }
 
-void CoordinatorClient::StopFrequentCheck() { replica_checker_.Stop(); }
 void CoordinatorClient::PauseFrequentCheck() { replica_checker_.Pause(); }
 void CoordinatorClient::ResumeFrequentCheck() { replica_checker_.Resume(); }
 
-auto CoordinatorClient::InstanceName() const -> std::string_view { return config_.instance_name; }
-auto CoordinatorClient::SocketAddress() const -> std::string { return rpc_client_.Endpoint().SocketAddress(); }
-auto CoordinatorClient::Config() const -> CoordinatorClientConfig const & { return config_; }
-
-auto CoordinatorClient::SuccCallback() const -> HealthCheckCallback const & { return succ_cb_; }
-auto CoordinatorClient::FailCallback() const -> HealthCheckCallback const & { return fail_cb_; }
-// TODO: (andi) What is better, like this or fetch it by const &
 auto CoordinatorClient::SetSuccCallback(HealthCheckCallback succ_cb) -> void { succ_cb_ = std::move(succ_cb); }
 auto CoordinatorClient::SetFailCallback(HealthCheckCallback fail_cb) -> void { fail_cb_ = std::move(fail_cb); }
 
-////// AF design choice
-auto CoordinatorClient::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo const & {
-  MG_ASSERT(config_.replication_client_info.has_value(), "No ReplicationClientInfo for MAIN instance!");
-  return *config_.replication_client_info;
-}
-
-////// AF design choice
-auto CoordinatorClient::ReplicationClientInfo() -> std::optional<CoordinatorClientConfig::ReplicationClientInfo> & {
-  MG_ASSERT(config_.replication_client_info.has_value(), "No ReplicationClientInfo for MAIN instance!");
+auto CoordinatorClient::ReplicationClientInfo() const
+    -> const std::optional<CoordinatorClientConfig::ReplicationClientInfo> & {
   return config_.replication_client_info;
 }
+
+auto CoordinatorClient::ResetReplicationClientInfo() -> void { config_.replication_client_info.reset(); }
 
 auto CoordinatorClient::SendPromoteReplicaToMainRpc(
     std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const -> bool {
   try {
     auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(std::move(replication_clients_info))};
     if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to perform failover!");
+      spdlog::error("Failed to receive successful RPC failover response!");
       return false;
     }
-    spdlog::info("Sent failover RPC from coordinator to new main!");
     return true;
   } catch (const rpc::RpcFailedException &) {
-    spdlog::error("Failed to send failover RPC from coordinator to new main!");
+    spdlog::error("RPC error occurred while sending failover RPC!");
   }
   return false;
 }

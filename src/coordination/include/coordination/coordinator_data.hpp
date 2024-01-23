@@ -13,8 +13,6 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_client.hpp"
-#include "coordination/coordinator_client_info.hpp"
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_server.hpp"
@@ -23,12 +21,8 @@
 #include "utils/rw_lock.hpp"
 
 #include <list>
-#include <memory>
-#include <optional>
-#include <string_view>
 
 namespace memgraph::coordination {
-
 class CoordinatorData {
  public:
   CoordinatorData();
@@ -43,12 +37,7 @@ class CoordinatorData {
 
  private:
   mutable utils::RWLock coord_data_lock_{utils::RWLock::Priority::READ};
-
-  std::function<void(CoordinatorData *, std::string_view)> main_succ_cb_;
-  std::function<void(CoordinatorData *, std::string_view)> main_fail_cb_;
-  std::function<void(CoordinatorData *, std::string_view)> replica_succ_cb_;
-  std::function<void(CoordinatorData *, std::string_view)> replica_fail_cb_;
-
+  HealthCheckCallback main_succ_cb_, main_fail_cb_, replica_succ_cb_, replica_fail_cb_;
   std::list<CoordinatorInstance> registered_instances_;
 };
 

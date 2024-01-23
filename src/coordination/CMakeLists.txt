@@ -13,7 +13,6 @@ target_sources(mg-coordination
         include/coordination/coordinator_data.hpp
         include/coordination/constants.hpp
         include/coordination/failover_status.hpp
-        include/coordination/coordinator_client_info.hpp
         include/coordination/coordinator_cluster_config.hpp
 
         PRIVATE

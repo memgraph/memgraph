@@ -26,7 +26,7 @@ void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
 
   server.Register<coordination::PromoteReplicaToMainRpc>(
       [&dbms_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received PromoteReplicaToMainRpc from coordinator server");
+        spdlog::info("Received PromoteReplicaToMainRpc");
         CoordinatorHandlers::PromoteReplicaToMainHandler(dbms_handler, req_reader, res_builder);
       });
 }

@@ -30,8 +30,9 @@ struct CoordinatorClientConfig {
   uint16_t port{};
   std::chrono::seconds health_check_frequency_sec{1};
 
+  auto SocketAddress() const -> std::string { return ip_address + ":" + std::to_string(port); }
+
   // Info which coordinator will send to new main when performing failover
-  // TODO: (andi) Does this correspond to replication data we receive at the registration beginning?
   struct ReplicationClientInfo {
     // Must be the same as CoordinatorClientConfig's instance_name
     std::string instance_name;

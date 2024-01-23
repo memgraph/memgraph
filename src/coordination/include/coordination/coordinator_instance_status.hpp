@@ -20,8 +20,8 @@
 namespace memgraph::coordination {
 
 struct CoordinatorInstanceStatus {
-  std::string_view instance_name;
-  std::string_view socket_address;
+  std::string instance_name;
+  std::string socket_address;
   bool is_alive;
 };
 

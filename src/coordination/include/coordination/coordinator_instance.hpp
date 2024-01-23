@@ -14,21 +14,20 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_client.hpp"
-#include "coordination/coordinator_client_info.hpp"
+#include "coordination/coordinator_cluster_config.hpp"
 #include "replication_coordination_glue/role.hpp"
 
 namespace memgraph::coordination {
 
 class CoordinatorData;
-using HealthCheckCallback = std::function<void(CoordinatorData *, std::string_view)>;
 
-struct CoordinatorInstance {
-  // TODO: (andi) Capture by const reference functions
+class CoordinatorInstance {
+ public:
   CoordinatorInstance(CoordinatorData *data, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
                       HealthCheckCallback fail_cb, replication_coordination_glue::ReplicationRole replication_role)
-      : client_(data, config, succ_cb, fail_cb),
-        client_info_(config.instance_name, config.ip_address + ":" + std::to_string(config.port)),
-        replication_role_(replication_role) {}
+      : client_(data, std::move(config), std::move(succ_cb), std::move(fail_cb)),
+        replication_role_(replication_role),
+        is_alive_(true) {}
 
   CoordinatorInstance(CoordinatorInstance const &other) = delete;
   CoordinatorInstance &operator=(CoordinatorInstance const &other) = delete;
@@ -36,16 +35,28 @@ struct CoordinatorInstance {
   CoordinatorInstance &operator=(CoordinatorInstance &&other) noexcept = delete;
   ~CoordinatorInstance() = default;
 
+  auto UpdateInstanceStatus() -> bool {
+    is_alive_ = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() -
+                                                                 last_response_time_.load(std::memory_order_acquire))
+                    .count() < CoordinatorClusterConfig::alive_response_time_difference_sec_;
+    return is_alive_;
+  }
+  auto UpdateLastResponseTime() -> void { last_response_time_ = std::chrono::system_clock::now(); }
+
+  auto InstanceName() const -> std::string { return client_.InstanceName(); }
+  auto SocketAddress() const -> std::string { return client_.SocketAddress(); }
+  auto IsAlive() const -> bool { return is_alive_; }
+
   auto IsReplica() const -> bool {
     return replication_role_ == replication_coordination_glue::ReplicationRole::REPLICA;
   }
   auto IsMain() const -> bool { return replication_role_ == replication_coordination_glue::ReplicationRole::MAIN; }
 
   CoordinatorClient client_;
-  CoordinatorClientInfo client_info_;
   replication_coordination_glue::ReplicationRole replication_role_;
+  std::atomic<std::chrono::system_clock::time_point> last_response_time_{};
+  std::atomic<bool> is_alive_{false};
 
-  // TODO: (andi) Make this better
   friend bool operator==(CoordinatorInstance const &first, CoordinatorInstance const &second) {
     return first.client_ == second.client_ && first.replication_role_ == second.replication_role_;
   }
