@@ -10,13 +10,14 @@ on:
       - "licenses/*"
 
 jobs:
-  debug_build:
-    name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, Debian10]
+  release_jepsen_test:
+    name: "Release Jepsen Test"
+    runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -26,121 +27,38 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
-      - name: Build debug binaries
+      - name: Build release binaries
         run: |
           # Activate toolchain.
           source /opt/toolchain-v4/activate
-
           # Initialize dependencies.
           ./init
-
-          # Build debug binaries.
+          # Set default build_type to Release
+          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
+          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
+          # Build only memgraph release binary.
           cd build
-          cmake ..
-          make -j$THREADS
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          make -j$THREADS memgraph
+
+      - name: Ensure Jepsen cluster is up
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-up
+
+      - name: Run Jepsen tests
+        run: |
+          cd tests/jepsen
+          ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
       
-      - name: Upload build dir to artifacts
+      - name: Cleanup Jepsen cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-cleanup
+
+      - name: Save Jepsen report
         uses: actions/upload-artifact@v3
+        if: ${{ always() }}
         with:
-          name: debug-build
-          path: build/
-
-  debug_drivers_tests:
-    name: "Debug drivers tests"
-    needs: debug_build
-    runs-on: [self-hosted, Linux, X64, Debian10]
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v3
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Download memgraph package
-        uses: actions/download-artifact@v3
-        with:
-          name: debug-build
-
-      - name: Run drivers tests
-        run: |
-          ./tests/drivers/run.sh
-
-  debug_integration_tests:
-    name: "Debug integration tests"
-    needs: debug_build
-    runs-on: [self-hosted, Linux, X64, Debian10]
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v3
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Download memgraph package
-        uses: actions/download-artifact@v3
-        with:
-          name: debug-build
-
-      - name: Run integration tests
-        run: |
-          ./tests/integration/run.sh
-
-  debug_Ctest_tests:
-    name: "Debug CTest tests"
-    needs: debug_build
-    runs-on: [self-hosted, Linux, X64, Debian10]
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v3
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Download memgraph package
-        uses: actions/download-artifact@v3
-        with:
-          name: debug-build
-
-      - name: Run leftover CTest tests
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run leftover CTest tests (all except unit and benchmark tests).
-          cd build
-          ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure
-
-  debug_cppcheck_tests:
-    name: "Debug cppchek and clang-format"
-    needs: debug_build
-    runs-on: [self-hosted, Linux, X64, Debian10]
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v3
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Download memgraph package
-        uses: actions/download-artifact@v3
-        with:
-          name: debug-build
-
-      - name: Run cppcheck and clang-format
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run cppcheck and clang-format.
-          cd tools/github
-          ./cppcheck_and_clang_format diff
-
-      - name: Save cppcheck and clang-format errors
-        uses: actions/upload-artifact@v3
-        with:
-          name: "Code coverage"
-          path: tools/github/cppcheck_and_clang_format.txt
+          name: "Jepsen Report"
+          path: tests/jepsen/Jepsen.tar.gz
