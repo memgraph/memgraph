@@ -87,6 +87,8 @@ enum class TypeId : uint64_t {
   // Coordinator
   COORD_FAILOVER_REQ,
   COORD_FAILOVER_RES,
+  COORD_SET_REPL_MAIN_REQ,
+  COORD_SET_REPL_MAIN_RES,
 
   // AST
   AST_LABELIX,

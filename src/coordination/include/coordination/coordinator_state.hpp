@@ -45,6 +45,10 @@ class CoordinatorState {
 
   [[nodiscard]] auto RegisterMain(CoordinatorClientConfig config) -> RegisterMainReplicaCoordinatorStatus;
 
+  [[nodiscard]] auto RegisterInstanceOnCoordinator(CoordinatorClientConfig config) -> RegisterInstanceCoordinatorStatus;
+
+  [[nodiscard]] auto SetInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus;
+
   auto ShowReplicas() const -> std::vector<CoordinatorInstanceStatus>;
 
   auto ShowMain() const -> std::optional<CoordinatorInstanceStatus>;

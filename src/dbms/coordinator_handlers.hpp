@@ -26,6 +26,7 @@ class CoordinatorHandlers {
  private:
   static void PromoteReplicaToMainHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
                                           slk::Builder *res_builder);
+  static void SetMainToReplicaHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
 };
 
 }  // namespace memgraph::dbms

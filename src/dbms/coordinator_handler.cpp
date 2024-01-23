@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "coordination/register_main_replica_coordinator_status.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "dbms/coordinator_handler.hpp"
@@ -27,6 +28,16 @@ auto CoordinatorHandler::RegisterReplicaOnCoordinator(coordination::CoordinatorC
 auto CoordinatorHandler::RegisterMainOnCoordinator(memgraph::coordination::CoordinatorClientConfig config)
     -> coordination::RegisterMainReplicaCoordinatorStatus {
   return dbms_handler_.CoordinatorState().RegisterMain(std::move(config));
+}
+
+auto CoordinatorHandler::RegisterInstanceOnCoordinator(memgraph::coordination::CoordinatorClientConfig config)
+    -> coordination::RegisterInstanceCoordinatorStatus {
+  return dbms_handler_.CoordinatorState().RegisterInstanceOnCoordinator(std::move(config));
+}
+
+auto CoordinatorHandler::SetInstanceToMain(std::string instance_name)
+    -> coordination::SetInstanceToMainCoordinatorStatus {
+  return dbms_handler_.CoordinatorState().SetInstanceToMain(std::move(instance_name));
 }
 
 auto CoordinatorHandler::ShowReplicasOnCoordinator() const -> std::vector<coordination::CoordinatorInstanceStatus> {

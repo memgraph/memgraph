@@ -25,5 +25,20 @@ enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
   SUCCESS
 };
 
+enum class RegisterInstanceCoordinatorStatus : uint8_t {
+  NAME_EXISTS,
+  END_POINT_EXISTS,
+  COULD_NOT_BE_PERSISTED,
+  NOT_COORDINATOR,
+  SUCCESS
+};
+
+enum class SetInstanceToMainCoordinatorStatus : uint8_t {
+  NO_INSTANCE_WITH_NAME,
+  NOT_COORDINATOR,
+  SUCCESS,
+  COULD_NOT_PROMOTE_TO_MAIN,
+};
+
 }  // namespace memgraph::coordination
 #endif

@@ -241,18 +241,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return CoordinatorQuery*
    */
-  antlrcpp::Any visitRegisterCoordinatorServer(MemgraphCypher::RegisterCoordinatorServerContext *ctx) override;
+  antlrcpp::Any visitRegisterInstanceOnCoordinator(MemgraphCypher::RegisterInstanceOnCoordinatorContext *ctx) override;
 
   /**
    * @return CoordinatorQuery*
    */
-  antlrcpp::Any visitRegisterMainCoordinatorServer(MemgraphCypher::RegisterMainCoordinatorServerContext *ctx) override;
-
-  /**
-   * @return CoordinatorQuery*
-   */
-  antlrcpp::Any visitRegisterReplicaCoordinatorServer(
-      MemgraphCypher::RegisterReplicaCoordinatorServerContext *ctx) override;
+  antlrcpp::Any visitSetInstanceToMain(MemgraphCypher::SetInstanceToMainContext *ctx) override;
 
   /**
    * @return CoordinatorQuery*

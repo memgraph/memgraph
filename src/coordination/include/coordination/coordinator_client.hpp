@@ -43,10 +43,13 @@ class CoordinatorClient {
   CoordinatorClient &operator=(CoordinatorClient &&) noexcept = delete;
 
   void StartFrequentCheck();
+  void StopFrequentCheck();
   void PauseFrequentCheck();
   void ResumeFrequentCheck();
 
   auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
+
+  auto SendSetToReplicaRpc(ReplClientInfo replication_client_info) const -> bool;
 
   auto InstanceName() const -> std::string_view;
   auto SocketAddress() const -> std::string;

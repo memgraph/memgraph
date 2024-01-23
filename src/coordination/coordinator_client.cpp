@@ -68,6 +68,8 @@ void CoordinatorClient::StartFrequentCheck() {
   });
 }
 
+void CoordinatorClient::StopFrequentCheck() { replica_checker_.Stop(); }
+
 void CoordinatorClient::PauseFrequentCheck() { replica_checker_.Pause(); }
 void CoordinatorClient::ResumeFrequentCheck() { replica_checker_.Resume(); }
 
@@ -98,6 +100,21 @@ auto CoordinatorClient::SendPromoteReplicaToMainRpc(
       return false;
     }
     spdlog::info("Sent failover RPC from coordinator to new main!");
+    return true;
+  } catch (const rpc::RpcFailedException &) {
+    spdlog::error("Failed to send failover RPC from coordinator to new main!");
+  }
+  return false;
+}
+
+auto CoordinatorClient::SendSetToReplicaRpc(CoordinatorClient::ReplClientInfo replication_client_info) const -> bool {
+  try {
+    auto stream{rpc_client_.Stream<SetMainToReplicaRpc>(std::move(replication_client_info))};
+    if (!stream.AwaitResponse().success) {
+      spdlog::error("Failed to set main to replica!");
+      return false;
+    }
+    spdlog::info("Sent request RPC from coordinator to instance to set it as replica!");
     return true;
   } catch (const rpc::RpcFailedException &) {
     spdlog::error("Failed to send failover RPC from coordinator to new main!");

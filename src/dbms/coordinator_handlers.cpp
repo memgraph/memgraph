@@ -28,6 +28,37 @@ void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
         spdlog::info("Received PromoteReplicaToMainRpc from coordinator server");
         CoordinatorHandlers::PromoteReplicaToMainHandler(dbms_handler, req_reader, res_builder);
       });
+
+  server.Register<coordination::SetMainToReplicaRpc>(
+      [&dbms_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+        spdlog::info("Received PromoteReplicaToMainRpc from coordinator server");
+        CoordinatorHandlers::SetMainToReplicaHandler(dbms_handler, req_reader, res_builder);
+      });
+}
+
+void CoordinatorHandlers::SetMainToReplicaHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
+                                                  slk::Builder *res_builder) {
+  auto &repl_state = dbms_handler.ReplicationState();
+
+  if (!repl_state.IsMain()) {
+    spdlog::error("Setting to replica must be performed on main.");
+    slk::Save(coordination::SetMainToReplicaRes{false}, res_builder);
+    return;
+  }
+
+  coordination::SetMainToReplicaReq req;
+  slk::Load(&req, req_reader);
+
+  replication::ReplicationServerConfig clients_config{.ip_address = req.replication_client_info.replication_ip_address,
+                                                      .port = req.replication_client_info.replication_port};
+
+  if (bool success = memgraph::dbms::SetReplicationRoleReplica(dbms_handler, clients_config); !success) {
+    spdlog::error("Setting main to replica failed!");
+    slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
+    return;
+  }
+
+  slk::Save(coordination::PromoteReplicaToMainRes{true}, res_builder);
 }
 
 void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,

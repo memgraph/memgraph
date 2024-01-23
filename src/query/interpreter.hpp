@@ -154,6 +154,14 @@ class CoordinatorQueryHandler {
                                              const std::chrono::seconds instance_check_frequency,
                                              const std::string &instance_name) = 0;
 
+  virtual void RegisterInstanceOnCoordinator(const std::string &coordinator_socket_address,
+                                             const std::string &replication_socket_address,
+                                             const std::chrono::seconds instance_check_frequency,
+                                             const std::string &instance_name,
+                                             CoordinatorQuery::SyncMode sync_mode) = 0;
+
+  virtual void SetInstanceToMain(const std::string &instance_name) = 0;
+
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<coordination::CoordinatorInstanceStatus> ShowReplicasOnCoordinator() const = 0;
 
