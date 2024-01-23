@@ -3751,16 +3751,21 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                           utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
                           utils::Downcast<ShowDatabasesQuery>(parsed_query.query) ||
                           utils::Downcast<ReplicationQuery>(parsed_query.query);
+
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
-    if (system_queries) {
-      // TODO: Ordering between system and data queries
-      // Start a system transaction
-      auto system_unique = std::unique_lock{interpreter_context_->dbms_handler->system_lock_, std::defer_lock};
-      if (!system_unique.try_lock_for(std::chrono::milliseconds(kSystemTxTryMS))) {
-        throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
+    auto system_transaction_guard = std::invoke([&]() -> std::optional<SystemTransactionGuard> {
+      if (system_queries) {
+        // TODO: Ordering between system and data queries
+        // Start a system transaction
+        auto system_unique = std::unique_lock{interpreter_context_->dbms_handler->system_lock_, std::defer_lock};
+        if (!system_unique.try_lock_for(std::chrono::milliseconds(kSystemTxTryMS))) {
+          throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
+        }
+        return std::optional<SystemTransactionGuard>{std::in_place, std::move(system_unique),
+                                                     *interpreter_context_->dbms_handler};
       }
-      system_transaction_.emplace(std::move(system_unique), *interpreter_context_->dbms_handler);
-    }
+      return std::nullopt;
+    });
 
     // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
     // case for use database which overwrites the current database)
@@ -3906,6 +3911,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     }
     query_execution->summary["db"] = *query_execution->prepared_query->db;
 
+    // prepare is done, move system txn guard to be owned by interpreter
+    system_transaction_guard_ = std::move(system_transaction_guard);
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid,
             query_execution->prepared_query->db};
   } catch (const utils::BasicException &) {
@@ -4055,13 +4062,13 @@ void Interpreter::Commit() {
   current_transaction_.reset();
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
     // No database nor db transaction; check for system transaction
-    if (!system_transaction_) return;
+    if (!system_transaction_guard_) return;
 
     // TODO Distinguish between data and system transaction state
     // Think about updating the status to a struct with bitfield
     // Clean transaction status on exit
     utils::OnScopeExit clean_status([this]() {
-      system_transaction_.reset();
+      system_transaction_guard_.reset();
       // System transactions are not terminable
       // Durability has happened at time of PULL
       // Commit is doing replication and timestamp update
@@ -4079,7 +4086,7 @@ void Interpreter::Commit() {
       }
     });
 
-    system_transaction_->Commit();
+    system_transaction_guard_->Commit();
     return;
   }
   auto *db = current_db_.db_acc_->get();

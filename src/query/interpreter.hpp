@@ -243,13 +243,17 @@ class Interpreter final {
 
   void SetUser(std::string_view username);
 
-  struct SystemTransaction {
-    explicit SystemTransaction(std::unique_lock<utils::ResourceLock> guard, dbms::DbmsHandler &dbms_handler)
+  struct SystemTransactionGuard {
+    explicit SystemTransactionGuard(std::unique_lock<utils::ResourceLock> guard, dbms::DbmsHandler &dbms_handler)
         : system_guard_(std::move(guard)), dbms_handler_{&dbms_handler} {
       dbms_handler_->NewSystemTransaction();
     }
+    SystemTransactionGuard &operator=(SystemTransactionGuard &&) = default;
+    SystemTransactionGuard(SystemTransactionGuard &&) = default;
 
-    ~SystemTransaction() { dbms_handler_->ResetSystemTransaction(); }
+    ~SystemTransactionGuard() {
+      if (system_guard_.owns_lock()) dbms_handler_->ResetSystemTransaction();
+    }
 
     dbms::AllSyncReplicaStatus Commit() { return dbms_handler_->Commit(); }
 
@@ -258,13 +262,13 @@ class Interpreter final {
     dbms::DbmsHandler *dbms_handler_;
   };
 
-  std::optional<SystemTransaction> system_transaction_{};
+  std::optional<SystemTransactionGuard> system_transaction_guard_{};
 
  private:
   void ResetInterpreter() {
     query_executions_.clear();
     system_guard.reset();
-    system_transaction_.reset();
+    system_transaction_guard_.reset();
     transaction_queries_->clear();
     if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
       current_db_.db_acc_.reset();
