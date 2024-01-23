@@ -136,6 +136,20 @@ Feature: Bfs
           | pth                                        |
           | <(:label1{id:1})-[:type1{id:1}]->(:label2{id:2})-[:type1{id:2}]->(:label3{id:3})> |
 
+    Scenario: Test BFS variable expand using IN edges with filter by last edge type of accumulated path
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3});
+          """
+      When executing query:
+          """
+          MATCH pth=(:label3)<-[*BFS (e,n,p | type(relationships(p)[-1]) = 'type1')]-(:label1) return pth;
+          """
+      Then the result should be:
+          | pth                                        |
+          | <(:label3 {id: 3})<-[:type1 {id: 2}]-(:label2 {id: 2})<-[:type1 {id: 1}]-(:label1 {id: 1})> |
+
     Scenario: Test BFS variable expand with restict filter by last edge type of accumulated path
       Given an empty graph
       And having executed:
