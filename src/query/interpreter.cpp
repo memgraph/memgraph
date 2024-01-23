@@ -336,9 +336,9 @@ class ReplQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   ReplicationQuery::ReplicationRole ShowReplicationRole() const {
     switch (handler_.GetRole()) {
-      case memgraph::replication::ReplicationRole::MAIN:
+      case memgraph::replication_coordination_glue::ReplicationRole::MAIN:
         return ReplicationQuery::ReplicationRole::MAIN;
-      case memgraph::replication::ReplicationRole::REPLICA:
+      case memgraph::replication_coordination_glue::ReplicationRole::REPLICA:
         return ReplicationQuery::ReplicationRole::REPLICA;
     }
     throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
@@ -3171,7 +3171,7 @@ PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, CurrentDB &cu
 }
 
 PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
-                                         replication::ReplicationRole replication_role) {
+                                         replication_coordination_glue::ReplicationRole replication_role) {
   if (in_explicit_transaction) {
     throw CreateSnapshotInMulticommandTxException();
   }

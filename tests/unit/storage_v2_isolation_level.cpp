@@ -16,7 +16,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "utils/on_scope_exit.hpp"
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 namespace {
 int64_t VerticesCount(memgraph::storage::Storage::Accessor *accessor) {

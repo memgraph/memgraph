@@ -13,78 +13,46 @@
 
 #include "coordination/coordinator_data.hpp"
 
+#include <range/v3/view.hpp>
+
 namespace memgraph::coordination {
 
-namespace {
-
-bool ReplicaWithNameExists(const std::list<CoordinatorClientInfo> &replicas, const CoordinatorClientConfig &config) {
-  auto name_matches = [&instance_name = config.instance_name](auto const &replica) {
-    return replica.InstanceName() == instance_name;
-  };
-  return std::ranges::any_of(replicas, name_matches);
-};
-
-bool ReplicaWithEndpointExists(const std::list<CoordinatorClientInfo> &replicas,
-                               const CoordinatorClientConfig &config) {
-  auto address_matches = [socket_address = fmt::format("{}:{}", config.ip_address, config.port)](auto const &replica) {
-    return replica.SocketAddress() == socket_address;
-  };
-  return std::ranges::any_of(replicas, address_matches);
-};
-
-}  // namespace
-
 CoordinatorData::CoordinatorData() {
-  auto replica_find_client_info = [](CoordinatorData *coord_data,
-                                     std::string_view instance_name) -> CoordinatorClientInfo & {
+  auto find_instance = [](CoordinatorData *coord_data, std::string_view instance_name) -> CoordinatorInstance & {
     std::shared_lock<utils::RWLock> lock{coord_data->coord_data_lock_};
 
-    auto replica_client_info = std::ranges::find_if(
-        coord_data->registered_replicas_info_,
-        [instance_name](const CoordinatorClientInfo &replica) { return replica.InstanceName() == instance_name; });
+    auto instance =
+        std::ranges::find_if(coord_data->registered_instances_, [instance_name](const CoordinatorInstance &instance) {
+          return instance.client_info_.InstanceName() == instance_name;
+        });
 
-    if (replica_client_info != coord_data->registered_replicas_info_.end()) {
-      return *replica_client_info;
-    }
-
-    MG_ASSERT(coord_data->registered_main_info_->InstanceName() == instance_name,
-              "Instance is neither a replica nor main...");
-    return *coord_data->registered_main_info_;
+    MG_ASSERT(instance != coord_data->registered_instances_.end(), "Instance {} not found during callback!",
+              instance_name);
+    return *instance;
   };
 
-  replica_succ_cb_ = [replica_find_client_info](CoordinatorData *coord_data, std::string_view instance_name) -> void {
-    auto &client_info = replica_find_client_info(coord_data, instance_name);
-    client_info.UpdateLastResponseTime();
+  replica_succ_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
+    auto &instance = find_instance(coord_data, instance_name);
+    MG_ASSERT(instance.IsReplica(), "Instance {} is not a replica!", instance_name);
+    instance.client_info_.UpdateLastResponseTime();
   };
 
-  replica_fail_cb_ = [replica_find_client_info](CoordinatorData *coord_data, std::string_view instance_name) -> void {
-    auto &client_info = replica_find_client_info(coord_data, instance_name);
-    client_info.UpdateInstanceStatus();
+  replica_fail_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
+    auto &instance = find_instance(coord_data, instance_name);
+    MG_ASSERT(instance.IsReplica(), "Instance {} is not a replica!", instance_name);
+    instance.client_info_.UpdateInstanceStatus();
   };
 
-  auto get_main_client_info = [](CoordinatorData *coord_data,
-                                 std::string_view instance_name) -> CoordinatorClientInfo & {
-    MG_ASSERT(coord_data->registered_main_info_.has_value(), "Main info is not set, but callback is called");
-    std::shared_lock<utils::RWLock> lock{coord_data->coord_data_lock_};
-
-    // TODO When we will support restoration of main, we have to assert that the instance is main or replica, not at
-    // this point....
-    auto &registered_main_info = coord_data->registered_main_info_;
-    MG_ASSERT(registered_main_info->InstanceName() == instance_name,
-              "Callback called for wrong instance name: {}, expected: {}", instance_name,
-              registered_main_info->InstanceName());
-    return *registered_main_info;
+  main_succ_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
+    auto &instance = find_instance(coord_data, instance_name);
+    MG_ASSERT(instance.IsMain(), "Instance {} is not a main!", instance_name);
+    instance.client_info_.UpdateLastResponseTime();
   };
 
-  main_succ_cb_ = [get_main_client_info](CoordinatorData *coord_data, std::string_view instance_name) -> void {
-    auto &registered_main_info = get_main_client_info(coord_data, instance_name);
-    registered_main_info.UpdateLastResponseTime();
-  };
-
-  main_fail_cb_ = [this, get_main_client_info](CoordinatorData *coord_data, std::string_view instance_name) -> void {
-    auto &registered_main_info = get_main_client_info(coord_data, instance_name);
-    if (bool main_alive = registered_main_info.UpdateInstanceStatus(); !main_alive) {
-      spdlog::warn("Main is not alive, starting failover");
+  main_fail_cb_ = [this, find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
+    auto &instance = find_instance(coord_data, instance_name);
+    if (bool main_alive = instance.client_info_.UpdateInstanceStatus(); !main_alive) {
+      //  spdlog::warn("Main is not alive, starting failover");
       // switch (auto failover_status = DoFailover(); failover_status) {
       //   using enum DoFailoverStatus;
       //   case ALL_REPLICAS_DOWN:
@@ -102,115 +70,127 @@ CoordinatorData::CoordinatorData() {
 
 auto CoordinatorData::DoFailover() -> DoFailoverStatus {
   using ReplicationClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
-
   // std::lock_guard<utils::RWLock> lock{coord_data_lock_};
 
-  if (!registered_main_info_.has_value()) {
+  // TODO: (andi) Make const what is possible to make const
+
+  auto main_instance = std::ranges::find_if(registered_instances_, &CoordinatorInstance::IsMain);
+
+  if (main_instance == registered_instances_.end()) {
     return DoFailoverStatus::CLUSTER_UNINITIALIZED;
   }
 
-  if (registered_main_info_->IsAlive()) {
+  if (main_instance->client_info_.IsAlive()) {
     return DoFailoverStatus::MAIN_ALIVE;
   }
 
-  registered_main_->StopFrequentCheck();
+  main_instance->client_.StopFrequentCheck();
 
-  const auto chosen_replica_info = std::ranges::find_if(
-      registered_replicas_info_, [](const CoordinatorClientInfo &client_info) { return client_info.IsAlive(); });
-  if (chosen_replica_info == registered_replicas_info_.end()) {
+  auto replica_instances = registered_instances_ | ranges::views::filter(&CoordinatorInstance::IsReplica);
+
+  auto chosen_replica_instance = std::ranges::find_if(
+      replica_instances, [](const CoordinatorInstance &instance) { return instance.client_info_.IsAlive(); });
+
+  if (chosen_replica_instance == replica_instances.end()) {
     return DoFailoverStatus::ALL_REPLICAS_DOWN;
   }
 
-  auto chosen_replica =
-      std::ranges::find_if(registered_replicas_, [&chosen_replica_info](const CoordinatorClient &replica) {
-        return replica.InstanceName() == chosen_replica_info->InstanceName();
-      });
-  MG_ASSERT(chosen_replica != registered_replicas_.end(), "Chosen replica {} not found in registered replicas",
-            chosen_replica_info->InstanceName());
-  chosen_replica->PauseFrequentCheck();
+  chosen_replica_instance->client_.PauseFrequentCheck();
 
   std::vector<ReplicationClientInfo> repl_clients_info;
-  repl_clients_info.reserve(registered_replicas_.size() - 1);
-  std::ranges::for_each(registered_replicas_, [&chosen_replica, &repl_clients_info](const CoordinatorClient &replica) {
-    if (replica != *chosen_replica) {
-      repl_clients_info.emplace_back(replica.ReplicationClientInfo());
-    }
-  });
+  repl_clients_info.reserve(std::ranges::distance(replica_instances));
 
-  if (!chosen_replica->SendPromoteReplicaToMainRpc(std::move(repl_clients_info))) {
+  auto not_chosen_replica_instance = [&chosen_replica_instance](const CoordinatorInstance &instance) {
+    return instance != *chosen_replica_instance;
+  };
+
+  for (const auto &unchosen_replica_instance : replica_instances | ranges::views::filter(not_chosen_replica_instance)) {
+    repl_clients_info.emplace_back(unchosen_replica_instance.client_.ReplicationClientInfo());
+  }
+
+  if (!chosen_replica_instance->client_.SendPromoteReplicaToMainRpc(std::move(repl_clients_info))) {
     spdlog::error("Sent RPC message, but exception was caught, aborting Failover");
     // TODO: new status and rollback all changes that were done...
     MG_ASSERT(false, "RPC message failed");
   }
 
-  registered_replicas_.erase(chosen_replica);
-  registered_replicas_info_.erase(chosen_replica_info);
+  chosen_replica_instance->client_.SetSuccCallback(main_succ_cb_);
+  chosen_replica_instance->client_.SetFailCallback(main_fail_cb_);
+  chosen_replica_instance->replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
+  // TODO: (andi) Is this correct
+  chosen_replica_instance->client_.ReplicationClientInfo().reset();
+  chosen_replica_instance->client_.ResumeFrequentCheck();
 
-  registered_main_ = std::make_unique<CoordinatorClient>(this, chosen_replica->Config(), chosen_replica->SuccCallback(),
-                                                         chosen_replica->FailCallback());
-  registered_main_->ReplicationClientInfo().reset();
-  registered_main_info_.emplace(*chosen_replica_info);
-  registered_main_->StartFrequentCheck();
+  registered_instances_.erase(main_instance);
 
   return DoFailoverStatus::SUCCESS;
 }
 
 auto CoordinatorData::ShowMain() const -> std::optional<CoordinatorInstanceStatus> {
-  if (!registered_main_info_.has_value()) {
+  auto main_instance = std::ranges::find_if(registered_instances_, &CoordinatorInstance::IsMain);
+  if (main_instance == registered_instances_.end()) {
     return std::nullopt;
   }
-  return CoordinatorInstanceStatus{.instance_name = registered_main_info_->InstanceName(),
-                                   .socket_address = registered_main_info_->SocketAddress(),
-                                   .is_alive = registered_main_info_->IsAlive()};
+
+  return CoordinatorInstanceStatus{.instance_name = main_instance->client_info_.InstanceName(),
+                                   .socket_address = main_instance->client_info_.SocketAddress(),
+                                   .is_alive = main_instance->client_info_.IsAlive()};
 };
 
 auto CoordinatorData::ShowReplicas() const -> std::vector<CoordinatorInstanceStatus> {
   std::vector<CoordinatorInstanceStatus> instances_status;
-  instances_status.reserve(registered_replicas_info_.size());
 
-  std::ranges::transform(registered_replicas_info_, std::back_inserter(instances_status),
-                         [](const CoordinatorClientInfo &coord_client_info) {
-                           return CoordinatorInstanceStatus{.instance_name = coord_client_info.InstanceName(),
-                                                            .socket_address = coord_client_info.SocketAddress(),
-                                                            .is_alive = coord_client_info.IsAlive()};
-                         });
+  for (const auto &replica_instance : registered_instances_ | ranges::views::filter(&CoordinatorInstance::IsReplica)) {
+    instances_status.emplace_back(
+        CoordinatorInstanceStatus{.instance_name = replica_instance.client_info_.InstanceName(),
+                                  .socket_address = replica_instance.client_info_.SocketAddress(),
+                                  .is_alive = replica_instance.client_info_.IsAlive()});
+  }
+
   return instances_status;
 }
 
 auto CoordinatorData::RegisterMain(CoordinatorClientConfig config) -> RegisterMainReplicaCoordinatorStatus {
   // TODO: (andi) test this
-  if (ReplicaWithNameExists(registered_replicas_info_, config)) {
+
+  if (std::ranges::any_of(registered_instances_, [&config](const CoordinatorInstance &instance) {
+        return instance.client_info_.InstanceName() == config.instance_name;
+      })) {
     return RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
   }
-  if (ReplicaWithEndpointExists(registered_replicas_info_, config)) {
+
+  if (std::ranges::any_of(registered_instances_, [&config](const CoordinatorInstance &instance) {
+        return instance.client_info_.SocketAddress() == config.ip_address + ":" + std::to_string(config.port);
+      })) {
     return RegisterMainReplicaCoordinatorStatus::ENDPOINT_EXISTS;
   }
 
-  registered_main_ = std::make_unique<CoordinatorClient>(this, std::move(config), main_succ_cb_, main_fail_cb_);
-
-  registered_main_info_.emplace(registered_main_->InstanceName(), registered_main_->SocketAddress());
-  registered_main_->StartFrequentCheck();
+  // TODO: (andi) Improve this
+  auto *instance = &registered_instances_.emplace_back(this, std::move(config), main_succ_cb_, main_fail_cb_,
+                                                       replication_coordination_glue::ReplicationRole::MAIN);
+  instance->client_.StartFrequentCheck();
 
   return RegisterMainReplicaCoordinatorStatus::SUCCESS;
 }
 
 auto CoordinatorData::RegisterReplica(CoordinatorClientConfig config) -> RegisterMainReplicaCoordinatorStatus {
   // TODO: (andi) Test it
-  if (ReplicaWithNameExists(registered_replicas_info_, config)) {
+  if (std::ranges::any_of(registered_instances_, [&config](const CoordinatorInstance &instance) {
+        return instance.client_info_.InstanceName() == config.instance_name;
+      })) {
     return RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
   }
 
-  if (registered_main_info_ && registered_main_info_->InstanceName() == config.instance_name) {
-    return RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
-  }
-
-  if (ReplicaWithEndpointExists(registered_replicas_info_, config)) {
+  if (std::ranges::any_of(registered_instances_, [&config](const CoordinatorInstance &instance) {
+        return instance.client_info_.SocketAddress() == config.ip_address + ":" + std::to_string(config.port);
+      })) {
     return RegisterMainReplicaCoordinatorStatus::ENDPOINT_EXISTS;
   }
 
-  auto *coord_client = &registered_replicas_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_);
-  registered_replicas_info_.emplace_back(coord_client->InstanceName(), coord_client->SocketAddress());
-  coord_client->StartFrequentCheck();
+  // TODO: (andi) Improve this
+  auto *instance = &registered_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_,
+                                                       replication_coordination_glue::ReplicationRole::REPLICA);
+  instance->client_.StartFrequentCheck();
 
   return RegisterMainReplicaCoordinatorStatus::SUCCESS;
 }

@@ -19,7 +19,7 @@
 #include "storage/v2/storage_error.hpp"
 #include "utils/thread.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 const uint64_t kNumVerifiers = 5;
 const uint64_t kNumMutators = 1;

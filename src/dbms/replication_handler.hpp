@@ -11,8 +11,8 @@
 
 #pragma once
 
+#include "replication_coordination_glue/role.hpp"
 #include "dbms/database.hpp"
-#include "replication/role.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::replication {
@@ -53,7 +53,7 @@ struct ReplicationHandler {
   auto UnregisterReplica(std::string_view name) -> UnregisterReplicaResult;
 
   // Helper pass-through (TODO: remove)
-  auto GetRole() const -> memgraph::replication::ReplicationRole;
+  auto GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole;
   bool IsMain() const;
   bool IsReplica() const;
 

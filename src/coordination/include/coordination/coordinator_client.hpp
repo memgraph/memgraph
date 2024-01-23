@@ -49,6 +49,7 @@ class CoordinatorClient {
 
   auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
 
+  // TODO: (andi) These several methods are probably not needed, Instance should own this info
   auto InstanceName() const -> std::string_view;
   auto SocketAddress() const -> std::string;
   auto Config() const -> CoordinatorClientConfig const &;

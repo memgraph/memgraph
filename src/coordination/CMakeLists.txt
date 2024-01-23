@@ -8,6 +8,7 @@ target_sources(mg-coordination
         include/coordination/coordinator_server.hpp
         include/coordination/coordinator_config.hpp
         include/coordination/coordinator_exceptions.hpp
+        include/coordination/coordinator_instance.hpp
         include/coordination/coordinator_slk.hpp
         include/coordination/coordinator_data.hpp
         include/coordination/constants.hpp
@@ -25,5 +26,5 @@ target_sources(mg-coordination
 target_include_directories(mg-coordination PUBLIC include)
 
 target_link_libraries(mg-coordination
-    PUBLIC mg::utils mg::rpc mg::slk mg::io mg::repl_coord_glue
+    PUBLIC mg::utils mg::rpc mg::slk mg::io mg::repl_coord_glue rangev3
 )

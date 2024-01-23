@@ -21,9 +21,10 @@
 
 namespace memgraph::coordination {
 
+// TODO: (andi) Fix ownerships with std::string_view
 class CoordinatorClientInfo {
  public:
-  CoordinatorClientInfo(std::string_view instance_name, std::string_view socket_address)
+  CoordinatorClientInfo(std::string instance_name, std::string socket_address)
       : last_response_time_(std::chrono::system_clock::now()),
         is_alive_(true),  // TODO: (andi) Maybe it should be false until the first ping
         instance_name_(instance_name),
@@ -50,15 +51,15 @@ class CoordinatorClientInfo {
   CoordinatorClientInfo(CoordinatorClientInfo &&other) noexcept
       : last_response_time_(other.last_response_time_.load()),
         is_alive_(other.is_alive_.load()),
-        instance_name_(other.instance_name_),
-        socket_address_(other.socket_address_) {}
+        instance_name_(std::move(other.instance_name_)),
+        socket_address_(std::move(other.socket_address_)) {}
 
   CoordinatorClientInfo &operator=(CoordinatorClientInfo &&other) noexcept {
     if (this != &other) {
       last_response_time_.store(other.last_response_time_.load());
       is_alive_ = other.is_alive_.load();
-      instance_name_ = other.instance_name_;
-      socket_address_ = other.socket_address_;
+      instance_name_ = std::move(other.instance_name_);
+      socket_address_ = std::move(other.socket_address_);
     }
     return *this;
   }
@@ -78,7 +79,8 @@ class CoordinatorClientInfo {
  private:
   std::atomic<std::chrono::system_clock::time_point> last_response_time_{};
   std::atomic<bool> is_alive_{false};
-  std::string_view instance_name_;
+  // TODO: (andi) Who owns this info?
+  std::string instance_name_;
   std::string socket_address_;
 };
 

@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_client.hpp"
 #include "coordination/coordinator_client_info.hpp"
+#include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_server.hpp"
 #include "coordination/failover_status.hpp"
@@ -48,10 +49,7 @@ class CoordinatorData {
   std::function<void(CoordinatorData *, std::string_view)> replica_succ_cb_;
   std::function<void(CoordinatorData *, std::string_view)> replica_fail_cb_;
 
-  std::list<CoordinatorClient> registered_replicas_;
-  std::list<CoordinatorClientInfo> registered_replicas_info_;
-  std::unique_ptr<CoordinatorClient> registered_main_;
-  std::optional<CoordinatorClientInfo> registered_main_info_;
+  std::list<CoordinatorInstance> registered_instances_;
 };
 
 struct CoordinatorMainReplicaData {

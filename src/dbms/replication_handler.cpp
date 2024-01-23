@@ -169,7 +169,7 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterR
                     dbms_handler_.ReplicationState().ReplicationData());
 }
 
-auto ReplicationHandler::GetRole() const -> memgraph::replication::ReplicationRole {
+auto ReplicationHandler::GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole {
   return dbms_handler_.ReplicationState().GetRole();
 }
 

@@ -17,7 +17,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 // The following classes are wrappers for memgraph::utils::MemoryResource, so that we can
 // use BENCHMARK_TEMPLATE
 
