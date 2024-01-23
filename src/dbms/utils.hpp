@@ -87,8 +87,8 @@ inline std::optional<RegisterReplicaError> HandleErrorOnReplicaClient(
         return {};
       case replication::RegisterReplicaError::NAME_EXISTS:
         return dbms::RegisterReplicaError::NAME_EXISTS;
-      case replication::RegisterReplicaError::END_POINT_EXISTS:
-        return dbms::RegisterReplicaError::END_POINT_EXISTS;
+      case replication::RegisterReplicaError::ENDPOINT_EXISTS:
+        return dbms::RegisterReplicaError::ENDPOINT_EXISTS;
       case replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
         return dbms::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
       case replication::RegisterReplicaError::SUCCESS:

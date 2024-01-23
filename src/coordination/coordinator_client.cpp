@@ -27,23 +27,18 @@ auto CreateClientContext(const memgraph::coordination::CoordinatorClientConfig &
 }
 }  // namespace
 
-CoordinatorClient::CoordinatorClient(CoordinatorState *coord_state, CoordinatorClientConfig config,
+CoordinatorClient::CoordinatorClient(CoordinatorData *coord_data, CoordinatorClientConfig config,
                                      HealthCheckCallback succ_cb, HealthCheckCallback fail_cb)
     : rpc_context_{CreateClientContext(config)},
       rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
                   &rpc_context_},
       config_{std::move(config)},
-      coord_state_{coord_state},
+      coord_data_{coord_data},
       succ_cb_{std::move(succ_cb)},
       fail_cb_{std::move(fail_cb)} {}
 
 CoordinatorClient::~CoordinatorClient() {
-  auto exit_job = utils::OnScopeExit([&] {
-    replica_checker_.Stop();
-    thread_pool_.Shutdown();
-  });
   const auto endpoint = rpc_client_.Endpoint();
-  // Logging can throw
   spdlog::trace("Closing coordinator client on {}:{}", endpoint.address, endpoint.port);
 }
 
@@ -58,24 +53,29 @@ void CoordinatorClient::StartFrequentCheck() {
                     rpc_client_.Endpoint().port);
       auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
       if (stream.AwaitResponse().success) {
-        succ_cb_(coord_state_, instance_name);
+        succ_cb_(coord_data_, instance_name);
       } else {
-        fail_cb_(coord_state_, instance_name);
+        fail_cb_(coord_data_, instance_name);
       }
     } catch (const rpc::RpcFailedException &) {
-      fail_cb_(coord_state_, instance_name);
+      fail_cb_(coord_data_, instance_name);
     }
   });
 }
 
+void CoordinatorClient::StopFrequentCheck() { replica_checker_.Stop(); }
 void CoordinatorClient::PauseFrequentCheck() { replica_checker_.Pause(); }
 void CoordinatorClient::ResumeFrequentCheck() { replica_checker_.Resume(); }
 
 auto CoordinatorClient::InstanceName() const -> std::string_view { return config_.instance_name; }
 auto CoordinatorClient::SocketAddress() const -> std::string { return rpc_client_.Endpoint().SocketAddress(); }
 auto CoordinatorClient::Config() const -> CoordinatorClientConfig const & { return config_; }
+
 auto CoordinatorClient::SuccCallback() const -> HealthCheckCallback const & { return succ_cb_; }
 auto CoordinatorClient::FailCallback() const -> HealthCheckCallback const & { return fail_cb_; }
+// TODO: (andi) What is better, like this or fetch it by const &
+auto CoordinatorClient::SetSuccCallback(HealthCheckCallback succ_cb) -> void { succ_cb_ = std::move(succ_cb); }
+auto CoordinatorClient::SetFailCallback(HealthCheckCallback fail_cb) -> void { fail_cb_ = std::move(fail_cb); }
 
 ////// AF design choice
 auto CoordinatorClient::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo const & {

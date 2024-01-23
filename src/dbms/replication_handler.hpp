@@ -25,7 +25,7 @@ namespace memgraph::dbms {
 
 class DbmsHandler;
 
-enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
+enum class RegisterReplicaError : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
 
 enum class UnregisterReplicaResult : uint8_t {
   NOT_MAIN,

@@ -15,22 +15,43 @@
 
 #include "coordination/coordinator_client.hpp"
 #include "coordination/coordinator_client_info.hpp"
+#include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_server.hpp"
+#include "coordination/failover_status.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
 #include "utils/rw_lock.hpp"
 
 #include <list>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 namespace memgraph::coordination {
 
-struct CoordinatorData {
+class CoordinatorData {
+ public:
+  CoordinatorData();
+
+  [[nodiscard]] auto DoFailover() -> DoFailoverStatus;
+
+  [[nodiscard]] auto RegisterReplica(CoordinatorClientConfig config) -> RegisterMainReplicaCoordinatorStatus;
+  [[nodiscard]] auto RegisterMain(CoordinatorClientConfig config) -> RegisterMainReplicaCoordinatorStatus;
+
+  auto ShowReplicas() const -> std::vector<CoordinatorInstanceStatus>;
+  auto ShowMain() const -> std::optional<CoordinatorInstanceStatus>;
+
+ private:
+  mutable utils::RWLock coord_data_lock_{utils::RWLock::Priority::READ};
+
+  std::function<void(CoordinatorData *, std::string_view)> main_succ_cb_;
+  std::function<void(CoordinatorData *, std::string_view)> main_fail_cb_;
+  std::function<void(CoordinatorData *, std::string_view)> replica_succ_cb_;
+  std::function<void(CoordinatorData *, std::string_view)> replica_fail_cb_;
+
   std::list<CoordinatorClient> registered_replicas_;
   std::list<CoordinatorClientInfo> registered_replicas_info_;
   std::unique_ptr<CoordinatorClient> registered_main_;
   std::optional<CoordinatorClientInfo> registered_main_info_;
-
-  mutable utils::RWLock coord_data_lock_{utils::RWLock::Priority::READ};
 };
 
 struct CoordinatorMainReplicaData {

@@ -13,19 +13,12 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_client.hpp"
-#include "coordination/coordinator_client_info.hpp"
 #include "coordination/coordinator_data.hpp"
 #include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_server.hpp"
 #include "coordination/failover_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
-#include "rpc/server.hpp"
-#include "utils/result.hpp"
-#include "utils/rw_spin_lock.hpp"
-#include "utils/synchronized.hpp"
 
-#include <list>
 #include <variant>
 
 namespace memgraph::coordination {

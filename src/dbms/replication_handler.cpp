@@ -38,8 +38,8 @@ std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
     using enum RegisterReplicaError;
     case NAME_EXISTS:
       return "NAME_EXISTS";
-    case END_POINT_EXISTS:
-      return "END_POINT_EXISTS";
+    case ENDPOINT_EXISTS:
+      return "ENDPOINT_EXISTS";
     case CONNECTION_FAILED:
       return "CONNECTION_FAILED";
     case COULD_NOT_BE_PERSISTED:

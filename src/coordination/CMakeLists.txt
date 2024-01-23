@@ -20,6 +20,7 @@ target_sources(mg-coordination
         coordinator_state.cpp
         coordinator_rpc.cpp
         coordinator_server.cpp
+        coordinator_data.cpp
 )
 target_include_directories(mg-coordination PUBLIC include)
 

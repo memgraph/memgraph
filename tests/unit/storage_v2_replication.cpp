@@ -937,7 +937,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
                       .ip_address = local_host,
                       .port = common_port,
                   })
-                  .GetError() == RegisterReplicaError::END_POINT_EXISTS);
+                  .GetError() == RegisterReplicaError::ENDPOINT_EXISTS);
 }
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {

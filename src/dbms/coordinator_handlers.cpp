@@ -74,7 +74,7 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
           spdlog::error("Replica with the same name already exists!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
-        case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
+        case memgraph::replication::RegisterReplicaError::ENDPOINT_EXISTS:
           spdlog::error("Replica with the same endpoint already exists!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;

@@ -499,7 +499,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::RegisterMainReplicaCoordinatorStatus;
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
-      case END_POINT_EXISTS:
+      case ENDPOINT_EXISTS:
         throw QueryRuntimeException(
             "Couldn't register replica instance since instance with such endpoint already exists!");
       case COULD_NOT_BE_PERSISTED:
@@ -532,7 +532,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::RegisterMainReplicaCoordinatorStatus;
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register main instance since instance with such name already exists!");
-      case END_POINT_EXISTS:
+      case ENDPOINT_EXISTS:
         throw QueryRuntimeException(
             "Couldn't register main instance since instance with such endpoint already exists!");
       case COULD_NOT_BE_PERSISTED:

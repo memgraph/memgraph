@@ -22,17 +22,17 @@
 
 namespace memgraph::coordination {
 
-class CoordinatorState;
+class CoordinatorData;
 
 class CoordinatorClient {
  public:
   using ReplClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
   using ReplicationClientsInfo = std::vector<ReplClientInfo>;
 
-  using HealthCheckCallback = std::function<void(CoordinatorState *, std::string_view)>;
+  using HealthCheckCallback = std::function<void(CoordinatorData *, std::string_view)>;
 
-  explicit CoordinatorClient(CoordinatorState *coord_state_, CoordinatorClientConfig config,
-                             HealthCheckCallback succ_cb, HealthCheckCallback fail_cb);
+  explicit CoordinatorClient(CoordinatorData *coord_data_, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
+                             HealthCheckCallback fail_cb);
 
   ~CoordinatorClient();
 
@@ -43,6 +43,7 @@ class CoordinatorClient {
   CoordinatorClient &operator=(CoordinatorClient &&) noexcept = delete;
 
   void StartFrequentCheck();
+  void StopFrequentCheck();
   void PauseFrequentCheck();
   void ResumeFrequentCheck();
 
@@ -57,20 +58,23 @@ class CoordinatorClient {
 
   auto SuccCallback() const -> HealthCheckCallback const &;
   auto FailCallback() const -> HealthCheckCallback const &;
+  // Const &
+  auto SetSuccCallback(HealthCheckCallback succ_cb) -> void;
+  auto SetFailCallback(HealthCheckCallback fail_cb) -> void;
 
   friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
     return first.config_ == second.config_;
   }
 
  private:
-  utils::ThreadPool thread_pool_{1};
   utils::Scheduler replica_checker_;
 
+  // TODO: (andi) Pimpl?
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 
   CoordinatorClientConfig config_;
-  CoordinatorState *coord_state_;
+  CoordinatorData *coord_data_;
   HealthCheckCallback succ_cb_;
   HealthCheckCallback fail_cb_;
 };

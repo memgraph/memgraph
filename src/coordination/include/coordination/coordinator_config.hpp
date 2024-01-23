@@ -31,6 +31,7 @@ struct CoordinatorClientConfig {
   std::chrono::seconds health_check_frequency_sec{1};
 
   // Info which coordinator will send to new main when performing failover
+  // TODO: (andi) Does this correspond to replication data we receive at the registration beginning?
   struct ReplicationClientInfo {
     // Must be the same as CoordinatorClientConfig's instance_name
     std::string instance_name;
