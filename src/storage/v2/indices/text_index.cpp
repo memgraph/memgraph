@@ -24,7 +24,6 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
   nlohmann::json properties = {};
   for (const auto &[prop_id, prop_value] : vertex_after_update->properties.Properties()) {
     switch (prop_value.type()) {
-      case PropertyValue::Type::Null:
       case PropertyValue::Type::Bool:
         properties[storage->PropertyToName(prop_id)] = prop_value.ValueBool();
         break;
@@ -37,6 +36,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
       case PropertyValue::Type::String:
         properties[storage->PropertyToName(prop_id)] = prop_value.ValueString();
         break;
+      case PropertyValue::Type::Null:
       case PropertyValue::Type::List:
       case PropertyValue::Type::Map:
       case PropertyValue::Type::TemporalData:
@@ -169,6 +169,7 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
 
   bool has_schema = false;
   std::vector<std::pair<PropertyId, std::string>> indexed_properties{};
+  auto &index_context = index_.at(index_name);
   for (const auto &v : db->Vertices(View::OLD)) {
     if (!v.HasLabel(View::OLD, label).GetValue()) {
       continue;
@@ -188,7 +189,6 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
     for (const auto &[prop_id, prop_name] : indexed_properties) {
       const auto &prop_value = v.GetProperty(View::OLD, prop_id).GetValue();
       switch (prop_value.type()) {
-        case PropertyValue::Type::Null:
         case PropertyValue::Type::Bool:
           properties[prop_name] = prop_value.ValueBool();
           break;
@@ -201,6 +201,7 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
         case PropertyValue::Type::String:
           properties[prop_name] = prop_value.ValueString();
           break;
+        case PropertyValue::Type::Null:
         case PropertyValue::Type::List:
         case PropertyValue::Type::Map:
         case PropertyValue::Type::TemporalData:
@@ -217,15 +218,20 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
     document["metadata"]["is_node"] = true;
 
     try {
-      // auto a = document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
       mgcxx::text_search::add_document(
-          index_.at(index_name),
+          index_context,
           mgcxx::text_search::DocumentInput{
               .data = document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
-          false);
+          true);
     } catch (const std::exception &e) {
       throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
     }
+  }
+
+  try {
+    mgcxx::text_search::commit(index_context);
+  } catch (const std::exception &e) {
+    throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
   }
   return true;
 }
@@ -244,7 +250,7 @@ bool TextIndex::DropIndex(std::string index_name) {
 bool TextIndex::IndexExists(std::string index_name) const { return index_.contains(index_name); }
 
 std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_query) {
-  auto input = mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata"}};
+  auto input = mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"data", "metadata"}};
   // Basic check for search fields in the query (Tantivy syntax delimits them with a `:` to the right)
   if (search_query.find(":") == std::string::npos) {
     input.search_fields = {"data"};
@@ -260,10 +266,11 @@ std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_qu
   }
   auto docs = search_results.docs;
   for (const auto &doc : docs) {
+    // The CXX .data() method (https://cxx.rs/binding/string.html) may overestimate string length, causing JSON parsing
+    // errors downstream. We prevent this by resizing the converted string with the correctly-working .length() method.
     auto doc_data = doc.data;
     std::string doc_string = doc_data.data();
-    auto doc_len = doc_data.length();
-    doc_string.resize(doc_len);
+    doc_string.resize(doc_data.length());
     auto doc_json = nlohmann::json::parse(doc_string);
     found_nodes.push_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()));
   }
