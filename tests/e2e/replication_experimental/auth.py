@@ -1,0 +1,162 @@
+# Copyright 2022 Memgraph Ltd.
+#
+# Use of this software is governed by the Business Source License
+# included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+# License, and you may not use this file except in compliance with the Business Source License.
+#
+# As of the Change Date specified in that file, in accordance with
+# the Business Source License, use of this software will be governed
+# by the Apache License, Version 2.0, included in the file
+# licenses/APL.txt.
+
+import atexit
+import os
+import shutil
+import sys
+import tempfile
+import time
+from functools import partial
+
+import interactive_mg_runner
+import mgclient
+import pytest
+from common import execute_and_fetch_all
+from mg_utils import mg_sleep_and_assert
+
+interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+interactive_mg_runner.PROJECT_DIR = os.path.normpath(
+    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..")
+)
+interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
+interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
+
+BOLT_PORTS = {"main": 7687, "replica_1": 7688, "replica_2": 7689}
+REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
+
+MEMGRAPH_INSTANCES_DESCRIPTION = {
+    "replica_1": {
+        "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+        "log_file": "replica1.log",
+        "setup_queries": [f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"],
+    },
+    "replica_2": {
+        "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
+        "log_file": "replica2.log",
+        "setup_queries": [f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};"],
+    },
+    "main": {
+        "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+        "log_file": "main.log",
+        "setup_queries": [
+            f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+            f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
+        ],
+    },
+}
+
+TEMP_DIR = tempfile.TemporaryDirectory().name
+
+MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
+    "replica_1": {
+        "args": [
+            "--bolt-port",
+            f"{BOLT_PORTS['replica_1']}",
+            "--log-level=TRACE",
+            "--replication-restore-state-on-startup",
+            "--data-recovery-on-startup",
+        ],
+        "log_file": "replica1.log",
+        "data_directory": TEMP_DIR + "/replica1",
+    },
+    "replica_2": {
+        "args": [
+            "--bolt-port",
+            f"{BOLT_PORTS['replica_2']}",
+            "--log-level=TRACE",
+            "--replication-restore-state-on-startup",
+            "--data-recovery-on-startup",
+        ],
+        "log_file": "replica2.log",
+        "data_directory": TEMP_DIR + "/replica2",
+    },
+    "main": {
+        "args": [
+            "--bolt-port",
+            f"{BOLT_PORTS['main']}",
+            "--log-level=TRACE",
+            "--replication-restore-state-on-startup",
+            "--data-recovery-on-startup",
+        ],
+        "log_file": "main.log",
+        "data_directory": TEMP_DIR + "/main",
+    },
+}
+
+
+def show_users_func(cursor):
+    def func():
+        return set(execute_and_fetch_all(cursor, "SHOW USERS;"))
+
+    return func
+
+
+def test_manual_databases_create_multitenancy_replication(connection):
+    # Goal: show system recovery in action at registration time
+    # 0/ MAIN CREATE USER user1, user2
+    #    REPLICA CREATE USER user3, user4
+    #    Setup replication cluster
+    # 1/ Check that both MAIN and REPLICA have user1 and user2
+    # 2/ Check connections on REPLICAS
+
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+            "log_file": "replica1.log",
+            "setup_queries": [
+                "CREATE USER user3;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "replica_2": {
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
+            "log_file": "replica2.log",
+            "setup_queries": [
+                "CREATE USER user4 IDENTIFIED BY 'password';",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
+            ],
+        },
+        "main": {
+            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "log_file": "main.log",
+            "setup_queries": [
+                "CREATE USER user1;",
+                "CREATE USER user2 IDENTIFIED BY 'password';",
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
+            ],
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    cursor = connection(BOLT_PORTS["main"], "main", "user1").cursor()
+
+    # 1/
+    expected_data = {("user2",), ("user1",)}
+    mg_sleep_and_assert(
+        expected_data, show_users_func(connection(BOLT_PORTS["replica_1"], "replica", "user1").cursor())
+    )
+    mg_sleep_and_assert(
+        expected_data, show_users_func(connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor())
+    )
+
+    # 2/
+    connection(BOLT_PORTS["replica_1"], "replica", "user1").cursor()
+    connection(BOLT_PORTS["replica_1"], "replica", "user2", "password").cursor()
+    connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor()
+    connection(BOLT_PORTS["replica_2"], "replica", "user2", "password").cursor()
+
+
+if __name__ == "__main__":
+    interactive_mg_runner.cleanup_directories_on_exit()
+    sys.exit(pytest.main([__file__, "-rA"]))
