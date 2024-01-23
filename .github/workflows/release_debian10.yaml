@@ -27,6 +27,11 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Ensure Jepsen cluster is up
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-up
+
       - name: Build release binaries
         run: |
           # Activate toolchain.
@@ -40,11 +45,6 @@ jobs:
           cd build
           cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
           make -j$THREADS memgraph
-
-      - name: Ensure Jepsen cluster is up
-        run: |
-          cd tests/jepsen
-          ./run.sh cluster-up
 
       - name: Run Jepsen tests
         run: |
