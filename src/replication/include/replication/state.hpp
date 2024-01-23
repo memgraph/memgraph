@@ -45,7 +45,7 @@ struct RoleMainData {
   RoleMainData &operator=(RoleMainData &&) = default;
 
   ReplicationEpoch epoch_;
-  std::list<ReplicationClient> registered_replicas_{};
+  std::list<ReplicationClient> registered_replicas_{};  // TODO: data race issues
 };
 
 struct RoleReplicaData {
@@ -79,7 +79,8 @@ struct ReplicationState {
   bool IsMain() const { return GetRole() == ReplicationRole::MAIN; }
   bool IsReplica() const { return GetRole() == ReplicationRole::REPLICA; }
 
-  bool ShouldPersist() const { return nullptr != durability_; }
+  bool HasDurability() const { return nullptr != durability_; }
+
   bool TryPersistRoleMain(std::string new_epoch);
   bool TryPersistRoleReplica(const ReplicationServerConfig &config);
   bool TryPersistUnregisterReplica(std::string_view name);

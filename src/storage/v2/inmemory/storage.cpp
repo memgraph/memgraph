@@ -66,13 +66,13 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 InMemoryStorage::InMemoryStorage(Config config)
-    : Storage(config, config.storage_mode),
+    : Storage(config, config.salient.storage_mode),
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       uuid_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
-  MG_ASSERT(config.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
+  MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
@@ -177,7 +177,8 @@ InMemoryStorage::~InMemoryStorage() {
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                                                     StorageMode storage_mode,
                                                     memgraph::replication::ReplicationRole replication_role)
-    : Accessor(tag, storage, isolation_level, storage_mode, replication_role), config_(storage->config_.items) {}
+    : Accessor(tag, storage, isolation_level, storage_mode, replication_role),
+      config_(storage->config_.salient.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -319,7 +320,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
-  if (storage_->config_.items.enable_schema_metadata) {
+  if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);
   }
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -408,7 +409,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
-  if (storage_->config_.items.enable_schema_metadata) {
+  if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);
   }
 
@@ -745,7 +746,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
-    const std::optional<uint64_t> desired_commit_timestamp, bool is_main) {
+    CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -754,47 +755,14 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // TODO: duplicated transaction finalisation in md_deltas and deltas processing cases
-  if (!transaction_.md_deltas.empty()) {
-    // This is usually done by the MVCC, but it does not handle the metadata deltas
-    transaction_.EnsureCommitTimestampExists();
-
-    // Save these so we can mark them used in the commit log.
-    uint64_t start_timestamp = transaction_.start_timestamp;
-
-    std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-    commit_timestamp_.emplace(mem_storage->CommitTimestamp(desired_commit_timestamp));
-
-    // Write transaction to WAL while holding the engine lock to make sure
-    // that committed transactions are sorted by the commit timestamp in the
-    // WAL files. We supply the new commit timestamp to the function so that
-    // it knows what will be the final commit timestamp. The WAL must be
-    // written before actually committing the transaction (before setting
-    // the commit timestamp) so that no other transaction can see the
-    // modifications before they are written to disk.
-    // Replica can log only the write transaction received from Main
-    // so the Wal files are consistent
-    if (is_main || desired_commit_timestamp.has_value()) {
-      could_replicate_all_sync_replicas =
-          mem_storage->AppendToWalDataDefinition(transaction_, *commit_timestamp_);  // protected by engine_guard
-      // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
-      transaction_.commit_timestamp->store(*commit_timestamp_,
-                                           std::memory_order_release);  // protected by engine_guard
-      // Replica can only update the last commit timestamp with
-      // the commits received from main.
-      if (is_main || desired_commit_timestamp.has_value()) {
-        // Update the last commit timestamp
-        mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);  // protected by engine_guard
-      }
-      // Release engine lock because we don't have to hold it anymore
-      engine_guard.unlock();
-
-      mem_storage->commit_log_->MarkFinished(start_timestamp);
-    }
-  } else if (transaction_.deltas.use().empty()) {
+  if (transaction_.deltas.use().empty() && transaction_.md_deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
+    // This is usually done by the MVCC, but it does not handle the metadata deltas
+    transaction_.EnsureCommitTimestampExists();
+
     if (transaction_.constraint_verification_info.NeedsExistenceConstraintVerification()) {
       const auto vertices_to_update =
           transaction_.constraint_verification_info.GetVerticesForExistenceConstraintChecking();
@@ -822,7 +790,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
       auto *mem_unique_constraints =
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
-      commit_timestamp_.emplace(mem_storage->CommitTimestamp(desired_commit_timestamp));
+      commit_timestamp_.emplace(mem_storage->CommitTimestamp(reparg.desired_commit_timestamp));
 
       if (transaction_.constraint_verification_info.NeedsUniqueConstraintVerification()) {
         // Before committing and validating vertices against unique constraints,
@@ -846,6 +814,16 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       }
 
       if (!unique_constraint_violation) {
+        [[maybe_unused]] bool const is_main_or_replica_write =
+            reparg.IsMain() || reparg.desired_commit_timestamp.has_value();
+
+        // TODO Figure out if we can assert this
+        // DMG_ASSERT(is_main_or_replica_write, "Should only get here on writes");
+        // Currently there are queries that write to some subsystem that are allowed on a replica
+        // ex. analyze graph stats
+        // There are probably others. We not to check all of them and figure out if they are allowed and what are
+        // they even doing here...
+
         // Write transaction to WAL while holding the engine lock to make sure
         // that committed transactions are sorted by the commit timestamp in the
         // WAL files. We supply the new commit timestamp to the function so that
@@ -855,18 +833,16 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (is_main || desired_commit_timestamp.has_value()) {
-          could_replicate_all_sync_replicas =
-              mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);  // protected by engine_guard
-        }
+        if (is_main_or_replica_write) {
+          could_replicate_all_sync_replicas = mem_storage->AppendToWal(transaction_, *commit_timestamp_,
+                                                                       std::move(db_acc));  // protected by engine_guard
 
-        // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
-        MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-        transaction_.commit_timestamp->store(*commit_timestamp_,
-                                             std::memory_order_release);  // protected by engine_guard
-        // Replica can only update the last commit timestamp with
-        // the commits received from main.
-        if (is_main || desired_commit_timestamp.has_value()) {
+          // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
+          MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+          transaction_.commit_timestamp->store(*commit_timestamp_,
+                                               std::memory_order_release);  // protected by engine_guard
+          // Replica can only update the last commit timestamp with
+          // the commits received from main.
           // Update the last commit timestamp
           mem_storage->repl_storage_state_.last_commit_timestamp_.store(
               *commit_timestamp_);  // protected by engine_guard
@@ -1692,7 +1668,7 @@ StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
         --it;
         if (it != end && *it != "databases") {
           // Default DB points to the root (for back-compatibility); update to the "database" dir
-          return dir / "databases" / dbms::kDefaultDB;
+          return dir / dbms::kMultiTenantDir / dbms::kDefaultDB;
         }
       }
     }
@@ -1727,8 +1703,8 @@ bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch 
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
-    wal_file_.emplace(recovery_.wal_directory_, uuid_, epoch.id(), config_.items, name_id_mapper_.get(), wal_seq_num_++,
-                      &file_retainer_);
+    wal_file_.emplace(recovery_.wal_directory_, uuid_, epoch.id(), config_.salient.items, name_id_mapper_.get(),
+                      wal_seq_num_++, &file_retainer_);
   }
   return true;
 }
@@ -1752,7 +1728,8 @@ void InMemoryStorage::FinalizeWalFile() {
   }
 }
 
-bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
+bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
+                                  DatabaseAccessProtector db_acc) {
   if (!InitializeWalFile(repl_storage_state_.epoch_)) {
     return true;
   }
@@ -1760,7 +1737,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this);
+  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
 
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
@@ -1909,26 +1886,15 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
     }
   };
 
-  append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
-    wal_file_->AppendDelta(delta, parent, timestamp);
-    repl_storage_state_.AppendDelta(delta, parent, timestamp);
-  });
-
-  // Add a delta that indicates that the transaction is fully written to the WAL
-  // file.replication_clients_.WithLock
-  wal_file_->AppendTransactionEnd(final_commit_timestamp);
-  FinalizeWalFile();
-
-  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this);
-}
-
-bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile(repl_storage_state_.epoch_)) {
-    return true;
+  // Handle MVCC deltas
+  if (!transaction.deltas.use().empty()) {
+    append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
+      wal_file_->AppendDelta(delta, parent, timestamp);
+      repl_storage_state_.AppendDelta(delta, parent, timestamp);
+    });
   }
 
-  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this);
-
+  // Handle metadata deltas
   for (const auto &md_delta : transaction.md_deltas) {
     switch (md_delta.action) {
       case MetadataDelta::Action::LABEL_INDEX_CREATE: {
@@ -1998,7 +1964,7 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
   FinalizeWalFile();
 
-  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this);
+  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this, std::move(db_acc));
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,

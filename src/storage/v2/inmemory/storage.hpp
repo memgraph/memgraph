@@ -214,8 +214,8 @@ class InMemoryStorage final : public Storage {
     /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {},
-                                                              bool is_main = true) override;
+    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
+                                                              DatabaseAccessProtector db_acc = {}) override;
 
     /// @throw std::bad_alloc
     void Abort() override;
@@ -301,7 +301,7 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
-    Config::Items config_;
+    SalientConfig::Items config_;
   };
 
   class ReplicationAccessor final : public InMemoryAccessor {
@@ -368,9 +368,8 @@ class InMemoryStorage final : public Storage {
   StorageInfo GetInfo(bool force_directory, memgraph::replication::ReplicationRole replication_role) override;
 
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp);
+  [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
+                                 DatabaseAccessProtector db_acc);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  uint64_t final_commit_timestamp);
