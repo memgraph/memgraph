@@ -42,24 +42,20 @@ namespace memgraph::metrics {
 extern const Event MessagesConsumed;
 }  // namespace memgraph::metrics
 
-namespace memgraph::query::stream {
 namespace {
+
 inline constexpr auto kExpectedTransformationResultSize = 2;
-inline constexpr auto kCheckStreamResultSize = 2;
-const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
-const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 
-const std::map<std::string, storage::PropertyValue> empty_parameters{};
+using namespace memgraph::utils;
+using namespace memgraph::storage;
+using namespace memgraph::query;
+using namespace memgraph::query::stream;
 
-auto GetStream(auto &map, const std::string &stream_name) {
-  if (auto it = map.find(stream_name); it != map.end()) {
-    return it;
-  }
-  throw StreamsException("Couldn't find stream '{}'", stream_name);
-}
+constexpr std::string_view query_param_name{"query"};
+constexpr std::string_view params_param_name{"parameters"};
 
 std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformationResult(
-    const utils::pmr::map<utils::pmr::string, TypedValue> &values, const std::string_view transformation_name,
+    const pmr::map<pmr::string, TypedValue> &values, const std::string_view transformation_name,
     const std::string_view stream_name) {
   if (values.size() != kExpectedTransformationResultSize) {
     throw StreamsException(
@@ -67,7 +63,7 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
         transformation_name, stream_name);
   }
 
-  auto get_value = [&](const utils::pmr::string &field_name) mutable -> const TypedValue & {
+  auto get_value = [&](std::string_view field_name) mutable -> const TypedValue & {
     auto it = values.find(field_name);
     if (it == values.end()) {
       throw StreamsException{"Transformation '{}' in stream '{}' did not yield a record with '{}' field.",
@@ -85,12 +81,12 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
 
 template <typename TMessage>
 void CallCustomTransformation(const std::string &transformation_name, const std::vector<TMessage> &messages,
-                              mgp_result &result, storage::Storage::Accessor &storage_accessor,
-                              utils::MemoryResource &memory_resource, const std::string &stream_name) {
+                              mgp_result &result, Storage::Accessor &storage_accessor, MemoryResource &memory_resource,
+                              const std::string &stream_name) {
   DbAccessor db_accessor{&storage_accessor};
   {
     auto maybe_transformation =
-        procedure::FindTransformation(procedure::gModuleRegistry, transformation_name, utils::NewDeleteResource());
+        procedure::FindTransformation(procedure::gModuleRegistry, transformation_name, NewDeleteResource());
 
     if (!maybe_transformation) {
       throw StreamsException("Couldn't find transformation {} for stream '{}'", transformation_name, stream_name);
@@ -99,7 +95,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
     mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
     std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
                    [](const TMessage &message) { return mgp_message{message}; });
-    mgp_graph graph{&db_accessor, storage::View::OLD, nullptr, db_accessor.GetStorageMode()};
+    mgp_graph graph{&db_accessor, View::OLD, nullptr, db_accessor.GetStorageMode()};
     mgp_memory memory{&memory_resource};
     result.rows.clear();
     result.error_msg.reset();
@@ -115,6 +111,102 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
   if (result.error_msg.has_value()) {
     throw StreamsException(result.error_msg->c_str());
   }
+}
+}  // namespace
+
+struct Factory {
+  memgraph::query::InterpreterContext *interpreter_context;
+
+  template <typename TStream, typename TDbAccess>
+  auto factory(TDbAccess db_acc, const std::string &stream_name, const std::string &transformation_name,
+               std::optional<std::string> owner) {
+    auto interpreter = std::make_shared<memgraph::query::Interpreter>(interpreter_context, std::move(db_acc));
+
+    auto *memory_resource = memgraph::utils::NewDeleteResource();
+    // there is an advantage of with the result being reused (retains internal buffers)
+    auto result = mgp_result{nullptr, memory_resource};
+
+    return [result = std::move(result), memory_resource, interpreter_context = this->interpreter_context,
+            interpreter = std::move(interpreter), stream_name, transformation_name,
+            owner = std::move(owner)](const std::vector<typename TStream::Message> &messages) mutable {
+#ifdef MG_ENTERPRISE
+      interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
+#endif
+      auto accessor = interpreter->current_db_.db_acc_->get()->Access();
+      // register new interpreter into interpreter_context
+      interpreter_context->interpreters->insert(interpreter.get());
+      memgraph::utils::OnScopeExit interpreter_cleanup{
+          [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
+
+      memgraph::metrics::IncrementCounter(memgraph::metrics::MessagesConsumed, messages.size());
+
+      CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
+
+      memgraph::query::DiscardValueResultStream stream;
+
+      spdlog::trace("Start transaction in stream '{}'", stream_name);
+      memgraph::utils::OnScopeExit cleanup{[&interpreter, &result]() {
+        result.rows.clear();
+        interpreter->Abort();
+      }};
+
+      uint32_t i = 0;
+      auto const total_retries = interpreter_context->config.stream_transaction_conflict_retries;
+      const auto retry_interval = interpreter_context->config.stream_transaction_retry_interval;
+      while (true) {
+        try {
+          interpreter->BeginTransaction();
+          for (auto &row : result.rows) {
+            spdlog::trace("Processing row in stream '{}'", stream_name);
+            auto [query_value, params_value] =
+                ExtractTransformationResult(row.values, transformation_name, stream_name);
+            memgraph::storage::PropertyValue params_prop{params_value};
+
+            std::string query{query_value.ValueString()};
+            spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
+            auto prepare_result =
+                interpreter->Prepare(query,
+                                     params_prop.IsNull() ? std::map<std::string, memgraph::storage::PropertyValue>{}
+                                                          : params_prop.ValueMap(),
+                                     {});
+            if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges, "")) {
+              throw memgraph::query::stream::StreamsException{
+                  "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
+                  "query!",
+                  query, stream_name};
+            }
+            interpreter->PullAll(&stream);
+          }
+
+          spdlog::trace("Commit transaction in stream '{}'", stream_name);
+          interpreter->CommitTransaction();
+          result.rows.clear();
+          break;
+        } catch (const memgraph::query::TransactionSerializationException &e) {
+          interpreter->Abort();
+
+          if (i == total_retries) {
+            throw;
+          }
+          ++i;
+
+          std::this_thread::sleep_for(retry_interval);
+        }
+      }
+    };
+  };
+};
+
+namespace memgraph::query::stream {
+namespace {
+
+inline constexpr auto kCheckStreamResultSize = 2;
+
+auto GetStream(auto &map, const std::string &stream_name) {
+  if (auto it = map.find(stream_name); it != map.end()) {
+    return it;
+  }
+  throw StreamsException("Couldn't find stream '{}'", stream_name);
 }
 
 template <Stream TStream>
@@ -485,83 +577,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
   }
 
-  auto const factory = [interpreter_context](TDbAccess db_acc, const std::string &stream_name,
-                                             const std::string &transformation_name, std::optional<std::string> owner) {
-    auto interpreter = std::make_shared<Interpreter>(interpreter_context, std::move(db_acc));
-
-    auto *memory_resource = utils::NewDeleteResource();
-    // there is an advantage of with the result being reused (retains internal buffers)
-    auto result = mgp_result{nullptr, memory_resource};
-
-    return [result = std::move(result), memory_resource, interpreter_context, interpreter = std::move(interpreter),
-            stream_name, transformation_name,
-            owner = std::move(owner)](const std::vector<typename TStream::Message> &messages) mutable {
-#ifdef MG_ENTERPRISE
-      interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
-#endif
-      auto accessor = interpreter->current_db_.db_acc_->get()->Access();
-      // register new interpreter into interpreter_context
-      interpreter_context->interpreters->insert(interpreter.get());
-      utils::OnScopeExit interpreter_cleanup{
-          [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
-
-      memgraph::metrics::IncrementCounter(memgraph::metrics::MessagesConsumed, messages.size());
-
-      CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
-
-      DiscardValueResultStream stream;
-
-      spdlog::trace("Start transaction in stream '{}'", stream_name);
-      utils::OnScopeExit cleanup{[&interpreter, &result]() {
-        result.rows.clear();
-        interpreter->Abort();
-      }};
-
-      uint32_t i = 0;
-      auto const total_retries = interpreter_context->config.stream_transaction_conflict_retries;
-      const auto retry_interval = interpreter_context->config.stream_transaction_retry_interval;
-      while (true) {
-        try {
-          interpreter->BeginTransaction();
-          for (auto &row : result.rows) {
-            spdlog::trace("Processing row in stream '{}'", stream_name);
-            auto [query_value, params_value] =
-                ExtractTransformationResult(row.values, transformation_name, stream_name);
-            storage::PropertyValue params_prop{params_value};
-
-            std::string query{query_value.ValueString()};
-            spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
-            auto prepare_result = interpreter->Prepare(
-                query, params_prop.IsNull() ? std::map<std::string, storage::PropertyValue>{} : params_prop.ValueMap(),
-                {});
-            if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges, "")) {
-              throw StreamsException{
-                  "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
-                  "query!",
-                  query, stream_name};
-            }
-            interpreter->PullAll(&stream);
-          }
-
-          spdlog::trace("Commit transaction in stream '{}'", stream_name);
-          interpreter->CommitTransaction();
-          result.rows.clear();
-          break;
-        } catch (const query::TransactionSerializationException &e) {
-          interpreter->Abort();
-
-          if (i == total_retries) {
-            throw;
-          }
-          ++i;
-
-          std::this_thread::sleep_for(retry_interval);
-        }
-      }
-    };
-  };
-
-  auto consumer_function = factory(std::move(db_acc), stream_name, stream_info.common_info.transformation_name, owner);
+  auto consumer_function = Factory{interpreter_context}.factory<TStream>(
+      std::move(db_acc), stream_name, stream_info.common_info.transformation_name, owner);
 
   auto insert_result = map.try_emplace(
       stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
