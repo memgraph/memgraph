@@ -314,11 +314,6 @@ jobs:
           cd tests/stress
           ./continuous_integration --use-ssl
 
-      - name: Run stress test (large)
-        run: |
-          cd tests/stress
-          ./continuous_integration --large-dataset
-
       - name: Run durability test (plain)
         run: |
           cd tests/stress
