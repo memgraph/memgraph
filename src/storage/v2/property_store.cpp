@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1050,14 +1050,11 @@ bool PropertyStore::HasProperty(PropertyId property) const {
   return ExistsSpecificProperty(&reader, property) == ExpectedPropertyStatus::EQUAL;
 }
 
-/// TODO: andi write a unit test for it
 bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) const {
   return std::all_of(properties.begin(), properties.end(), [this](const auto &prop) { return HasProperty(prop); });
 }
 
-/// TODO: andi write a unit test for it
 bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const {
-  /// TODO: andi extract this into a private method
   auto property_map = Properties();
   std::vector<PropertyValue> all_property_values;
   transform(property_map.begin(), property_map.end(), back_inserter(all_property_values),
