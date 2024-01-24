@@ -153,3 +153,20 @@ Feature: Parameters
         Then the result should be:
             | a                 |
             | (:Label1 {x: 10}) |
+
+    Scenario: Parameters for limit in return returnBody
+        Given an empty graph
+        And having executed:
+            """
+            FOREACH (id IN range(1, 10) | CREATE (:Node {id: id}))
+            """
+        And parameters are:
+            | limit | 2 |
+        When executing query:
+            """
+            MATCH (n) RETURN n LIMIT $limit
+            """
+        Then the result should be:
+            | n               |
+            | (:Node {id: 1}) |
+            | (:Node {id: 2}) |

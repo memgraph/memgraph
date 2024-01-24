@@ -143,7 +143,7 @@ order : ORDER BY sortItem ( ',' sortItem )* ;
 
 skip : L_SKIP expression ;
 
-limit : LIMIT expression ;
+limit : LIMIT ( expression | parameter ) ;
 
 sortItem : expression ( ASCENDING | ASC | DESCENDING | DESC )? ;
 
