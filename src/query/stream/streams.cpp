@@ -46,6 +46,7 @@ extern const Event MessagesConsumed;
 namespace {
 
 inline constexpr auto kExpectedTransformationResultSize = 2;
+inline constexpr auto kCheckStreamResultSize = 2;
 
 using namespace memgraph::utils;
 using namespace memgraph::storage;
@@ -117,40 +118,66 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
 
 struct IFactory {
   template <typename TStream>
-  using Result_t = std::function<void(const std::vector<typename TStream::Message> &)>;
+  using Consumer = std::function<void(const std::vector<typename TStream::Message> &)>;
 
-  virtual auto factory(memgraph::utils::tag_t<memgraph::query::stream::KafkaStream> /*tag*/,
-                       memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
-                       const std::string &transformation_name, std::optional<std::string> owner)
-      -> Result_t<memgraph::query::stream::KafkaStream> = 0;
+  virtual auto make_consumer(memgraph::utils::tag_t<memgraph::query::stream::KafkaStream> /*tag*/,
+                             memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                             const std::string &transformation_name, std::optional<std::string> owner)
+      -> Consumer<memgraph::query::stream::KafkaStream> = 0;
 
-  virtual auto factory(memgraph::utils::tag_t<memgraph::query::stream::PulsarStream> /*tag*/,
-                       memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
-                       const std::string &transformation_name, std::optional<std::string> owner)
-      -> Result_t<memgraph::query::stream::PulsarStream> = 0;
+  virtual auto make_consumer(memgraph::utils::tag_t<memgraph::query::stream::PulsarStream> /*tag*/,
+                             memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                             const std::string &transformation_name, std::optional<std::string> owner)
+      -> Consumer<memgraph::query::stream::PulsarStream> = 0;
+
+  virtual auto make_check_consumer(memgraph::utils::tag_t<memgraph::query::stream::KafkaStream> tag,
+                                   memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                                   const std::string &transformation_name, TransformationResult &test_result)
+      -> Consumer<memgraph::query::stream::KafkaStream> = 0;
+
+  virtual auto make_check_consumer(memgraph::utils::tag_t<memgraph::query::stream::PulsarStream> tag,
+                                   memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                                   const std::string &transformation_name, TransformationResult &test_result)
+      -> Consumer<memgraph::query::stream::PulsarStream> = 0;
 };
 
 struct Factory : IFactory {
   explicit Factory(InterpreterContext *interpreterContext) : interpreter_context(interpreterContext) {}
 
-  auto factory(memgraph::utils::tag_t<memgraph::query::stream::KafkaStream> tag, memgraph::dbms::DatabaseAccess db_acc,
-               const std::string &stream_name, const std::string &transformation_name, std::optional<std::string> owner)
-      -> Result_t<memgraph::query::stream::KafkaStream> override {
-    return factory_impl<memgraph::query::stream::KafkaStream>(std::move(db_acc), stream_name, transformation_name,
-                                                              std::move(owner));
+  auto make_consumer(memgraph::utils::tag_t<memgraph::query::stream::KafkaStream> tag,
+                     memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                     const std::string &transformation_name, std::optional<std::string> owner)
+      -> Consumer<memgraph::query::stream::KafkaStream> override {
+    return make_consumer_impl<memgraph::query::stream::KafkaStream>(std::move(db_acc), stream_name, transformation_name,
+                                                                    std::move(owner));
   }
-  auto factory(memgraph::utils::tag_t<memgraph::query::stream::PulsarStream> tag, memgraph::dbms::DatabaseAccess db_acc,
-               const std::string &stream_name, const std::string &transformation_name, std::optional<std::string> owner)
-      -> Result_t<memgraph::query::stream::PulsarStream> override {
-    return factory_impl<memgraph::query::stream::PulsarStream>(std::move(db_acc), stream_name, transformation_name,
-                                                               std::move(owner));
+  auto make_consumer(memgraph::utils::tag_t<memgraph::query::stream::PulsarStream> tag,
+                     memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                     const std::string &transformation_name, std::optional<std::string> owner)
+      -> Consumer<memgraph::query::stream::PulsarStream> override {
+    return make_consumer_impl<memgraph::query::stream::PulsarStream>(std::move(db_acc), stream_name,
+                                                                     transformation_name, std::move(owner));
+  }
+  auto make_check_consumer(memgraph::utils::tag_t<memgraph::query::stream::KafkaStream> tag,
+                           memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                           const std::string &transformation_name, TransformationResult &test_result)
+      -> Consumer<memgraph::query::stream::KafkaStream> override {
+    return make_check_consumer_impl<memgraph::query::stream::KafkaStream>(std::move(db_acc), stream_name,
+                                                                          transformation_name, test_result);
+  }
+  auto make_check_consumer(memgraph::utils::tag_t<memgraph::query::stream::PulsarStream> tag,
+                           memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                           const std::string &transformation_name, TransformationResult &test_result)
+      -> Consumer<memgraph::query::stream::PulsarStream> override {
+    return make_check_consumer_impl<memgraph::query::stream::PulsarStream>(std::move(db_acc), stream_name,
+                                                                           transformation_name, test_result);
   }
 
  private:
   template <typename TStream>
-  auto factory_impl(memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
-                    const std::string &transformation_name, std::optional<std::string> owner)
-      -> std::function<void(const std::vector<typename TStream::Message> &)> {
+  auto make_consumer_impl(memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                          const std::string &transformation_name, std::optional<std::string> owner)
+      -> Consumer<TStream> {
     auto interpreter = std::make_shared<memgraph::query::Interpreter>(interpreter_context, std::move(db_acc));
 
     auto *memory_resource = memgraph::utils::NewDeleteResource();
@@ -227,13 +254,44 @@ struct Factory : IFactory {
     };
   };
 
+  template <typename TStream>
+  auto make_check_consumer_impl(memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                                const std::string &transformation_name, TransformationResult &test_result)
+      -> Consumer<TStream> {
+    auto *memory_resource = NewDeleteResource();
+    return [db_acc = std::move(db_acc), memory_resource, stream_name, transformation_name,
+            result = mgp_result{nullptr, memory_resource},
+            &test_result](const std::vector<typename TStream::Message> &messages) mutable {
+      auto accessor = db_acc->Access();
+      CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
+
+      auto result_row = std::vector<TypedValue>();
+      result_row.reserve(kCheckStreamResultSize);
+
+      auto queries_and_parameters = std::vector<TypedValue>(result.rows.size());
+      std::transform(result.rows.cbegin(), result.rows.cend(), queries_and_parameters.begin(), [&](const auto &row) {
+        auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
+
+        return std::map<std::string, TypedValue>{{"query", std::move(query)}, {"parameters", std::move(parameters)}};
+      });
+      result_row.emplace_back(std::move(queries_and_parameters));
+
+      auto messages_list = std::vector<TypedValue>(messages.size());
+      std::transform(messages.cbegin(), messages.cend(), messages_list.begin(), [](const auto &message) {
+        return std::string_view(message.Payload().data(), message.Payload().size());
+      });
+
+      result_row.emplace_back(std::move(messages_list));
+
+      test_result.emplace_back(std::move(result_row));
+    };
+  };
+
   memgraph::query::InterpreterContext *interpreter_context;
 };
 
 namespace memgraph::query::stream {
 namespace {
-
-inline constexpr auto kCheckStreamResultSize = 2;
 
 auto GetStream(auto &map, const std::string &stream_name) {
   if (auto it = map.find(stream_name); it != map.end()) {
@@ -610,8 +668,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
   }
 
-  auto consumer_function = Factory{interpreter_context}.factory(tag<TStream>, std::move(db_acc), stream_name,
-                                                                stream_info.common_info.transformation_name, owner);
+  auto consumer_function = Factory{interpreter_context}.make_consumer(
+      tag<TStream>, std::move(db_acc), stream_name, stream_info.common_info.transformation_name, owner);
 
   auto insert_result = map.try_emplace(
       stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
@@ -822,44 +880,16 @@ TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db
   auto it = GetStream(**locked_streams, stream_name);
 
   return std::visit(
-      [&](const auto &stream_data) {
+      [&]<typename TStreamData>(const TStreamData &stream_data) {
         // This depends on the fact that Drop will first acquire a write lock to the consumer, and erase it only after
         // that
         const auto locked_stream_source = stream_data.stream_source->ReadLock();
         const auto transformation_name = stream_data.transformation_name;
         locked_streams.reset();
 
-        auto *memory_resource = utils::NewDeleteResource();
-        mgp_result result{nullptr, memory_resource};
         TransformationResult test_result;
-
-        auto consumer_function = [&db_acc, memory_resource, &stream_name, &transformation_name = transformation_name,
-                                  &result, &test_result]<typename T>(const std::vector<T> &messages) mutable {
-          auto accessor = db_acc->Access();
-          CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
-
-          auto result_row = std::vector<TypedValue>();
-          result_row.reserve(kCheckStreamResultSize);
-
-          auto queries_and_parameters = std::vector<TypedValue>(result.rows.size());
-          std::transform(
-              result.rows.cbegin(), result.rows.cend(), queries_and_parameters.begin(), [&](const auto &row) {
-                auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
-
-                return std::map<std::string, TypedValue>{{"query", std::move(query)},
-                                                         {"parameters", std::move(parameters)}};
-              });
-          result_row.emplace_back(std::move(queries_and_parameters));
-
-          auto messages_list = std::vector<TypedValue>(messages.size());
-          std::transform(messages.cbegin(), messages.cend(), messages_list.begin(), [](const auto &message) {
-            return std::string_view(message.Payload().data(), message.Payload().size());
-          });
-
-          result_row.emplace_back(std::move(messages_list));
-
-          test_result.emplace_back(std::move(result_row));
-        };
+        auto consumer_function = Factory{nullptr}.make_check_consumer(
+            tag<typename TStreamData::stream_t>, std::move(db_acc), stream_name, transformation_name, test_result);
 
         locked_stream_source->Check(timeout, batch_limit, consumer_function);
         return test_result;

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -180,6 +180,8 @@ class Streams final {
 
   template <Stream TStream>
   struct StreamData {
+    using stream_t = TStream;
+
     std::string transformation_name;
     std::optional<std::string> owner;
     std::unique_ptr<SynchronizedStreamSource<TStream>> stream_source;
