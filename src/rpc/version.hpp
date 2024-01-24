@@ -22,6 +22,12 @@ using Version = uint64_t;
 // probability of accidental match/conformance with pre 2.13 versions
 constexpr auto v1 = Version{2023'10'30'0'2'13};
 
-constexpr auto current_version = v1;
+// TypeId has been changed, they were not stable
+// Added stable numbering for replication types to be in
+// 2000-2999 range. We shouldn't need to version bump again
+// for any TypeIds that get added.
+constexpr auto v2 = Version{2023'12'07'0'2'14};
+
+constexpr auto current_version = v2;
 
 }  // namespace memgraph::rpc

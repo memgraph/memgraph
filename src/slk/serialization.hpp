@@ -60,6 +60,11 @@ void Save(const std::vector<T> &obj, Builder *builder);
 template <typename T>
 void Load(std::vector<T> *obj, Reader *reader);
 
+template <typename T, size_t N>
+void Save(const std::array<T, N> &obj, Builder *builder);
+template <typename T, size_t N>
+void Load(std::array<T, N> *obj, Reader *reader);
+
 template <typename T, typename Cmp>
 void Save(const std::set<T, Cmp> &obj, Builder *builder);
 template <typename T, typename Cmp>
@@ -196,6 +201,24 @@ inline void Load(std::vector<T> *obj, Reader *reader) {
   uint64_t size = 0;
   Load(&size, reader);
   obj->resize(size);
+  for (uint64_t i = 0; i < size; ++i) {
+    Load(&(*obj)[i], reader);
+  }
+}
+
+template <typename T, size_t N>
+inline void Save(const std::array<T, N> &obj, Builder *builder) {
+  uint64_t size = obj.size();
+  Save(size, builder);
+  for (const auto &item : obj) {
+    Save(item, builder);
+  }
+}
+
+template <typename T, size_t N>
+inline void Load(std::array<T, N> *obj, Reader *reader) {
+  uint64_t size = 0;
+  Load(&size, reader);
   for (uint64_t i = 0; i < size; ++i) {
     Load(&(*obj)[i], reader);
   }

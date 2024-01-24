@@ -4,3 +4,5 @@ endfunction()
 
 copy_queries_e2e_python_files(common.py)
 copy_queries_e2e_python_files(queries.py)
+
+copy_e2e_files(queries workloads.yaml)

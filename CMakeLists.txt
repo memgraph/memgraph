@@ -279,6 +279,18 @@ option(ASAN "Build with Address Sanitizer. To get a reasonable performance optio
 option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(UBSAN "Build with Undefined Behaviour Sanitizer" OFF)
 
+# Build feature flags
+option(MG_EXPERIMENTAL_REPLICATION_MULTITENANCY "Feature flag for experimental replicaition of multitenacy" OFF)
+
+if (NOT MG_ENTERPRISE AND MG_EXPERIMENTAL_REPLICATION_MULTITENANCY)
+    set(MG_EXPERIMENTAL_REPLICATION_MULTITENANCY OFF)
+    message(FATAL_ERROR "MG_EXPERIMENTAL_REPLICATION_MULTITENANCY with community edition build isn't possible")
+endif ()
+
+if (MG_EXPERIMENTAL_REPLICATION_MULTITENANCY)
+    add_compile_definitions(MG_EXPERIMENTAL_REPLICATION_MULTITENANCY)
+endif ()
+
 if (TEST_COVERAGE)
   string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
   if (NOT lower_build_type STREQUAL "debug")

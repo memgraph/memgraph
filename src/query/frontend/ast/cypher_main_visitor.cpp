@@ -1754,7 +1754,11 @@ antlrcpp::Any CypherMainVisitor::visitReturnBody(MemgraphCypher::ReturnBodyConte
     body.skip = static_cast<Expression *>(std::any_cast<Expression *>(ctx->skip()->accept(this)));
   }
   if (ctx->limit()) {
-    body.limit = static_cast<Expression *>(std::any_cast<Expression *>(ctx->limit()->accept(this)));
+    if (ctx->limit()->expression()) {
+      body.limit = std::any_cast<Expression *>(ctx->limit()->accept(this));
+    } else {
+      body.limit = std::any_cast<ParameterLookup *>(ctx->limit()->accept(this));
+    }
   }
   std::tie(body.all_identifiers, body.named_expressions) =
       std::any_cast<std::pair<bool, std::vector<NamedExpression *>>>(ctx->returnItems()->accept(this));
@@ -2886,6 +2890,14 @@ antlrcpp::Any CypherMainVisitor::visitDropDatabase(MemgraphCypher::DropDatabaseC
   auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
   mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
   mdb_query->action_ = MultiDatabaseQuery::Action::DROP;
+  query_ = mdb_query;
+  return mdb_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowDatabase(MemgraphCypher::ShowDatabaseContext * /*ctx*/) {
+  auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
+  mdb_query->db_name_ = "";
+  mdb_query->action_ = MultiDatabaseQuery::Action::SHOW;
   query_ = mdb_query;
   return mdb_query;
 }

@@ -486,13 +486,13 @@ bool operator==(const Role &first, const Role &second) {
 }
 
 #ifdef MG_ENTERPRISE
-void Databases::Add(const std::string &db) {
+void Databases::Add(std::string_view db) {
   if (allow_all_) {
     grants_dbs_.clear();
     allow_all_ = false;
   }
   grants_dbs_.emplace(db);
-  denies_dbs_.erase(db);
+  denies_dbs_.erase(std::string{db});  // TODO: C++23 use transparent key compare
 }
 
 void Databases::Remove(const std::string &db) {
@@ -523,13 +523,13 @@ void Databases::DenyAll() {
   denies_dbs_.clear();
 }
 
-bool Databases::SetDefault(const std::string &db) {
+bool Databases::SetDefault(std::string_view db) {
   if (!Contains(db)) return false;
   default_db_ = db;
   return true;
 }
 
-[[nodiscard]] bool Databases::Contains(const std::string &db) const {
+[[nodiscard]] bool Databases::Contains(std::string_view db) const {
   return !denies_dbs_.contains(db) && (allow_all_ || grants_dbs_.contains(db));
 }
 

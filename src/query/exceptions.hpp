@@ -195,6 +195,12 @@ class DatabaseContextRequiredException : public QueryRuntimeException {
   SPECIALIZE_GET_EXCEPTION_NAME(DatabaseContextRequiredException)
 };
 
+class ConcurrentSystemQueriesException : public QueryRuntimeException {
+ public:
+  using QueryRuntimeException::QueryRuntimeException;
+  SPECIALIZE_GET_EXCEPTION_NAME(ConcurrentSystemQueriesException)
+};
+
 class WriteVertexOperationInEdgeImportModeException : public QueryException {
  public:
   WriteVertexOperationInEdgeImportModeException()
