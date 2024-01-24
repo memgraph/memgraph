@@ -194,7 +194,7 @@ CLUSTER_UP() {
           continue
       fi
       node_hostname="${node##jepsen-}"
-      docker exec -it jepsen-control bash -c "ssh -oStrictHostKeyChecking=no -t $node_hostname exit"
+      docker exec jepsen-control bash -c "ssh -oStrictHostKeyChecking=no -t $node_hostname exit"
   done
 }
 
