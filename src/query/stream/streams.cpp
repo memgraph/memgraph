@@ -36,6 +36,7 @@
 #include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/string.hpp"
+#include "utils/tag.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::metrics {
@@ -114,12 +115,42 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
 }
 }  // namespace
 
-struct Factory {
-  memgraph::query::InterpreterContext *interpreter_context;
+struct IFactory {
+  template <typename TStream>
+  using Result_t = std::function<void(const std::vector<typename TStream::Message> &)>;
 
-  template <typename TStream, typename TDbAccess>
-  auto factory(TDbAccess db_acc, const std::string &stream_name, const std::string &transformation_name,
-               std::optional<std::string> owner) {
+  virtual auto factory(memgraph::utils::tag_t<memgraph::query::stream::KafkaStream> /*tag*/,
+                       memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                       const std::string &transformation_name, std::optional<std::string> owner)
+      -> Result_t<memgraph::query::stream::KafkaStream> = 0;
+
+  virtual auto factory(memgraph::utils::tag_t<memgraph::query::stream::PulsarStream> /*tag*/,
+                       memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                       const std::string &transformation_name, std::optional<std::string> owner)
+      -> Result_t<memgraph::query::stream::PulsarStream> = 0;
+};
+
+struct Factory : IFactory {
+  explicit Factory(InterpreterContext *interpreterContext) : interpreter_context(interpreterContext) {}
+
+  auto factory(memgraph::utils::tag_t<memgraph::query::stream::KafkaStream> tag, memgraph::dbms::DatabaseAccess db_acc,
+               const std::string &stream_name, const std::string &transformation_name, std::optional<std::string> owner)
+      -> Result_t<memgraph::query::stream::KafkaStream> override {
+    return factory_impl<memgraph::query::stream::KafkaStream>(std::move(db_acc), stream_name, transformation_name,
+                                                              std::move(owner));
+  }
+  auto factory(memgraph::utils::tag_t<memgraph::query::stream::PulsarStream> tag, memgraph::dbms::DatabaseAccess db_acc,
+               const std::string &stream_name, const std::string &transformation_name, std::optional<std::string> owner)
+      -> Result_t<memgraph::query::stream::PulsarStream> override {
+    return factory_impl<memgraph::query::stream::PulsarStream>(std::move(db_acc), stream_name, transformation_name,
+                                                               std::move(owner));
+  }
+
+ private:
+  template <typename TStream>
+  auto factory_impl(memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                    const std::string &transformation_name, std::optional<std::string> owner)
+      -> std::function<void(const std::vector<typename TStream::Message> &)> {
     auto interpreter = std::make_shared<memgraph::query::Interpreter>(interpreter_context, std::move(db_acc));
 
     auto *memory_resource = memgraph::utils::NewDeleteResource();
@@ -195,6 +226,8 @@ struct Factory {
       }
     };
   };
+
+  memgraph::query::InterpreterContext *interpreter_context;
 };
 
 namespace memgraph::query::stream {
@@ -577,8 +610,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
   }
 
-  auto consumer_function = Factory{interpreter_context}.factory<TStream>(
-      std::move(db_acc), stream_name, stream_info.common_info.transformation_name, owner);
+  auto consumer_function = Factory{interpreter_context}.factory(tag<TStream>, std::move(db_acc), stream_name,
+                                                                stream_info.common_info.transformation_name, owner);
 
   auto insert_result = map.try_emplace(
       stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
