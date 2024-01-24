@@ -74,6 +74,10 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
     return;
   }
 
+  auto repl_server_config = std::get<replication::RoleReplicaData>(repl_state.ReplicationData()).config;
+
+  // This can fail because of disk. If it does, the cluster state could get inconsistent.
+  // We don't handle disk issues.
   if (bool success = memgraph::dbms::DoReplicaToMainPromotion(dbms_handler); !success) {
     spdlog::error("Promoting replica to main failed!");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
@@ -92,26 +96,31 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
     };
   };
 
-  // TODO: ASSERT replicas count ATM 0, we are just become Main
+  MG_ASSERT(
+      std::get<replication::RoleMainData>(repl_state.ReplicationData()).registered_replicas_.empty(),
+      "No replicas should be registered after promoting replica to main and before registering replication clients!");
 
   for (auto const &config : req.replication_clients_info | ranges::views::transform(converter)) {
     auto instance_client = repl_state.RegisterReplica(config);
     if (instance_client.HasError()) {
       switch (instance_client.GetError()) {
-        case memgraph::replication::RegisterReplicaError::NOT_MAIN:  // todo lock
+        // Can't happen, we are already replica
+        case memgraph::replication::RegisterReplicaError::NOT_MAIN:
           spdlog::error("Failover must be performed to main!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
-        case memgraph::replication::RegisterReplicaError::NAME_EXISTS:  // todo check before we send request
+        // Can't happen, checked on the coordinator side
+        case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
           spdlog::error("Replica with the same name already exists!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
-        case memgraph::replication::RegisterReplicaError::ENDPOINT_EXISTS:  // todo check before we request
+        // Can't happen, checked on the coordinator side
+        case memgraph::replication::RegisterReplicaError::ENDPOINT_EXISTS:
           spdlog::error("Replica with the same endpoint already exists!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
-        case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:  // not a problem disk issue, all bets
-                                                                                   // off
+        // We don't handle disk issues
+        case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
           spdlog::error("Registered replica could not be persisted!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
@@ -124,8 +133,21 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
     const bool all_clients_good = memgraph::dbms::RegisterAllDatabasesClients(dbms_handler, instance_client_ref);
 
     if (!all_clients_good) {
-      // go back to replica
-      spdlog::error("Failed to register all databases to the REPLICA \"{}\"", config.name);
+      spdlog::error(
+          "Failed to register one or more databases to the REPLICA \"{}\". Failover aborted, instance will continue to "
+          "operate as replica.",
+          config.name);
+
+      dbms_handler.ForEach([&](DatabaseAccess db_acc) {
+        auto *storage = db_acc->storage();
+        storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+      });
+
+      std::get<replication::RoleMainData>(dbms_handler.ReplicationState().ReplicationData())
+          .registered_replicas_.clear();
+
+      repl_state.SetReplicationRoleReplica(repl_server_config);
+
       slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
       return;
     }
