@@ -100,16 +100,16 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
     -> memgraph::utils::BasicResult<RegisterReplicaError> {
   MG_ASSERT(dbms_handler_.ReplicationState().IsMain(), "Only main instance can register a replica!");
 
-  auto instance_client = dbms_handler_.ReplicationState().RegisterReplica(config);
-  if (instance_client.HasError()) {
-    switch (instance_client.GetError()) {
+  auto maybe_client = dbms_handler_.ReplicationState().RegisterReplica(config);
+  if (maybe_client.HasError()) {
+    switch (maybe_client.GetError()) {
       case memgraph::replication::RegisterReplicaError::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");
         return {};
       case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
         return memgraph::dbms::RegisterReplicaError::NAME_EXISTS;
-      case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
-        return memgraph::dbms::RegisterReplicaError::END_POINT_EXISTS;
+      case memgraph::replication::RegisterReplicaError::ENDPOINT_EXISTS:
+        return memgraph::dbms::RegisterReplicaError::ENDPOINT_EXISTS;
       case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
         return memgraph::dbms::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
       case memgraph::replication::RegisterReplicaError::SUCCESS:
@@ -123,14 +123,14 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
 
 #ifdef MG_ENTERPRISE
   // Update system before enabling individual storage <-> replica clients
-  dbms_handler_.SystemRestore(*instance_client.GetValue());
+  dbms_handler_.SystemRestore(*maybe_client.GetValue());
 #endif
 
-  const auto dbms_error = memgraph::dbms::HandleErrorOnReplicaClient(instance_client);
+  const auto dbms_error = memgraph::dbms::HandleRegisterReplicaStatus(maybe_client);
   if (dbms_error.has_value()) {
     return *dbms_error;
   }
-  auto &instance_client_ptr = instance_client.GetValue();
+  auto &instance_client_ptr = maybe_client.GetValue();
   const bool all_clients_good = memgraph::dbms::RegisterAllDatabasesClients(dbms_handler_, *instance_client_ptr);
 
   // NOTE Currently if any databases fails, we revert back
@@ -141,7 +141,7 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   }
 
   // No client error, start instance level client
-  StartReplicaClient(dbms_handler_, *instance_client.GetValue());
+  StartReplicaClient(dbms_handler_, *instance_client_ptr);
   return {};
 }
 

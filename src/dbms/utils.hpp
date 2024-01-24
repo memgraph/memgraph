@@ -18,6 +18,7 @@
 namespace memgraph::dbms {
 
 inline bool DoReplicaToMainPromotion(dbms::DbmsHandler &dbms_handler) {
+  auto &repl_state = dbms_handler.ReplicationState();
   // STEP 1) bring down all REPLICA servers
   dbms_handler.ForEach([](DatabaseAccess db_acc) {
     auto *storage = db_acc->storage();
@@ -27,7 +28,7 @@ inline bool DoReplicaToMainPromotion(dbms::DbmsHandler &dbms_handler) {
 
   // STEP 2) Change to MAIN
   // TODO: restore replication servers if false?
-  if (!dbms_handler.ReplicationState().SetReplicationRoleMain()) {
+  if (!repl_state.SetReplicationRoleMain()) {
     // TODO: Handle recovery on failure???
     return false;
   }
@@ -79,7 +80,7 @@ inline bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
   return all_clients_good;
 }
 
-inline std::optional<RegisterReplicaError> HandleErrorOnReplicaClient(
+inline std::optional<RegisterReplicaError> HandleRegisterReplicaStatus(
     utils::BasicResult<replication::RegisterReplicaError, replication::ReplicationClient *> &instance_client) {
   if (instance_client.HasError()) switch (instance_client.GetError()) {
       case replication::RegisterReplicaError::NOT_MAIN:

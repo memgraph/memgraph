@@ -279,4 +279,5 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
   }
   return res;
 }
+
 }  // namespace memgraph::replication

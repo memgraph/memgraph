@@ -559,6 +559,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Failover aborted since main is alive!");
       case CLUSTER_UNINITIALIZED:
         throw QueryRuntimeException("Failover aborted since cluster is uninitialized!");
+      case RPC_FAILED:
+        throw QueryRuntimeException("Failover aborted since promoting replica to main failed!");
       case SUCCESS:
         break;
     }

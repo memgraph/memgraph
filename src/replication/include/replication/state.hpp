@@ -32,6 +32,7 @@ namespace memgraph::replication {
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 
+// TODO: (andi) Rename Error to Status
 enum class RegisterReplicaError : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
 struct RoleMainData {
@@ -93,7 +94,6 @@ struct ReplicationState {
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain();
-
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
 
  private:

@@ -52,6 +52,17 @@ class CoordinatorInstance {
   }
   auto IsMain() const -> bool { return replication_role_ == replication_coordination_glue::ReplicationRole::MAIN; }
 
+  auto PrepareForFailover() -> void { client_.PauseFrequentCheck(); }
+  auto RestoreAfterFailedFailover() -> void { client_.ResumeFrequentCheck(); }
+
+  auto PostFailover(HealthCheckCallback main_succ_cb, HealthCheckCallback main_fail_cb) -> void {
+    replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
+    client_.SetSuccCallback(std::move(main_succ_cb));
+    client_.SetFailCallback(std::move(main_fail_cb));
+    client_.ResetReplicationClientInfo();
+    client_.ResumeFrequentCheck();
+  }
+
   CoordinatorClient client_;
   replication_coordination_glue::ReplicationRole replication_role_;
   std::atomic<std::chrono::system_clock::time_point> last_response_time_{};

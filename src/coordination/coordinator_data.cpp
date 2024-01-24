@@ -57,15 +57,21 @@ CoordinatorData::CoordinatorData() {
     auto &instance = find_instance(coord_data, instance_name);
     MG_ASSERT(instance.IsMain(), "Instance {} is not a main!", instance_name);
     if (bool main_alive = instance.UpdateInstanceStatus(); !main_alive) {
-      spdlog::warn("Main is not alive, starting automatic failover");
+      spdlog::info("Main instance {} is not alive, starting automatic failover", instance_name);
       switch (auto failover_status = DoFailover(); failover_status) {
         using enum DoFailoverStatus;
         case ALL_REPLICAS_DOWN:
           spdlog::warn("Failover aborted since all replicas are down!");
+          break;
         case MAIN_ALIVE:
           spdlog::warn("Failover aborted since main is alive!");
+          break;
         case CLUSTER_UNINITIALIZED:
           spdlog::warn("Failover aborted since cluster is uninitialized!");
+          break;
+        case RPC_FAILED:
+          spdlog::warn("Failover aborted since promoting replica to main failed!");
+          break;
         case SUCCESS:
           break;
       }
@@ -91,14 +97,12 @@ auto CoordinatorData::DoFailover() -> DoFailoverStatus {
 
   auto replica_instances = registered_instances_ | ranges::views::filter(&CoordinatorInstance::IsReplica);
 
-  auto chosen_replica_instance =
-      std::ranges::find_if(replica_instances, [](const CoordinatorInstance &instance) { return instance.IsAlive(); });
-
+  auto chosen_replica_instance = std::ranges::find_if(replica_instances, &CoordinatorInstance::IsAlive);
   if (chosen_replica_instance == replica_instances.end()) {
     return DoFailoverStatus::ALL_REPLICAS_DOWN;
   }
 
-  chosen_replica_instance->client_.PauseFrequentCheck();
+  chosen_replica_instance->PrepareForFailover();
 
   std::vector<ReplicationClientInfo> repl_clients_info;
   repl_clients_info.reserve(std::ranges::distance(replica_instances));
@@ -115,16 +119,11 @@ auto CoordinatorData::DoFailover() -> DoFailoverStatus {
   }
 
   if (!chosen_replica_instance->client_.SendPromoteReplicaToMainRpc(std::move(repl_clients_info))) {
-    // TODO: new status and rollback all changes that were done...
-    MG_ASSERT(false, "Promoting replica to main failed!");
+    chosen_replica_instance->RestoreAfterFailedFailover();
+    return DoFailoverStatus::RPC_FAILED;
   }
 
-  chosen_replica_instance->client_.SetSuccCallback(main_succ_cb_);
-  chosen_replica_instance->client_.SetFailCallback(main_fail_cb_);
-  chosen_replica_instance->client_.ResetReplicationClientInfo();
-  chosen_replica_instance->client_.ResumeFrequentCheck();
-  chosen_replica_instance->replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
-
+  chosen_replica_instance->PostFailover(main_succ_cb_, main_fail_cb_);
   main_instance->replication_role_ = replication_coordination_glue::ReplicationRole::REPLICA;
 
   return DoFailoverStatus::SUCCESS;
