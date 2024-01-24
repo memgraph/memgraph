@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,7 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
+#include "query/stream/stream_consumer_factory.hpp"
 #include "query/stream/streams.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -180,8 +181,10 @@ TYPED_TEST_CASE(StreamsTestFixture, StorageTypes);
 
 TYPED_TEST(StreamsTestFixture, SimpleStreamManagement) {
   auto check_data = this->CreateDefaultStreamCheckData();
+  auto factory = memgraph::query::stream::StreamConsumerFactory{&this->interpreter_context_};
+
   this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-      check_data.name, check_data.info, check_data.owner, this->db_, &this->interpreter_context_);
+      check_data.name, check_data.info, check_data.owner, this->db_, factory);
   EXPECT_NO_FATAL_FAILURE(this->CheckStreamStatus(check_data));
 
   EXPECT_NO_THROW(this->proxyStreams_->streams_->Start(check_data.name));
@@ -207,12 +210,14 @@ TYPED_TEST(StreamsTestFixture, SimpleStreamManagement) {
 TYPED_TEST(StreamsTestFixture, CreateAlreadyExisting) {
   auto stream_info = this->CreateDefaultStreamInfo();
   auto stream_name = GetDefaultStreamName();
+  auto factory = memgraph::query::stream::StreamConsumerFactory{&this->interpreter_context_};
+
   this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-      stream_name, stream_info, std::nullopt, this->db_, &this->interpreter_context_);
+      stream_name, stream_info, std::nullopt, this->db_, factory);
 
   try {
     this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-        stream_name, stream_info, std::nullopt, this->db_, &this->interpreter_context_);
+        stream_name, stream_info, std::nullopt, this->db_, factory);
     FAIL() << "Creating already existing stream should throw\n";
   } catch (memgraph::query::stream::StreamsException &exception) {
     EXPECT_EQ(exception.what(), fmt::format("Stream already exists with name '{}'", stream_name));
@@ -223,8 +228,10 @@ TYPED_TEST(StreamsTestFixture, DropNotExistingStream) {
   const auto stream_info = this->CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
   const std::string not_existing_stream_name{"ThisDoesn'tExists"};
+  auto factory = memgraph::query::stream::StreamConsumerFactory{&this->interpreter_context_};
+
   this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-      stream_name, stream_info, std::nullopt, this->db_, &this->interpreter_context_);
+      stream_name, stream_info, std::nullopt, this->db_, factory);
 
   try {
     this->proxyStreams_->streams_->Drop(not_existing_stream_name);
@@ -275,11 +282,13 @@ TYPED_TEST(StreamsTestFixture, RestoreStreams) {
 
   stream_check_datas[3].owner = {};
 
-  const auto check_restore_logic = [&stream_check_datas, this]() {
+  auto factory = memgraph::query::stream::StreamConsumerFactory{&this->interpreter_context_};
+
+  const auto check_restore_logic = [&stream_check_datas, this, &factory]() {
     // Reset the Streams object to trigger reloading
     this->ResetStreamsObject();
     EXPECT_TRUE(this->proxyStreams_->streams_->GetStreamInfo().empty());
-    this->proxyStreams_->streams_->RestoreStreams(this->db_, &this->interpreter_context_);
+    this->proxyStreams_->streams_->RestoreStreams(this->db_, factory);
     EXPECT_EQ(stream_check_datas.size(), this->proxyStreams_->streams_->GetStreamInfo().size());
     for (const auto &check_data : stream_check_datas) {
       ASSERT_NO_FATAL_FAILURE(this->CheckStreamStatus(check_data));
@@ -287,12 +296,12 @@ TYPED_TEST(StreamsTestFixture, RestoreStreams) {
     }
   };
 
-  this->proxyStreams_->streams_->RestoreStreams(this->db_, &this->interpreter_context_);
+  this->proxyStreams_->streams_->RestoreStreams(this->db_, factory);
   EXPECT_TRUE(this->proxyStreams_->streams_->GetStreamInfo().empty());
 
   for (auto &check_data : stream_check_datas) {
     this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-        check_data.name, check_data.info, check_data.owner, this->db_, &this->interpreter_context_);
+        check_data.name, check_data.info, check_data.owner, this->db_, factory);
   }
   {
     SCOPED_TRACE("After streams are created");
@@ -328,13 +337,14 @@ TYPED_TEST(StreamsTestFixture, RestoreStreams) {
 TYPED_TEST(StreamsTestFixture, CheckWithTimeout) {
   const auto stream_info = this->CreateDefaultStreamInfo();
   const auto stream_name = GetDefaultStreamName();
+  auto factory = memgraph::query::stream::StreamConsumerFactory{&this->interpreter_context_};
   this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-      stream_name, stream_info, std::nullopt, this->db_, &this->interpreter_context_);
+      stream_name, stream_info, std::nullopt, this->db_, factory);
 
   std::chrono::milliseconds timeout{3000};
 
   const auto start = std::chrono::steady_clock::now();
-  EXPECT_THROW(this->proxyStreams_->streams_->Check(stream_name, this->db_, timeout, std::nullopt),
+  EXPECT_THROW(this->proxyStreams_->streams_->Check(stream_name, this->db_, factory, timeout, std::nullopt),
                memgraph::integrations::kafka::ConsumerCheckFailedException);
   const auto end = std::chrono::steady_clock::now();
 
@@ -353,8 +363,9 @@ TYPED_TEST(StreamsTestFixture, CheckInvalidConfig) {
     EXPECT_TRUE(message.find(kInvalidConfigName) != std::string::npos) << message;
     EXPECT_TRUE(message.find(kConfigValue) != std::string::npos) << message;
   };
+  auto factory = memgraph::query::stream::StreamConsumerFactory{&this->interpreter_context_};
   EXPECT_THROW_WITH_MSG(this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-                            stream_name, stream_info, std::nullopt, this->db_, &this->interpreter_context_),
+                            stream_name, stream_info, std::nullopt, this->db_, factory),
                         memgraph::integrations::kafka::SettingCustomConfigFailed, checker);
 }
 
@@ -369,7 +380,9 @@ TYPED_TEST(StreamsTestFixture, CheckInvalidCredentials) {
     EXPECT_TRUE(message.find(memgraph::integrations::kReducted) != std::string::npos) << message;
     EXPECT_TRUE(message.find(kCredentialValue) == std::string::npos) << message;
   };
+  auto factory = memgraph::query::stream::StreamConsumerFactory{&this->interpreter_context_};
+
   EXPECT_THROW_WITH_MSG(this->proxyStreams_->streams_->template Create<memgraph::query::stream::KafkaStream>(
-                            stream_name, stream_info, std::nullopt, this->db_, &this->interpreter_context_),
+                            stream_name, stream_info, std::nullopt, this->db_, factory),
                         memgraph::integrations::kafka::SettingCustomConfigFailed, checker);
 }

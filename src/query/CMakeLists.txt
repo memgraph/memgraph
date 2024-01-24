@@ -33,6 +33,7 @@ set(mg_query_sources
     stream/streams.cpp
     stream/sources.cpp
     stream/common.cpp
+    stream/stream_consumer_factory.cpp
     trigger.cpp
     trigger_context.cpp
     typed_value.cpp

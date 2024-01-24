@@ -14,11 +14,11 @@
 namespace memgraph::utils {
 
 template <typename T>
-struct tag_t {
+struct Tag {
   using type = T;
 };
 
 template <typename T>
-constexpr auto tag = tag_t<T>{};
+constexpr auto tag = Tag<T>{};
 
 }  // namespace memgraph::utils

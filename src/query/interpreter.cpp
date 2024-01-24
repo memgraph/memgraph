@@ -106,6 +106,7 @@
 #include "dbms/replication_handler.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/interpreter_context.hpp"
+#include "query/stream/stream_consumer_factory.hpp"
 #include "replication/state.hpp"
 
 #ifdef MG_ENTERPRISE
@@ -1226,7 +1227,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
           credentials = get_config_map(stream_query->credentials_, "Credentials"),
           default_server = interpreter_context->config.default_kafka_bootstrap_servers]() mutable {
     std::string bootstrap = bootstrap_servers ? std::move(*bootstrap_servers) : std::move(default_server);
-
+    auto factory = memgraph::query::stream::StreamConsumerFactory{interpreter_context};
     db_acc->streams()->Create<query::stream::KafkaStream>(stream_name,
                                                           {.common_info = std::move(common_stream_info),
                                                            .topics = std::move(topic_names),
@@ -1234,7 +1235,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
                                                            .bootstrap_servers = std::move(bootstrap),
                                                            .configs = std::move(configs),
                                                            .credentials = std::move(credentials)},
-                                                          std::move(owner), db_acc, interpreter_context);
+                                                          std::move(owner), db_acc, factory);
 
     return std::vector<std::vector<TypedValue>>{};
   };
@@ -1256,10 +1257,11 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
           common_stream_info = std::move(common_stream_info), service_url = std::move(service_url), owner = username,
           default_service = interpreter_context->config.default_pulsar_service_url]() mutable {
     std::string url = service_url ? std::move(*service_url) : std::move(default_service);
+    auto factory = memgraph::query::stream::StreamConsumerFactory{interpreter_context};
     db->streams()->Create<query::stream::PulsarStream>(
         stream_name,
         {.common_info = std::move(common_stream_info), .topics = std::move(topic_names), .service_url = std::move(url)},
-        std::move(owner), db, interpreter_context);
+        std::move(owner), db, factory);
 
     return std::vector<std::vector<TypedValue>>{};
   };
@@ -1393,11 +1395,12 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
         throw utils::BasicException("Parameter BATCH_LIMIT cannot hold negative value");
       }
 
+      auto factory = memgraph::query::stream::StreamConsumerFactory{interpreter_context};
       callback.fn = [db_acc, stream_name = stream_query->stream_name_,
                      timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator),
-                     batch_limit]() mutable {
+                     batch_limit, factory]() mutable {
         // TODO Is this safe
-        return db_acc->streams()->Check(stream_name, db_acc, timeout, batch_limit);
+        return db_acc->streams()->Check(stream_name, db_acc, factory, timeout, batch_limit);
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CHECK_STREAM,
                                   fmt::format("Checked stream {}.", stream_query->stream_name_));

@@ -370,7 +370,7 @@ class DbmsHandler {
    *
    * @param ic global InterpreterContext
    */
-  void RestoreStreams(query::InterpreterContext *ic) {
+  void RestoreStreams(query::stream::IStreamConsumerFactory &factory) {
 #ifdef MG_ENTERPRISE
     std::lock_guard<LockT> wr(lock_);
     for (auto &[_, db_gk] : db_handler_) {
@@ -382,7 +382,7 @@ class DbmsHandler {
       if (db_acc) {
         auto *db = db_acc->get();
         spdlog::debug("Restoring streams for database \"{}\"", db->name());
-        db->streams()->RestoreStreams(*db_acc, ic);
+        db->streams()->RestoreStreams(*db_acc, factory);
       }
     }
   }
@@ -677,7 +677,7 @@ class DbmsHandler {
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;       //!< list of active dbs (pointer so we can postpone its creation)
-  coordination::CoordinatorState coordinator_state_;  //!< Replication coordinator
+  coordination::CoordinatorState coordinator_state_;   //!< Replication coordinator
 #endif
   // TODO: Make an api
  public:

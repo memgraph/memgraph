@@ -32,11 +32,7 @@
 #include "utils/synchronized.hpp"
 
 class StreamsTest;
-namespace memgraph::query {
-
-struct InterpreterContext;
-
-namespace stream {
+namespace memgraph::query::stream {
 
 class StreamsException : public utils::BasicException {
  public:
@@ -71,6 +67,8 @@ struct StreamStatus {
 
 using TransformationResult = std::vector<std::vector<TypedValue>>;
 
+struct IStreamConsumerFactory;
+
 /// Manages Kafka consumers.
 ///
 /// This class is responsible for all query supported actions to happen.
@@ -89,7 +87,7 @@ class Streams final {
   /// logged. If a stream was running previously, then after restoration it will be started.
   /// This function should only be called when there are no existing streams.
   template <typename TDbAccess>
-  void RestoreStreams(TDbAccess db, InterpreterContext *interpreter_context);
+  void RestoreStreams(TDbAccess db, IStreamConsumerFactory &factory);
 
   /// Creates a new import stream.
   /// The create implies connecting to the server to get metadata necessary to initialize the stream. This
@@ -101,7 +99,7 @@ class Streams final {
   /// @throws StreamsException if the stream with the same name exists or if the creation of Kafka consumer fails
   template <Stream TStream, typename TDbAccess>
   void Create(const std::string &stream_name, typename TStream::StreamInfo info, std::optional<std::string> owner,
-              TDbAccess db, InterpreterContext *interpreter_context);
+              TDbAccess db, IStreamConsumerFactory &factory);
 
   /// Deletes an existing stream and all the data that was persisted.
   ///
@@ -170,7 +168,7 @@ class Streams final {
   /// @throws ConsumerRunningException if the consumer is already running
   /// @throws ConsumerCheckFailedException if the transformation function throws any std::exception during processing
   template <typename TDbAccess>
-  TransformationResult Check(const std::string &stream_name, TDbAccess db,
+  TransformationResult Check(const std::string &stream_name, TDbAccess db, IStreamConsumerFactory &factory,
                              std::optional<std::chrono::milliseconds> timeout = std::nullopt,
                              std::optional<uint64_t> batch_limit = std::nullopt) const;
 
@@ -194,7 +192,7 @@ class Streams final {
   template <Stream TStream, typename TDbAccess>
   StreamsMap::iterator CreateConsumer(StreamsMap &map, const std::string &stream_name,
                                       typename TStream::StreamInfo stream_info, std::optional<std::string> owner,
-                                      TDbAccess db, InterpreterContext *interpreter_context);
+                                      TDbAccess db, IStreamConsumerFactory &factory);
 
   template <Stream TStream>
   void Persist(StreamStatus<TStream> &&status) {
@@ -213,5 +211,4 @@ class Streams final {
   SynchronizedStreamsMap streams_;
 };
 
-}  // namespace stream
-}  // namespace memgraph::query
+}  // namespace memgraph::query::stream

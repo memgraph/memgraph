@@ -42,6 +42,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/interpreter_context.hpp"
+#include "query/stream/stream_consumer_factory.hpp"
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
@@ -417,7 +418,8 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   dbms_handler.RestoreTriggers(&interpreter_context_);
-  dbms_handler.RestoreStreams(&interpreter_context_);
+  auto stream_consumer_factory = memgraph::query::stream::StreamConsumerFactory{&interpreter_context_};
+  dbms_handler.RestoreStreams(stream_consumer_factory);
 #else
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
