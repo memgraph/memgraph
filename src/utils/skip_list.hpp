@@ -1052,14 +1052,15 @@ class SkipList final : detail::SkipListNode_base {
         if (!valid) continue;
 
         size_t node_bytes = sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
-        MemoryResource *memoryResource = GetMemoryResource();
-        Allocator<TNode> allocator(memoryResource);
 
+        MemoryResource *memoryResource = GetMemoryResource();
         void *ptr = memoryResource->Allocate(node_bytes);
         // `calloc` would be faster, but the API has no such call.
         memset(ptr, 0, node_bytes);
         new_node = static_cast<TNode *>(ptr);
+
         // Construct through allocator so it propagates if needed.
+        Allocator<TNode> allocator(memoryResource);
         allocator.construct(new_node, top_layer, std::forward<TObjUniv>(object));
 
         // The paper is also wrong here. It states that the loop should go up to

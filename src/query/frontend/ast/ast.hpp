@@ -2217,7 +2217,7 @@ class IndexQuery : public memgraph::query::Query {
 
  protected:
   IndexQuery(Action action, LabelIx label, std::vector<PropertyIx> properties)
-      : action_(action), label_(std::move(label)), properties_(properties) {}
+      : action_(action), label_(std::move(label)), properties_(std::move(properties)) {}
 
  private:
   friend class AstStorage;
