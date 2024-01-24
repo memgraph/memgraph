@@ -485,72 +485,83 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
   }
 
-  auto *memory_resource = utils::NewDeleteResource();
+  auto const factory = [interpreter_context](TDbAccess db_acc, const std::string &stream_name,
+                                             const std::string &transformation_name, std::optional<std::string> owner) {
+    auto interpreter = std::make_shared<Interpreter>(interpreter_context, std::move(db_acc));
 
-  auto consumer_function = [interpreter_context, memory_resource, stream_name,
-                            transformation_name = stream_info.common_info.transformation_name, owner = owner,
-                            interpreter = std::make_shared<Interpreter>(interpreter_context, std::move(db_acc)),
-                            result = mgp_result{nullptr, memory_resource},
-                            total_retries = interpreter_context->config.stream_transaction_conflict_retries,
-                            retry_interval = interpreter_context->config.stream_transaction_retry_interval](
-                               const std::vector<typename TStream::Message> &messages) mutable {
+    auto *memory_resource = utils::NewDeleteResource();
+    // there is an advantage of with the result being reused (retains internal buffers)
+    auto result = mgp_result{nullptr, memory_resource};
+
+    return [result = std::move(result), memory_resource, interpreter_context, interpreter = std::move(interpreter),
+            stream_name, transformation_name,
+            owner = std::move(owner)](const std::vector<typename TStream::Message> &messages) mutable {
 #ifdef MG_ENTERPRISE
-    interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
+      interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
 #endif
-    auto accessor = interpreter->current_db_.db_acc_->get()->Access();
-    // register new interpreter into interpreter_context
-    interpreter_context->interpreters->insert(interpreter.get());
-    utils::OnScopeExit interpreter_cleanup{
-        [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
+      auto accessor = interpreter->current_db_.db_acc_->get()->Access();
+      // register new interpreter into interpreter_context
+      interpreter_context->interpreters->insert(interpreter.get());
+      utils::OnScopeExit interpreter_cleanup{
+          [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
 
-    memgraph::metrics::IncrementCounter(memgraph::metrics::MessagesConsumed, messages.size());
-    CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::MessagesConsumed, messages.size());
 
-    DiscardValueResultStream stream;
+      CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
-    spdlog::trace("Start transaction in stream '{}'", stream_name);
-    utils::OnScopeExit cleanup{[&interpreter, &result]() {
-      result.rows.clear();
-      interpreter->Abort();
-    }};
+      DiscardValueResultStream stream;
 
-    const static std::map<std::string, storage::PropertyValue> empty_parameters{};
-    uint32_t i = 0;
-    while (true) {
-      try {
-        interpreter->BeginTransaction();
-        for (auto &row : result.rows) {
-          spdlog::trace("Processing row in stream '{}'", stream_name);
-          auto [query_value, params_value] = ExtractTransformationResult(row.values, transformation_name, stream_name);
-          storage::PropertyValue params_prop{params_value};
-
-          std::string query{query_value.ValueString()};
-          spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
-          auto prepare_result =
-              interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), {});
-          if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges, "")) {
-            throw StreamsException{
-                "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
-                "query!",
-                query, stream_name};
-          }
-          interpreter->PullAll(&stream);
-        }
-
-        spdlog::trace("Commit transaction in stream '{}'", stream_name);
-        interpreter->CommitTransaction();
+      spdlog::trace("Start transaction in stream '{}'", stream_name);
+      utils::OnScopeExit cleanup{[&interpreter, &result]() {
         result.rows.clear();
-        break;
-      } catch (const query::TransactionSerializationException &e) {
         interpreter->Abort();
-        if (i == total_retries) {
-          throw;
+      }};
+
+      uint32_t i = 0;
+      auto const total_retries = interpreter_context->config.stream_transaction_conflict_retries;
+      const auto retry_interval = interpreter_context->config.stream_transaction_retry_interval;
+      while (true) {
+        try {
+          interpreter->BeginTransaction();
+          for (auto &row : result.rows) {
+            spdlog::trace("Processing row in stream '{}'", stream_name);
+            auto [query_value, params_value] =
+                ExtractTransformationResult(row.values, transformation_name, stream_name);
+            storage::PropertyValue params_prop{params_value};
+
+            std::string query{query_value.ValueString()};
+            spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
+            auto prepare_result = interpreter->Prepare(
+                query, params_prop.IsNull() ? std::map<std::string, storage::PropertyValue>{} : params_prop.ValueMap(),
+                {});
+            if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges, "")) {
+              throw StreamsException{
+                  "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
+                  "query!",
+                  query, stream_name};
+            }
+            interpreter->PullAll(&stream);
+          }
+
+          spdlog::trace("Commit transaction in stream '{}'", stream_name);
+          interpreter->CommitTransaction();
+          result.rows.clear();
+          break;
+        } catch (const query::TransactionSerializationException &e) {
+          interpreter->Abort();
+
+          if (i == total_retries) {
+            throw;
+          }
+          ++i;
+
+          std::this_thread::sleep_for(retry_interval);
         }
-        ++i;
-        std::this_thread::sleep_for(retry_interval);
       }
-    }
+    };
   };
+
+  auto consumer_function = factory(std::move(db_acc), stream_name, stream_info.common_info.transformation_name, owner);
 
   auto insert_result = map.try_emplace(
       stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
