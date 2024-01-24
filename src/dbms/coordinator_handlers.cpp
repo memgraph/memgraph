@@ -19,6 +19,8 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/replication_client.hpp"
 
+#include "range/v3/view.hpp"
+
 namespace memgraph::dbms {
 
 void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
@@ -50,35 +52,35 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
   coordination::PromoteReplicaToMainReq req;
   slk::Load(&req, req_reader);
 
-  std::vector<replication::ReplicationClientConfig> clients_config;
-  clients_config.reserve(req.replication_clients_info.size());
-  std::ranges::transform(req.replication_clients_info, std::back_inserter(clients_config),
-                         [](const auto &repl_info_config) {
-                           return replication::ReplicationClientConfig{
-                               .name = repl_info_config.instance_name,
-                               .mode = repl_info_config.replication_mode,
-                               .ip_address = repl_info_config.replication_ip_address,
-                               .port = repl_info_config.replication_port,
-                           };
-                         });
+  auto const converter = [](const auto &repl_info_config) {
+    return replication::ReplicationClientConfig{
+        .name = repl_info_config.instance_name,
+        .mode = repl_info_config.replication_mode,
+        .ip_address = repl_info_config.replication_ip_address,
+        .port = repl_info_config.replication_port,
+    };
+  };
 
-  std::ranges::for_each(clients_config, [&dbms_handler, &repl_state, &res_builder](const auto &config) {
+  // TODO: ASSERT replicas count ATM 0, we are just become Main
+
+  for (auto const &config : req.replication_clients_info | ranges::views::transform(converter)) {
     auto instance_client = repl_state.RegisterReplica(config);
     if (instance_client.HasError()) {
       switch (instance_client.GetError()) {
-        case memgraph::replication::RegisterReplicaError::NOT_MAIN:
+        case memgraph::replication::RegisterReplicaError::NOT_MAIN:  // todo lock
           spdlog::error("Failover must be performed to main!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
-        case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
+        case memgraph::replication::RegisterReplicaError::NAME_EXISTS:  // todo check before we send request
           spdlog::error("Replica with the same name already exists!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
-        case memgraph::replication::RegisterReplicaError::ENDPOINT_EXISTS:
+        case memgraph::replication::RegisterReplicaError::ENDPOINT_EXISTS:  // todo check before we request
           spdlog::error("Replica with the same endpoint already exists!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
-        case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+        case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:  // not a problem disk issue, all bets
+                                                                                   // off
           spdlog::error("Registered replica could not be persisted!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
@@ -91,13 +93,14 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
     const bool all_clients_good = memgraph::dbms::RegisterAllDatabasesClients(dbms_handler, instance_client_ref);
 
     if (!all_clients_good) {
+      // go back to replica
       spdlog::error("Failed to register all databases to the REPLICA \"{}\"", config.name);
       slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
       return;
     }
 
     StartReplicaClient(dbms_handler, instance_client_ref);
-  });
+  };
 
   slk::Save(coordination::PromoteReplicaToMainRes{true}, res_builder);
 }

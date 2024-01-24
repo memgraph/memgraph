@@ -70,7 +70,7 @@ inline bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
           // MAYBE_BEHIND isn't a statement of the current state, this is the default value
           // Failed to start due an error like branching of MAIN and REPLICA
           if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
-            return false;
+            return false;  // TODO: sometimes we need to still add to storage_clients
           }
           storage_clients.push_back(std::move(client));
           return true;

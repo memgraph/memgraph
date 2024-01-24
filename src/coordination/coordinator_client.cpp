@@ -50,11 +50,8 @@ void CoordinatorClient::StartFrequentCheck() {
           spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
                         rpc_client_.Endpoint().SocketAddress());
           auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
-          if (stream.AwaitResponse().success) {
-            succ_cb_(coord_data_, instance_name);
-          } else {
-            fail_cb_(coord_data_, instance_name);
-          }
+          stream.AwaitResponse();
+          succ_cb_(coord_data_, instance_name);
         } catch (const rpc::RpcFailedException &) {
           fail_cb_(coord_data_, instance_name);
         }
