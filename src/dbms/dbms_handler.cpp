@@ -11,6 +11,9 @@
 
 #include "dbms/dbms_handler.hpp"
 
+#include "dbms/coordinator_handlers.hpp"
+#include "flags/replication.hpp"
+
 #include <cstdint>
 #include <filesystem>
 
@@ -225,6 +228,12 @@ DbmsHandler::DbmsHandler(
         "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
         "without write-ahead logs this instance is not replicating any data.");
   }
+
+  // MAIN or REPLICA instance
+  if (FLAGS_coordinator_server_port) {
+    CoordinatorHandlers::Register(*this);
+    MG_ASSERT(coordinator_state_.GetCoordinatorServer().Start(), "Failed to start coordinator server!");
+  }
 }
 
 DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name) {
@@ -375,7 +384,7 @@ AllSyncReplicaStatus DbmsHandler::Commit() {
               std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
               system_transaction_->system_timestamp, delta.config);
           // TODO: reduce duplicate code
-          if (!completed && client.mode_ == replication::ReplicationMode::SYNC) {
+          if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
             sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
           }
         }
@@ -399,7 +408,7 @@ AllSyncReplicaStatus DbmsHandler::Commit() {
               std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
               system_transaction_->system_timestamp, delta.uuid);
           // TODO: reduce duplicate code
-          if (!completed && client.mode_ == replication::ReplicationMode::SYNC) {
+          if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
             sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
           }
         }

@@ -48,10 +48,12 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DENY
                       | DROP
+                      | DO
                       | DUMP
                       | EDGE
                       | EDGE_TYPES
                       | EXECUTE
+                      | FAILOVER
                       | FOR
                       | FOREACH
                       | FREE
@@ -151,6 +153,7 @@ query : cypherQuery
       | multiDatabaseQuery
       | showDatabases
       | edgeImportModeQuery
+      | coordinatorQuery
       ;
 
 cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -181,6 +184,11 @@ replicationQuery : setReplicationRole
                  | registerReplica
                  | dropReplica
                  | showReplicas
+                 ;
+
+coordinatorQuery : registerCoordinatorServer
+                 | showReplicationCluster
+                 | doFailover
                  ;
 
 triggerQuery : createTrigger
@@ -243,6 +251,8 @@ transactionQueueQuery : showTransactions
                       ;
 
 showTransactions : SHOW TRANSACTIONS ;
+
+doFailover : DO FAILOVER ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 
@@ -323,6 +333,7 @@ privilege : CREATE
           | STORAGE_MODE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
+          | COORDINATOR
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -364,14 +375,24 @@ setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
-replicaName : symbolicName ;
+showReplicationCluster : SHOW REPLICATION CLUSTER ;
+
+instanceName : symbolicName ;
 
 socketAddress : literal ;
 
-registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
+coordinatorSocketAddress : literal ;
+
+registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
 
-dropReplica : DROP REPLICA replicaName ;
+registerReplicaCoordinatorServer: REGISTER REPLICA instanceName ( ASYNC | SYNC ) TO socketAddress WITH COORDINATOR SERVER ON coordinatorSocketAddress ;
+
+registerMainCoordinatorServer: REGISTER MAIN instanceName WITH COORDINATOR SERVER ON coordinatorSocketAddress ;
+
+registerCoordinatorServer : registerMainCoordinatorServer | registerReplicaCoordinatorServer ;
+
+dropReplica : DROP REPLICA instanceName ;
 
 showReplicas : SHOW REPLICAS ;
 

@@ -226,7 +226,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
     }
   };
 
-  if (client_.mode_ == memgraph::replication::ReplicationMode::ASYNC) {
+  if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
     client_.thread_pool_.AddTask([task = std::move(task)]() mutable { (void)task(); });
     return true;
   }

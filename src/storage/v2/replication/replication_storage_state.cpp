@@ -64,7 +64,7 @@ bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *s
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); });
       const auto finalized = client->FinalizeTransactionReplication(storage, std::move(db_acc));
 
-      if (client->Mode() == memgraph::replication::ReplicationMode::SYNC) {
+      if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
         finalized_on_all_replicas = finalized && finalized_on_all_replicas;
       }
     }
