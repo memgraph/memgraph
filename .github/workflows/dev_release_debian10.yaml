@@ -336,7 +336,7 @@ jobs:
           # Build only memgraph release binary.
           cd build
           cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
-          make -j$THREADS memgraph
+          make -j$THREADS memgraph mgclient-proj
 
       - name: Ensure Kafka and Pulsar are up
         run: |
@@ -459,7 +459,7 @@ jobs:
         run: |
           cd tests/jepsen
           ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
-      
+
       - name: Save Jepsen report
         uses: actions/upload-artifact@v3
         if: ${{ always() }}

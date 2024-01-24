@@ -336,7 +336,7 @@ jobs:
           # Build only memgraph release binary.
           cd build
           cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
-          make -j$THREADS memgraph
+          make -j$THREADS memgraph mgclient-proj
 
       - name: Ensure Kafka and Pulsar are up
         run: |
