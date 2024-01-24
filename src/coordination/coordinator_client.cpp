@@ -44,7 +44,7 @@ void CoordinatorClient::StartFrequentCheck() {
   MG_ASSERT(config_.health_check_frequency_sec > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
-  replica_checker_.Run(
+  instance_checker_.Run(
       "Coord checker", config_.health_check_frequency_sec, [this, instance_name = config_.instance_name] {
         try {
           spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
@@ -58,20 +58,22 @@ void CoordinatorClient::StartFrequentCheck() {
       });
 }
 
-void CoordinatorClient::StopFrequentCheck() { replica_checker_.Stop(); }
+void CoordinatorClient::StopFrequentCheck() { instance_checker_.Stop(); }
 
-void CoordinatorClient::PauseFrequentCheck() { replica_checker_.Pause(); }
-void CoordinatorClient::ResumeFrequentCheck() { replica_checker_.Resume(); }
+void CoordinatorClient::PauseFrequentCheck() { instance_checker_.Pause(); }
+void CoordinatorClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
 
 auto CoordinatorClient::SetSuccCallback(HealthCheckCallback succ_cb) -> void { succ_cb_ = std::move(succ_cb); }
 auto CoordinatorClient::SetFailCallback(HealthCheckCallback fail_cb) -> void { fail_cb_ = std::move(fail_cb); }
 
-auto CoordinatorClient::ReplicationClientInfo() const
-    -> const std::optional<CoordinatorClientConfig::ReplicationClientInfo> & {
+auto CoordinatorClient::ReplicationClientInfo() const -> const CoordinatorClientConfig::ReplicationClientInfo & {
   return config_.replication_client_info;
 }
 
-auto CoordinatorClient::ResetReplicationClientInfo() -> void { config_.replication_client_info.reset(); }
+auto CoordinatorClient::ResetReplicationClientInfo() -> void {
+  // TODO (antoniofilipovic) Sync with Andi on this one
+  // config_.replication_client_info.reset();
+}
 
 auto CoordinatorClient::SendPromoteReplicaToMainRpc(
     std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const -> bool {

@@ -32,13 +32,7 @@ class CoordinatorHandler {
  public:
   explicit CoordinatorHandler(DbmsHandler &dbms_handler);
 
-  auto RegisterReplicaOnCoordinator(coordination::CoordinatorClientConfig config)
-      -> coordination::RegisterMainReplicaCoordinatorStatus;
-
-  auto RegisterMainOnCoordinator(coordination::CoordinatorClientConfig config)
-      -> coordination::RegisterMainReplicaCoordinatorStatus;
-
-  auto RegisterInstanceOnCoordinator(coordination::CoordinatorClientConfig config)
+  auto RegisterInstance(coordination::CoordinatorClientConfig config)
       -> coordination::RegisterInstanceCoordinatorStatus;
 
   auto SetInstanceToMain(std::string instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
@@ -46,8 +40,6 @@ class CoordinatorHandler {
   auto ShowReplicasOnCoordinator() const -> std::vector<coordination::CoordinatorInstanceStatus>;
 
   auto ShowMainOnCoordinator() const -> std::optional<coordination::CoordinatorInstanceStatus>;
-
-  auto DoFailover() const -> coordination::DoFailoverStatus;
 
  private:
   DbmsHandler &dbms_handler_;

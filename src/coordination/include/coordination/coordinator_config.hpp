@@ -43,7 +43,8 @@ struct CoordinatorClientConfig {
     friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
   };
 
-  std::optional<ReplicationClientInfo> replication_client_info;
+  // Each instance has replication config in case it fails
+  ReplicationClientInfo replication_client_info;
 
   struct SSL {
     std::string key_file;

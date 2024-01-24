@@ -29,8 +29,8 @@ class CoordinatorData {
 
   [[nodiscard]] auto DoFailover() -> DoFailoverStatus;
 
-  [[nodiscard]] auto RegisterReplica(CoordinatorClientConfig config) -> RegisterMainReplicaCoordinatorStatus;
-  [[nodiscard]] auto RegisterMain(CoordinatorClientConfig config) -> RegisterMainReplicaCoordinatorStatus;
+  [[nodiscard]] auto RegisterInstance(CoordinatorClientConfig config) -> RegisterInstanceCoordinatorStatus;
+  [[nodiscard]] auto SetInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus;
 
   auto ShowReplicas() const -> std::vector<CoordinatorInstanceStatus>;
   auto ShowMain() const -> std::optional<CoordinatorInstanceStatus>;

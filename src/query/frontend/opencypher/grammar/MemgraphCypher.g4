@@ -190,7 +190,6 @@ replicationQuery : setReplicationRole
 coordinatorQuery : registerInstanceOnCoordinator
                  | setInstanceToMain
                  | showReplicationCluster
-                 | doFailover
                  ;
 
 triggerQuery : createTrigger
@@ -253,8 +252,6 @@ transactionQueueQuery : showTransactions
                       ;
 
 showTransactions : SHOW TRANSACTIONS ;
-
-doFailover : DO FAILOVER ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 

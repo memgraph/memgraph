@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "coordination/coordinator_instance.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_data.hpp"
@@ -110,12 +112,13 @@ auto CoordinatorData::DoFailover() -> DoFailoverStatus {
   auto not_chosen_replica_instance = [&chosen_replica_instance](const CoordinatorInstance &instance) {
     return instance != *chosen_replica_instance;
   };
+  auto not_main = [](const CoordinatorInstance &instance) { return !instance.IsMain(); };
 
-  for (const auto &unchosen_replica_instance : replica_instances | ranges::views::filter(not_chosen_replica_instance)) {
-    if (auto repl_client_info = unchosen_replica_instance.client_.ReplicationClientInfo();
-        repl_client_info.has_value()) {
-      repl_clients_info.emplace_back(std::move(repl_client_info.value()));
-    }
+  // Filter not current replicas and not MAIN instance
+  // TODO (antoniofilipovic): Should we send also data on old MAIN???
+  for (const auto &unchosen_replica_instance :
+       replica_instances | ranges::views::filter(not_chosen_replica_instance) | ranges::views::filter(not_main)) {
+    repl_clients_info.emplace_back(unchosen_replica_instance.client_.ReplicationClientInfo());
   }
 
   if (!chosen_replica_instance->client_.SendPromoteReplicaToMainRpc(std::move(repl_clients_info))) {
@@ -154,49 +157,74 @@ auto CoordinatorData::ShowReplicas() const -> std::vector<CoordinatorInstanceSta
   return instances_status;
 }
 
-auto CoordinatorData::RegisterMain(CoordinatorClientConfig config) -> RegisterMainReplicaCoordinatorStatus {
+auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus {
   // TODO: (andi) test this
   std::lock_guard<utils::RWLock> lock{coord_data_lock_};
 
-  if (std::ranges::any_of(registered_instances_, [&config](const CoordinatorInstance &instance) {
-        return instance.InstanceName() == config.instance_name;
-      })) {
-    return RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
+  // Find replica we already registered
+  auto registered_replica = std::find_if(
+      registered_instances_.begin(), registered_instances_.end(),
+      [instance_name](const CoordinatorInstance &instance) { return instance.InstanceName() == instance_name; });
+
+  // if replica not found...
+  if (registered_replica == registered_instances_.end()) {
+    spdlog::error("You didn't register instance with given name {}", instance_name);
+    return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
 
-  if (std::ranges::any_of(registered_instances_, [&config](const CoordinatorInstance &instance) {
-        return instance.SocketAddress() == config.SocketAddress();
-      })) {
-    return RegisterMainReplicaCoordinatorStatus::ENDPOINT_EXISTS;
+  // Stop for now because we need to swap success and fail callbacks
+  registered_replica->client_.StopFrequentCheck();
+
+  std::vector<CoordinatorClientConfig::ReplicationClientInfo> repl_clients_info;
+  repl_clients_info.reserve(registered_instances_.size() - 1);
+  std::ranges::for_each(registered_instances_,
+                        [registered_replica, &repl_clients_info](const CoordinatorInstance &replica) {
+                          if (replica != *registered_replica) {
+                            repl_clients_info.emplace_back(replica.client_.ReplicationClientInfo());
+                          }
+                        });
+
+  // PROMOTE REPLICA TO MAIN
+  // THIS SHOULD FAIL HERE IF IT IS DOWN
+  if (auto result = registered_replica->client_.SendPromoteReplicaToMainRpc(std::move(repl_clients_info)); !result) {
+    registered_replica->client_.StartFrequentCheck();
+    return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
 
-  auto *instance = &registered_instances_.emplace_back(this, std::move(config), main_succ_cb_, main_fail_cb_,
-                                                       replication_coordination_glue::ReplicationRole::MAIN);
-  instance->client_.StartFrequentCheck();
+  registered_replica->replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
+  registered_replica->client_.SetSuccCallback(main_succ_cb_);
+  registered_replica->client_.SetFailCallback(main_fail_cb_);
 
-  return RegisterMainReplicaCoordinatorStatus::SUCCESS;
+  return SetInstanceToMainCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorData::RegisterReplica(CoordinatorClientConfig config) -> RegisterMainReplicaCoordinatorStatus {
+auto CoordinatorData::RegisterInstance(CoordinatorClientConfig config) -> RegisterInstanceCoordinatorStatus {
   std::lock_guard<utils::RWLock> lock{coord_data_lock_};
   if (std::ranges::any_of(registered_instances_, [&config](const CoordinatorInstance &instance) {
         return instance.InstanceName() == config.instance_name;
       })) {
-    return RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
+    return RegisterInstanceCoordinatorStatus::NAME_EXISTS;
   }
 
   if (std::ranges::any_of(registered_instances_, [&config](const CoordinatorInstance &instance) {
         spdlog::trace("Comparing {} with {}", instance.SocketAddress(), config.SocketAddress());
         return instance.SocketAddress() == config.SocketAddress();
       })) {
-    return RegisterMainReplicaCoordinatorStatus::ENDPOINT_EXISTS;
+    return RegisterInstanceCoordinatorStatus::END_POINT_EXISTS;
   }
 
+  CoordinatorClientConfig::ReplicationClientInfo replication_client_info_copy = config.replication_client_info;
+
+  // TODO (antoniofilipovic) create and then push back
   auto *instance = &registered_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_,
                                                        replication_coordination_glue::ReplicationRole::REPLICA);
+  if (auto res = instance->client_.SendSetToReplicaRpc(replication_client_info_copy); !res) {
+    return RegisterInstanceCoordinatorStatus::RPC_FAILED;
+  }
+
   instance->client_.StartFrequentCheck();
 
-  return RegisterMainReplicaCoordinatorStatus::SUCCESS;
+  return RegisterInstanceCoordinatorStatus::SUCCESS;
 }
 
 }  // namespace memgraph::coordination

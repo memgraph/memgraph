@@ -59,7 +59,8 @@ class CoordinatorInstance {
     replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
     client_.SetSuccCallback(std::move(main_succ_cb));
     client_.SetFailCallback(std::move(main_fail_cb));
-    client_.ResetReplicationClientInfo();
+    // Comment with Andi but we shouldn't delete this, what if this MAIN FAILS AGAIN
+    // client_.ResetReplicationClientInfo();
     client_.ResumeFrequentCheck();
   }
 

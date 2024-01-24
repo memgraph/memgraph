@@ -48,7 +48,7 @@ class CoordinatorClient {
 
   auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
 
-  auto ReplicationClientInfo() const -> const std::optional<ReplClientInfo> &;
+  auto ReplicationClientInfo() const -> const ReplClientInfo &;
   auto ResetReplicationClientInfo() -> void;
 
   auto SendSetToReplicaRpc(ReplClientInfo replication_client_info) const -> bool;
@@ -61,7 +61,7 @@ class CoordinatorClient {
   }
 
  private:
-  utils::Scheduler replica_checker_;
+  utils::Scheduler instance_checker_;
 
   // TODO: (andi) Pimpl?
   communication::ClientContext rpc_context_;

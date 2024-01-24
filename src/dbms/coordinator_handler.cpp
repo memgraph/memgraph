@@ -20,19 +20,9 @@ namespace memgraph::dbms {
 
 CoordinatorHandler::CoordinatorHandler(DbmsHandler &dbms_handler) : dbms_handler_(dbms_handler) {}
 
-auto CoordinatorHandler::RegisterReplicaOnCoordinator(coordination::CoordinatorClientConfig config)
-    -> coordination::RegisterMainReplicaCoordinatorStatus {
-  return dbms_handler_.CoordinatorState().RegisterReplica(std::move(config));
-}
-
-auto CoordinatorHandler::RegisterMainOnCoordinator(memgraph::coordination::CoordinatorClientConfig config)
-    -> coordination::RegisterMainReplicaCoordinatorStatus {
-  return dbms_handler_.CoordinatorState().RegisterMain(std::move(config));
-}
-
-auto CoordinatorHandler::RegisterInstanceOnCoordinator(memgraph::coordination::CoordinatorClientConfig config)
+auto CoordinatorHandler::RegisterInstance(memgraph::coordination::CoordinatorClientConfig config)
     -> coordination::RegisterInstanceCoordinatorStatus {
-  return dbms_handler_.CoordinatorState().RegisterInstanceOnCoordinator(std::move(config));
+  return dbms_handler_.CoordinatorState().RegisterInstance(config);
 }
 
 auto CoordinatorHandler::SetInstanceToMain(std::string instance_name)
@@ -46,10 +36,6 @@ auto CoordinatorHandler::ShowReplicasOnCoordinator() const -> std::vector<coordi
 
 auto CoordinatorHandler::ShowMainOnCoordinator() const -> std::optional<coordination::CoordinatorInstanceStatus> {
   return dbms_handler_.CoordinatorState().ShowMain();
-}
-
-auto CoordinatorHandler::DoFailover() const -> coordination::DoFailoverStatus {
-  return dbms_handler_.CoordinatorState().DoFailover();
 }
 
 }  // namespace memgraph::dbms

@@ -385,7 +385,7 @@ antlrcpp::Any CypherMainVisitor::visitRegisterInstanceOnCoordinator(
   if (!ctx->coordinatorSocketAddress()->literal()->StringLiteral()) {
     throw SemanticException("Coordinator socket address should be a string literal!");
   }
-  coordinator_query->action_ = CoordinatorQuery::Action::REGISTER_INSTANCE_ON_COORDINATOR;
+  coordinator_query->action_ = CoordinatorQuery::Action::REGISTER_INSTANCE;
   coordinator_query->replication_socket_address_ =
       std::any_cast<Expression *>(ctx->replicationSocketAddress()->accept(this));
   coordinator_query->coordinator_socket_address_ =
@@ -418,14 +418,6 @@ antlrcpp::Any CypherMainVisitor::visitShowReplicas(MemgraphCypher::ShowReplicasC
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICAS;
   return replication_query;
-}
-
-// License check is done in the interpreter
-antlrcpp::Any CypherMainVisitor::visitDoFailover(MemgraphCypher::DoFailoverContext * /*ctx*/) {
-  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
-  coordinator_query->action_ = CoordinatorQuery::Action::DO_FAILOVER;
-  query_ = coordinator_query;
-  return coordinator_query;
 }
 
 // License check is done in the interpreter
