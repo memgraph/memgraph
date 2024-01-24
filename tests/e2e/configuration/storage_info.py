@@ -11,7 +11,6 @@
 
 import sys
 
-import default_config
 import mgclient
 import pytest
 

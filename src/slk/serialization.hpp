@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,6 +54,12 @@ class SlkDecodeException : public utils::BasicException {
 // Forward declarations for all recursive `Save` and `Load` functions must be
 // here because C++ doesn't know how to resolve the function call if it isn't in
 // the global namespace.
+
+template <typename T>
+inline void Save(const std::vector<T> &obj, Builder *builder,
+                 std::function<void(const T &, Builder *)> item_save_function);
+template <typename T>
+inline void Load(std::vector<T> *obj, Reader *reader, std::function<void(T *, Reader *)> item_load_function);
 
 template <typename T>
 void Save(const std::vector<T> &obj, Builder *builder);
@@ -507,6 +513,19 @@ inline void Load(utils::TypeId *obj, Reader *reader) {
   enum_type obj_encoded;
   slk::Load(&obj_encoded, reader);
   *obj = utils::TypeId(utils::MemcpyCast<enum_type>(obj_encoded));
+}
+
+template <utils::Enum T>
+void Save(const T &enum_value, slk::Builder *builder) {
+  slk::Save(utils::UnderlyingCast(enum_value), builder);
+}
+
+template <utils::Enum T>
+void Load(T *enum_value, slk::Reader *reader) {
+  using UnderlyingType = std::underlying_type_t<T>;
+  UnderlyingType value;
+  slk::Load(&value, reader);
+  *enum_value = static_cast<T>(value);
 }
 
 }  // namespace memgraph::slk

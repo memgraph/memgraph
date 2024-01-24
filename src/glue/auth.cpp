@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -66,6 +66,8 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::MULTI_DATABASE_EDIT;
     case query::AuthQuery::Privilege::MULTI_DATABASE_USE:
       return auth::Permission::MULTI_DATABASE_USE;
+    case query::AuthQuery::Privilege::COORDINATOR:
+      return auth::Permission::COORDINATOR;
   }
 }
 
