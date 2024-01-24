@@ -125,11 +125,6 @@ class CoordinatorQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void DoFailover() const = 0;
 
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<MainReplicaStatus> ShowMainReplicaStatus(
-      const std::vector<coordination::CoordinatorInstanceStatus> &replicas,
-      const std::optional<coordination::CoordinatorInstanceStatus> &main) const = 0;
-
 #endif
 };
 

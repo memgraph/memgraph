@@ -564,21 +564,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  // TODO: Remove this method, probably not needed.
-  std::vector<MainReplicaStatus> ShowMainReplicaStatus(
-      const std::vector<coordination::CoordinatorInstanceStatus> &replicas,
-      const std::optional<coordination::CoordinatorInstanceStatus> &main) const override {
-    std::vector<MainReplicaStatus> result{};
-    result.reserve(replicas.size() + 1);  // replicas + 1 main
-    std::ranges::transform(replicas, std::back_inserter(result), [](const auto &replica) -> MainReplicaStatus {
-      return {replica.instance_name, replica.socket_address, replica.is_alive, false};
-    });
-    if (main) {
-      result.emplace_back(main->instance_name, main->socket_address, main->is_alive, true);
-    }
-    return result;
-  }
-
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -1128,16 +1113,19 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.header = {"name", "socket_address", "alive", "role"};
       callback.fn = [handler = CoordQueryHandler{dbms_handler}, replica_nfields = callback.header.size()]() mutable {
-        const auto result_status =
-            handler.ShowMainReplicaStatus(handler.ShowReplicasOnCoordinator(), handler.ShowMainOnCoordinator());
+        const auto replicas = handler.ShowReplicasOnCoordinator();
+        const auto main = handler.ShowMainOnCoordinator();
         std::vector<std::vector<TypedValue>> result{};
-        result.reserve(result_status.size());
+        result.reserve(replicas.size() + 1);
 
-        std::ranges::transform(result_status, std::back_inserter(result),
-                               [](const auto &status) -> std::vector<TypedValue> {
-                                 return {TypedValue{status.name}, TypedValue{status.socket_address},
-                                         TypedValue{status.alive}, TypedValue{status.is_main ? "main" : "replica"}};
-                               });
+        std::ranges::transform(replicas, std::back_inserter(result), [](const auto &status) -> std::vector<TypedValue> {
+          return {TypedValue{status.instance_name}, TypedValue{status.socket_address}, TypedValue{status.is_alive},
+                  TypedValue{"replica"}};
+        });
+        if (main) {
+          result.emplace_back(std::vector<TypedValue>{TypedValue{main->instance_name}, TypedValue{main->socket_address},
+                                                      TypedValue{main->is_alive}, TypedValue{"main"}});
+        }
         return result;
       };
       return callback;
@@ -1161,16 +1149,19 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       callback.fn = [handler = CoordQueryHandler{dbms_handler}]() mutable {
         handler.DoFailover();
 
-        const auto result_status =
-            handler.ShowMainReplicaStatus(handler.ShowReplicasOnCoordinator(), handler.ShowMainOnCoordinator());
+        const auto replicas = handler.ShowReplicasOnCoordinator();
+        const auto main = handler.ShowMainOnCoordinator();
         std::vector<std::vector<TypedValue>> result{};
-        result.reserve(result_status.size());
+        result.reserve(replicas.size() + 1);
 
-        std::ranges::transform(result_status, std::back_inserter(result),
-                               [](const auto &status) -> std::vector<TypedValue> {
-                                 return {TypedValue{status.name}, TypedValue{status.socket_address},
-                                         TypedValue{status.alive}, TypedValue{status.is_main ? "main" : "replica"}};
-                               });
+        std::ranges::transform(replicas, std::back_inserter(result), [](const auto &status) -> std::vector<TypedValue> {
+          return {TypedValue{status.instance_name}, TypedValue{status.socket_address}, TypedValue{status.is_alive},
+                  TypedValue{"replica"}};
+        });
+        if (main) {
+          result.emplace_back(std::vector<TypedValue>{TypedValue{main->instance_name}, TypedValue{main->socket_address},
+                                                      TypedValue{main->is_alive}, TypedValue{"main"}});
+        }
         return result;
       };
 
