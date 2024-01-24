@@ -54,34 +54,36 @@ inline bool SetReplicationRoleReplica(dbms::DbmsHandler &dbms_handler,
   // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
   //      deleting the replica.
   // Remove database specific clients
-  dbms_handler.ForEach([&](Database *db) {
-    auto *storage = db->storage();
-    storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
-  });
+
+  // dbms_handler.ForEach([&](Database *db) {
+  //   auto *storage = db->storage();
+  //   storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+  // });
+
   // Remove instance level clients
-  std::get<replication::RoleMainData>(dbms_handler.ReplicationState().ReplicationData()).registered_replicas_.clear();
+  // std::get<replication::RoleMainData>(dbms_handler.ReplicationState().ReplicationData()).registered_replicas_.clear();
 
-  // Creates the server
-  dbms_handler.ReplicationState().SetReplicationRoleReplica(config);
+  // // Creates the server
+  // dbms_handler.ReplicationState().SetReplicationRoleReplica(config);
 
-  // Start
-  const auto success =
-      std::visit(utils::Overloaded{[](replication::RoleMainData const &) {
-                                     // ASSERT
-                                     return false;
-                                   },
-                                   [&dbms_handler](replication::RoleReplicaData const &data) {
-                                     // Register handlers
-                                     InMemoryReplicationHandlers::Register(&dbms_handler, *data.server);
-                                     if (!data.server->Start()) {
-                                       spdlog::error("Unable to start the replication server.");
-                                       return false;
-                                     }
-                                     return true;
-                                   }},
-                 dbms_handler.ReplicationState().ReplicationData());
+  // // Start
+  // const auto success =
+  //     std::visit(utils::Overloaded{[](replication::RoleMainData const &) {
+  //                                    // ASSERT
+  //                                    return false;
+  //                                  },
+  //                                  [&dbms_handler](replication::RoleReplicaData const &data) {
+  //                                    // Register handlers
+  //                                    InMemoryReplicationHandlers::Register(&dbms_handler, *data.server);
+  //                                    if (!data.server->Start()) {
+  //                                      spdlog::error("Unable to start the replication server.");
+  //                                      return false;
+  //                                    }
+  //                                    return true;
+  //                                  }},
+  //                dbms_handler.ReplicationState().ReplicationData());
   // TODO Handle error (restore to main?)
-  return success;
+  return true;
 }
 
 inline bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
