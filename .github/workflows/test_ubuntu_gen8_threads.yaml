@@ -1,4 +1,4 @@
-name: Test thread count - Debian 10
+name: Test thread count - Ubuntu 20.04 gen 8
 
 on:
   pull_request:
@@ -12,13 +12,13 @@ on:
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04, Gen8]
     env:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
     strategy:
       matrix:
-        thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
+        thread_count: [24, 26, 28, 30, 32]
 
     steps:
       - name: Set up repository
@@ -52,13 +52,13 @@ jobs:
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04, Gen8]
     env:
         MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
         MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
     strategy:
       matrix:
-        thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
+        thread_count: [24, 26, 28, 30, 32]
 
     steps:
       - name: Set up repository
@@ -88,13 +88,13 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04, Gen8]
     env:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
     strategy:
       matrix:
-        thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
+        thread_count: [24, 26, 28, 30, 32]
 
     steps:
       - name: Set up repository
