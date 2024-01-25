@@ -57,13 +57,8 @@ auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   return memgraph::auth::Role::Deserialize(json);
 }
 }  // namespace
-// Deserialize code for auth::User
-void Load(auth::Role *self, memgraph::slk::Reader *reader) {
-  std::string tmp;
-  memgraph::slk::Load(&tmp, reader);
-  const auto json = nlohmann::json::parse(tmp);
-  *self = LoadAuthRole(reader);
-}
+// Deserialize code for auth::Role
+void Load(auth::Role *self, memgraph::slk::Reader *reader) { *self = LoadAuthRole(reader); }
 // Special case for optional<Role>
 template <>
 inline void Load<auth::Role>(std::optional<auth::Role> *obj, Reader *reader) {

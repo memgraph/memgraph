@@ -100,7 +100,28 @@ def show_users_func(cursor):
     return func
 
 
-def test_manual_databases_create_multitenancy_replication(connection):
+def show_roles_func(cursor):
+    def func():
+        return set(execute_and_fetch_all(cursor, "SHOW ROLES;"))
+
+    return func
+
+
+def show_users_for_role_func(cursor, rolename):
+    def func():
+        return set(execute_and_fetch_all(cursor, f"SHOW USERS FOR {rolename};"))
+
+    return func
+
+
+def show_roles_for_user_func(cursor, username):
+    def func():
+        return set(execute_and_fetch_all(cursor, f"SHOW ROLES FOR {username};"))
+
+    return func
+
+
+def test_manual_users_replication(connection):
     # Goal: show system recovery in action at registration time
     # 0/ MAIN CREATE USER user1, user2
     #    REPLICA CREATE USER user3, user4
@@ -155,6 +176,82 @@ def test_manual_databases_create_multitenancy_replication(connection):
     connection(BOLT_PORTS["replica_1"], "replica", "user2", "password").cursor()
     connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor()
     connection(BOLT_PORTS["replica_2"], "replica", "user2", "password").cursor()
+
+
+def test_manual_roles_replication(connection):
+    # Goal: show system recovery in action at registration time
+    # 0/ MAIN CREATE USER user1, user2
+    #    REPLICA CREATE USER user3, user4
+    #    Setup replication cluster
+    # 1/ Check that both MAIN and REPLICA have user1 and user2
+    # 2/ Check that role1 and role2 are replicated
+    # 3/ Check that user1 has role1
+
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+            "log_file": "replica1.log",
+            "setup_queries": [
+                "CREATE ROLE role3;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "replica_2": {
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
+            "log_file": "replica2.log",
+            "setup_queries": [
+                "CREATE ROLE role4;",
+                "CREATE USER user4;",
+                "SET ROLE FOR user4 TO role4;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
+            ],
+        },
+        "main": {
+            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "log_file": "main.log",
+            "setup_queries": [
+                "CREATE ROLE role1;",
+                "CREATE ROLE role2;",
+                "CREATE USER user2;",
+                "SET ROLE FOR user2 TO role2;",
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
+            ],
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    cursor = connection(BOLT_PORTS["main"], "main", "user1").cursor()
+
+    # 1/
+    expected_data = {("user2",), ("user1",)}
+    mg_sleep_and_assert(
+        expected_data, show_users_func(connection(BOLT_PORTS["replica_1"], "replica", "user1").cursor())
+    )
+    mg_sleep_and_assert(
+        expected_data, show_users_func(connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor())
+    )
+
+    # 2/
+    expected_data = {("role2",), ("role1",)}
+    mg_sleep_and_assert(
+        expected_data, show_roles_func(connection(BOLT_PORTS["replica_1"], "replica", "user1").cursor())
+    )
+    mg_sleep_and_assert(
+        expected_data, show_roles_func(connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor())
+    )
+
+    # 3/
+    expected_data = {("role1",)}
+    mg_sleep_and_assert(
+        expected_data,
+        show_roles_for_user_func(connection(BOLT_PORTS["replica_1"], "replica", "user1").cursor(), "user1"),
+    )
+    mg_sleep_and_assert(
+        expected_data,
+        show_roles_for_user_func(connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor(), "user1"),
+    )
 
 
 if __name__ == "__main__":
