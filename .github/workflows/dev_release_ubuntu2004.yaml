@@ -18,7 +18,7 @@ jobs:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-    timeout-minutes: 960
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
@@ -61,6 +61,7 @@ jobs:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
@@ -118,6 +119,7 @@ jobs:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
@@ -170,11 +172,12 @@ jobs:
 
   debug_integration_test:
     name: "Debug integration tests"
-    runs-on: [self-hosted, Linux, X64, Debian10]
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
@@ -208,7 +211,7 @@ jobs:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-    timeout-minutes: 960
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
@@ -287,7 +290,7 @@ jobs:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
@@ -308,10 +311,10 @@ jobs:
           INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
           BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
 
-          # Build only memgraph release binary.
+          # Build memgraph release binary and memgraph benchmark
           cd build
           cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
-          make -j$THREADS memgraph mgclient-proj memgraph__benchmark
+          make -j$THREADS memgraph memgraph__benchmark
 
       - name: Run micro benchmark tests
         run: |
@@ -346,7 +349,7 @@ jobs:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
@@ -367,7 +370,7 @@ jobs:
           INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
           BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
 
-          # Build only memgraph release binary.
+          # Build release binaries
           cd build
           cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
           make -j$THREADS
@@ -402,7 +405,7 @@ jobs:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-    timeout-minutes: 960
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository

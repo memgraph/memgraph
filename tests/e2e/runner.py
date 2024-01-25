@@ -42,8 +42,6 @@ def load_workloads(root_directory):
     for file in Path(root_directory).rglob("*.yaml"):
         with open(file, "r") as f:
             workloads.extend(yaml.load(f, Loader=yaml.FullLoader)["workloads"])
-    print("-----DEBUG-----")
-    print(workloads)
     return workloads
 
 
@@ -52,7 +50,6 @@ def run(args):
     for workload in workloads:
         workload_name = workload["name"]
         if args.workload_name is not None and args.workload_name != workload_name:
-            print('-----CONTINUE-----')
             continue
         log.info("%s STARTED.", workload_name)
 
