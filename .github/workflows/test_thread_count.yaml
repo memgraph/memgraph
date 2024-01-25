@@ -13,10 +13,9 @@ jobs:
   community_build:
     name: "Community build"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    thread_count_matrix:
-      strategy:
-        matrix:
-          thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
+    strategy:
+      matrix:
+        thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
     env:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
@@ -49,11 +48,10 @@ jobs:
   debug_build:
     name: "Debug build"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    thread_count_matrix:
-      strategy:
-        matrix:
-          thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
-    env:
+    strategy:
+      matrix:
+        thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
+  env:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
@@ -81,10 +79,9 @@ jobs:
   release_build:
     name: "Release build"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    thread_count_matrix:
-      strategy:
-        matrix:
-          thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
+    strategy:
+      matrix:
+        thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
     env:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
