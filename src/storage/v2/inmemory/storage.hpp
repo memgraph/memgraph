@@ -462,6 +462,9 @@ class InMemoryStorage final : public Storage {
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
   std::function<void()> create_snapshot_handler{};
+
+  // A way to tell async operation to stop
+  std::stop_source stop_source;
 };
 
 }  // namespace memgraph::storage
