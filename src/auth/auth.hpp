@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -15,6 +15,7 @@
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "auth/module.hpp"
+#include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/settings.hpp"
 
@@ -31,7 +32,36 @@ static const constexpr char *const kAllDatabases = "*";
  */
 class Auth final {
  public:
-  explicit Auth(const std::string &storage_directory);
+  struct Config {
+    Config() {}
+    Config(std::string name_regex, std::string password_regex, bool password_permit_null)
+        : name_regex_str{std::move(name_regex)},
+          password_regex_str{std::move(password_regex)},
+          password_permit_null{password_permit_null},
+          custom_name_regex{name_regex_str != glue::kDefaultUserRoleRegex},
+          custom_password_regex{password_regex_str != glue::kDefaultPasswordRegex} {}
+
+    std::string name_regex_str{glue::kDefaultUserRoleRegex};
+    std::string password_regex_str{glue::kDefaultPasswordRegex};
+    bool password_permit_null{true};
+
+   private:
+    friend class Auth;
+    bool custom_name_regex{false};
+    bool custom_password_regex{false};
+  };
+
+  explicit Auth(const std::string &storage_directory, Config config);
+
+  /**
+   * @brief Set the Config object
+   *
+   * @param config
+   */
+  void SetConfig(Config config) {
+    // NOTE: The Auth class itself is not thread-safe, higher-level code needs to synchronize it when using it.
+    config_ = std::move(config);
+  }
 
   /**
    * Authenticates a user using his username and password.
@@ -84,6 +114,14 @@ class Auth final {
    * @throw AuthException if unable to remove the user.
    */
   bool RemoveUser(const std::string &username);
+
+  /**
+   * @brief
+   *
+   * @param user
+   * @param password
+   */
+  void UpdatePassword(auth::User &user, const std::optional<std::string> &password);
 
   /**
    * Gets all users from the storage.
@@ -199,10 +237,20 @@ class Auth final {
 #endif
 
  private:
+  /**
+   * @brief
+   *
+   * @param user_or_role
+   * @return true
+   * @return false
+   */
+  bool NameRegexMatch(const std::string &user_or_role) const;
+
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,
   // Auth is not thread-safe because modifying users and roles might require
   // more than one operation on the storage.
   kvstore::KVStore storage_;
   auth::Module module_;
+  Config config_;
 };
 }  // namespace memgraph::auth
