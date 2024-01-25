@@ -1,0 +1,115 @@
+name: Test thread count - Debian 10
+
+on:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".clang-format"
+      - "CODEOWNERS"
+      - "licenses/*"
+
+jobs:
+  community_build:
+    name: "Community build"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    thread_count_matrix:
+      strategy:
+        matrix:
+          thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
+    env:
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v3
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build community binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Set default build_type to Release
+          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
+          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
+
+          # Build community binaries.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DMG_ENTERPRISE=OFF ..
+          make -j${{ matrix.thread_count }}
+
+  debug_build:
+    name: "Debug build"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    thread_count_matrix:
+      strategy:
+        matrix:
+          thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
+    env:
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v3
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build debug binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build debug binaries.
+          cd build
+          cmake ..
+          make -j${{ matrix.thread_count }}
+
+  release_build:
+    name: "Release build"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    thread_count_matrix:
+      strategy:
+        matrix:
+          thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
+    env:
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v3
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Set default build_type to Release
+          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
+          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
+
+          # Build release binaries.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          make -j${{ matrix.thread_count }}

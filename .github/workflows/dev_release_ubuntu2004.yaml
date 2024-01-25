@@ -1,13 +1,14 @@
 name: In development - Release Ubuntu 20.04
 
 on:
-  pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".clang-format"
-      - "CODEOWNERS"
-      - "licenses/*"
+  workflow_dispatch:
+  # pull_request:
+  #   paths-ignore:
+  #     - "docs/**"
+  #     - "**/*.md"
+  #     - ".clang-format"
+  #     - "CODEOWNERS"
+  #     - "licenses/*"
 
 jobs:
   community_build:
