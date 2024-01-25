@@ -311,7 +311,7 @@ jobs:
           # Build only memgraph release binary.
           cd build
           cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
-          make -j$THREADS memgraph mgclient-proj
+          make -j$THREADS memgraph mgclient-proj memgraph__benchmark
 
       - name: Run micro benchmark tests
         run: |
