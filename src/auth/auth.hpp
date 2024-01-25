@@ -73,6 +73,13 @@ class Auth final {
   }
 
   /**
+   * @brief
+   *
+   * @return Config
+   */
+  Config GetConfig() const { return config_; }
+
+  /**
    * Authenticates a user using his username and password.
    *
    * @param username

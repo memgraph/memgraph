@@ -327,7 +327,9 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, s
 
   utils::OnScopeExit send_on_exit([&]() { memgraph::slk::Save(res, res_builder); });
 
-  /* MULTI-TENANCY */
+  /*
+   * MULTI-TENANCY
+   */
   // Get all current dbs
   auto old = dbms_handler.All();
   // Check/create the incoming dbs
@@ -360,8 +362,12 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, s
     }
   }
 
-  /* AUTHENTICATION */
+  /*
+   * AUTHENTICATION
+   */
   auth.WithLock([&](auto &locked_auth) {
+    // Update config
+    locked_auth.SetConfig(std::move(req.auth_config));
     // Get all current users
     auto old_users = locked_auth.AllUsernames();
     // Save incoming users
@@ -406,6 +412,9 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, s
     }
   });
 
+  /*
+   * SUCCESSFUL RECOVERY
+   */
   // Successfully recovered
   dbms_handler.SetLastCommitedTS(req.forced_group_timestamp);
   spdlog::debug("SystemRecoveryHandler: SUCCESS updated LCTS to {}", req.forced_group_timestamp);

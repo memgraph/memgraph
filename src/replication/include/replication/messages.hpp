@@ -13,9 +13,9 @@
 
 #include <cstdint>
 #include <vector>
+#include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "rpc/messages.hpp"
-#include "slk/serialization.hpp"
 #include "storage/v2/config.hpp"
 
 namespace memgraph::replication {
@@ -127,14 +127,16 @@ struct SystemRecoveryReq {
   static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
   SystemRecoveryReq() = default;
   SystemRecoveryReq(uint64_t forced_group_timestamp, std::vector<storage::SalientConfig> database_configs,
-                    std::vector<auth::User> users, std::vector<auth::Role> roles)
+                    auth::Auth::Config auth_config, std::vector<auth::User> users, std::vector<auth::Role> roles)
       : forced_group_timestamp{forced_group_timestamp},
         database_configs(std::move(database_configs)),
+        auth_config(std::move(auth_config)),
         users{std::move(users)},
         roles{std::move(roles)} {}
 
   uint64_t forced_group_timestamp;
   std::vector<storage::SalientConfig> database_configs;
+  auth::Auth::Config auth_config;
   std::vector<auth::User> users;
   std::vector<auth::Role> roles;
 };

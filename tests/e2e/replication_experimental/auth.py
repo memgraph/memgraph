@@ -93,6 +93,16 @@ MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
 }
 
 
+def update_to_main(cursor):
+    execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO MAIN;")
+
+
+def add_user(cursor, username, password=None):
+    if password is not None:
+        return execute_and_fetch_all(cursor, f"CREATE USER {username} IDENTIFIED BY '{password}';")
+    return execute_and_fetch_all(cursor, f"CREATE USER {username};")
+
+
 def show_users_func(cursor):
     def func():
         return set(execute_and_fetch_all(cursor, "SHOW USERS;"))
@@ -248,6 +258,99 @@ def test_manual_roles_replication(connection):
         expected_data,
         show_role_for_user_func(cursor_replica_2, "user2"),
     )
+
+
+def test_auth_config_replication(connection):
+    # Goal: show we are replicating Auth::Config
+    # 0/ Setup auth configuration and compliant users
+    # 1/ Check that both MAIN and REPLICA have the same users
+    # 2/ Check that REPLICAS have the same config
+
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+                "--auth-password-strength-regex",
+                "^[A-Z]+$",
+                "--auth-password-permit-null=false",
+                "--auth-user-or-role-name-regex",
+                "^[O-o]+$",
+            ],
+            "log_file": "replica1.log",
+            "setup_queries": [
+                "CREATE USER OPQabc IDENTIFIED BY 'PASSWORD';",
+                "CREATE ROLE defRST;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "replica_2": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+                "--auth-password-strength-regex",
+                "^[0-9]+$",
+                "--auth-password-permit-null=true",
+                "--auth-user-or-role-name-regex",
+                "^[A-Np-z]+$",
+            ],
+            "log_file": "replica2.log",
+            "setup_queries": [
+                "CREATE ROLE ABCpqr;",
+                "CREATE USER stuDEF;",
+                "CREATE USER GvHwI IDENTIFIED BY '123456';",
+                "SET ROLE FOR GvHwI TO ABCpqr;",
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
+            ],
+        },
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+                "--auth-password-strength-regex",
+                "^[a-z]+$",
+                "--auth-password-permit-null=false",
+                "--auth-user-or-role-name-regex",
+                "^[A-z]+$",
+            ],
+            "log_file": "main.log",
+            "setup_queries": [
+                "CREATE USER UsErA IDENTIFIED BY 'pass';",
+                "CREATE ROLE rOlE;",
+                "CREATE USER uSeRB IDENTIFIED BY 'word';",
+                "SET ROLE FOR uSeRB TO rOlE;",
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
+            ],
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+
+    # 1/
+    cursor_main = connection(BOLT_PORTS["main"], "main", "UsErA", "pass").cursor()  # Just check if it connects
+    cursor_replica_1 = connection(BOLT_PORTS["replica_1"], "replica", "UsErA", "pass").cursor()
+    cursor_replica_2 = connection(BOLT_PORTS["replica_2"], "replica", "UsErA", "pass").cursor()
+
+    # 2/ Only MAIN can update users
+    def user_test(cursor):
+        with pytest.raises(mgclient.DatabaseError, match="Invalid user name."):
+            add_user(cursor, "UsEr1", "abcdef")
+        with pytest.raises(mgclient.DatabaseError, match="Null passwords aren't permitted!"):
+            add_user(cursor, "UsErC")
+        with pytest.raises(mgclient.DatabaseError, match="The user password doesn't conform to the required strength!"):
+            add_user(cursor, "UsErC", "123456")
+        add_user(cursor, "UsErC", "abcdef")
+
+    user_test(cursor_main)
+    update_to_main(cursor_replica_1)
+    user_test(cursor_replica_1)
+    update_to_main(cursor_replica_2)
+    user_test(cursor_replica_2)
 
 
 if __name__ == "__main__":

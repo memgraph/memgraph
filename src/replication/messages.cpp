@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #include "replication/messages.hpp"
 #include <json/json.hpp>
+#include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
@@ -83,6 +84,25 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
     self->ClearRole();
 }
 
+// Serialize code for auth::Auth::Config
+void Save(const auth::Auth::Config &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.name_regex_str, builder);
+  memgraph::slk::Save(self.password_regex_str, builder);
+  memgraph::slk::Save(self.password_permit_null, builder);
+}
+// Deserialize code for auth::Auth::Config
+void Load(auth::Auth::Config *self, memgraph::slk::Reader *reader) {
+  std::string name_regex_str{};
+  std::string password_regex_str{};
+  bool password_permit_null{};
+
+  memgraph::slk::Load(&name_regex_str, reader);
+  memgraph::slk::Load(&password_regex_str, reader);
+  memgraph::slk::Load(&password_permit_null, reader);
+
+  *self = auth::Auth::Config{std::move(name_regex_str), std::move(password_regex_str), password_permit_null};
+}
+
 // Serialize code for UpdateAuthDataReq
 void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.epoch_id, builder);
@@ -139,6 +159,7 @@ void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *r
 void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.forced_group_timestamp, builder);
   memgraph::slk::Save(self.database_configs, builder);
+  memgraph::slk::Save(self.auth_config, builder);
   memgraph::slk::Save(self.users, builder);
   memgraph::slk::Save(self.roles, builder);
 }
@@ -146,6 +167,7 @@ void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::B
 void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->forced_group_timestamp, reader);
   memgraph::slk::Load(&self->database_configs, reader);
+  memgraph::slk::Load(&self->auth_config, reader);
   memgraph::slk::Load(&self->users, reader);
   memgraph::slk::Load(&self->roles, reader);
 }

@@ -419,7 +419,7 @@ class DbmsHandler {
   //! \param args arguments to forward to the rpc request
   //! \return If replica stream is completed or enqueued
   template <typename RPC, typename... Args>
-  bool SteamAndFinalizeDelta(auto &client, auto &&check, Args &&... args) {
+  bool SteamAndFinalizeDelta(auto &client, auto &&check, Args &&...args) {
     try {
       auto stream = client.rpc_client_.template Stream<RPC>(std::forward<Args>(args)...);
       auto task = [&client, check = std::forward<decltype(check)>(check), stream = std::move(stream)]() mutable {
@@ -486,8 +486,8 @@ class DbmsHandler {
       try {
         auto stream = auth_.WithLock([&](auto &locked_auth) {
           return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
-              db_info.last_committed_timestamp, std::move(db_info.configs), locked_auth.AllUsers(),
-              locked_auth.AllRoles());
+              db_info.last_committed_timestamp, std::move(db_info.configs), locked_auth.GetConfig(),
+              locked_auth.AllUsers(), locked_auth.AllRoles());
         });
         const auto response = stream.AwaitResponse();
         if (response.result == replication::SystemRecoveryRes::Result::FAILURE) {
