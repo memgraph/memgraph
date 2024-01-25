@@ -18,7 +18,7 @@ jobs:
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
     strategy:
       matrix:
-        thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
+        thread_count: [20, 22, 24]
 
     steps:
       - name: Set up repository
@@ -58,7 +58,7 @@ jobs:
         MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
     strategy:
       matrix:
-        thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
+        thread_count: [20, 22, 24]
 
     steps:
       - name: Set up repository
@@ -94,7 +94,7 @@ jobs:
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
     strategy:
       matrix:
-        thread_count: [8, 12, 14, 16, 18, 20, 22, 24]
+        thread_count: [20, 22, 24]
 
     steps:
       - name: Set up repository
