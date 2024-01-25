@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -193,12 +193,13 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
   for (const auto &[key, bolt_param] : params) {
     params_pv.emplace(key, ToPropertyValue(bolt_param));
   }
+
+#ifdef MG_ENTERPRISE
   const std::string *username{nullptr};
   if (user_) {
     username = &user_->username();
   }
 
-#ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     auto &db = interpreter_.current_db_.db_acc_;
     audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
