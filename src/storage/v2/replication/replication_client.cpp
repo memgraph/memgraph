@@ -67,6 +67,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
         "now hold unique data. Please resolve data conflicts and start the "
         "replication on a clean instance.",
         client_.name_, client_.name_, client_.name_);
+    // TODO: (andi) Talk about renaming MAYBE_BEHIND to branching
     // State not updated, hence in MAYBE_BEHIND state
     return;
   }

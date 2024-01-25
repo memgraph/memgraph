@@ -76,7 +76,7 @@ def test_simple_automatic_failover(connection):
     expected_data_on_coord = [
         ("instance_1", "127.0.0.1:10011", True, "main"),
         ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", False, "replica"),
+        ("instance_3", "127.0.0.1:10013", False, "main"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 

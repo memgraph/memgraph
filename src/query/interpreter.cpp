@@ -528,6 +528,26 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
+  /// @throw QueryRuntimeException if an error ocurred.
+  void DoFailover() const override {
+    if (!FLAGS_coordinator) {
+      throw QueryRuntimeException("Only coordinator can register coordinator server!");
+    }
+
+    auto status = coordinator_handler_.DoFailover();
+    switch (status) {
+      using enum memgraph::coordination::DoFailoverStatus;
+      case ALL_REPLICAS_DOWN:
+        throw QueryRuntimeException("Failover aborted since all replicas are down!");
+      case MAIN_ALIVE:
+        throw QueryRuntimeException("Failover aborted since main is alive!");
+      case RPC_FAILED:
+        throw QueryRuntimeException("Failover aborted since promoting replica to main failed!");
+      case SUCCESS:
+        break;
+    }
+  }
+
 #endif
 
 #ifdef MG_ENTERPRISE

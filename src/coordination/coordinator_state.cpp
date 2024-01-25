@@ -9,17 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/coordinator_state.hpp"
-#include <algorithm>
-#include "coordination/register_main_replica_coordinator_status.hpp"
-
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_state.hpp"
+
+#include "coordination/register_main_replica_coordinator_status.hpp"
 #include "coordination/coordinator_config.hpp"
 #include "flags/replication.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
+
+#include <algorithm>
 
 namespace memgraph::coordination {
 

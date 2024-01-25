@@ -130,30 +130,13 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
     }
 
     auto &instance_client_ref = *instance_client.GetValue();
+    // TODO: (andi) Policy for register all databases
+    // Will be resolved after deciding about choosing new replica
     const bool all_clients_good = memgraph::dbms::RegisterAllDatabasesClients(dbms_handler, instance_client_ref);
-
-    if (!all_clients_good) {
-      spdlog::error(
-          "Failed to register one or more databases to the REPLICA \"{}\". Failover aborted, instance will continue to "
-          "operate as replica.",
-          config.name);
-
-      dbms_handler.ForEach([&](DatabaseAccess db_acc) {
-        auto *storage = db_acc->storage();
-        storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
-      });
-
-      std::get<replication::RoleMainData>(dbms_handler.ReplicationState().ReplicationData())
-          .registered_replicas_.clear();
-
-      repl_state.SetReplicationRoleReplica(repl_server_config);
-
-      slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
-      return;
-    }
+    MG_ASSERT(all_clients_good, "Failed to register one or more databases to the REPLICA \"{}\".", config.name);
 
     StartReplicaClient(dbms_handler, instance_client_ref);
-  };
+  }
 
   slk::Save(coordination::PromoteReplicaToMainRes{true}, res_builder);
 }

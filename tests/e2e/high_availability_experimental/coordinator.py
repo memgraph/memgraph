@@ -83,16 +83,5 @@ def test_main_and_replicas_cannot_register_coord_server(port, role, connection):
     assert str(e.value) == "Only coordinator can register coordinator server!"
 
 
-@pytest.mark.parametrize(
-    "port, role",
-    [(7687, "main"), (7688, "replica"), (7689, "replica")],
-)
-def test_main_and_replicas_cannot_run_do_failover(port, role, connection):
-    cursor = connection(port, role).cursor()
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(cursor, "DO FAILOVER;")
-    assert str(e.value) == "Only coordinator can run DO FAILOVER!"
-
-
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

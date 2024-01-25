@@ -68,9 +68,6 @@ CoordinatorData::CoordinatorData() {
         case MAIN_ALIVE:
           spdlog::warn("Failover aborted since main is alive!");
           break;
-        case CLUSTER_UNINITIALIZED:
-          spdlog::warn("Failover aborted since cluster is uninitialized!");
-          break;
         case RPC_FAILED:
           spdlog::warn("Failover aborted since promoting replica to main failed!");
           break;
@@ -84,18 +81,6 @@ CoordinatorData::CoordinatorData() {
 auto CoordinatorData::DoFailover() -> DoFailoverStatus {
   using ReplicationClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
   std::lock_guard<utils::RWLock> lock{coord_data_lock_};
-
-  const auto main_instance = std::ranges::find_if(registered_instances_, &CoordinatorInstance::IsMain);
-
-  if (main_instance == registered_instances_.end()) {
-    return DoFailoverStatus::CLUSTER_UNINITIALIZED;
-  }
-
-  if (main_instance->IsAlive()) {
-    return DoFailoverStatus::MAIN_ALIVE;
-  }
-
-  main_instance->client_.PauseFrequentCheck();
 
   auto replica_instances = registered_instances_ | ranges::views::filter(&CoordinatorInstance::IsReplica);
 
@@ -114,8 +99,8 @@ auto CoordinatorData::DoFailover() -> DoFailoverStatus {
   };
   auto not_main = [](const CoordinatorInstance &instance) { return !instance.IsMain(); };
 
-  // Filter not current replicas and not MAIN instance
   // TODO (antoniofilipovic): Should we send also data on old MAIN???
+  // TODO: (andi) Don't send replicas which aren't alive
   for (const auto &unchosen_replica_instance :
        replica_instances | ranges::views::filter(not_chosen_replica_instance) | ranges::views::filter(not_main)) {
     repl_clients_info.emplace_back(unchosen_replica_instance.client_.ReplicationClientInfo());
@@ -127,7 +112,6 @@ auto CoordinatorData::DoFailover() -> DoFailoverStatus {
   }
 
   chosen_replica_instance->PostFailover(main_succ_cb_, main_fail_cb_);
-  main_instance->replication_role_ = replication_coordination_glue::ReplicationRole::REPLICA;
 
   return DoFailoverStatus::SUCCESS;
 }

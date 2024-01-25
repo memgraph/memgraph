@@ -16,6 +16,6 @@
 #include <cstdint>
 
 namespace memgraph::coordination {
-enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN, MAIN_ALIVE, CLUSTER_UNINITIALIZED, RPC_FAILED };
+enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN, MAIN_ALIVE, RPC_FAILED };
 }  // namespace memgraph::coordination
 #endif
