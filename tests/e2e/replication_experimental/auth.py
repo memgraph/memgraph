@@ -114,9 +114,9 @@ def show_users_for_role_func(cursor, rolename):
     return func
 
 
-def show_roles_for_user_func(cursor, username):
+def show_role_for_user_func(cursor, username):
     def func():
-        return set(execute_and_fetch_all(cursor, f"SHOW ROLES FOR {username};"))
+        return set(execute_and_fetch_all(cursor, f"SHOW ROLE FOR {username};"))
 
     return func
 
@@ -222,35 +222,31 @@ def test_manual_roles_replication(connection):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
-    cursor = connection(BOLT_PORTS["main"], "main", "user1").cursor()
+    connection(BOLT_PORTS["main"], "main", "user2").cursor()  # Just check if it connects
+    cursor_replica_1 = connection(BOLT_PORTS["replica_1"], "replica", "user2").cursor()
+    cursor_replica_2 = connection(BOLT_PORTS["replica_2"], "replica", "user2").cursor()
 
     # 1/
-    expected_data = {("user2",), ("user1",)}
-    mg_sleep_and_assert(
-        expected_data, show_users_func(connection(BOLT_PORTS["replica_1"], "replica", "user1").cursor())
-    )
-    mg_sleep_and_assert(
-        expected_data, show_users_func(connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor())
-    )
+    expected_data = {
+        ("user2",),
+    }
+    mg_sleep_and_assert(expected_data, show_users_func(cursor_replica_1))
+    mg_sleep_and_assert(expected_data, show_users_func(cursor_replica_2))
 
     # 2/
     expected_data = {("role2",), ("role1",)}
-    mg_sleep_and_assert(
-        expected_data, show_roles_func(connection(BOLT_PORTS["replica_1"], "replica", "user1").cursor())
-    )
-    mg_sleep_and_assert(
-        expected_data, show_roles_func(connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor())
-    )
+    mg_sleep_and_assert(expected_data, show_roles_func(cursor_replica_1))
+    mg_sleep_and_assert(expected_data, show_roles_func(cursor_replica_2))
 
     # 3/
-    expected_data = {("role1",)}
+    expected_data = {("role2",)}
     mg_sleep_and_assert(
         expected_data,
-        show_roles_for_user_func(connection(BOLT_PORTS["replica_1"], "replica", "user1").cursor(), "user1"),
+        show_role_for_user_func(cursor_replica_1, "user2"),
     )
     mg_sleep_and_assert(
         expected_data,
-        show_roles_for_user_func(connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor(), "user1"),
+        show_role_for_user_func(cursor_replica_2, "user2"),
     )
 
 

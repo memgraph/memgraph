@@ -34,17 +34,6 @@ void Load(memgraph::replication::SystemHeartbeatReq * /*self*/, memgraph::slk::R
 }
 
 // TODO Move
-// Serialize code for auth::User
-void Save(const auth::User &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.Serialize().dump(), builder);
-}
-// Deserialize code for auth::User
-void Load(auth::User *self, memgraph::slk::Reader *reader) {
-  std::string tmp;
-  memgraph::slk::Load(&tmp, reader);
-  const auto json = nlohmann::json::parse(tmp);
-  *self = memgraph::auth::User::Deserialize(json);
-}
 // Serialize code for auth::Role
 void Save(const auth::Role &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.Serialize().dump(), builder);
@@ -69,6 +58,29 @@ inline void Load<auth::Role>(std::optional<auth::Role> *obj, Reader *reader) {
   } else {
     *obj = std::nullopt;
   }
+}
+
+// Serialize code for auth::User
+void Save(const auth::User &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.Serialize().dump(), builder);
+  std::optional<auth::Role> role{};
+  if (const auto *role_ptr = self.role(); role_ptr) {
+    role.emplace(*role_ptr);
+  }
+  memgraph::slk::Save(role, builder);
+}
+// Deserialize code for auth::User
+void Load(auth::User *self, memgraph::slk::Reader *reader) {
+  std::string tmp;
+  memgraph::slk::Load(&tmp, reader);
+  const auto json = nlohmann::json::parse(tmp);
+  *self = memgraph::auth::User::Deserialize(json);
+  std::optional<auth::Role> role{};
+  memgraph::slk::Load(&role, reader);
+  if (role)
+    self->SetRole(*role);
+  else
+    self->ClearRole();
 }
 
 // Serialize code for UpdateAuthDataReq
