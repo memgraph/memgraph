@@ -36,8 +36,7 @@ class CoordinatorInstance {
   ~CoordinatorInstance() = default;
 
   auto UpdateInstanceStatus() -> bool {
-    is_alive_ = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() -
-                                                                 last_response_time_.load(std::memory_order_acquire))
+    is_alive_ = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_response_time_)
                     .count() < CoordinatorClusterConfig::alive_response_time_difference_sec_;
     return is_alive_;
   }
@@ -66,8 +65,8 @@ class CoordinatorInstance {
 
   CoordinatorClient client_;
   replication_coordination_glue::ReplicationRole replication_role_;
-  std::atomic<std::chrono::system_clock::time_point> last_response_time_{};
-  std::atomic<bool> is_alive_{false};
+  std::chrono::system_clock::time_point last_response_time_{};
+  bool is_alive_{false};
 
   friend bool operator==(CoordinatorInstance const &first, CoordinatorInstance const &second) {
     return first.client_ == second.client_ && first.replication_role_ == second.replication_role_;
