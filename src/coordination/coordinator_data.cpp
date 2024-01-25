@@ -156,8 +156,7 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
     return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
 
-  // Stop for now because we need to swap success and fail callbacks
-  registered_replica->client_.StopFrequentCheck();
+  registered_replica->client_.PauseFrequentCheck();
 
   std::vector<CoordinatorClientConfig::ReplicationClientInfo> repl_clients_info;
   repl_clients_info.reserve(registered_instances_.size() - 1);
@@ -171,15 +170,14 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
   // PROMOTE REPLICA TO MAIN
   // THIS SHOULD FAIL HERE IF IT IS DOWN
   if (auto result = registered_replica->client_.SendPromoteReplicaToMainRpc(std::move(repl_clients_info)); !result) {
-    registered_replica->client_.StartFrequentCheck();
+    registered_replica->client_.ResumeFrequentCheck();
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
 
-  registered_replica->replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
   registered_replica->client_.SetSuccCallback(main_succ_cb_);
   registered_replica->client_.SetFailCallback(main_fail_cb_);
-
-  registered_replica->client_.StartFrequentCheck();
+  registered_replica->replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
+  registered_replica->client_.ResumeFrequentCheck();
 
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
 }

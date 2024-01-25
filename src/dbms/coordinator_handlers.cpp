@@ -133,12 +133,11 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
       spdlog::warn("Multi-tenant replication is currently not supported!");
     }
 
-#ifdef MG_ENTERPRISE
-    // Update system before enabling individual storage <-> replica clients
-    dbms_handler.SystemRestore(*instance_client.GetValue());
-#endif
-
     auto &instance_client_ref = *instance_client.GetValue();
+
+    // Update system before enabling individual storage <-> replica clients
+    dbms_handler.SystemRestore(instance_client_ref);
+
     // TODO: (andi) Policy for register all databases
     // Will be resolved after deciding about choosing new replica
     const bool all_clients_good = memgraph::dbms::RegisterAllDatabasesClients(dbms_handler, instance_client_ref);
