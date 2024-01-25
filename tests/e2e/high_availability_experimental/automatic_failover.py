@@ -44,9 +44,9 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "args": ["--bolt-port", "7690", "--log-level=TRACE", "--coordinator"],
         "log_file": "replica3.log",
         "setup_queries": [
-            "REGISTER INSTANCE instance_1 ON '127.0.0.1:100011' WITH '127.0.0.1:10001';",
-            "REGISTER INSTANCE instance_2 ON '127.0.0.1:100012' WITH '127.0.0.1:10002';",
-            "REGISTER INSTANCE instance_3 ON '127.0.0.1:100013' WITH '127.0.0.1:10003';",
+            "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
+            "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
+            "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
             "SET INSTANCE instance_3 TO MAIN",
         ],
     },
@@ -156,7 +156,10 @@ def test_registering_replica_fails_endpoint_exists(connection):
             coord_cursor,
             "REGISTER INSTANCE instance_5 ON '127.0.0.1:10001' WITH '127.0.0.1:10013';",
         )
-    assert str(e.value) == "Couldn't register replica instance since instance with such endpoint already exists!"
+    assert (
+        str(e.value)
+        == "Couldn't register replica because promotion on replica failed! Check logs on replica to find out more info!"
+    )
 
 
 if __name__ == "__main__":

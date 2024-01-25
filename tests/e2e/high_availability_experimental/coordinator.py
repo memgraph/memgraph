@@ -41,13 +41,13 @@ def test_coordinator_show_replication_cluster(connection):
     cursor = connection(7690, "coordinator").cursor()
 
     def retrieve_data():
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
+        return sorted(list(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")))
 
-    expected_data = {
-        ("main", "127.0.0.1:10013", True, "main"),
-        ("replica_1", "127.0.0.1:10011", True, "replica"),
-        ("replica_2", "127.0.0.1:10012", True, "replica"),
-    }
+    expected_data = [
+        ("instance_1", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "127.0.0.1:10013", True, "main"),
+    ]
     mg_sleep_and_assert(expected_data, retrieve_data)
 
 
