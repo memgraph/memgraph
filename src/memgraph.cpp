@@ -416,9 +416,10 @@ int main(int argc, char **argv) {
 #endif
   }
 
+  auto stream_consumer_factory = memgraph::query::stream::StreamConsumerFactory{&interpreter_context_};
+
 #ifdef MG_ENTERPRISE
   dbms_handler.RestoreTriggers(&interpreter_context_);
-  auto stream_consumer_factory = memgraph::query::stream::StreamConsumerFactory{&interpreter_context_};
   dbms_handler.RestoreStreams(stream_consumer_factory);
 #else
   {
@@ -431,7 +432,7 @@ int main(int argc, char **argv) {
   }
 
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
-  db_acc->streams()->RestoreStreams(db_acc, &interpreter_context_);
+  db_acc->streams()->RestoreStreams(db_acc, stream_consumer_factory);
 #endif
 
   ServerContext context;

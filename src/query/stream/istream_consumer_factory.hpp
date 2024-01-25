@@ -24,6 +24,8 @@ struct IStreamConsumerFactory {
   template <typename TStream>
   using Consumer = std::function<void(const std::vector<typename TStream::Message> &)>;
 
+  virtual ~IStreamConsumerFactory() = default;
+
   virtual auto make_consumer(memgraph::utils::Tag<memgraph::query::stream::KafkaStream> /*tag*/,
                              memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
                              const std::string &transformation_name, std::optional<std::string> owner)

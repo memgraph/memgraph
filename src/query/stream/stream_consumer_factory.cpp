@@ -207,25 +207,27 @@ auto make_check_consumer_impl(memgraph::dbms::DatabaseAccess db_acc, const std::
   };
 };
 
-auto StreamConsumerFactory::make_consumer(memgraph::utils::Tag<KafkaStream> tag, memgraph::dbms::DatabaseAccess db_acc,
-                                          const std::string &stream_name, const std::string &transformation_name,
-                                          std::optional<std::string> owner) -> Consumer<KafkaStream> {
+auto StreamConsumerFactory::make_consumer(memgraph::utils::Tag<KafkaStream> /*tag*/,
+                                          memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                                          const std::string &transformation_name, std::optional<std::string> owner)
+    -> Consumer<KafkaStream> {
   return make_consumer_impl<KafkaStream>(std::move(db_acc), stream_name, transformation_name, std::move(owner),
                                          interpreter_context);
 }
-auto StreamConsumerFactory::make_consumer(memgraph::utils::Tag<PulsarStream> tag, memgraph::dbms::DatabaseAccess db_acc,
-                                          const std::string &stream_name, const std::string &transformation_name,
-                                          std::optional<std::string> owner) -> Consumer<PulsarStream> {
+auto StreamConsumerFactory::make_consumer(memgraph::utils::Tag<PulsarStream> /*tag*/,
+                                          memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
+                                          const std::string &transformation_name, std::optional<std::string> owner)
+    -> Consumer<PulsarStream> {
   return make_consumer_impl<PulsarStream>(std::move(db_acc), stream_name, transformation_name, std::move(owner),
                                           interpreter_context);
 }
-auto StreamConsumerFactory::make_check_consumer(memgraph::utils::Tag<KafkaStream> tag,
+auto StreamConsumerFactory::make_check_consumer(memgraph::utils::Tag<KafkaStream> /*tag*/,
                                                 memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
                                                 const std::string &transformation_name,
                                                 TransformationResult &test_result) -> Consumer<KafkaStream> {
   return make_check_consumer_impl<KafkaStream>(std::move(db_acc), stream_name, transformation_name, test_result);
 }
-auto StreamConsumerFactory::make_check_consumer(memgraph::utils::Tag<PulsarStream> tag,
+auto StreamConsumerFactory::make_check_consumer(memgraph::utils::Tag<PulsarStream> /*tag*/,
                                                 memgraph::dbms::DatabaseAccess db_acc, const std::string &stream_name,
                                                 const std::string &transformation_name,
                                                 TransformationResult &test_result) -> Consumer<PulsarStream> {
