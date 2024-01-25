@@ -100,6 +100,7 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
       std::get<replication::RoleMainData>(repl_state.ReplicationData()).registered_replicas_.empty(),
       "No replicas should be registered after promoting replica to main and before registering replication clients!");
 
+  // registering replicas
   for (auto const &config : req.replication_clients_info | ranges::views::transform(converter)) {
     auto instance_client = repl_state.RegisterReplica(config);
     if (instance_client.HasError()) {
@@ -128,6 +129,14 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
           break;
       }
     }
+    if (!allow_mt_repl && dbms_handler.All().size() > 1) {
+      spdlog::warn("Multi-tenant replication is currently not supported!");
+    }
+
+#ifdef MG_ENTERPRISE
+    // Update system before enabling individual storage <-> replica clients
+    dbms_handler.SystemRestore(*instance_client.GetValue());
+#endif
 
     auto &instance_client_ref = *instance_client.GetValue();
     // TODO: (andi) Policy for register all databases
