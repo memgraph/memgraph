@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,6 +43,7 @@
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -2550,7 +2551,7 @@ TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
 void check_replication_query(Base *ast_generator, const ReplicationQuery *query, const std::string name,
                              const std::optional<TypedValue> socket_address, const ReplicationQuery::SyncMode sync_mode,
                              const std::optional<TypedValue> port = {}) {
-  EXPECT_EQ(query->replica_name_, name);
+  EXPECT_EQ(query->instance_name_, name);
   EXPECT_EQ(query->sync_mode_, sync_mode);
   ASSERT_EQ(static_cast<bool>(query->socket_address_), static_cast<bool>(socket_address));
   if (socket_address) {
@@ -2597,7 +2598,7 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
   }
 
   {
-    const std::string query = "SET REPLICATION ROLE TO MAIN WITH PORT 10000";
+    const std::string query = "SET REPLICATION ROLE TO REPLICA";
     ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
   }
 
@@ -2631,6 +2632,77 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
                           ReplicationQuery::SyncMode::SYNC);
 }
 
+#ifdef MG_ENTERPRISE
+TEST_P(CypherMainVisitorTest, TestRegisterCoordinatorServer) {
+  auto &ast_generator = *GetParam();
+
+  {
+    const std::string faulty_query_1 = "REGISTER MAIN COORDINATOR SERVER TO";
+    ASSERT_THROW(ast_generator.ParseQuery(faulty_query_1), SyntaxException);
+  }
+
+  {
+    const std::string faulty_query_2 = "REGISTER MAIN COORDINATOR SERVER TO MAIN";
+    ASSERT_THROW(ast_generator.ParseQuery(faulty_query_2), SyntaxException);
+  }
+
+  {
+    std::string full_query = "REGISTER MAIN main WITH COORDINATOR SERVER ON '127.0.0.1:10011';";
+
+    auto *full_query_parsed = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(full_query));
+
+    ASSERT_TRUE(full_query_parsed);
+    EXPECT_EQ(full_query_parsed->action_, CoordinatorQuery::Action::REGISTER_MAIN_COORDINATOR_SERVER);
+    EXPECT_EQ(full_query_parsed->role_, CoordinatorQuery::ReplicationRole::MAIN);
+    EXPECT_EQ(full_query_parsed->instance_name_, "main");
+    ast_generator.CheckLiteral(full_query_parsed->coordinator_socket_address_, "127.0.0.1:10011");
+    ASSERT_EQ(full_query_parsed->socket_address_, nullptr);
+  }
+
+  {
+    std::string full_query =
+        R"(REGISTER REPLICA replica_1 SYNC TO "127.0.0.1:10002" WITH COORDINATOR SERVER ON "127.0.0.1:10012")";
+    auto *full_query_parsed = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(full_query));
+    ASSERT_TRUE(full_query_parsed);
+    EXPECT_EQ(full_query_parsed->action_, CoordinatorQuery::Action::REGISTER_REPLICA_COORDINATOR_SERVER);
+    EXPECT_EQ(full_query_parsed->role_, CoordinatorQuery::ReplicationRole::REPLICA);
+    ast_generator.CheckLiteral(full_query_parsed->socket_address_, "127.0.0.1:10002");
+    ast_generator.CheckLiteral(full_query_parsed->coordinator_socket_address_, "127.0.0.1:10012");
+    EXPECT_EQ(full_query_parsed->instance_name_, "replica_1");
+    EXPECT_EQ(full_query_parsed->sync_mode_, CoordinatorQuery::SyncMode::SYNC);
+  }
+
+  {
+    std::string full_query =
+        R"(REGISTER REPLICA replica_1 ASYNC TO '127.0.0.1:10002' WITH COORDINATOR SERVER ON '127.0.0.1:10012')";
+    auto *full_query_parsed = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(full_query));
+    ASSERT_TRUE(full_query_parsed);
+    EXPECT_EQ(full_query_parsed->action_, CoordinatorQuery::Action::REGISTER_REPLICA_COORDINATOR_SERVER);
+    EXPECT_EQ(full_query_parsed->role_, CoordinatorQuery::ReplicationRole::REPLICA);
+    ast_generator.CheckLiteral(full_query_parsed->socket_address_, "127.0.0.1:10002");
+    ast_generator.CheckLiteral(full_query_parsed->coordinator_socket_address_, "127.0.0.1:10012");
+    EXPECT_EQ(full_query_parsed->instance_name_, "replica_1");
+    EXPECT_EQ(full_query_parsed->sync_mode_, CoordinatorQuery::SyncMode::ASYNC);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestDoFailover) {
+  auto &ast_generator = *GetParam();
+
+  {
+    std::string invalid_query = "DO FAILO";
+    ASSERT_THROW(ast_generator.ParseQuery(invalid_query), SyntaxException);
+  }
+
+  {
+    std::string correct_query = "DO FAILOVER";
+    auto *correct_query_parsed = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
+    ASSERT_TRUE(correct_query_parsed);
+    EXPECT_EQ(correct_query_parsed->action_, CoordinatorQuery::Action::DO_FAILOVER);
+  }
+}
+#endif
+
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   auto &ast_generator = *GetParam();
 
@@ -2640,7 +2712,7 @@ TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   std::string correct_query = "DROP REPLICA replica1";
   auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
   ASSERT_TRUE(correct_query_parsed);
-  EXPECT_EQ(correct_query_parsed->replica_name_, "replica1");
+  EXPECT_EQ(correct_query_parsed->instance_name_, "replica1");
 }
 
 TEST_P(CypherMainVisitorTest, TestExplainRegularQuery) {
@@ -3645,7 +3717,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
     ASSERT_EQ(single_query->clauses_.size(), 2U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    [[maybe_unused]] auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   }
 
   {
@@ -3705,7 +3777,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
     ASSERT_EQ(single_query->clauses_.size(), 1U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    [[maybe_unused]] auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   }
 }
 

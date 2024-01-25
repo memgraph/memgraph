@@ -77,8 +77,13 @@ add_subdirectory(query_modules_storage_modes)
 add_subdirectory(garbage_collection)
 add_subdirectory(query_planning)
 
+if (MG_EXPERIMENTAL_HIGH_AVAILABILITY)
+  add_subdirectory(high_availability_experimental)
+endif ()
+
+
 if (MG_EXPERIMENTAL_REPLICATION_MULTITENANCY)
-        add_subdirectory(replication_experimental)
+  add_subdirectory(replication_experimental)
 endif ()
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")

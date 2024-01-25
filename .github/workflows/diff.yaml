@@ -337,7 +337,53 @@ jobs:
             # multiple paths could be defined
             build/logs
 
-  experimental_build:
+  experimental_build_ha:
+    name: "High availability build"
+    runs-on: [self-hosted, Linux, X64, Diff]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v3
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          source /opt/toolchain-v4/activate
+          ./init
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=Release -DMG_EXPERIMENTAL_HIGH_AVAILABILITY=ON ..
+          make -j$THREADS
+      - name: Run unit tests
+        run: |
+          source /opt/toolchain-v4/activate
+          cd build
+          ctest -R memgraph__unit --output-on-failure -j$THREADS
+      - name: Run e2e tests
+        run: |
+          cd tests
+          ./setup.sh /opt/toolchain-v4/activate
+          source ve3/bin/activate_e2e
+          cd e2e
+          ./run.sh "Coordinator"
+          ./run.sh "Client initiated failover"
+          ./run.sh "Uninitialized cluster"
+      - name: Save test data
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: "Test data"
+          path: |
+            # multiple paths could be defined
+            build/logs
+
+  experimental_build_mt:
     name: "MultiTenancy replication build"
     runs-on: [self-hosted, Linux, X64, Diff]
     env:

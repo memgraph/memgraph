@@ -15,6 +15,7 @@
 
 #include <gflags/gflags.h>
 
+#include "coordination/coordinator_entity_info.hpp"
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "memory/query_memory_control.hpp"
@@ -67,6 +68,75 @@ inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
 inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
+
+class CoordinatorQueryHandler {
+ public:
+  CoordinatorQueryHandler() = default;
+  virtual ~CoordinatorQueryHandler() = default;
+
+  CoordinatorQueryHandler(const CoordinatorQueryHandler &) = default;
+  CoordinatorQueryHandler &operator=(const CoordinatorQueryHandler &) = default;
+
+  CoordinatorQueryHandler(CoordinatorQueryHandler &&) = default;
+  CoordinatorQueryHandler &operator=(CoordinatorQueryHandler &&) = default;
+
+  struct Replica {
+    std::string name;
+    std::string socket_address;
+    ReplicationQuery::SyncMode sync_mode;
+    std::optional<double> timeout;
+    uint64_t current_timestamp_of_replica;
+    uint64_t current_number_of_timestamp_behind_master;
+    ReplicationQuery::ReplicaState state;
+  };
+
+#ifdef MG_ENTERPRISE
+  struct MainReplicaStatus {
+    std::string_view name;
+    std::string socket_address;
+    bool alive;
+    bool is_main;
+
+    MainReplicaStatus(std::string_view name, std::string socket_address, bool alive, bool is_main)
+        : name{name}, socket_address{std::move(socket_address)}, alive{alive}, is_main{is_main} {}
+  };
+#endif
+
+#ifdef MG_ENTERPRISE
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void RegisterReplicaCoordinatorServer(const std::string &replication_socket_address,
+                                                const std::string &coordinator_socket_address,
+                                                const std::chrono::seconds instance_check_frequency,
+                                                const std::string &instance_name,
+                                                CoordinatorQuery::SyncMode sync_mode) = 0;
+  virtual void RegisterMainCoordinatorServer(const std::string &socket_address,
+                                             const std::chrono::seconds instance_check_frequency,
+                                             const std::string &instance_name) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<coordination::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::optional<coordination::CoordinatorEntityInfo> ShowMainOnCoordinator() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::unordered_map<std::string_view, bool> PingReplicasOnCoordinator() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::optional<coordination::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void DoFailover() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<MainReplicaStatus> ShowMainReplicaStatus(
+      const std::vector<coordination::CoordinatorEntityInfo> &replicas,
+      const std::unordered_map<std::string_view, bool> &health_check_replicas,
+      const std::optional<coordination::CoordinatorEntityInfo> &main,
+      const std::optional<coordination::CoordinatorEntityHealthInfo> &health_check_main) const = 0;
+
+#endif
+};
 
 class AnalyzeGraphQueryHandler {
  public:
