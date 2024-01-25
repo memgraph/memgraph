@@ -296,10 +296,10 @@ jobs:
           INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
           BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
 
-          # Build memgraph release binary and memgraph benchmark
+          # Build release binaries
           cd build
           cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
-          make -j$THREADS memgraph memgraph__benchmark
+          make -j$THREADS
 
       - name: Run micro benchmark tests
         run: |
