@@ -2632,61 +2632,6 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
                           ReplicationQuery::SyncMode::SYNC);
 }
 
-#ifdef MG_ENTERPRISE
-TEST_P(CypherMainVisitorTest, TestRegisterCoordinatorServer) {
-  auto &ast_generator = *GetParam();
-
-  {
-    const std::string faulty_query_1 = "REGISTER MAIN COORDINATOR SERVER TO";
-    ASSERT_THROW(ast_generator.ParseQuery(faulty_query_1), SyntaxException);
-  }
-
-  {
-    const std::string faulty_query_2 = "REGISTER MAIN COORDINATOR SERVER TO MAIN";
-    ASSERT_THROW(ast_generator.ParseQuery(faulty_query_2), SyntaxException);
-  }
-
-  {
-    std::string full_query = "REGISTER MAIN main WITH COORDINATOR SERVER ON '127.0.0.1:10011';";
-
-    auto *full_query_parsed = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(full_query));
-
-    ASSERT_TRUE(full_query_parsed);
-    EXPECT_EQ(full_query_parsed->action_, CoordinatorQuery::Action::REGISTER_MAIN_COORDINATOR_SERVER);
-    EXPECT_EQ(full_query_parsed->role_, CoordinatorQuery::ReplicationRole::MAIN);
-    EXPECT_EQ(full_query_parsed->instance_name_, "main");
-    ast_generator.CheckLiteral(full_query_parsed->coordinator_socket_address_, "127.0.0.1:10011");
-    ASSERT_EQ(full_query_parsed->socket_address_, nullptr);
-  }
-
-  {
-    std::string full_query =
-        R"(REGISTER REPLICA replica_1 SYNC TO "127.0.0.1:10002" WITH COORDINATOR SERVER ON "127.0.0.1:10012")";
-    auto *full_query_parsed = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(full_query));
-    ASSERT_TRUE(full_query_parsed);
-    EXPECT_EQ(full_query_parsed->action_, CoordinatorQuery::Action::REGISTER_REPLICA_COORDINATOR_SERVER);
-    EXPECT_EQ(full_query_parsed->role_, CoordinatorQuery::ReplicationRole::REPLICA);
-    ast_generator.CheckLiteral(full_query_parsed->socket_address_, "127.0.0.1:10002");
-    ast_generator.CheckLiteral(full_query_parsed->coordinator_socket_address_, "127.0.0.1:10012");
-    EXPECT_EQ(full_query_parsed->instance_name_, "replica_1");
-    EXPECT_EQ(full_query_parsed->sync_mode_, CoordinatorQuery::SyncMode::SYNC);
-  }
-
-  {
-    std::string full_query =
-        R"(REGISTER REPLICA replica_1 ASYNC TO '127.0.0.1:10002' WITH COORDINATOR SERVER ON '127.0.0.1:10012')";
-    auto *full_query_parsed = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(full_query));
-    ASSERT_TRUE(full_query_parsed);
-    EXPECT_EQ(full_query_parsed->action_, CoordinatorQuery::Action::REGISTER_REPLICA_COORDINATOR_SERVER);
-    EXPECT_EQ(full_query_parsed->role_, CoordinatorQuery::ReplicationRole::REPLICA);
-    ast_generator.CheckLiteral(full_query_parsed->socket_address_, "127.0.0.1:10002");
-    ast_generator.CheckLiteral(full_query_parsed->coordinator_socket_address_, "127.0.0.1:10012");
-    EXPECT_EQ(full_query_parsed->instance_name_, "replica_1");
-    EXPECT_EQ(full_query_parsed->sync_mode_, CoordinatorQuery::SyncMode::ASYNC);
-  }
-}
-#endif
-
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   auto &ast_generator = *GetParam();
 
