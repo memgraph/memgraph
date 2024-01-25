@@ -28,31 +28,75 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     "instance_1": {
         "args": ["--bolt-port", "7688", "--log-level", "TRACE", "--coordinator-server-port", "10011"],
         "log_file": "replica1.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        "setup_queries": [],
     },
     "instance_2": {
         "args": ["--bolt-port", "7689", "--log-level", "TRACE", "--coordinator-server-port", "10012"],
         "log_file": "replica2.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+        "setup_queries": [],
     },
     "instance_3": {
         "args": ["--bolt-port", "7687", "--log-level", "TRACE", "--coordinator-server-port", "10013"],
         "log_file": "main.log",
-        "setup_queries": [
-            "REGISTER REPLICA instance_1 SYNC TO '127.0.0.1:10001'",
-            "REGISTER REPLICA instance_2 SYNC TO '127.0.0.1:10002'",
-        ],
+        "setup_queries": [],
     },
     "coordinator": {
         "args": ["--bolt-port", "7690", "--log-level=TRACE", "--coordinator"],
         "log_file": "replica3.log",
         "setup_queries": [
-            "REGISTER REPLICA instance_1 SYNC TO '127.0.0.1:10001' WITH COORDINATOR SERVER ON '127.0.0.1:10011';",
-            "REGISTER REPLICA instance_2 SYNC TO '127.0.0.1:10002' WITH COORDINATOR SERVER ON '127.0.0.1:10012';",
-            "REGISTER MAIN instance_3 WITH COORDINATOR SERVER ON '127.0.0.1:10013';",
+            "REGISTER INSTANCE instance_1 ON '127.0.0.1:100011' WITH '127.0.0.1:10001';",
+            "REGISTER INSTANCE instance_2 ON '127.0.0.1:100012' WITH '127.0.0.1:10002';",
+            "REGISTER INSTANCE instance_3 ON '127.0.0.1:100013' WITH '127.0.0.1:10003';",
+            "SET INSTANCE instance_3 TO MAIN",
         ],
     },
 }
+
+
+def test_show_replication_cluster(connection):
+    # Goal of this test is to check the SHOW REPLICATION CLUSTER command.
+    # 1. We start all replicas, main and coordinator manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
+    # 2. We check that all replicas and main have the correct state: they should all be alive.
+    # 3. We kill one replica. It should not appear anymore in the SHOW REPLICATION CLUSTER command.
+    # 4. We kill main. It should not appear anymore in the SHOW REPLICATION CLUSTER command.
+
+    # 1.
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    cursor = connection(7690, "coordinator").cursor()
+
+    # 2.
+
+    # We leave some time for the coordinator to realise the replicas are down.
+    def retrieve_data():
+        return sorted(list(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")))
+
+    expected_data = [
+        ("instance_1", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "127.0.0.1:10013", True, "main"),
+    ]
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+    # 3.
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
+
+    expected_data = [
+        ("instance_1", "127.0.0.1:10011", False, "replica"),
+        ("instance_2", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "127.0.0.1:10013", True, "main"),
+    ]
+    mg_sleep_and_assert(expected_data, retrieve_data)
+
+    # 4.
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+
+    expected_data = [
+        ("instance_1", "127.0.0.1:10011", False, "replica"),
+        ("instance_2", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "127.0.0.1:10013", False, "main"),
+    ]
+    mg_sleep_and_assert(expected_data, retrieve_data)
 
 
 def test_simple_automatic_failover(connection):
@@ -98,7 +142,7 @@ def test_registering_replica_fails_name_exists(connection):
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(
             coord_cursor,
-            "REGISTER REPLICA instance_1 SYNC TO '127.0.0.1:10051' WITH COORDINATOR SERVER ON '127.0.0.1:10111';",
+            "REGISTER INSTANCE instance_1 ON '127.0.0.1:10051' WITH '127.0.0.1:10111';",
         )
     assert str(e.value) == "Couldn't register replica instance since instance with such name already exists!"
 
@@ -110,7 +154,7 @@ def test_registering_replica_fails_endpoint_exists(connection):
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(
             coord_cursor,
-            "REGISTER REPLICA instance_5 SYNC TO '127.0.0.1:10001' WITH COORDINATOR SERVER ON '127.0.0.1:10013';",
+            "REGISTER INSTANCE instance_5 ON '127.0.0.1:10001' WITH '127.0.0.1:10013';",
         )
     assert str(e.value) == "Couldn't register replica instance since instance with such endpoint already exists!"
 
