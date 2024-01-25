@@ -852,10 +852,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
 #ifdef MG_ENTERPRISE
       if (FLAGS_coordinator) {
-        if (repl_query->role_ == ReplicationQuery::ReplicationRole::REPLICA) {
-          throw QueryRuntimeException("Coordinator cannot become a replica!");
-        }
-        throw QueryRuntimeException("Coordinator cannot become main!");
+        throw QueryRuntimeException("Coordinator can't set roles!");
+      }
+      if (FLAGS_coordinator_server_port) {
+        throw QueryRuntimeException("Can't set role manually on instance with coordinator server port.");
       }
 #endif
 
@@ -900,6 +900,11 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
+#ifdef MG_ENTERPRISE
+      if (FLAGS_coordinator_server_port) {
+        throw QueryRuntimeException("Can't register replica manually on instance with coordinator server port.");
+      }
+#endif
       const auto &name = repl_query->instance_name_;
       const auto &sync_mode = repl_query->sync_mode_;
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
@@ -916,6 +921,11 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
 
     case ReplicationQuery::Action::DROP_REPLICA: {
+#ifdef MG_ENTERPRISE
+      if (FLAGS_coordinator_server_port) {
+        throw QueryRuntimeException("Can't drop replica manually on instance with coordinator server port.");
+      }
+#endif
       const auto &name = repl_query->instance_name_;
       callback.fn = [handler = ReplQueryHandler{dbms_handler}, name]() mutable {
         handler.DropReplica(name);

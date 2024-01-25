@@ -179,6 +179,8 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
   registered_replica->client_.SetSuccCallback(main_succ_cb_);
   registered_replica->client_.SetFailCallback(main_fail_cb_);
 
+  registered_replica->client_.StartFrequentCheck();
+
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
 }
 
