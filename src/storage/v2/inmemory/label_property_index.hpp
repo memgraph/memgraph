@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,7 +60,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
   void AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                     uint64_t exact_start_timestamp);
