@@ -1,14 +1,14 @@
 name: In development - Release Ubuntu 20.04
 
 on:
-  workflow_dispatch:
-  # pull_request:
-  #   paths-ignore:
-  #     - "docs/**"
-  #     - "**/*.md"
-  #     - ".clang-format"
-  #     - "CODEOWNERS"
-  #     - "licenses/*"
+  # workflow_dispatch:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".clang-format"
+      - "CODEOWNERS"
+      - "licenses/*"
 
 jobs:
   community_build:
@@ -256,6 +256,63 @@ jobs:
           name: "Enterprise DEB package"
           path: build/output/memgraph*.deb
 
+      - name: Run GQL Behave tests
+        run: |
+          cd tests
+          ./setup.sh /opt/toolchain-v4/activate
+          cd gql_behave
+          ./continuous_integration
+
+      - name: Save quality assurance status
+        uses: actions/upload-artifact@v3
+        with:
+          name: "GQL Behave Status"
+          path: |
+            tests/gql_behave/gql_behave_status.csv
+            tests/gql_behave/gql_behave_status.html
+
+      - name: Run unit tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Run unit tests.
+          cd build
+          ctest -R memgraph__unit --output-on-failure
+
+  release_benchmark_tests:
+    name: "Release Benchmark Tests"
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v3
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+          # Initialize dependencies.
+          ./init
+
+          # Set default build_type to Release
+          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
+          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
+
+          # Build only memgraph release binary.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          make -j$THREADS memgraph mgclient-proj
+
       - name: Run micro benchmark tests
         run: |
           # Activate toolchain.
@@ -281,30 +338,6 @@ jobs:
             --groups aggregation_parallel create_parallel bfs_parallel \
             --num-database-workers 9 --num-clients-workers 30 \
             --no-strict
-
-      - name: Run GQL Behave tests
-        run: |
-          cd tests
-          ./setup.sh /opt/toolchain-v4/activate
-          cd gql_behave
-          ./continuous_integration
-
-      - name: Save quality assurance status
-        uses: actions/upload-artifact@v3
-        with:
-          name: "GQL Behave Status"
-          path: |
-            tests/gql_behave/gql_behave_status.csv
-            tests/gql_behave/gql_behave_status.html
-
-      - name: Run unit tests
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run unit tests.
-          cd build
-          ctest -R memgraph__unit --output-on-failure
 
   release_e2e_test:
     name: "Release End-to-end Test"
