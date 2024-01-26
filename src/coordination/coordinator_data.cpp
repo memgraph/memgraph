@@ -217,4 +217,5 @@ auto CoordinatorData::RegisterInstance(CoordinatorClientConfig config) -> Regist
 }
 
 }  // namespace memgraph::coordination
+
 #endif
