@@ -35,34 +35,35 @@ class CoordinatorInstance {
   CoordinatorInstance &operator=(CoordinatorInstance &&other) noexcept = delete;
   ~CoordinatorInstance() = default;
 
-  auto UpdateInstanceStatus() -> bool {
-    is_alive_ = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_response_time_)
-                    .count() < CoordinatorClusterConfig::alive_response_time_difference_sec_;
-    return is_alive_;
-  }
-  auto UpdateLastResponseTime() -> void { last_response_time_ = std::chrono::system_clock::now(); }
+  auto UpdateInstanceStatus() -> bool;
+  auto UpdateLastResponseTime() -> void;
+  auto IsAlive() const -> bool;
 
-  auto InstanceName() const -> std::string { return client_.InstanceName(); }
-  auto SocketAddress() const -> std::string { return client_.SocketAddress(); }
-  auto IsAlive() const -> bool { return is_alive_; }
+  auto InstanceName() const -> std::string;
+  auto SocketAddress() const -> std::string;
 
-  auto IsReplica() const -> bool {
-    return replication_role_ == replication_coordination_glue::ReplicationRole::REPLICA;
-  }
-  auto IsMain() const -> bool { return replication_role_ == replication_coordination_glue::ReplicationRole::MAIN; }
+  auto SetReplicationRole(replication_coordination_glue::ReplicationRole role) -> void;
+  auto IsReplica() const -> bool;
+  auto IsMain() const -> bool;
 
-  auto PrepareForFailover() -> void { client_.PauseFrequentCheck(); }
-  auto RestoreAfterFailedFailover() -> void { client_.ResumeFrequentCheck(); }
+  auto PrepareForFailover() -> void;
+  auto RestoreAfterFailedFailover() -> void;
+  auto PromoteToMain(HealthCheckCallback main_succ_cb, HealthCheckCallback main_fail_cb) -> void;
 
-  auto PostFailover(HealthCheckCallback main_succ_cb, HealthCheckCallback main_fail_cb) -> void {
-    replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
-    client_.SetSuccCallback(std::move(main_succ_cb));
-    client_.SetFailCallback(std::move(main_fail_cb));
-    // Comment with Andi but we shouldn't delete this, what if this MAIN FAILS AGAIN
-    // client_.ResetReplicationClientInfo();
-    client_.ResumeFrequentCheck();
-  }
+  auto StartFrequentCheck() -> void;
+  auto PauseFrequentCheck() -> void;
+  auto ResumeFrequentCheck() -> void;
 
+  auto ResetReplicationClientInfo() -> void;
+  auto ReplicationClientInfo() const -> ReplClientInfo;
+
+  auto SetSuccCallback(HealthCheckCallback succ_cb) -> void;
+  auto SetFailCallback(HealthCheckCallback fail_cb) -> void;
+
+  auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
+  auto SendSetToReplicaRpc(ReplClientInfo replication_client_info) const -> bool;
+
+ private:
   CoordinatorClient client_;
   replication_coordination_glue::ReplicationRole replication_role_;
   std::chrono::system_clock::time_point last_response_time_{};
