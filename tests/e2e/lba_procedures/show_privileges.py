@@ -40,6 +40,7 @@ BASIC_PRIVILEGES = [
     "STORAGE_MODE",
     "MULTI_DATABASE_EDIT",
     "MULTI_DATABASE_USE",
+    "COORDINATOR",
 ]
 
 
@@ -63,7 +64,7 @@ def test_lba_procedures_show_privileges_first_user():
     cursor = connect(username="Josip", password="").cursor()
     result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Josip;")
 
-    assert len(result) == 34
+    assert len(result) == 35
 
     fine_privilege_results = [res for res in result if res[0] not in BASIC_PRIVILEGES]
 

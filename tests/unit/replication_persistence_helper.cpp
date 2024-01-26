@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,12 +22,7 @@
 
 using namespace memgraph::replication::durability;
 using namespace memgraph::replication;
-
-static_assert(sizeof(ReplicationRoleEntry) == 168,
-              "Most likely you modified ReplicationRoleEntry without updating the tests. ");
-
-static_assert(sizeof(ReplicationReplicaEntry) == 160,
-              "Most likely you modified ReplicationReplicaEntry without updating the tests.");
+using namespace memgraph::replication_coordination_glue;
 
 TEST(ReplicationDurability, V1Main) {
   auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V1,

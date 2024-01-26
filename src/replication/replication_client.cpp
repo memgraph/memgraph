@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,8 +28,8 @@ ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationCli
       mode_{config.mode} {}
 
 ReplicationClient::~ReplicationClient() {
-  auto endpoint = rpc_client_.Endpoint();
   try {
+    auto const &endpoint = rpc_client_.Endpoint();
     spdlog::trace("Closing replication client on {}:{}", endpoint.address, endpoint.port);
   } catch (...) {
     // Logging can throw. Not a big deal, just ignore.

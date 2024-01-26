@@ -154,6 +154,8 @@ InMemoryStorage::InMemoryStorage(Config config)
 }
 
 InMemoryStorage::~InMemoryStorage() {
+  stop_source.request_stop();
+
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
   }
@@ -1575,9 +1577,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   if (run_index_cleanup) {
     // This operation is very expensive as it traverses through all of the items
     // in every index every time.
-    indices_.RemoveObsoleteEntries(oldest_active_start_timestamp);
-    auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp);
+    auto token = stop_source.get_token();
+    if (!token.stop_requested()) {
+      indices_.RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
+      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token));
+    }
   }
 
   {
@@ -2125,8 +2130,11 @@ void InMemoryStorage::CreateSnapshotHandler(
 
   // Run the snapshot thread (if enabled)
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
-                         [this]() { this->create_snapshot_handler(); });
+    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this, token = stop_source.get_token()]() {
+      if (!token.stop_requested()) {
+        this->create_snapshot_handler();
+      }
+    });
   }
 }
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {

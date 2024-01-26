@@ -12,7 +12,7 @@
 #pragma once
 
 #include "replication/config.hpp"
-#include "replication/messages.hpp"
+#include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/synchronized.hpp"
@@ -45,7 +45,7 @@ struct ReplicationClient {
                            [this, cb = std::forward<F>(callback), reconnect = false]() mutable {
                              try {
                                {
-                                 auto stream{rpc_client_.Stream<memgraph::replication::FrequentHeartbeatRpc>()};
+                                 auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
                                  stream.AwaitResponse();
                                }
                                cb(reconnect, *this);
@@ -73,7 +73,7 @@ struct ReplicationClient {
   };
   utils::Synchronized<State> state_{State::BEHIND};
 
-  memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
+  replication_coordination_glue::ReplicationMode mode_{replication_coordination_glue::ReplicationMode::SYNC};
   // This thread pool is used for background tasks so we don't
   // block the main storage thread
   // We use only 1 thread for 2 reasons:

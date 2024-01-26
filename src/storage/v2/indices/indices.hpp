@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,7 +33,7 @@ struct Indices {
   /// This function should be called from garbage collection to clean-up the
   /// index.
   /// TODO: unused in disk indices
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) const;
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
 
   /// Surgical removal of entries that was inserted this transaction
   /// TODO: unused in disk indices
