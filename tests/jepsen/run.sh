@@ -187,7 +187,7 @@ PROCESS_RESULTS() {
 CLUSTER_UP() {
   PRINT_CONTEXT
   "$script_dir/jepsen/docker/bin/up" --daemon
-  sleep 1
+  sleep 10
   # Ensure all SSH connections between Jepsen containers work
   for node in $(docker ps --filter name=jepsen* --filter status=running --format "{{.Names}}"); do
       if [ "$node" == "jepsen-control" ]; then

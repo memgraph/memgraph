@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1983,18 +1983,34 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
           snapshot.WritePropertyValue(item.second);
         }
         const auto &in_edges = maybe_in_edges.GetValue().edges;
-        snapshot.WriteUint(in_edges.size());
-        for (const auto &item : in_edges) {
-          snapshot.WriteUint(item.Gid().AsUint());
-          snapshot.WriteUint(item.FromVertex().Gid().AsUint());
-          write_mapping(item.EdgeType());
-        }
         const auto &out_edges = maybe_out_edges.GetValue().edges;
-        snapshot.WriteUint(out_edges.size());
-        for (const auto &item : out_edges) {
-          snapshot.WriteUint(item.Gid().AsUint());
-          snapshot.WriteUint(item.ToVertex().Gid().AsUint());
-          write_mapping(item.EdgeType());
+
+        if (storage->config_.salient.items.properties_on_edges) {
+          snapshot.WriteUint(in_edges.size());
+          for (const auto &item : in_edges) {
+            snapshot.WriteUint(item.GidPropertiesOnEdges().AsUint());
+            snapshot.WriteUint(item.FromVertex().Gid().AsUint());
+            write_mapping(item.EdgeType());
+          }
+          snapshot.WriteUint(out_edges.size());
+          for (const auto &item : out_edges) {
+            snapshot.WriteUint(item.GidPropertiesOnEdges().AsUint());
+            snapshot.WriteUint(item.ToVertex().Gid().AsUint());
+            write_mapping(item.EdgeType());
+          }
+        } else {
+          snapshot.WriteUint(in_edges.size());
+          for (const auto &item : in_edges) {
+            snapshot.WriteUint(item.GidNoPropertiesOnEdges().AsUint());
+            snapshot.WriteUint(item.FromVertex().Gid().AsUint());
+            write_mapping(item.EdgeType());
+          }
+          snapshot.WriteUint(out_edges.size());
+          for (const auto &item : out_edges) {
+            snapshot.WriteUint(item.GidNoPropertiesOnEdges().AsUint());
+            snapshot.WriteUint(item.ToVertex().Gid().AsUint());
+            write_mapping(item.EdgeType());
+          }
         }
       }
 

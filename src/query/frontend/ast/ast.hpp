@@ -1209,7 +1209,8 @@ class PropertyLookup : public memgraph::query::Expression {
   }
 
  protected:
-  PropertyLookup(Expression *expression, PropertyIx property) : expression_(expression), property_(property) {}
+  PropertyLookup(Expression *expression, PropertyIx property)
+      : expression_(expression), property_(std::move(property)) {}
 
  private:
   friend class AstStorage;
@@ -1805,9 +1806,9 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Type { SINGLE, DEPTH_FIRST, BREADTH_FIRST, WEIGHTED_SHORTEST_PATH, ALL_SHORTEST_PATHS };
+  enum class Type : uint8_t { SINGLE, DEPTH_FIRST, BREADTH_FIRST, WEIGHTED_SHORTEST_PATH, ALL_SHORTEST_PATHS };
 
-  enum class Direction { IN, OUT, BOTH };
+  enum class Direction : uint8_t { IN, OUT, BOTH };
 
   /// Lambda for use in filtering or weight calculation during variable expand.
   struct Lambda {
@@ -2216,7 +2217,7 @@ class IndexQuery : public memgraph::query::Query {
 
  protected:
   IndexQuery(Action action, LabelIx label, std::vector<PropertyIx> properties)
-      : action_(action), label_(label), properties_(properties) {}
+      : action_(action), label_(std::move(label)), properties_(std::move(properties)) {}
 
  private:
   friend class AstStorage;
