@@ -24,7 +24,11 @@ class DbmsHandler;
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 /// TODO: extend to do multiple storages
 struct ReplicationHandler : public query::ReplicationQueryHandler {
+#ifdef MG_ENTERPRISE
   explicit ReplicationHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth);
+#else
+  explicit ReplicationHandler(DbmsHandler &dbms_handler);
+#endif
 
   // as REPLICA, become MAIN
   bool SetReplicationRoleMain() override;
@@ -46,7 +50,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
  private:
   DbmsHandler &dbms_handler_;
+#ifdef MG_ENTERPRISE
   auth::SynchedAuth &auth_;
+#endif
 };
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
@@ -61,10 +67,16 @@ void SystemHeartbeatHandler(uint64_t ts, slk::Reader *req_reader, slk::Builder *
 void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
 #endif
 
-/// Register all DBMS level RPC handlers
+/// Register all system level RPC handlers
+#ifdef MG_ENTERPRISE
 void Register(replication::RoleReplicaData const &data, DbmsHandler &dbms_handler, auth::SynchedAuth &auth);
+#endif
 }  // namespace system_replication
 
+#ifdef MG_ENTERPRISE
 bool StartRpcServer(DbmsHandler &dbms_handler, const replication::RoleReplicaData &data, auth::SynchedAuth &auth);
+#else
+bool StartRpcServer(DbmsHandler &dbms_handler, const replication::RoleReplicaData &data);
+#endif
 
 }  // namespace memgraph::dbms

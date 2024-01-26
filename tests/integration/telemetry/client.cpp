@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
 
   // Memgraph backend
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_telemetry_integration_test"};
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{
+  memgraph::auth::SynchedAuth auth_{
       data_directory / "auth",
       memgraph::auth::Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, "", true}};
   memgraph::glue::AuthQueryHandler auth_handler(&auth_);

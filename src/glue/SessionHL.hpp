@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,8 +25,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   SessionHL(memgraph::query::InterpreterContext *interpreter_context,
             memgraph::communication::v2::ServerEndpoint endpoint,
             memgraph::communication::v2::InputStream *input_stream,
-            memgraph::communication::v2::OutputStream *output_stream,
-            memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
+            memgraph::communication::v2::OutputStream *output_stream, memgraph::auth::SynchedAuth *auth
 #ifdef MG_ENTERPRISE
             ,
             memgraph::audit::Log *audit_log
@@ -88,7 +87,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::audit::Log *audit_log_;
   bool in_explicit_db_{false};  //!< If true, the user has defined the database to use via metadata
 #endif
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
+  memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
   std::optional<std::string> implicit_db_;
 };

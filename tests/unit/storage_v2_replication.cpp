@@ -123,7 +123,12 @@ struct MinMemgraph {
         repl_state{dbms.ReplicationState()},
         db_acc{dbms.Get()},
         db{*db_acc.get()},
-        repl_handler(dbms, auth) {
+        repl_handler(dbms
+#ifdef MG_ENTERPRISE
+                     ,
+                     auth
+#endif
+        ) {
   }
   memgraph::auth::SynchedAuth auth;
   memgraph::dbms::DbmsHandler dbms;

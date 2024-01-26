@@ -506,7 +506,11 @@ class DbmsHandler {
 #endif
 
   std::unique_ptr<query::ReplicationQueryHandler> GenReplHandler() {
+#ifdef MG_ENTERPRISE
     return std::make_unique<ReplicationHandler>(*this, auth_);
+#else
+    return std::make_unique<ReplicationHandler>(*this);
+#endif
   }
 
  private:

@@ -25,7 +25,7 @@
 class AuthQueryHandlerFixture : public testing::Test {
  protected:
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_auth_handler"};
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth{
+  memgraph::auth::SynchedAuth auth{
       test_folder_ / ("unit_auth_handler_test_" + std::to_string(static_cast<int>(getpid()))),
       memgraph::auth::Auth::Config{/* default */}};
   memgraph::glue::AuthQueryHandler auth_handler{&auth};

@@ -28,7 +28,7 @@
 // Global
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_handler_community"};
 static memgraph::storage::Config storage_conf;
-std::unique_ptr<memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>> auth;
+std::unique_ptr<memgraph::auth::SynchedAuth> auth;
 
 // Let this be global so we can test it different states throughout
 
@@ -49,9 +49,8 @@ class TestEnvironment : public ::testing::Environment {
         std::filesystem::remove_all(storage_directory);
       }
     }
-    auth =
-        std::make_unique<memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>>(
-            storage_directory / "auth", memgraph::auth::Auth::Config{/* default */});
+    auth = std::make_unique<memgraph::auth::SynchedAuth>(storage_directory / "auth",
+                                                         memgraph::auth::Auth::Config{/* default */});
     ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf);
   }
 

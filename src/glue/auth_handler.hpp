@@ -23,10 +23,10 @@
 namespace memgraph::glue {
 
 class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
+  memgraph::auth::SynchedAuth *auth_;
 
  public:
-  AuthQueryHandler(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth);
+  AuthQueryHandler(memgraph::auth::SynchedAuth *auth);
 
   bool CreateUser(const std::string &username, const std::optional<std::string> &password) override;
 

@@ -454,7 +454,7 @@ AllSyncReplicaStatus DbmsHandler::Commit() {
           // TODO: data race issue? registered_replicas_ access not protected
           // This is sync in any case, as this is the startup
           for (auto &client : main_data.registered_replicas_) {
-            replication::DropAuthDataReq::DataType type;
+            replication::DropAuthDataReq::DataType type{};
             switch (delta.auth_data_key.type) {
               case SystemTransaction::Delta::AuthData::USER:
                 type = replication::DropAuthDataReq::DataType::USER;

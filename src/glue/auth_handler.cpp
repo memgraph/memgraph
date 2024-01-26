@@ -248,9 +248,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
 
 namespace memgraph::glue {
 
-AuthQueryHandler::AuthQueryHandler(
-    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
-    : auth_(auth) {}
+AuthQueryHandler::AuthQueryHandler(memgraph::auth::SynchedAuth *auth) : auth_(auth) {}
 
 bool AuthQueryHandler::CreateUser(const std::string &username, const std::optional<std::string> &password) {
   try {

@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include "audit/log.hpp"
+#include "auth/auth.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "dbms/constants.hpp"
@@ -356,30 +357,28 @@ int main(int argc, char **argv) {
       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
 
-  auto auth_glue =
-      [](memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-         std::unique_ptr<memgraph::query::AuthQueryHandler> &ah, std::unique_ptr<memgraph::query::AuthChecker> &ac) {
-        // Glue high level auth implementations to the query side
-        ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth);
-        ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
-        // Handle users passed via arguments
-        auto *maybe_username = std::getenv(kMgUser);
-        auto *maybe_password = std::getenv(kMgPassword);
-        auto *maybe_pass_file = std::getenv(kMgPassfile);
-        if (maybe_username && maybe_password) {
-          ah->CreateUser(maybe_username, maybe_password);
-        } else if (maybe_pass_file) {
-          const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
-          if (!username.empty() && !password.empty()) {
-            ah->CreateUser(username, password);
-          }
-        }
-      };
+  auto auth_glue = [](memgraph::auth::SynchedAuth *auth, std::unique_ptr<memgraph::query::AuthQueryHandler> &ah,
+                      std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+    // Glue high level auth implementations to the query side
+    ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth);
+    ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
+    // Handle users passed via arguments
+    auto *maybe_username = std::getenv(kMgUser);
+    auto *maybe_password = std::getenv(kMgPassword);
+    auto *maybe_pass_file = std::getenv(kMgPassfile);
+    if (maybe_username && maybe_password) {
+      ah->CreateUser(maybe_username, maybe_password);
+    } else if (maybe_pass_file) {
+      const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+      if (!username.empty() && !password.empty()) {
+        ah->CreateUser(username, password);
+      }
+    }
+  };
 
   memgraph::auth::Auth::Config auth_config{FLAGS_auth_user_or_role_name_regex, FLAGS_auth_password_strength_regex,
                                            FLAGS_auth_password_permit_null};
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{
-      data_directory / "auth", auth_config};
+  memgraph::auth::SynchedAuth auth_{data_directory / "auth", auth_config};
   std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   auth_glue(&auth_, auth_handler, auth_checker);

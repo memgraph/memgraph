@@ -51,8 +51,12 @@ std::string RegisterReplicaErrorToString(query::RegisterReplicaError error) {
 }
 }  // namespace
 
+#ifdef MG_ENTERPRISE
 ReplicationHandler::ReplicationHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth)
     : dbms_handler_{dbms_handler}, auth_{auth} {}
+#else
+ReplicationHandler::ReplicationHandler(DbmsHandler &dbms_handler) : dbms_handler_{dbms_handler} {}
+#endif
 
 bool ReplicationHandler::SetReplicationRoleMain() {
   auto const main_handler = [](RoleMainData &) {
@@ -89,13 +93,18 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
   dbms_handler_.ReplicationState().SetReplicationRoleReplica(config);
 
   // Start
-  const auto success = std::visit(
-      utils::Overloaded{[](RoleMainData const &) {
-                          // ASSERT
-                          return false;
-                        },
-                        [this](RoleReplicaData const &data) { return StartRpcServer(dbms_handler_, data, auth_); }},
-      dbms_handler_.ReplicationState().ReplicationData());
+  const auto success = std::visit(utils::Overloaded{[](RoleMainData const &) {
+                                                      // ASSERT
+                                                      return false;
+                                                    },
+                                                    [this](RoleReplicaData const &data) {
+#ifdef MG_ENTERPRISE
+                                                      return StartRpcServer(dbms_handler_, data, auth_);
+#else
+                                                      return StartRpcServer(dbms_handler_, data);
+#endif
+                                                    }},
+                                  dbms_handler_.ReplicationState().ReplicationData());
   // TODO Handle error (restore to main?)
   return success;
 }
@@ -422,8 +431,8 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, s
 }
 #endif
 
-void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth) {
 #ifdef MG_ENTERPRISE
+void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth) {
   data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
       [&dbms_handler](auto *req_reader, auto *res_builder) {
         spdlog::debug("Received SystemHeartbeatRpc");
@@ -454,14 +463,20 @@ void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_
         spdlog::debug("Received DropAuthDataRpc");
         auth_replication::DropAuthDataHandler(dbms_handler, auth, req_reader, res_builder);
       });
-#endif
 }
+#endif
 }  // namespace system_replication
 
+#ifdef MG_ENTERPRISE
 bool StartRpcServer(DbmsHandler &dbms_handler, const replication::RoleReplicaData &data, auth::SynchedAuth &auth) {
+#else
+bool StartRpcServer(DbmsHandler &dbms_handler, const replication::RoleReplicaData &data) {
+#endif
   // Register handlers
   InMemoryReplicationHandlers::Register(&dbms_handler, *data.server);
+#ifdef MG_ENTERPRISE
   system_replication::Register(data, dbms_handler, auth);
+#endif
   // Start server
   if (!data.server->Start()) {
     spdlog::error("Unable to start the replication server.");

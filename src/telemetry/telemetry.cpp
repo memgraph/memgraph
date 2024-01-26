@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -162,9 +162,7 @@ void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler) {
 #else
 #endif
 
-void Telemetry::AddStorageCollector(
-    dbms::DbmsHandler &dbms_handler,
-    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> &auth) {
+void Telemetry::AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth) {
   AddCollector("storage", [&dbms_handler, &auth]() -> nlohmann::json {
     auto stats = dbms_handler.Stats();
     stats.users = auth->AllUsers().size();

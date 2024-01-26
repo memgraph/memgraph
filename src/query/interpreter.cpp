@@ -602,12 +602,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #if MG_ENTERPRISE
       if (has_license) {
         throw QueryException(
-            "Query forbidden on the replica! Update on MAIN, since it is the only source of truth for authentication "
-            "data.");
-      } else {
-        throw QueryException(
-            "Query forbidden on the replica! Switch role to MAIN and update user data, then switch back to REPLICA.");
+            "Query forbidden on the replica! Update on MAIN, as it is the only source of truth for authentication "
+            "data. MAIN will then replicate the update to connected REPLICAs");
       }
+      throw QueryException(
+          "Query forbidden on the replica! Switch role to MAIN and update user data, then switch back to REPLICA.");
 #else
       throw QueryException(
           "Query forbidden on the replica! Switch role to MAIN and update user data, then switch back to REPLICA.");
