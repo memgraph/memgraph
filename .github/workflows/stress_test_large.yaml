@@ -1,4 +1,4 @@
-name: Stress test large Debian 10
+name: Stress test large
 
 on:
   workflow_dispatch:
@@ -14,15 +14,26 @@ on:
   schedule:
     - cron: "0 22 * * *"
 
+env:
+  THREADS: 24
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+
 jobs:
   stress_test_large:
     name: "Stress test large"
-    runs-on: [self-hosted, Linux, X64, Debian10, BigMemory]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-    timeout-minutes: 960
+    timeout-minutes: 600
+    strategy:
+      matrix:
+        os: [Debian10, Ubuntu20.04]
+        extra: [BigMemory, Gen8]
+        exclude:
+          - os: Debian10
+            extra: Gen8
+          - os: Ubuntu20.04
+            extra: BigMemory
+    runs-on: [self-hosted, Linux, X64, "${{ matrix.os }}", "${{ matrix.extra }}"]
 
     steps:
       - name: Set up repository
@@ -39,10 +50,6 @@ jobs:
 
           # Initialize dependencies.
           ./init
-
-          # Set default build_type to Release
-          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
-          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
 
           # Build release binaries.
           cd build
