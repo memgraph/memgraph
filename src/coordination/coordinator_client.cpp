@@ -66,7 +66,7 @@ void CoordinatorClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
 auto CoordinatorClient::SetSuccCallback(HealthCheckCallback succ_cb) -> void { succ_cb_ = std::move(succ_cb); }
 auto CoordinatorClient::SetFailCallback(HealthCheckCallback fail_cb) -> void { fail_cb_ = std::move(fail_cb); }
 
-auto CoordinatorClient::ReplicationClientInfo() const -> const CoordinatorClientConfig::ReplicationClientInfo & {
+auto CoordinatorClient::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo {
   return config_.replication_client_info;
 }
 
@@ -90,7 +90,7 @@ auto CoordinatorClient::SendPromoteReplicaToMainRpc(
   return false;
 }
 
-auto CoordinatorClient::SendSetToReplicaRpc(CoordinatorClient::ReplClientInfo replication_client_info) const -> bool {
+auto CoordinatorClient::SendSetToReplicaRpc(ReplClientInfo replication_client_info) const -> bool {
   try {
     auto stream{rpc_client_.Stream<SetMainToReplicaRpc>(std::move(replication_client_info))};
     if (!stream.AwaitResponse().success) {

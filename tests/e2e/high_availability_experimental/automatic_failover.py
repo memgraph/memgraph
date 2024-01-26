@@ -162,5 +162,34 @@ def test_registering_replica_fails_endpoint_exists(connection):
     )
 
 
+def test_replica_instance_restarts(connection):
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    cursor = connection(7690, "coordinator").cursor()
+
+    def retrieve_data():
+        return sorted(list(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")))
+
+    expected_data_up = [
+        ("instance_1", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "127.0.0.1:10013", True, "main"),
+    ]
+    mg_sleep_and_assert(expected_data_up, retrieve_data)
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
+
+    expected_data_down = [
+        ("instance_1", "127.0.0.1:10011", False, ""),
+        ("instance_2", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "127.0.0.1:10013", True, "main"),
+    ]
+    mg_sleep_and_assert(expected_data_down, retrieve_data)
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
+
+    mg_sleep_and_assert(expected_data_up, retrieve_data)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
