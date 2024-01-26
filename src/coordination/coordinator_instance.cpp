@@ -15,7 +15,7 @@
 
 namespace memgraph::coordination {
 
-auto CoordinatorInstance::UpdateInstanceStatus() -> bool {
+auto CoordinatorInstance::UpdateAliveStatus() -> bool {
   is_alive_ =
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_response_time_).count() <
       CoordinatorClusterConfig::alive_response_time_difference_sec_;
