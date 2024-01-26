@@ -10,6 +10,7 @@
 
 #include <mutex>
 #include <optional>
+#include <regex>
 #include <vector>
 
 #include "auth/exceptions.hpp"
@@ -39,7 +40,9 @@ class Auth final {
           password_regex_str{std::move(password_regex)},
           password_permit_null{password_permit_null},
           custom_name_regex{name_regex_str != glue::kDefaultUserRoleRegex},
-          custom_password_regex{password_regex_str != glue::kDefaultPasswordRegex} {}
+          name_regex{name_regex_str},
+          custom_password_regex{password_regex_str != glue::kDefaultPasswordRegex},
+          password_regex{password_regex_str} {}
 
     std::string name_regex_str{glue::kDefaultUserRoleRegex};
     std::string password_regex_str{glue::kDefaultPasswordRegex};
@@ -48,10 +51,12 @@ class Auth final {
    private:
     friend class Auth;
     bool custom_name_regex{false};
+    std::regex name_regex{name_regex_str};
     bool custom_password_regex{false};
+    std::regex password_regex{password_regex_str};
   };
 
-  explicit Auth(const std::string &storage_directory, Config config);
+  explicit Auth(std::string storage_directory, Config config);
 
   /**
    * @brief Set the Config object

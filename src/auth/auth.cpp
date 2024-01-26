@@ -8,11 +8,7 @@
 
 #include "auth/auth.hpp"
 
-#include <boost/math/tools/mp.hpp>
-#include <cctype>
-#include <cstring>
 #include <iostream>
-#include <limits>
 #include <utility>
 
 #include <fmt/format.h>
@@ -20,7 +16,6 @@
 #include "auth/exceptions.hpp"
 #include "license/license.hpp"
 #include "utils/flag_validation.hpp"
-#include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
@@ -66,8 +61,8 @@ const std::string kLinkPrefix = "link:";
  * key="link:<username>", value="<rolename>"
  */
 
-Auth::Auth(const std::string &storage_directory, Config config)
-    : storage_(storage_directory), module_(FLAGS_auth_module_executable), config_{std::move(config)} {}
+Auth::Auth(std::string storage_directory, Config config)
+    : storage_(std::move(storage_directory)), module_(FLAGS_auth_module_executable), config_{std::move(config)} {}
 
 std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
   if (module_.IsUsed()) {
@@ -208,7 +203,6 @@ void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &pa
     }
   } else {
     // Check if compliant with our filter
-    auto re = std::regex(config_.password_regex_str);
     if (config_.custom_password_regex) {
       if (const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
           license_check_result.HasError()) {
@@ -219,7 +213,7 @@ void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &pa
             license::LicenseCheckErrorToString(license_check_result.GetError(), "password regex"));
       }
     }
-    if (!std::regex_match(*password, re)) {
+    if (!std::regex_match(*password, config_.password_regex)) {
       throw AuthException(
           "The user password doesn't conform to the required strength! Regex: "
           "\"{}\"",
@@ -411,8 +405,7 @@ bool Auth::NameRegexMatch(const std::string &user_or_role) const {
           memgraph::license::LicenseCheckErrorToString(license_check_result.GetError(), "user/role regex"));
     }
   }
-  auto regex = std::regex{config_.name_regex_str};
-  return std::regex_match(user_or_role, regex);
+  return std::regex_match(user_or_role, config_.name_regex);
 }
 
 }  // namespace memgraph::auth
