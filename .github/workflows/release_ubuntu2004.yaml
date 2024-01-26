@@ -18,6 +18,7 @@ env:
   THREADS: 24
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
 
 jobs:
   community_build:
@@ -40,10 +41,6 @@ jobs:
 
           # Initialize dependencies.
           ./init
-
-          # Set default build_type to Release
-          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
-          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
 
           # Build community binaries.
           cd build
@@ -218,10 +215,6 @@ jobs:
           # Initialize dependencies.
           ./init
 
-          # Set default build_type to Release
-          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
-          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
-
           # Build release binaries.
           cd build
           cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
@@ -292,10 +285,6 @@ jobs:
           # Initialize dependencies.
           ./init
 
-          # Set default build_type to Release
-          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
-          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
-
           # Build release binaries
           cd build
           cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
@@ -347,10 +336,6 @@ jobs:
           # Initialize dependencies.
           ./init
 
-          # Set default build_type to Release
-          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
-          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
-
           # Build release binaries
           cd build
           cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
@@ -399,10 +384,6 @@ jobs:
 
           # Initialize dependencies.
           ./init
-
-          # Set default build_type to Release
-          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
-          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
 
           # Build release binaries.
           cd build
