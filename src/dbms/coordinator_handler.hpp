@@ -37,9 +37,7 @@ class CoordinatorHandler {
 
   auto SetInstanceToMain(std::string instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
 
-  auto ShowReplicasOnCoordinator() const -> std::vector<coordination::CoordinatorInstanceStatus>;
-
-  auto ShowMainOnCoordinator() const -> std::optional<coordination::CoordinatorInstanceStatus>;
+  auto ShowInstances() const -> std::vector<coordination::CoordinatorInstanceStatus>;
 
  private:
   DbmsHandler &dbms_handler_;

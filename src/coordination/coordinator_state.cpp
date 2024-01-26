@@ -13,8 +13,8 @@
 
 #include "coordination/coordinator_state.hpp"
 
-#include "coordination/register_main_replica_coordinator_status.hpp"
 #include "coordination/coordinator_config.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
 #include "flags/replication.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
@@ -68,17 +68,11 @@ auto CoordinatorState::SetInstanceToMain(std::string instance_name) -> SetInstan
       data_);
 }
 
-auto CoordinatorState::ShowReplicas() const -> std::vector<CoordinatorInstanceStatus> {
+auto CoordinatorState::ShowInstances() const -> std::vector<CoordinatorInstanceStatus> {
   MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
-            "Can't call show replicas on data_, as variant holds wrong alternative");
-  return std::get<CoordinatorData>(data_).ShowReplicas();
+            "Can't call show instances on data_, as variant holds wrong alternative");
+  return std::get<CoordinatorData>(data_).ShowInstances();
 }
-
-auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorInstanceStatus> {
-  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
-            "Can't call show main on data_, as variant holds wrong alternative");
-  return std::get<CoordinatorData>(data_).ShowMain();
-};
 
 [[nodiscard]] auto CoordinatorState::DoFailover() -> DoFailoverStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorData>(data_), "Cannot do failover since variant holds wrong alternative");

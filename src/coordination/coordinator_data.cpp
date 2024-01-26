@@ -112,31 +112,36 @@ auto CoordinatorData::DoFailover() -> DoFailoverStatus {
     return DoFailoverStatus::RPC_FAILED;
   }
 
+  auto old_main = std::ranges::find_if(registered_instances_, &CoordinatorInstance::IsMain);
+  // TODO: (andi) For performing restoration we will have to improve this
+  old_main->client_.PauseFrequentCheck();
+
   chosen_replica_instance->PostFailover(main_succ_cb_, main_fail_cb_);
 
   return DoFailoverStatus::SUCCESS;
 }
 
-auto CoordinatorData::ShowMain() const -> std::optional<CoordinatorInstanceStatus> {
-  auto lock = std::shared_lock{coord_data_lock_};
-  auto main_instance = std::ranges::find_if(registered_instances_, &CoordinatorInstance::IsMain);
-  if (main_instance == registered_instances_.end()) {
-    return std::nullopt;
-  }
-
-  return CoordinatorInstanceStatus{.instance_name = main_instance->InstanceName(),
-                                   .socket_address = main_instance->SocketAddress(),
-                                   .is_alive = main_instance->IsAlive()};
-};
-
-auto CoordinatorData::ShowReplicas() const -> std::vector<CoordinatorInstanceStatus> {
-  auto lock = std::shared_lock{coord_data_lock_};
+auto CoordinatorData::ShowInstances() const -> std::vector<CoordinatorInstanceStatus> {
   std::vector<CoordinatorInstanceStatus> instances_status;
+  instances_status.reserve(registered_instances_.size());
 
-  for (const auto &replica_instance : registered_instances_ | ranges::views::filter(&CoordinatorInstance::IsReplica)) {
-    instances_status.emplace_back(CoordinatorInstanceStatus{.instance_name = replica_instance.InstanceName(),
-                                                            .socket_address = replica_instance.SocketAddress(),
-                                                            .is_alive = replica_instance.IsAlive()});
+  auto const stringify_repl_role = [](const CoordinatorInstance &instance) -> std::string {
+    if (!instance.IsAlive()) return "";
+    if (instance.IsMain()) return "main";
+    return "replica";
+  };
+
+  auto const instance_to_status =
+      [&stringify_repl_role](const CoordinatorInstance &instance) -> CoordinatorInstanceStatus {
+    return {.instance_name = instance.InstanceName(),
+            .socket_address = instance.SocketAddress(),
+            .replication_role = stringify_repl_role(instance),
+            .is_alive = instance.IsAlive()};
+  };
+
+  {
+    auto lock = std::shared_lock{coord_data_lock_};
+    std::ranges::transform(registered_instances_, std::back_inserter(instances_status), instance_to_status);
   }
 
   return instances_status;

@@ -30,14 +30,9 @@ auto CoordinatorHandler::SetInstanceToMain(std::string instance_name)
   return dbms_handler_.CoordinatorState().SetInstanceToMain(std::move(instance_name));
 }
 
-auto CoordinatorHandler::ShowReplicasOnCoordinator() const -> std::vector<coordination::CoordinatorInstanceStatus> {
-  return dbms_handler_.CoordinatorState().ShowReplicas();
+auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::CoordinatorInstanceStatus> {
+  return dbms_handler_.CoordinatorState().ShowInstances();
 }
-
-auto CoordinatorHandler::ShowMainOnCoordinator() const -> std::optional<coordination::CoordinatorInstanceStatus> {
-  return dbms_handler_.CoordinatorState().ShowMain();
-}
-
 }  // namespace memgraph::dbms
 
 #endif

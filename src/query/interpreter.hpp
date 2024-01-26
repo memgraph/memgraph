@@ -116,10 +116,7 @@ class CoordinatorQueryHandler {
   virtual void SetInstanceToMain(const std::string &instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<coordination::CoordinatorInstanceStatus> ShowReplicasOnCoordinator() const = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<coordination::CoordinatorInstanceStatus> ShowMainOnCoordinator() const = 0;
+  virtual std::vector<coordination::CoordinatorInstanceStatus> ShowInstances() const = 0;
 
 #endif
 };

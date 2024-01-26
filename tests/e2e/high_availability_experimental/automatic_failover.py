@@ -82,19 +82,19 @@ def test_show_replication_cluster(connection):
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
 
     expected_data = [
-        ("instance_1", "127.0.0.1:10011", False, "replica"),
+        ("instance_1", "127.0.0.1:10011", False, ""),
         ("instance_2", "127.0.0.1:10012", True, "replica"),
         ("instance_3", "127.0.0.1:10013", True, "main"),
     ]
     mg_sleep_and_assert(expected_data, retrieve_data)
 
     # 4.
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
     expected_data = [
-        ("instance_1", "127.0.0.1:10011", False, "replica"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", False, "main"),
+        ("instance_1", "127.0.0.1:10011", False, ""),
+        ("instance_2", "127.0.0.1:10012", False, ""),
+        ("instance_3", "127.0.0.1:10013", True, "main"),
     ]
     mg_sleep_and_assert(expected_data, retrieve_data)
 
@@ -120,7 +120,7 @@ def test_simple_automatic_failover(connection):
     expected_data_on_coord = [
         ("instance_1", "127.0.0.1:10011", True, "main"),
         ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", False, "main"),
+        ("instance_3", "127.0.0.1:10013", False, ""),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 

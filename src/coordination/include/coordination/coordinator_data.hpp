@@ -32,8 +32,7 @@ class CoordinatorData {
   [[nodiscard]] auto RegisterInstance(CoordinatorClientConfig config) -> RegisterInstanceCoordinatorStatus;
   [[nodiscard]] auto SetInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus;
 
-  auto ShowReplicas() const -> std::vector<CoordinatorInstanceStatus>;
-  auto ShowMain() const -> std::optional<CoordinatorInstanceStatus>;
+  auto ShowInstances() const -> std::vector<CoordinatorInstanceStatus>;
 
  private:
   mutable utils::RWLock coord_data_lock_{utils::RWLock::Priority::READ};

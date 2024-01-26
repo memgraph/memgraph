@@ -38,9 +38,7 @@ class CoordinatorState {
 
   [[nodiscard]] auto SetInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus;
 
-  auto ShowReplicas() const -> std::vector<CoordinatorInstanceStatus>;
-
-  auto ShowMain() const -> std::optional<CoordinatorInstanceStatus>;
+  auto ShowInstances() const -> std::vector<CoordinatorInstanceStatus>;
 
   // The client code must check that the server exists before calling this method.
   auto GetCoordinatorServer() const -> CoordinatorServer &;

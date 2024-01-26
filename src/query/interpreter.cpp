@@ -532,13 +532,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 #endif
 
 #ifdef MG_ENTERPRISE
-  std::vector<coordination::CoordinatorInstanceStatus> ShowReplicasOnCoordinator() const override {
-    return coordinator_handler_.ShowReplicasOnCoordinator();
+  std::vector<coordination::CoordinatorInstanceStatus> ShowInstances() const override {
+    return coordinator_handler_.ShowInstances();
   }
 
-  std::optional<coordination::CoordinatorInstanceStatus> ShowMainOnCoordinator() const override {
-    return coordinator_handler_.ShowMainOnCoordinator();
-  }
 #endif
 
  private:
@@ -1079,19 +1076,16 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.header = {"name", "socket_address", "alive", "role"};
       callback.fn = [handler = CoordQueryHandler{dbms_handler}, replica_nfields = callback.header.size()]() mutable {
-        const auto replicas = handler.ShowReplicasOnCoordinator();
-        const auto main = handler.ShowMainOnCoordinator();
+        auto const instances = handler.ShowInstances();
         std::vector<std::vector<TypedValue>> result{};
-        result.reserve(replicas.size() + 1);
+        result.reserve(result.size());
 
-        std::ranges::transform(replicas, std::back_inserter(result), [](const auto &status) -> std::vector<TypedValue> {
-          return {TypedValue{status.instance_name}, TypedValue{status.socket_address}, TypedValue{status.is_alive},
-                  TypedValue{"replica"}};
-        });
-        if (main) {
-          result.emplace_back(std::vector<TypedValue>{TypedValue{main->instance_name}, TypedValue{main->socket_address},
-                                                      TypedValue{main->is_alive}, TypedValue{"main"}});
-        }
+        std::ranges::transform(instances, std::back_inserter(result),
+                               [](const auto &status) -> std::vector<TypedValue> {
+                                 return {TypedValue{status.instance_name}, TypedValue{status.socket_address},
+                                         TypedValue{status.is_alive}, TypedValue{status.replication_role}};
+                               });
+
         return result;
       };
       return callback;
