@@ -1,7 +1,6 @@
 name: Stress test large
 
 on:
-  pull_request:
   workflow_dispatch:
     inputs:
       build_type:
