@@ -365,6 +365,11 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
           make -j$THREADS memgraph
 
+      - name: Refresh Jepsen Cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh
+
       - name: Run Jepsen tests
         run: |
           cd tests/jepsen
