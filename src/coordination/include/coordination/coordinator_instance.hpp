@@ -35,7 +35,7 @@ class CoordinatorInstance {
   CoordinatorInstance &operator=(CoordinatorInstance &&other) noexcept = delete;
   ~CoordinatorInstance() = default;
 
-  auto UpdateInstanceStatus() -> bool;
+  auto UpdateAliveStatus() -> bool;
   auto UpdateLastResponseTime() -> void;
   auto IsAlive() const -> bool;
 

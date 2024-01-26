@@ -35,34 +35,39 @@ CoordinatorData::CoordinatorData() {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing replica successful callback", instance_name);
     auto &instance = find_instance(coord_data, instance_name);
-    MG_ASSERT(instance.IsReplica(), "Instance {} is not a replica!", instance_name);
     instance.UpdateLastResponseTime();
-    instance.UpdateInstanceStatus();
+    instance.UpdateAliveStatus();
   };
 
   replica_fail_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing replica failure callback", instance_name);
     auto &instance = find_instance(coord_data, instance_name);
-    MG_ASSERT(instance.IsReplica(), "Instance {} is not a replica!", instance_name);
-    instance.UpdateInstanceStatus();
+    instance.UpdateAliveStatus();
   };
 
   main_succ_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing main successful callback", instance_name);
+
+    bool const failover_performed = coord_data->ClusterHasAliveMain();
+    auto const new_role = failover_performed ? replication_coordination_glue::ReplicationRole::REPLICA
+                                             : replication_coordination_glue::ReplicationRole::MAIN;
+
     auto &instance = find_instance(coord_data, instance_name);
-    MG_ASSERT(instance.IsMain(), "Instance {} is not a main!", instance_name);
+    instance.SetReplicationRole(new_role);
     instance.UpdateLastResponseTime();
+    instance.UpdateAliveStatus();
   };
 
   main_fail_cb_ = [this, find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing main failure callback", instance_name);
     auto &instance = find_instance(coord_data, instance_name);
-    MG_ASSERT(instance.IsMain(), "Instance {} is not a main!", instance_name);
-    if (bool main_alive = instance.UpdateInstanceStatus(); !main_alive) {
-      spdlog::info("Main instance {} is not alive, starting automatic failover", instance_name);
+    instance.UpdateAliveStatus();
+
+    if (!ClusterHasAliveMain()) {
+      spdlog::info("Cluster without main instance, starting automatic failover");
       switch (auto failover_status = DoFailover(); failover_status) {
         using enum DoFailoverStatus;
         case ALL_REPLICAS_DOWN:
@@ -79,6 +84,11 @@ CoordinatorData::CoordinatorData() {
       }
     }
   };
+}
+
+auto CoordinatorData::ClusterHasAliveMain() const -> bool {
+  auto const alive_main = [](const CoordinatorInstance &instance) { return instance.IsMain() && instance.IsAlive(); };
+  return std::ranges::any_of(registered_instances_, alive_main);
 }
 
 auto CoordinatorData::DoFailover() -> DoFailoverStatus {
@@ -99,23 +109,15 @@ auto CoordinatorData::DoFailover() -> DoFailoverStatus {
   auto const not_chosen_replica_instance = [&chosen_replica_instance](const CoordinatorInstance &instance) {
     return instance != *chosen_replica_instance;
   };
-  auto const not_main = [](const CoordinatorInstance &instance) { return !instance.IsMain(); };
 
-  // TODO (antoniofilipovic): Should we send also data on old MAIN???
-  // TODO: (andi) Don't send replicas which aren't alive
-  for (const auto &unchosen_replica_instance :
-       replica_instances | ranges::views::filter(not_chosen_replica_instance) | ranges::views::filter(not_main)) {
-    repl_clients_info.emplace_back(unchosen_replica_instance.ReplicationClientInfo());
-  }
+  std::ranges::transform(replica_instances | ranges::views::filter(not_chosen_replica_instance),
+                         std::back_inserter(repl_clients_info),
+                         [](const CoordinatorInstance &instance) { return instance.ReplicationClientInfo(); });
 
   if (!chosen_replica_instance->SendPromoteReplicaToMainRpc(std::move(repl_clients_info))) {
     chosen_replica_instance->RestoreAfterFailedFailover();
     return DoFailoverStatus::RPC_FAILED;
   }
-
-  auto old_main = std::ranges::find_if(registered_instances_, &CoordinatorInstance::IsMain);
-  // TODO: (andi) For performing restoration we will have to improve this
-  old_main->PauseFrequentCheck();
 
   chosen_replica_instance->PromoteToMain(main_succ_cb_, main_fail_cb_);
 
@@ -175,7 +177,7 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
 
   // PROMOTE REPLICA TO MAIN
   // THIS SHOULD FAIL HERE IF IT IS DOWN
-  if (auto result = new_main->SendPromoteReplicaToMainRpc(std::move(repl_clients_info)); !result) {
+  if (auto const result = new_main->SendPromoteReplicaToMainRpc(std::move(repl_clients_info)); !result) {
     new_main->ResumeFrequentCheck();
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
@@ -204,7 +206,7 @@ auto CoordinatorData::RegisterInstance(CoordinatorClientConfig config) -> Regist
 
   auto *instance = &registered_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_,
                                                        replication_coordination_glue::ReplicationRole::REPLICA);
-  if (auto res = instance->SendSetToReplicaRpc(replication_client_info_copy); !res) {
+  if (auto const res = instance->SendSetToReplicaRpc(replication_client_info_copy); !res) {
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
   }
 
