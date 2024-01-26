@@ -21,10 +21,12 @@
 #include "dbms/global.hpp"
 #include "dbms/replication_client.hpp"
 #include "dbms/transaction.hpp"
+#include "license/license.hpp"
 #include "replication/messages.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
@@ -365,6 +367,18 @@ AllSyncReplicaStatus DbmsHandler::Commit() {
     return AllSyncReplicaStatus::AllCommitsConfirmed;  // Nothing to commit
   }
 
+  auto on_exit = utils::OnScopeExit([&]() {
+    // TODO durability_ is dbms, create another? link?
+    durability_->Put(kLastCommitedSystemTsKey, std::to_string(system_transaction_->system_timestamp));
+    last_commited_system_timestamp_ = system_transaction_->system_timestamp;
+    ResetSystemTransaction();
+  });
+
+  // Ignore deltas if no license
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    return AllSyncReplicaStatus::AllCommitsConfirmed;
+  }
+
   auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
   for (const auto &delta : system_transaction_->deltas) {
     switch (delta.action) {
@@ -479,10 +493,6 @@ AllSyncReplicaStatus DbmsHandler::Commit() {
     }
   }
 
-  // TODO durability_ is dbms, create another? link?
-  durability_->Put(kLastCommitedSystemTsKey, std::to_string(system_transaction_->system_timestamp));
-  last_commited_system_timestamp_ = system_transaction_->system_timestamp;
-  ResetSystemTransaction();
   return sync_status;
 }
 

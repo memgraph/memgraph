@@ -22,6 +22,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_client.hpp"
 #include "dbms/utils.hpp"
+#include "license/license.hpp"
 #include "replication/messages.hpp"
 #include "replication/state.hpp"
 #include "spdlog/spdlog.h"
@@ -242,19 +243,35 @@ void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAcces
 namespace system_replication {
 #ifdef MG_ENTERPRISE
 void SystemHeartbeatHandler(const uint64_t ts, slk::Reader *req_reader, slk::Builder *res_builder) {
+  replication::SystemHeartbeatRes res{0};
+
+  // Ignore if no license
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    spdlog::error("Handling SystemHeartbeat, an enterprise RPC message, without license.");
+    memgraph::slk::Save(res, res_builder);
+    return;
+  }
+
   replication::SystemHeartbeatReq req;
   replication::SystemHeartbeatReq::Load(&req, req_reader);
 
-  replication::SystemHeartbeatRes res(ts);
+  res = replication::SystemHeartbeatRes{ts};
   memgraph::slk::Save(res, res_builder);
 }
 
 void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
-  memgraph::storage::replication::CreateDatabaseReq req;
-  memgraph::slk::Load(&req, req_reader);
-
   using memgraph::storage::replication::CreateDatabaseRes;
   CreateDatabaseRes res(CreateDatabaseRes::Result::FAILURE);
+
+  // Ignore if no license
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    spdlog::error("Handling CreateDatabase, an enterprise RPC message, without license.");
+    memgraph::slk::Save(res, res_builder);
+    return;
+  }
+
+  memgraph::storage::replication::CreateDatabaseReq req;
+  memgraph::slk::Load(&req, req_reader);
 
   // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
   //       of the set of databases. Hence no history exists to maintain regarding epoch change.
@@ -285,11 +302,18 @@ void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
 }
 
 void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
-  memgraph::storage::replication::DropDatabaseReq req;
-  memgraph::slk::Load(&req, req_reader);
-
   using memgraph::storage::replication::DropDatabaseRes;
   DropDatabaseRes res(DropDatabaseRes::Result::FAILURE);
+
+  // Ignore if no license
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    spdlog::error("Handling DropDatabase, an enterprise RPC message, without license.");
+    memgraph::slk::Save(res, res_builder);
+    return;
+  }
+
+  memgraph::storage::replication::DropDatabaseReq req;
+  memgraph::slk::Load(&req, req_reader);
 
   // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
   //       of the set of databases. Hence no history exists to maintain regarding epoch change.
@@ -330,11 +354,27 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, s
   // TODO Speed up
   memgraph::replication::SystemRecoveryReq req;
   memgraph::slk::Load(&req, req_reader);
-
   using memgraph::replication::SystemRecoveryRes;
   SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
 
   utils::OnScopeExit send_on_exit([&]() { memgraph::slk::Save(res, res_builder); });
+
+  // Special case if no license
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    spdlog::error("Handling SystemRecovery, an enterprise RPC message, without license.");
+    for (const auto &config : req.database_configs) {
+      // Only handle default DB
+      if (config.name != kDefaultDB) continue;
+      try {
+        if (dbms_handler.Update(config).HasError()) {
+          return;  // Send failure on exit
+        }
+      } catch (const UnknownDatabaseException &) {
+        return;  // Send failure on exit
+      }
+    }
+    return;
+  }
 
   /*
    * MULTI-TENANCY
@@ -433,6 +473,7 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, s
 
 #ifdef MG_ENTERPRISE
 void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth) {
+  // NOTE: Register even without license as the user could add a license at run-time
   data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
       [&dbms_handler](auto *req_reader, auto *res_builder) {
         spdlog::debug("Received SystemHeartbeatRpc");

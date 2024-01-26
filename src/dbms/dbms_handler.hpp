@@ -27,6 +27,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_handler.hpp"
 #include "kvstore/kvstore.hpp"
+#include "license/license.hpp"
 #include "replication/messages.hpp"
 #include "replication/replication_client.hpp"
 #include "storage/v2/config.hpp"
@@ -479,15 +480,29 @@ class DbmsHandler {
         if constexpr (REQUIRE_LOCK) {
           sys_guard.lock();
         }
-        auto configs = std::vector<storage::SalientConfig>{};
-        ForEach([&configs](DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
-        return DbInfo{configs, last_commited_system_timestamp_.load()};
+
+        if (license::global_license_checker.IsEnterpriseValidFast()) {
+          auto configs = std::vector<storage::SalientConfig>{};
+          ForEach([&configs](DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
+          return DbInfo{configs, last_commited_system_timestamp_.load()};
+        }
+
+        // No license -> send only default config
+        return DbInfo{{Get()->config().salient}, last_commited_system_timestamp_.load()};
       });
       try {
-        auto stream = auth_.WithLock([&](auto &locked_auth) {
-          return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
-              db_info.last_committed_timestamp, std::move(db_info.configs), locked_auth.GetConfig(),
-              locked_auth.AllUsers(), locked_auth.AllRoles());
+        auto stream = std::invoke([&]() {
+          // Handle only default database is no license
+          if (!license::global_license_checker.IsEnterpriseValidFast()) {
+            return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
+                db_info.last_committed_timestamp, std::move(db_info.configs), auth::Auth::Config{},
+                std::vector<auth::User>{}, std::vector<auth::Role>{});
+          }
+          return auth_.WithLock([&](auto &locked_auth) {
+            return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
+                db_info.last_committed_timestamp, std::move(db_info.configs), locked_auth.GetConfig(),
+                locked_auth.AllUsers(), locked_auth.AllRoles());
+          });
         });
         const auto response = stream.AwaitResponse();
         if (response.result == replication::SystemRecoveryRes::Result::FAILURE) {

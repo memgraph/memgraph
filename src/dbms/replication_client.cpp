@@ -18,10 +18,17 @@ void StartReplicaClient(DbmsHandler &dbms_handler, replication::ReplicationClien
   // No client error, start instance level client
   auto const &endpoint = client.rpc_client_.Endpoint();
   spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
-  client.StartFrequentCheck([&dbms_handler](bool reconnect, replication::ReplicationClient &client) {
+  client.StartFrequentCheck([&dbms_handler, license = license::global_license_checker.IsEnterpriseValidFast()](
+                                bool reconnect, replication::ReplicationClient &client) mutable {
     // Working connection
     // Check if system needs restoration
     if (reconnect) {
+      client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
+    }
+    // Check if license has changed
+    const auto new_license = license::global_license_checker.IsEnterpriseValidFast();
+    if (new_license != license) {
+      license = new_license;
       client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
     }
 #ifdef MG_ENTERPRISE
