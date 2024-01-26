@@ -1,5 +1,7 @@
 name: In development - Release Ubuntu 20.04
 
+# Comment line if: false under a job you want to run on push to pull request
+
 on:
   # workflow_dispatch:
   pull_request:
@@ -17,6 +19,7 @@ env:
 
 jobs:
   community_build:
+    if: false
     name: "Community build"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     timeout-minutes: 90
@@ -56,6 +59,7 @@ jobs:
           ctest -R memgraph__unit --output-on-failure
 
   coverage_build:
+    if: false
     name: "Coverage build"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     timeout-minutes: 90
@@ -110,6 +114,7 @@ jobs:
           path: tools/github/generated/code_coverage.tar.gz
 
   debug_build:
+    if: false
     name: "Debug build"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     timeout-minutes: 90
@@ -164,6 +169,7 @@ jobs:
           path: tools/github/cppcheck_and_clang_format.txt
 
   debug_integration_test:
+    if: false
     name: "Debug integration tests"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     timeout-minutes: 90
@@ -194,6 +200,7 @@ jobs:
           tests/integration/run.sh
 
   release_build:
+    if: false
     name: "Release build"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     timeout-minutes: 90
@@ -269,6 +276,7 @@ jobs:
           ctest -R memgraph__unit --output-on-failure
 
   release_benchmark_tests:
+    if: false
     name: "Release Benchmark Tests"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     timeout-minutes: 90
@@ -324,6 +332,7 @@ jobs:
             --no-strict
 
   release_e2e_test:
+    if: false
     name: "Release End-to-end Test"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     timeout-minutes: 90
@@ -376,6 +385,7 @@ jobs:
           docker-compose down
 
   release_durability_stress_tests:
+    if: false
     name: "Release durability and stress tests"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     timeout-minutes: 90
