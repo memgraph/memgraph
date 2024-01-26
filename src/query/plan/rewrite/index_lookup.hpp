@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -655,9 +655,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
   }
 
-  storage::LabelId GetLabel(LabelIx label) { return db_->NameToLabel(label.name); }
+  storage::LabelId GetLabel(const LabelIx &label) { return db_->NameToLabel(label.name); }
 
-  storage::PropertyId GetProperty(PropertyIx prop) { return db_->NameToProperty(prop.name); }
+  storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
 
   std::optional<LabelIx> FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
     MG_ASSERT(!labels.empty(), "Trying to find the best label without any labels.");
