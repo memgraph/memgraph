@@ -596,8 +596,28 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication features"));
   }
 
+  const auto forbid_on_replica = [has_license = license_check_result.HasError(),
+                                  is_replica = interpreter_context->repl_state->IsReplica()]() {
+    if (is_replica) {
+#if MG_ENTERPRISE
+      if (has_license) {
+        throw QueryException(
+            "Query forbidden on the replica! Update on MAIN, since it is the only source of truth for authentication "
+            "data.");
+      } else {
+        throw QueryException(
+            "Query forbidden on the replica! Switch role to MAIN and update user data, then switch back to REPLICA.");
+      }
+#else
+      throw QueryException(
+          "Query forbidden on the replica! Switch role to MAIN and update user data, then switch back to REPLICA.");
+#endif
+    }
+  };
+
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
+      forbid_on_replica();
       callback.fn = [auth, username, password, valid_enterprise_license = !license_check_result.HasError()] {
         MG_ASSERT(password.IsString() || password.IsNull());
         if (!auth->CreateUser(username, password.IsString() ? std::make_optional(std::string(password.ValueString()))
@@ -627,6 +647,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       };
       return callback;
     case AuthQuery::Action::DROP_USER:
+      forbid_on_replica();
       callback.fn = [auth, username] {
         if (!auth->DropUser(username)) {
           throw QueryRuntimeException("User '{}' doesn't exist.", username);
@@ -635,6 +656,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       };
       return callback;
     case AuthQuery::Action::SET_PASSWORD:
+      forbid_on_replica();
       callback.fn = [auth, username, password] {
         MG_ASSERT(password.IsString() || password.IsNull());
         auth->SetPassword(username,
@@ -643,6 +665,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       };
       return callback;
     case AuthQuery::Action::CREATE_ROLE:
+      forbid_on_replica();
       callback.fn = [auth, rolename] {
         if (!auth->CreateRole(rolename)) {
           throw QueryRuntimeException("Role '{}' already exists.", rolename);
@@ -651,6 +674,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       };
       return callback;
     case AuthQuery::Action::DROP_ROLE:
+      forbid_on_replica();
       callback.fn = [auth, rolename] {
         if (!auth->DropRole(rolename)) {
           throw QueryRuntimeException("Role '{}' doesn't exist.", rolename);
@@ -683,18 +707,21 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       };
       return callback;
     case AuthQuery::Action::SET_ROLE:
+      forbid_on_replica();
       callback.fn = [auth, username, rolename] {
         auth->SetRole(username, rolename);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::CLEAR_ROLE:
+      forbid_on_replica();
       callback.fn = [auth, username] {
         auth->ClearRole(username);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::GRANT_PRIVILEGE:
+      forbid_on_replica();
       callback.fn = [auth, user_or_role, privileges
 #ifdef MG_ENTERPRISE
                      ,
@@ -711,12 +738,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       };
       return callback;
     case AuthQuery::Action::DENY_PRIVILEGE:
+      forbid_on_replica();
       callback.fn = [auth, user_or_role, privileges] {
         auth->DenyPrivilege(user_or_role, privileges);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::REVOKE_PRIVILEGE: {
+      forbid_on_replica();
       callback.fn = [auth, user_or_role, privileges
 #ifdef MG_ENTERPRISE
                      ,
@@ -758,6 +787,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       };
       return callback;
     case AuthQuery::Action::GRANT_DATABASE_TO_USER:
+      forbid_on_replica();
 #ifdef MG_ENTERPRISE
       callback.fn = [auth, database, username, db_handler] {  // NOLINT
         try {
@@ -779,6 +809,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       };
       return callback;
     case AuthQuery::Action::REVOKE_DATABASE_FROM_USER:
+      forbid_on_replica();
 #ifdef MG_ENTERPRISE
       callback.fn = [auth, database, username, db_handler] {  // NOLINT
         try {
@@ -812,6 +843,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #endif
       return callback;
     case AuthQuery::Action::SET_MAIN_DATABASE:
+      forbid_on_replica();
 #ifdef MG_ENTERPRISE
       callback.fn = [auth, database, username, db_handler] {  // NOLINT
         try {

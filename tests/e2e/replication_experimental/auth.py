@@ -32,65 +32,7 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 
 BOLT_PORTS = {"main": 7687, "replica_1": 7688, "replica_2": 7689}
 REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
-
-MEMGRAPH_INSTANCES_DESCRIPTION = {
-    "replica_1": {
-        "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
-        "log_file": "replica1.log",
-        "setup_queries": [f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"],
-    },
-    "replica_2": {
-        "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
-        "log_file": "replica2.log",
-        "setup_queries": [f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};"],
-    },
-    "main": {
-        "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
-        "log_file": "main.log",
-        "setup_queries": [
-            f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
-            f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
-        ],
-    },
-}
-
 TEMP_DIR = tempfile.TemporaryDirectory().name
-
-MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
-    "replica_1": {
-        "args": [
-            "--bolt-port",
-            f"{BOLT_PORTS['replica_1']}",
-            "--log-level=TRACE",
-            "--replication-restore-state-on-startup",
-            "--data-recovery-on-startup",
-        ],
-        "log_file": "replica1.log",
-        "data_directory": TEMP_DIR + "/replica1",
-    },
-    "replica_2": {
-        "args": [
-            "--bolt-port",
-            f"{BOLT_PORTS['replica_2']}",
-            "--log-level=TRACE",
-            "--replication-restore-state-on-startup",
-            "--data-recovery-on-startup",
-        ],
-        "log_file": "replica2.log",
-        "data_directory": TEMP_DIR + "/replica2",
-    },
-    "main": {
-        "args": [
-            "--bolt-port",
-            f"{BOLT_PORTS['main']}",
-            "--log-level=TRACE",
-            "--replication-restore-state-on-startup",
-            "--data-recovery-on-startup",
-        ],
-        "log_file": "main.log",
-        "data_directory": TEMP_DIR + "/main",
-    },
-}
 
 
 def update_to_main(cursor):
@@ -131,6 +73,51 @@ def show_role_for_user_func(cursor, username):
     return func
 
 
+def try_and_count(cursor, query):
+    try:
+        execute_and_fetch_all(cursor, query)
+    except:
+        return 1
+    return 0
+
+
+def only_main_queries(cursor):
+    n_exceptions = 0
+
+    n_exceptions += try_and_count(cursor, f"CREATE USER user_name")
+    n_exceptions += try_and_count(cursor, f"SET PASSWORD FOR user_name TO 'new_password'")
+    n_exceptions += try_and_count(cursor, f"DROP USER user_name")
+    n_exceptions += try_and_count(cursor, f"CREATE ROLE role_name")
+    n_exceptions += try_and_count(cursor, f"DROP ROLE role_name")
+    n_exceptions += try_and_count(cursor, f"CREATE USER user_name")
+    n_exceptions += try_and_count(cursor, f"CREATE ROLE role_name")
+    n_exceptions += try_and_count(cursor, f"SET ROLE FOR user_name TO role_name")
+    n_exceptions += try_and_count(cursor, f"CLEAR ROLE FOR user_name")
+    n_exceptions += try_and_count(cursor, f"GRANT AUTH TO role_name")
+    n_exceptions += try_and_count(cursor, f"DENY AUTH, INDEX TO user_name")
+    n_exceptions += try_and_count(cursor, f"REVOKE AUTH FROM role_name")
+    n_exceptions += try_and_count(cursor, f"GRANT READ ON LABELS :l TO role_name;")
+    n_exceptions += try_and_count(cursor, f"REVOKE EDGE_TYPES :e FROM user_name")
+    n_exceptions += try_and_count(cursor, f"GRANT DATABASE memgraph TO user_name;")
+    n_exceptions += try_and_count(cursor, f"SET MAIN DATABASE memgraph FOR user_name")
+    n_exceptions += try_and_count(cursor, f"REVOKE DATABASE memgraph FROM user_name;")
+
+    return n_exceptions
+
+
+def main_and_repl_queries(cursor):
+    n_exceptions = 0
+
+    try_and_count(cursor, f"SHOW USERS")
+    try_and_count(cursor, f"SHOW ROLES")
+    try_and_count(cursor, f"SHOW USERS FOR ROLE role_name")
+    try_and_count(cursor, f"SHOW ROLE FOR user_name")
+    try_and_count(cursor, f"SHOW PRIVILEGES FOR role_name")
+    try_and_count(cursor, f"SHOW DATABASE PRIVILEGES FOR user_name")
+
+    return n_exceptions
+
+
 def test_manual_users_replication(connection):
     # Goal: show system recovery in action at registration time
     # 0/ MAIN CREATE USER user1, user2
@@ -141,7 +128,13 @@ def test_manual_users_replication(connection):
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/replica1",
+            ],
             "log_file": "replica1.log",
             "setup_queries": [
                 "CREATE USER user3;",
@@ -149,7 +142,13 @@ def test_manual_users_replication(connection):
             ],
         },
         "replica_2": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/replica2",
+            ],
             "log_file": "replica2.log",
             "setup_queries": [
                 "CREATE USER user4 IDENTIFIED BY 'password';",
@@ -157,7 +156,13 @@ def test_manual_users_replication(connection):
             ],
         },
         "main": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/main",
+            ],
             "log_file": "main.log",
             "setup_queries": [
                 "CREATE USER user1;",
@@ -199,7 +204,13 @@ def test_manual_roles_replication(connection):
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/replica1",
+            ],
             "log_file": "replica1.log",
             "setup_queries": [
                 "CREATE ROLE role3;",
@@ -207,7 +218,13 @@ def test_manual_roles_replication(connection):
             ],
         },
         "replica_2": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/replica2",
+            ],
             "log_file": "replica2.log",
             "setup_queries": [
                 "CREATE ROLE role4;",
@@ -217,7 +234,13 @@ def test_manual_roles_replication(connection):
             ],
         },
         "main": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/main",
+            ],
             "log_file": "main.log",
             "setup_queries": [
                 "CREATE ROLE role1;",
@@ -277,6 +300,8 @@ def test_auth_config_replication(connection):
                 "--auth-password-permit-null=false",
                 "--auth-user-or-role-name-regex",
                 "^[O-o]+$",
+                "--data_directory",
+                TEMP_DIR + "/replica1",
             ],
             "log_file": "replica1.log",
             "setup_queries": [
@@ -295,6 +320,8 @@ def test_auth_config_replication(connection):
                 "--auth-password-permit-null=true",
                 "--auth-user-or-role-name-regex",
                 "^[A-Np-z]+$",
+                "--data_directory",
+                TEMP_DIR + "/replica2",
             ],
             "log_file": "replica2.log",
             "setup_queries": [
@@ -315,6 +342,8 @@ def test_auth_config_replication(connection):
                 "--auth-password-permit-null=false",
                 "--auth-user-or-role-name-regex",
                 "^[A-z]+$",
+                "--data_directory",
+                TEMP_DIR + "/main",
             ],
             "log_file": "main.log",
             "setup_queries": [
@@ -332,7 +361,7 @@ def test_auth_config_replication(connection):
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
 
     # 1/
-    cursor_main = connection(BOLT_PORTS["main"], "main", "UsErA", "pass").cursor()  # Just check if it connects
+    cursor_main = connection(BOLT_PORTS["main"], "main", "UsErA", "pass").cursor()
     cursor_replica_1 = connection(BOLT_PORTS["replica_1"], "replica", "UsErA", "pass").cursor()
     cursor_replica_2 = connection(BOLT_PORTS["replica_2"], "replica", "UsErA", "pass").cursor()
 
@@ -351,6 +380,69 @@ def test_auth_config_replication(connection):
     user_test(cursor_replica_1)
     update_to_main(cursor_replica_2)
     user_test(cursor_replica_2)
+
+
+def test_auth_queries_on_replica(connection):
+    # Goal: check that write auth queries are forbidden on REPLICAs
+    # 0/ Setup replication cluster
+    # 1/ Check queries
+
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/replica1",
+            ],
+            "log_file": "replica1.log",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "replica_2": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/replica2",
+            ],
+            "log_file": "replica2.log",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
+            ],
+        },
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/main",
+            ],
+            "log_file": "main.log",
+            "setup_queries": [
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
+            ],
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    cursor_main = connection(BOLT_PORTS["main"], "main", "UsErA", "pass").cursor()
+    cursor_replica_1 = connection(BOLT_PORTS["replica_1"], "replica", "UsErA", "pass").cursor()
+    cursor_replica_2 = connection(BOLT_PORTS["replica_2"], "replica", "UsErA", "pass").cursor()
+
+    # 1/
+    assert only_main_queries(cursor_main) == 0
+    assert only_main_queries(cursor_replica_1) == 17
+    assert only_main_queries(cursor_replica_2) == 17
+    assert main_and_repl_queries(cursor_main) == 0
+    assert main_and_repl_queries(cursor_replica_1) == 0
+    assert main_and_repl_queries(cursor_replica_2) == 0
 
 
 if __name__ == "__main__":
