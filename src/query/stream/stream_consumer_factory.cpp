@@ -65,30 +65,29 @@ void CallCustomTransformation(std::string_view transformation_name, const std::v
                               mgp_result &result, Storage::Accessor &storage_accessor, MemoryResource &memory_resource,
                               std::string_view stream_name) {
   DbAccessor db_accessor{&storage_accessor};
-  {
-    auto maybe_transformation =
-        procedure::FindTransformation(procedure::gModuleRegistry, transformation_name, NewDeleteResource());
 
-    if (!maybe_transformation) {
-      throw StreamsException("Couldn't find transformation {} for stream '{}'", transformation_name, stream_name);
-    };
-    const auto &trans = *maybe_transformation->second;
-    mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
-    std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
-                   [](const TMessage &message) { return mgp_message{message}; });
-    mgp_graph graph{&db_accessor, View::OLD, nullptr, db_accessor.GetStorageMode()};
-    mgp_memory memory{&memory_resource};
-    result.rows.clear();
-    result.error_msg.reset();
-    result.signature = &trans.results;
+  auto const maybe_transformation =
+      procedure::FindTransformation(procedure::gModuleRegistry, transformation_name, NewDeleteResource());
 
-    MG_ASSERT(result.signature->size() == kExpectedTransformationResultSize);
-    MG_ASSERT(result.signature->contains(query_param_name));
-    MG_ASSERT(result.signature->contains(params_param_name));
+  if (!maybe_transformation) {
+    throw StreamsException("Couldn't find transformation {} for stream '{}'", transformation_name, stream_name);
+  };
+  const auto &trans = *maybe_transformation->second;
+  mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
+  std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
+                 [](const TMessage &message) { return mgp_message{message}; });
+  mgp_graph graph{&db_accessor, View::OLD, nullptr, db_accessor.GetStorageMode()};
+  mgp_memory memory{&memory_resource};
+  result.rows.clear();
+  result.error_msg.reset();
+  result.signature = &trans.results;
 
-    spdlog::trace("Calling transformation in stream '{}'", stream_name);
-    trans.cb(&mgp_messages, &graph, &result, &memory);
-  }
+  MG_ASSERT(result.signature->size() == kExpectedTransformationResultSize);
+  MG_ASSERT(result.signature->contains(query_param_name));
+  MG_ASSERT(result.signature->contains(params_param_name));
+
+  spdlog::trace("Calling transformation in stream '{}'", stream_name);
+  trans.cb(&mgp_messages, &graph, &result, &memory);
   if (result.error_msg.has_value()) {
     throw StreamsException(result.error_msg->c_str());
   }
@@ -132,7 +131,7 @@ auto make_consumer_impl(memgraph::dbms::DatabaseAccess db_acc, const std::string
 
     uint32_t i = 0;
     auto const total_retries = interpreter_context->config.stream_transaction_conflict_retries;
-    const auto retry_interval = interpreter_context->config.stream_transaction_retry_interval;
+    auto const retry_interval = interpreter_context->config.stream_transaction_retry_interval;
     while (true) {
       try {
         interpreter->BeginTransaction();
