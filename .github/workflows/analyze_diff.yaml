@@ -16,14 +16,15 @@ on:
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, Linux, X64, Diff, hulk]
+    runs-on: [self-hosted, Linux, X64, Diff]
     strategy:
       matrix:
-        try_id: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+        try_id: [1,2,3,4,5,6,7,8,9,10]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
@@ -62,14 +63,15 @@ jobs:
 
   code_analysis:
     name: "Code analysis"
-    runs-on: [self-hosted, Linux, X64, Diff, black-panther]
+    runs-on: [self-hosted, Linux, X64, Diff]
     strategy:
       matrix:
-        try_id: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+        try_id: [1,2,3,4,5,6,7,8,9,10]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
@@ -162,14 +164,15 @@ jobs:
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, Diff, iron-man]
+    runs-on: [self-hosted, Linux, X64, Diff]
     strategy:
       matrix:
-        try_id: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+        try_id: [1,2,3,4,5,6,7,8,9,10]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
@@ -231,14 +234,15 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, Diff, professor-x]
+    runs-on: [self-hosted, Linux, X64, Diff]
     strategy:
       matrix:
-        try_id: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+        try_id: [1,2,3,4,5,6,7,8,9,10]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
@@ -365,7 +369,7 @@ jobs:
   #   runs-on: [self-hosted, Linux, X64, Diff]
   #   strategy:
   #     matrix:
-  #       try_id: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+  #       try_id: [1,2,3,4,5,6,7,8,9,10]
   #   env:
   #     THREADS: 24
   #     MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -421,7 +425,7 @@ jobs:
   #   runs-on: [self-hosted, Linux, X64, Diff]
   #   strategy:
   #     matrix:
-  #       try_id: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+  #       try_id: [1,2,3,4,5,6,7,8,9,10]
   #   env:
   #     THREADS: 24
   #     MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -490,15 +494,16 @@ jobs:
 
   release_jepsen_test:
     name: "Release Jepsen Test"
-    runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl, deadpool]
+    runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
     strategy:
       matrix:
-        try_id: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+        try_id: [1,2,3,4,5,6,7,8,9,10]
     #continue-on-error: true
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
@@ -544,14 +549,15 @@ jobs:
 
   release_benchmarks:
     name: "Release benchmarks"
-    runs-on: [self-hosted, Linux, X64, Diff, Gen7, scarlet-witch]
+    runs-on: [self-hosted, Linux, X64, Diff, Gen7]
     strategy:
       matrix:
-        try_id: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+        try_id: [1,2,3,4,5,6,7,8,9,10]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
