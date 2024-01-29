@@ -16,16 +16,16 @@
 #include "utils/exceptions.hpp"
 
 namespace memgraph::coordination {
-class CoordinatorFailoverException final : public utils::BasicException {
+class CoordinatorRegisterInstanceException final : public utils::BasicException {
  public:
-  explicit CoordinatorFailoverException(const std::string_view what) noexcept
-      : BasicException("Failover didn't complete successfully: " + std::string(what)) {}
+  explicit CoordinatorRegisterInstanceException(const std::string_view what) noexcept
+      : BasicException("Failed to create instance: " + std::string(what)) {}
 
   template <class... Args>
-  explicit CoordinatorFailoverException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
-      : CoordinatorFailoverException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+  explicit CoordinatorRegisterInstanceException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : CoordinatorRegisterInstanceException(fmt::format(fmt, std::forward<Args>(args)...)) {}
 
-  SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorFailoverException)
+  SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorRegisterInstanceException)
 };
 
 }  // namespace memgraph::coordination

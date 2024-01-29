@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_client.hpp"
 #include "coordination/coordinator_cluster_config.hpp"
+#include "coordination/coordinator_exceptions.hpp"
 #include "replication_coordination_glue/role.hpp"
 
 namespace memgraph::coordination {
@@ -24,10 +25,7 @@ class CoordinatorData;
 class CoordinatorInstance {
  public:
   CoordinatorInstance(CoordinatorData *data, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
-                      HealthCheckCallback fail_cb, replication_coordination_glue::ReplicationRole replication_role)
-      : client_(data, std::move(config), std::move(succ_cb), std::move(fail_cb)),
-        replication_role_(replication_role),
-        is_alive_(true) {}
+                      HealthCheckCallback fail_cb);
 
   CoordinatorInstance(CoordinatorInstance const &other) = delete;
   CoordinatorInstance &operator=(CoordinatorInstance const &other) = delete;
@@ -35,33 +33,25 @@ class CoordinatorInstance {
   CoordinatorInstance &operator=(CoordinatorInstance &&other) noexcept = delete;
   ~CoordinatorInstance() = default;
 
-  auto UpdateAliveStatus() -> bool;
-  auto UpdateLastResponseTime() -> void;
+  auto OnSuccessPing() -> void;
+  auto OnFailPing() -> bool;
+
   auto IsAlive() const -> bool;
 
   auto InstanceName() const -> std::string;
   auto SocketAddress() const -> std::string;
 
-  auto SetReplicationRole(replication_coordination_glue::ReplicationRole role) -> void;
   auto IsReplica() const -> bool;
   auto IsMain() const -> bool;
 
-  auto PrepareForFailover() -> void;
-  auto RestoreAfterFailedFailover() -> void;
-  auto PromoteToMain(HealthCheckCallback main_succ_cb, HealthCheckCallback main_fail_cb) -> void;
+  auto PromoteToMain(ReplicationClientsInfo repl_clients_info, HealthCheckCallback main_succ_cb,
+                     HealthCheckCallback main_fail_cb) -> bool;
+  auto DemoteToReplica(HealthCheckCallback replica_succ_cb, HealthCheckCallback replica_fail_cb) -> bool;
 
-  auto StartFrequentCheck() -> void;
   auto PauseFrequentCheck() -> void;
   auto ResumeFrequentCheck() -> void;
 
-  auto ResetReplicationClientInfo() -> void;
   auto ReplicationClientInfo() const -> ReplClientInfo;
-
-  auto SetSuccCallback(HealthCheckCallback succ_cb) -> void;
-  auto SetFailCallback(HealthCheckCallback fail_cb) -> void;
-
-  auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
-  auto SendSetToReplicaRpc(ReplClientInfo replication_client_info) const -> bool;
 
  private:
   CoordinatorClient client_;

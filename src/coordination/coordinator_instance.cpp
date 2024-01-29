@@ -15,21 +15,32 @@
 
 namespace memgraph::coordination {
 
-auto CoordinatorInstance::UpdateAliveStatus() -> bool {
+CoordinatorInstance::CoordinatorInstance(CoordinatorData *data, CoordinatorClientConfig config,
+                                         HealthCheckCallback succ_cb, HealthCheckCallback fail_cb)
+    : client_(data, std::move(config), std::move(succ_cb), std::move(fail_cb)),
+      replication_role_(replication_coordination_glue::ReplicationRole::REPLICA),
+      is_alive_(true) {
+  if (!client_.DemoteToReplica()) {
+    throw CoordinatorRegisterInstanceException("Failed to demote instance {} to replica", client_.InstanceName());
+  }
+  client_.StartFrequentCheck();
+}
+
+auto CoordinatorInstance::OnSuccessPing() -> void {
+  last_response_time_ = std::chrono::system_clock::now();
+  is_alive_ = true;
+}
+
+auto CoordinatorInstance::OnFailPing() -> bool {
   is_alive_ =
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_response_time_).count() <
       CoordinatorClusterConfig::alive_response_time_difference_sec_;
   return is_alive_;
 }
-auto CoordinatorInstance::UpdateLastResponseTime() -> void { last_response_time_ = std::chrono::system_clock::now(); }
 
 auto CoordinatorInstance::InstanceName() const -> std::string { return client_.InstanceName(); }
 auto CoordinatorInstance::SocketAddress() const -> std::string { return client_.SocketAddress(); }
 auto CoordinatorInstance::IsAlive() const -> bool { return is_alive_; }
-
-auto CoordinatorInstance::SetReplicationRole(replication_coordination_glue::ReplicationRole role) -> void {
-  replication_role_ = role;
-}
 
 auto CoordinatorInstance::IsReplica() const -> bool {
   return replication_role_ == replication_coordination_glue::ReplicationRole::REPLICA;
@@ -38,39 +49,35 @@ auto CoordinatorInstance::IsMain() const -> bool {
   return replication_role_ == replication_coordination_glue::ReplicationRole::MAIN;
 }
 
-auto CoordinatorInstance::PrepareForFailover() -> void { client_.PauseFrequentCheck(); }
-auto CoordinatorInstance::RestoreAfterFailedFailover() -> void { client_.ResumeFrequentCheck(); }
+auto CoordinatorInstance::PromoteToMain(ReplicationClientsInfo repl_clients_info, HealthCheckCallback main_succ_cb,
+                                        HealthCheckCallback main_fail_cb) -> bool {
+  if (!client_.SendPromoteReplicaToMainRpc(std::move(repl_clients_info))) {
+    return false;
+  }
 
-auto CoordinatorInstance::PromoteToMain(HealthCheckCallback main_succ_cb, HealthCheckCallback main_fail_cb) -> void {
   replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
-  client_.SetSuccCallback(std::move(main_succ_cb));
-  client_.SetFailCallback(std::move(main_fail_cb));
-  client_.ResumeFrequentCheck();
+  client_.SetCallbacks(std::move(main_succ_cb), std::move(main_fail_cb));
+
+  return true;
 }
 
-auto CoordinatorInstance::StartFrequentCheck() -> void { client_.StartFrequentCheck(); }
+auto CoordinatorInstance::DemoteToReplica(HealthCheckCallback replica_succ_cb, HealthCheckCallback replica_fail_cb)
+    -> bool {
+  if (!client_.DemoteToReplica()) {
+    return false;
+  }
+
+  replication_role_ = replication_coordination_glue::ReplicationRole::REPLICA;
+  client_.SetCallbacks(std::move(replica_succ_cb), std::move(replica_fail_cb));
+
+  return true;
+}
+
 auto CoordinatorInstance::PauseFrequentCheck() -> void { client_.PauseFrequentCheck(); }
 auto CoordinatorInstance::ResumeFrequentCheck() -> void { client_.ResumeFrequentCheck(); }
 
-auto CoordinatorInstance::SetSuccCallback(HealthCheckCallback succ_cb) -> void {
-  client_.SetSuccCallback(std::move(succ_cb));
-}
-auto CoordinatorInstance::SetFailCallback(HealthCheckCallback fail_cb) -> void {
-  client_.SetFailCallback(std::move(fail_cb));
-}
-
-auto CoordinatorInstance::ResetReplicationClientInfo() -> void { client_.ResetReplicationClientInfo(); }
-
 auto CoordinatorInstance::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo {
   return client_.ReplicationClientInfo();
-}
-
-auto CoordinatorInstance::SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool {
-  return client_.SendPromoteReplicaToMainRpc(std::move(replication_clients_info));
-}
-
-auto CoordinatorInstance::SendSetToReplicaRpc(ReplClientInfo replication_client_info) const -> bool {
-  return client_.SendSetToReplicaRpc(std::move(replication_client_info));
 }
 
 }  // namespace memgraph::coordination

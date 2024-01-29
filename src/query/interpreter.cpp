@@ -500,8 +500,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case END_POINT_EXISTS:
         throw QueryRuntimeException(
             "Couldn't register replica instance since instance with such endpoint already exists!");
-      case COULD_NOT_BE_PERSISTED:
-        throw QueryRuntimeException("Couldn't register replica instance since it couldn't be persisted!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("Couldn't register replica instance since this instance is not a coordinator!");
       case RPC_FAILED:

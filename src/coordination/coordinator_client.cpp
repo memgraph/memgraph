@@ -45,7 +45,7 @@ void CoordinatorClient::StartFrequentCheck() {
             "Health check frequency must be greater than 0");
 
   instance_checker_.Run(
-      "Coord checker", config_.health_check_frequency_sec, [this, instance_name = config_.instance_name] {
+      config_.instance_name, config_.health_check_frequency_sec, [this, instance_name = config_.instance_name] {
         try {
           spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
                         rpc_client_.Endpoint().SocketAddress());
@@ -63,16 +63,13 @@ void CoordinatorClient::StopFrequentCheck() { instance_checker_.Stop(); }
 void CoordinatorClient::PauseFrequentCheck() { instance_checker_.Pause(); }
 void CoordinatorClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
 
-auto CoordinatorClient::SetSuccCallback(HealthCheckCallback succ_cb) -> void { succ_cb_ = std::move(succ_cb); }
-auto CoordinatorClient::SetFailCallback(HealthCheckCallback fail_cb) -> void { fail_cb_ = std::move(fail_cb); }
+auto CoordinatorClient::SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCallback fail_cb) -> void {
+  succ_cb_ = std::move(succ_cb);
+  fail_cb_ = std::move(fail_cb);
+}
 
 auto CoordinatorClient::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo {
   return config_.replication_client_info;
-}
-
-auto CoordinatorClient::ResetReplicationClientInfo() -> void {
-  // TODO (antoniofilipovic) Sync with Andi on this one
-  // config_.replication_client_info.reset();
 }
 
 auto CoordinatorClient::SendPromoteReplicaToMainRpc(
@@ -90,17 +87,18 @@ auto CoordinatorClient::SendPromoteReplicaToMainRpc(
   return false;
 }
 
-auto CoordinatorClient::SendSetToReplicaRpc(ReplClientInfo replication_client_info) const -> bool {
+auto CoordinatorClient::DemoteToReplica() const -> bool {
+  const auto instance_name = config_.instance_name;
   try {
-    auto stream{rpc_client_.Stream<SetMainToReplicaRpc>(std::move(replication_client_info))};
+    auto stream{rpc_client_.Stream<SetMainToReplicaRpc>(config_.replication_client_info)};
     if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to set main to replica!");
+      spdlog::error("Failed to receive successful RPC response for setting instance {} to replica!", instance_name);
       return false;
     }
     spdlog::info("Sent request RPC from coordinator to instance to set it as replica!");
     return true;
   } catch (const rpc::RpcFailedException &) {
-    spdlog::error("Failed to send failover RPC from coordinator to new main!");
+    spdlog::error("Failed to set instance {} to replica!", instance_name);
   }
   return false;
 }
