@@ -195,3 +195,9 @@ DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passwords.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(auth_password_strength_regex, memgraph::glue::kDefaultPasswordRegex.data(),
+              "The regular expression that should be used to match the entire "
+              "entered password to ensure its strength.");
