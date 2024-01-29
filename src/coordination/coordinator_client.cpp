@@ -59,7 +59,6 @@ void CoordinatorClient::StartFrequentCheck() {
 }
 
 void CoordinatorClient::StopFrequentCheck() { instance_checker_.Stop(); }
-
 void CoordinatorClient::PauseFrequentCheck() { instance_checker_.Pause(); }
 void CoordinatorClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
 

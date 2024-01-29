@@ -504,7 +504,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't register replica instance since this instance is not a coordinator!");
       case RPC_FAILED:
         throw QueryRuntimeException(
-            "Couldn't register replica because promotion on replica failed! Check logs on replica to find out more "
+            "Couldn't register instance because setting instance to replica failed! Check logs on replica to find out "
+            "more "
             "info!");
       case SUCCESS:
         break;

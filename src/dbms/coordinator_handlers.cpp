@@ -42,6 +42,7 @@ void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
 void CoordinatorHandlers::SetMainToReplicaHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
                                                   slk::Builder *res_builder) {
   auto &repl_state = dbms_handler.ReplicationState();
+  spdlog::info("Executing SetMainToReplicaHandler");
 
   if (repl_state.IsReplica()) {
     spdlog::error("Setting to replica must be performed on main.");
@@ -70,7 +71,7 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
   auto &repl_state = dbms_handler.ReplicationState();
 
   if (!repl_state.IsReplica()) {
-    spdlog::error("Failover must be performed on replica!");
+    spdlog::error("Only replica can be promoted to main!");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;
   }

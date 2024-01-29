@@ -19,6 +19,7 @@
 #include "coordination/failover_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/thread_pool.hpp"
 
 #include <list>
 
@@ -41,6 +42,7 @@ class CoordinatorData {
   HealthCheckCallback main_succ_cb_, main_fail_cb_, replica_succ_cb_, replica_fail_cb_;
   // Must be std::list because we rely on pointer stability
   std::list<CoordinatorInstance> registered_instances_;
+  utils::ThreadPool thread_pool_{1};
 };
 
 struct CoordinatorMainReplicaData {

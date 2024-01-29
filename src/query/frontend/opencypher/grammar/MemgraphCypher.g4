@@ -386,7 +386,7 @@ replicationSocketAddress : literal ;
 registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
 
-registerInstanceOnCoordinator : REGISTER INSTANCE  instanceName ON coordinatorSocketAddress ( AS ASYNC ) ?  WITH  replicationSocketAddress ;
+registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ON coordinatorSocketAddress ( AS ASYNC ) ? WITH replicationSocketAddress ;
 
 setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 
