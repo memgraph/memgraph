@@ -1184,6 +1184,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
+// TODO antepusic move text index creation here
+
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1211,6 +1213,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
 }
+
+// TODO antepusic move text index deletion here
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
@@ -1972,6 +1976,16 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR, info.label,
                                   final_commit_timestamp);
       } break;
+      case MetadataDelta::Action::TEXT_INDEX_CREATE: {
+        const auto &info = md_delta.text;
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_CREATE, info.index_name, info.label,
+                                  final_commit_timestamp);
+      } break;
+      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+        const auto &info = md_delta.text;
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_CREATE, info.index_name, info.label,
+                                  final_commit_timestamp);
+      } break;
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
         const auto &info = md_delta.label_property;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE, info.label,
@@ -2030,6 +2044,11 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                                 uint64_t final_commit_timestamp) {
+  return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp);
+}
+
+void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, std::string index_name,
+                                                LabelId label, uint64_t final_commit_timestamp) {
   return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp);
 }
 

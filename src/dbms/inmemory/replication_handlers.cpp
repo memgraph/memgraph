@@ -659,6 +659,22 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         transaction->DeleteLabelPropertyIndexStats(storage->NameToLabel(info.label));
         break;
       }
+      case WalDeltaData::Type::TEXT_INDEX_CREATE: {
+        const auto &info = delta.operation_text;
+        spdlog::trace("       Create text index {} on :{}", info.index_name, info.label);
+        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        if (transaction->CreateTextIndex(info.index_name, storage->NameToLabel(info.label), this).HasError())
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        break;
+      }
+      case WalDeltaData::Type::TEXT_INDEX_DROP: {
+        const auto &info = delta.operation_text;
+        spdlog::trace("       Drop text index {} on :{}", info.index_name, info.label);
+        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        if (transaction->DropTextIndex(info.index_name).HasError())
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        break;
+      }
       case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
         spdlog::trace("       Create existence constraint on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);

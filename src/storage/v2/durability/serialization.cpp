@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -350,6 +350,8 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_TEXT_INDEX_CREATE:
+    case Marker::DELTA_TEXT_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
     case Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
@@ -453,6 +455,8 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_TEXT_INDEX_CREATE:
+    case Marker::DELTA_TEXT_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
     case Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:

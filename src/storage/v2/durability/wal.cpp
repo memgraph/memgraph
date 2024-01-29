@@ -95,6 +95,10 @@ Marker OperationToMarker(StorageMetadataOperation operation) {
       return Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET;
     case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
       return Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR;
+    case StorageMetadataOperation::TEXT_INDEX_CREATE:
+      return Marker::DELTA_TEXT_INDEX_CREATE;
+    case StorageMetadataOperation::TEXT_INDEX_DROP:
+      return Marker::DELTA_TEXT_INDEX_DROP;
     case StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
       return Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE;
     case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
@@ -168,6 +172,10 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
       return WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
       return WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP;
+    case Marker::DELTA_TEXT_INDEX_CREATE:
+      return WalDeltaData::Type::TEXT_INDEX_CREATE;
+    case Marker::DELTA_TEXT_INDEX_DROP:
+      return WalDeltaData::Type::TEXT_INDEX_DROP;
     case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
       return WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET;
     case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
@@ -309,6 +317,8 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
     } break;
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
+    case WalDeltaData::Type::TEXT_INDEX_CREATE:
+    case WalDeltaData::Type::TEXT_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
       if constexpr (read_data) {
@@ -508,6 +518,8 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
 
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
+    case WalDeltaData::Type::TEXT_INDEX_CREATE:
+    case WalDeltaData::Type::TEXT_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
       return a.operation_label_property.label == b.operation_label_property.label &&
@@ -677,6 +689,8 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
     }
     case StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
     case StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+    case StorageMetadataOperation::TEXT_INDEX_CREATE:
+    case StorageMetadataOperation::TEXT_INDEX_DROP:
     case StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
     case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP: {
       MG_ASSERT(properties.size() == 1, "Invalid function call!");
@@ -934,6 +948,18 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
                                     "The label index stats doesn't exist!");
           break;
         }
+        case WalDeltaData::Type::TEXT_INDEX_CREATE:
+          auto index_name = delta.operation_text.index_name;
+          auto label = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_text.label));
+          AddRecoveredIndexConstraint(&indices_constraints->indices.text, {index_name, label},
+                                      "The text index already exists!");
+          break;
+        case WalDeltaData::Type::TEXT_INDEX_DROP:
+          auto index_name = delta.operation_text.index_name;
+          auto label = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_text.label));
+          RemoveRecoveredIndexConstraint(&indices_constraints->indices.text, {index_name, label},
+                                         "The text index doesn't exist!");
+          break;
         case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
           auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
           auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));

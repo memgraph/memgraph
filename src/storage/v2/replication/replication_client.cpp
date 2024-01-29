@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -316,6 +316,7 @@ void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operati
                                     const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
+  // TODO antepusic
   EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, label, properties, stats, property_stats,
                   timestamp);
 }

@@ -367,27 +367,30 @@ class InMemoryStorage final : public Storage {
   StorageInfo GetBaseInfo(bool force_directory) override;
   StorageInfo GetInfo(bool force_directory, memgraph::replication::ReplicationRole replication_role) override;
 
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  /// Return true in all cases except if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  /// Return true in all cases except if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  /// Return true in all cases except if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  /// Return true in all cases except if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  /// Return true in all cases except if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label, LabelIndexStats stats,
                                  uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  /// Return true in all cases except if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  const std::set<PropertyId> &properties, LabelPropertyIndexStats property_stats,
                                  uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  /// Return true in all cases except if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  const std::set<PropertyId> &properties, LabelIndexStats stats,
                                  LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp);
+  /// Return true in all cases except if any sync replicas have not sent confirmation.
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, std::string index_name, LabelId label,
+                                 uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
