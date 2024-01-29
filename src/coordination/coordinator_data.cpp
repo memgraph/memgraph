@@ -35,36 +35,42 @@ CoordinatorData::CoordinatorData() {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing replica successful callback", instance_name);
     auto &instance = find_instance(coord_data, instance_name);
-    instance.UpdateLastResponseTime();
-    instance.UpdateAliveStatus();
+    instance.OnSuccessPing();
   };
 
   replica_fail_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing replica failure callback", instance_name);
     auto &instance = find_instance(coord_data, instance_name);
-    instance.UpdateAliveStatus();
+    instance.OnFailPing();
   };
 
   main_succ_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing main successful callback", instance_name);
 
-    bool const failover_performed = coord_data->ClusterHasAliveMain();
-    auto const new_role = failover_performed ? replication_coordination_glue::ReplicationRole::REPLICA
-                                             : replication_coordination_glue::ReplicationRole::MAIN;
-
     auto &instance = find_instance(coord_data, instance_name);
-    instance.SetReplicationRole(new_role);
-    instance.UpdateLastResponseTime();
-    instance.UpdateAliveStatus();
+    if (!instance.IsAlive()) {
+      auto const new_role = coord_data->ClusterHasAliveMain() ? replication_coordination_glue::ReplicationRole::REPLICA
+                                                              : replication_coordination_glue::ReplicationRole::MAIN;
+      if (new_role == replication_coordination_glue::ReplicationRole::REPLICA) {
+        auto const status = instance.DemoteToReplica(coord_data->replica_succ_cb_, coord_data->replica_fail_cb_);
+        if (!status) {
+          spdlog::error("Instance {} failed to demote to replica", instance_name);
+        } else {
+          spdlog::info("Instance {} demoted to replica", instance_name);
+        }
+      }
+    }
+
+    instance.OnSuccessPing();
   };
 
   main_fail_cb_ = [this, find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing main failure callback", instance_name);
     auto &instance = find_instance(coord_data, instance_name);
-    instance.UpdateAliveStatus();
+    instance.OnFailPing();
 
     if (!ClusterHasAliveMain()) {
       spdlog::info("Cluster without main instance, starting automatic failover");
@@ -92,8 +98,6 @@ auto CoordinatorData::ClusterHasAliveMain() const -> bool {
 }
 
 auto CoordinatorData::DoFailover() -> DoFailoverStatus {
-  using ReplicationClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
-
   auto replica_instances = registered_instances_ | ranges::views::filter(&CoordinatorInstance::IsReplica);
 
   auto chosen_replica_instance = std::ranges::find_if(replica_instances, &CoordinatorInstance::IsAlive);
@@ -101,9 +105,10 @@ auto CoordinatorData::DoFailover() -> DoFailoverStatus {
     return DoFailoverStatus::ALL_REPLICAS_DOWN;
   }
 
-  chosen_replica_instance->PrepareForFailover();
+  chosen_replica_instance->PauseFrequentCheck();
+  utils::OnScopeExit scope_exit{[&chosen_replica_instance] { chosen_replica_instance->ResumeFrequentCheck(); }};
 
-  std::vector<ReplicationClientInfo> repl_clients_info;
+  std::vector<ReplClientInfo> repl_clients_info;
   repl_clients_info.reserve(std::ranges::distance(replica_instances));
 
   auto const not_chosen_replica_instance = [&chosen_replica_instance](const CoordinatorInstance &instance) {
@@ -114,13 +119,9 @@ auto CoordinatorData::DoFailover() -> DoFailoverStatus {
                          std::back_inserter(repl_clients_info),
                          [](const CoordinatorInstance &instance) { return instance.ReplicationClientInfo(); });
 
-  if (!chosen_replica_instance->SendPromoteReplicaToMainRpc(std::move(repl_clients_info))) {
-    chosen_replica_instance->RestoreAfterFailedFailover();
+  if (!chosen_replica_instance->PromoteToMain(std::move(repl_clients_info), main_succ_cb_, main_fail_cb_)) {
     return DoFailoverStatus::RPC_FAILED;
   }
-
-  chosen_replica_instance->PromoteToMain(main_succ_cb_, main_fail_cb_);
-
   return DoFailoverStatus::SUCCESS;
 }
 
@@ -129,7 +130,7 @@ auto CoordinatorData::ShowInstances() const -> std::vector<CoordinatorInstanceSt
   instances_status.reserve(registered_instances_.size());
 
   auto const stringify_repl_role = [](const CoordinatorInstance &instance) -> std::string {
-    if (!instance.IsAlive()) return "";
+    if (!instance.IsAlive()) return "unknown";
     if (instance.IsMain()) return "main";
     return "replica";
   };
@@ -159,11 +160,13 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
   auto new_main = std::ranges::find_if(registered_instances_, is_new_main);
 
   if (new_main == registered_instances_.end()) {
-    spdlog::error("You didn't register instance with given name {}", instance_name);
+    spdlog::error("Instance {} not registered. Please register it using REGISTER INSTANCE {}", instance_name,
+                  instance_name);
     return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
 
   new_main->PauseFrequentCheck();
+  utils::OnScopeExit scope_exit{[&new_main] { new_main->ResumeFrequentCheck(); }};
 
   std::vector<CoordinatorClientConfig::ReplicationClientInfo> repl_clients_info;
   repl_clients_info.reserve(registered_instances_.size() - 1);
@@ -175,15 +178,11 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
                          std::back_inserter(repl_clients_info),
                          [](const CoordinatorInstance &instance) { return instance.ReplicationClientInfo(); });
 
-  // PROMOTE REPLICA TO MAIN
-  // THIS SHOULD FAIL HERE IF IT IS DOWN
-  if (auto const result = new_main->SendPromoteReplicaToMainRpc(std::move(repl_clients_info)); !result) {
-    new_main->ResumeFrequentCheck();
+  if (!new_main->PromoteToMain(std::move(repl_clients_info), main_succ_cb_, main_fail_cb_)) {
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
 
-  new_main->PromoteToMain(main_succ_cb_, main_fail_cb_);
-
+  spdlog::info("Instance {} promoted to main", instance_name);
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
 }
 
@@ -196,23 +195,18 @@ auto CoordinatorData::RegisterInstance(CoordinatorClientConfig config) -> Regist
   }
 
   if (std::ranges::any_of(registered_instances_, [&config](const CoordinatorInstance &instance) {
-        spdlog::trace("Comparing {} with {}", instance.SocketAddress(), config.SocketAddress());
         return instance.SocketAddress() == config.SocketAddress();
       })) {
     return RegisterInstanceCoordinatorStatus::END_POINT_EXISTS;
   }
 
-  ReplClientInfo replication_client_info_copy = config.replication_client_info;
+  try {
+    registered_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_);
+    return RegisterInstanceCoordinatorStatus::SUCCESS;
 
-  auto *instance = &registered_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_,
-                                                       replication_coordination_glue::ReplicationRole::REPLICA);
-  if (auto const res = instance->SendSetToReplicaRpc(replication_client_info_copy); !res) {
+  } catch (CoordinatorRegisterInstanceException const &) {
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
   }
-
-  instance->StartFrequentCheck();
-
-  return RegisterInstanceCoordinatorStatus::SUCCESS;
 }
 
 }  // namespace memgraph::coordination
