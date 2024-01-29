@@ -3015,7 +3015,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, item.second)))});
         }
         for (const auto &item : info.text) {
-          results.push_back({TypedValue(text_index_mark), TypedValue(item), TypedValue(), TypedValue()});
+          results.push_back({TypedValue(text_index_mark), TypedValue(item.first), TypedValue(), TypedValue()});
         }
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();

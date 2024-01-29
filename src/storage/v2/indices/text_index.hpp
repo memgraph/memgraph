@@ -23,10 +23,15 @@ class DbAccessor;
 namespace memgraph::storage {
 class Storage;
 
+struct TextIndexData {
+  mgcxx::text_search::Context context_;
+  LabelId scope_;
+};
+
 class TextIndex {
  private:
   void AddNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp,
-               const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
+               const std::vector<mgcxx::text_search::Context *> &applicable_text_indices, bool skip_commit = false);
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(const std::vector<LabelId> &labels);
 
@@ -42,10 +47,11 @@ class TextIndex {
 
   ~TextIndex() = default;
 
-  std::map<std::string, mgcxx::text_search::Context> index_;
+  std::map<std::string, TextIndexData> index_;
   std::map<LabelId, std::string> label_to_index_;
 
-  void AddNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp);
+  void AddNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp,
+               bool skip_commit = false);
 
   void UpdateNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp);
 
@@ -73,7 +79,7 @@ class TextIndex {
 
   std::vector<Gid> Search(std::string index_name, std::string search_query);
 
-  std::vector<std::string> ListIndices() const;
+  std::vector<std::pair<std::string, LabelId>> ListIndices() const;
 
   std::uint64_t ApproximateVertexCount(std::string index_name) const;
 };

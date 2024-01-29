@@ -17,7 +17,7 @@
 namespace memgraph::storage {
 
 void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std::uint64_t transaction_start_timestamp,
-                        const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
+                        const std::vector<mgcxx::text_search::Context *> &applicable_text_indices, bool skip_commit) {
   // NOTE: Text indexes are presently all-property indices. If we allow text indexes restricted to specific properties,
   // an indexable document should be created for each applicable index.
   nlohmann::json document = {};
@@ -65,11 +65,11 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
   }
 }
 
-void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
-                        const std::uint64_t transaction_start_timestamp) {
+void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std::uint64_t transaction_start_timestamp,
+                        bool skip_commit) {
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
   if (applicable_text_indices.empty()) return;
-  AddNode(vertex_after_update, storage, transaction_start_timestamp, applicable_text_indices);
+  AddNode(vertex_after_update, storage, transaction_start_timestamp, applicable_text_indices, skip_commit);
 }
 
 void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
@@ -117,7 +117,8 @@ void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_updat
   if (!label_to_index_.contains(added_label)) {
     return;
   }
-  AddNode(vertex_after_update, storage, transaction_start_timestamp, {&index_.at(label_to_index_.at(added_label))});
+  AddNode(vertex_after_update, storage, transaction_start_timestamp,
+          std::vector<mgcxx::text_search::Context *>{&index_.at(label_to_index_.at(added_label)).context_});
 }
 
 void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
@@ -125,7 +126,7 @@ void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_
   if (!label_to_index_.contains(removed_label)) {
     return;
   }
-  RemoveNode(vertex_after_update, {&index_.at(label_to_index_.at(removed_label))});
+  RemoveNode(vertex_after_update, {&index_.at(label_to_index_.at(removed_label)).context_});
 }
 
 void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage,
@@ -137,7 +138,7 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(c
   std::vector<mgcxx::text_search::Context *> applicable_text_indices;
   for (const auto &label : labels) {
     if (label_to_index_.contains(label)) {
-      applicable_text_indices.push_back(&index_.at(label_to_index_.at(label)));
+      applicable_text_indices.push_back(&index_.at(label_to_index_.at(label)).context_);
     }
   }
   return applicable_text_indices;
@@ -147,7 +148,7 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(V
   std::vector<mgcxx::text_search::Context *> applicable_text_indices;
   for (const auto &label : vertex->labels) {
     if (label_to_index_.contains(label)) {
-      applicable_text_indices.push_back(&index_.at(label_to_index_.at(label)));
+      applicable_text_indices.push_back(&index_.at(label_to_index_.at(label)).context_);
     }
   }
   return applicable_text_indices;
@@ -160,8 +161,10 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
   mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
 
   try {
-    index_.emplace(index_name, mgcxx::text_search::create_index(
-                                   index_name, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}));
+    index_.emplace(index_name,
+                   TextIndexData{.context_ = mgcxx::text_search::create_index(
+                                     index_name, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
+                                 .scope_ = label});
   } catch (const std::exception &e) {
     throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
   }
@@ -169,7 +172,7 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
 
   bool has_schema = false;
   std::vector<std::pair<PropertyId, std::string>> indexed_properties{};
-  auto &index_context = index_.at(index_name);
+  auto &index_context = index_.at(index_name).context_;
   for (const auto &v : db->Vertices(View::OLD)) {
     if (!v.HasLabel(View::OLD, label).GetValue()) {
       continue;
@@ -259,8 +262,11 @@ std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_qu
   std::vector<Gid> found_nodes;
 
   mgcxx::text_search::SearchOutput search_results;
+
+  // if (!index_.contains(index_name)) throw InvalidArgumentException("InvalidArgumentException");
+
   try {
-    search_results = mgcxx::text_search::search(index_.at(index_name), input);
+    search_results = mgcxx::text_search::search(index_.at(index_name).context_, input);
   } catch (const std::exception &e) {
     throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
   }
@@ -277,11 +283,11 @@ std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_qu
   return found_nodes;
 }
 
-std::vector<std::string> TextIndex::ListIndices() const {
-  std::vector<std::string> ret;
+std::vector<std::pair<std::string, LabelId>> TextIndex::ListIndices() const {
+  std::vector<std::pair<std::string, LabelId>> ret;
   ret.reserve(index_.size());
-  for (const auto &item : index_) {
-    ret.push_back(item.first);
+  for (const auto &[index_name, index_data] : index_) {
+    ret.push_back({index_name, index_data.scope_});
   }
   return ret;
 }

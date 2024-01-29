@@ -59,7 +59,7 @@ class EdgeAccessor;
 struct IndicesInfo {
   std::vector<LabelId> label;
   std::vector<std::pair<LabelId, PropertyId>> label_property;
-  std::vector<std::string> text;
+  std::vector<std::pair<std::string, LabelId>> text;
 };
 
 struct ConstraintsInfo {
