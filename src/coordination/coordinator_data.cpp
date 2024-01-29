@@ -45,25 +45,35 @@ CoordinatorData::CoordinatorData() {
     instance.OnFailPing();
   };
 
-  main_succ_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
+  main_succ_cb_ = [this, find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing main successful callback", instance_name);
 
     auto &instance = find_instance(coord_data, instance_name);
-    if (!instance.IsAlive()) {
+
+    if (instance.IsAlive()) {
+      instance.OnSuccessPing();
+    } else {
       auto const new_role = coord_data->ClusterHasAliveMain() ? replication_coordination_glue::ReplicationRole::REPLICA
                                                               : replication_coordination_glue::ReplicationRole::MAIN;
       if (new_role == replication_coordination_glue::ReplicationRole::REPLICA) {
-        auto const status = instance.DemoteToReplica(coord_data->replica_succ_cb_, coord_data->replica_fail_cb_);
-        if (!status) {
-          spdlog::error("Instance {} failed to demote to replica", instance_name);
-        } else {
-          spdlog::info("Instance {} demoted to replica", instance_name);
-        }
+        thread_pool_.AddTask([&instance, coord_data, instance_name]() {
+          auto lock = std::lock_guard{coord_data->coord_data_lock_};
+          spdlog::info("Demoting instance {} to replica", instance_name);
+          instance.PauseFrequentCheck();
+          utils::OnScopeExit scope_exit{[&instance] { instance.ResumeFrequentCheck(); }};
+          auto const status = instance.DemoteToReplica(coord_data->replica_succ_cb_, coord_data->replica_fail_cb_);
+          if (!status) {
+            spdlog::error("Instance {} failed to demote to replica", instance_name);
+          } else {
+            spdlog::info("Instance {} demoted to replica", instance_name);
+            instance.OnSuccessPing();
+          }
+        });
+      } else {
+        instance.OnSuccessPing();
       }
     }
-
-    instance.OnSuccessPing();
   };
 
   main_fail_cb_ = [this, find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {

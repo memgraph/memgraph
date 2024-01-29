@@ -61,10 +61,10 @@ constexpr utils::TypeInfo coordination::PromoteReplicaToMainRes::kType{utils::Ty
                                                                        "CoordPromoteReplicaToMainRes", nullptr};
 
 constexpr utils::TypeInfo coordination::SetMainToReplicaReq::kType{utils::TypeId::COORD_SET_REPL_MAIN_REQ,
-                                                                   "CoordSetReplMainReq", nullptr};
+                                                                   "CoordDemoteToReplicaReq", nullptr};
 
 constexpr utils::TypeInfo coordination::SetMainToReplicaRes::kType{utils::TypeId::COORD_SET_REPL_MAIN_RES,
-                                                                   "CoordSetReplMainRes", nullptr};
+                                                                   "CoordDemoteToReplicaRes", nullptr};
 
 namespace slk {
 
