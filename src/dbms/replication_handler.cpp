@@ -28,6 +28,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/config.hpp"
 #include "storage/v2/replication/rpc.hpp"
+#include "system/state.hpp"
 #include "utils/on_scope_exit.hpp"
 
 using memgraph::replication::RoleMainData;
@@ -259,7 +260,8 @@ void SystemHeartbeatHandler(const uint64_t ts, slk::Reader *req_reader, slk::Bui
   memgraph::slk::Save(res, res_builder);
 }
 
-void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
+void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                           DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::storage::replication::CreateDatabaseRes;
   CreateDatabaseRes res(CreateDatabaseRes::Result::FAILURE);
 
@@ -278,9 +280,9 @@ void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
   //       If MAIN has changed we need to check this new group_timestamp is consistent with
   //       what we have so far.
 
-  if (req.expected_group_timestamp != dbms_handler.LastCommitedTS()) {
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("CreateDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
-                  dbms_handler.LastCommitedTS());
+                  system_state_access.LastCommitedTS());
     memgraph::slk::Save(res, res_builder);
     return;
   }
@@ -290,7 +292,7 @@ void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
     auto new_db = dbms_handler.Update(req.config);
     if (new_db.HasValue()) {
       // Successfully create db
-      dbms_handler.SetLastCommitedTS(req.new_group_timestamp);
+      system_state_access.SetLastCommitedTS(req.new_group_timestamp);
       res = CreateDatabaseRes(CreateDatabaseRes::Result::SUCCESS);
       spdlog::debug("CreateDatabaseHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
     }
@@ -301,7 +303,8 @@ void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, s
   memgraph::slk::Save(res, res_builder);
 }
 
-void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
+void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access, DbmsHandler &dbms_handler,
+                         slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::storage::replication::DropDatabaseRes;
   DropDatabaseRes res(DropDatabaseRes::Result::FAILURE);
 
@@ -320,9 +323,9 @@ void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk
   //       If MAIN has changed we need to check this new group_timestamp is consistent with
   //       what we have so far.
 
-  if (req.expected_group_timestamp != dbms_handler.LastCommitedTS()) {
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("DropDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
-                  dbms_handler.LastCommitedTS());
+                  system_state_access.LastCommitedTS());
     memgraph::slk::Save(res, res_builder);
     return;
   }
@@ -333,12 +336,12 @@ void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk
     if (new_db.HasError()) {
       if (new_db.GetError() == DeleteError::NON_EXISTENT) {
         // Nothing to drop
-        dbms_handler.SetLastCommitedTS(req.new_group_timestamp);
+        system_state_access.SetLastCommitedTS(req.new_group_timestamp);
         res = DropDatabaseRes(DropDatabaseRes::Result::NO_NEED);
       }
     } else {
       // Successfully drop db
-      dbms_handler.SetLastCommitedTS(req.new_group_timestamp);
+      system_state_access.SetLastCommitedTS(req.new_group_timestamp);
       res = DropDatabaseRes(DropDatabaseRes::Result::SUCCESS);
       spdlog::debug("DropDatabaseHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
     }
@@ -349,7 +352,8 @@ void DropDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk
   memgraph::slk::Save(res, res_builder);
 }
 
-void SystemRecoveryHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
+void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                           DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
                            slk::Builder *res_builder) {
   // TODO Speed up
   memgraph::replication::SystemRecoveryReq req;
@@ -465,7 +469,7 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, s
    * SUCCESSFUL RECOVERY
    */
   // Successfully recovered
-  dbms_handler.SetLastCommitedTS(req.forced_group_timestamp);
+  system_state_access.SetLastCommitedTS(req.forced_group_timestamp);
   spdlog::debug("SystemRecoveryHandler: SUCCESS updated LCTS to {}", req.forced_group_timestamp);
   res = SystemRecoveryRes(SystemRecoveryRes::Result::SUCCESS);
 }
@@ -474,35 +478,44 @@ void SystemRecoveryHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, s
 #ifdef MG_ENTERPRISE
 void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth) {
   // NOTE: Register even without license as the user could add a license at run-time
+  // TODO: fix Register when system is removed from DbmsHandler
+
+  auto system_state_access = dbms_handler.system_->CreateSystemStateAccess();
+
+  // System
   data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
-      [&dbms_handler](auto *req_reader, auto *res_builder) {
+      [system_state_access](auto *req_reader, auto *res_builder) {
         spdlog::debug("Received SystemHeartbeatRpc");
-        SystemHeartbeatHandler(dbms_handler.LastCommitedTS(), req_reader, res_builder);
-      });
-  data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
-      [&dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received CreateDatabaseRpc");
-        CreateDatabaseHandler(dbms_handler, req_reader, res_builder);
-      });
-  data.server->rpc_server_.Register<storage::replication::DropDatabaseRpc>(
-      [&dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received DropDatabaseRpc");
-        DropDatabaseHandler(dbms_handler, req_reader, res_builder);
+        SystemHeartbeatHandler(system_state_access.LastCommitedTS(), req_reader, res_builder);
       });
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
-      [&dbms_handler, &auth](auto *req_reader, auto *res_builder) {
+      [system_state_access, &dbms_handler, &auth](auto *req_reader, auto *res_builder) mutable {
         spdlog::debug("Received SystemRecoveryRpc");
-        SystemRecoveryHandler(dbms_handler, auth, req_reader, res_builder);
+        SystemRecoveryHandler(system_state_access, dbms_handler, auth, req_reader, res_builder);
       });
+
+  // DBMS
+  data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
+      [system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
+        spdlog::debug("Received CreateDatabaseRpc");
+        CreateDatabaseHandler(system_state_access, dbms_handler, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::DropDatabaseRpc>(
+      [system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
+        spdlog::debug("Received DropDatabaseRpc");
+        DropDatabaseHandler(system_state_access, dbms_handler, req_reader, res_builder);
+      });
+
+  // Auth
   data.server->rpc_server_.Register<replication::UpdateAuthDataRpc>(
-      [&dbms_handler, &auth](auto *req_reader, auto *res_builder) {
+      [system_state_access, &auth](auto *req_reader, auto *res_builder) mutable {
         spdlog::debug("Received UpdateAuthDataRpc");
-        auth_replication::UpdateAuthDataHandler(dbms_handler, auth, req_reader, res_builder);
+        auth_replication::UpdateAuthDataHandler(system_state_access, auth, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<replication::DropAuthDataRpc>(
-      [&dbms_handler, &auth](auto *req_reader, auto *res_builder) {
+      [system_state_access, &auth](auto *req_reader, auto *res_builder) mutable {
         spdlog::debug("Received DropAuthDataRpc");
-        auth_replication::DropAuthDataHandler(dbms_handler, auth, req_reader, res_builder);
+        auth_replication::DropAuthDataHandler(system_state_access, auth, req_reader, res_builder);
       });
 }
 #endif

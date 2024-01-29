@@ -24,6 +24,7 @@
 #include "license/license.hpp"
 #include "replication/messages.hpp"
 #include "spdlog/spdlog.h"
+#include "system/include/system/system.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -34,8 +35,7 @@ namespace memgraph::dbms {
 #ifdef MG_ENTERPRISE
 
 namespace {
-constexpr std::string_view kDBPrefix = "database:";                               // Key prefix for database durability
-constexpr std::string_view kLastCommitedSystemTsKey = "last_commited_system_ts";  // Key for timestamp durability
+constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
 }  // namespace
 
 struct Durability {
@@ -116,8 +116,12 @@ struct Durability {
   }
 };
 
-DbmsHandler::DbmsHandler(storage::Config config, auth::SynchedAuth &auth, bool recovery_on_startup)
-    : default_config_{std::move(config)}, auth_{auth}, repl_state_{ReplicationStateRootPath(default_config_)} {
+DbmsHandler::DbmsHandler(storage::Config config, memgraph::system::System &system, auth::SynchedAuth &auth,
+                         bool recovery_on_startup)
+    : default_config_{std::move(config)},
+      auth_{auth},
+      repl_state_{ReplicationStateRootPath(default_config_)},
+      system_{&system} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
 
@@ -151,16 +155,10 @@ DbmsHandler::DbmsHandler(storage::Config config, auth::SynchedAuth &auth, bool r
       const auto uuid = json.at("uuid").get<utils::UUID>();
       const auto rel_dir = json.at("rel_dir").get<std::filesystem::path>();
       spdlog::info("Restoring database {} at {}.", name, rel_dir);
-      auto new_db = New_(name, uuid, rel_dir);
+      auto new_db = New_(name, uuid, nullptr, rel_dir);
       MG_ASSERT(!new_db.HasError(), "Failed while creating database {}.", name);
       directories.emplace(rel_dir.filename());
       spdlog::info("Database {} restored.", name);
-    }
-    // Read the last timestamp
-    auto lcst = durability_->Get(kLastCommitedSystemTsKey);
-    if (lcst) {
-      last_commited_system_timestamp_ = std::stoul(*lcst);
-      system_timestamp_ = last_commited_system_timestamp_;
     }
   } else {  // Clear databases from the durability list and auth
     auto locked_auth = auth_.Lock();
@@ -173,8 +171,6 @@ DbmsHandler::DbmsHandler(storage::Config config, auth::SynchedAuth &auth, bool r
       locked_auth->DeleteDatabase(name);
       durability_->Delete(key);
     }
-    // Delete the last timestamp
-    durability_->Delete(kLastCommitedSystemTsKey);
   }
 
   /*
@@ -237,7 +233,67 @@ DbmsHandler::DbmsHandler(storage::Config config, auth::SynchedAuth &auth, bool r
   }
 }
 
-DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name) {
+//! \tparam RPC An rpc::RequestResponse
+//! \tparam Args the args type
+//! \param client the client to use for rpc communication
+//! \param check predicate to check response is ok
+//! \param args arguments to forward to the rpc request
+//! \return If replica stream is completed or enqueued
+template <typename RPC, typename... Args>
+bool SteamAndFinalizeDelta(auto &client, auto &&check, Args &&...args) {
+  try {
+    auto stream = client.rpc_client_.template Stream<RPC>(std::forward<Args>(args)...);
+    auto task = [&client, check = std::forward<decltype(check)>(check), stream = std::move(stream)]() mutable {
+      if (stream.IsDefunct()) {
+        client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
+        return false;
+      }
+      try {
+        if (check(stream.AwaitResponse())) {
+          return true;
+        }
+      } catch (memgraph::rpc::GenericRpcFailedException const &e) {
+        // swallow error, fallthrough to error handling
+      }
+      // This replica needs SYSTEM recovery
+      client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
+      return false;
+    };
+
+    if (client.mode_ == memgraph::replication_coordination_glue::ReplicationMode::ASYNC) {
+      client.thread_pool_.AddTask([task = utils::CopyMovableFunctionWrapper{std::move(task)}]() mutable { task(); });
+      return true;
+    }
+
+    return task();
+  } catch (memgraph::rpc::GenericRpcFailedException const &e) {
+    // This replica needs SYSTEM recovery
+    client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
+    return false;
+  }
+};
+
+struct DropDatabase : memgraph::system::ISystemAction {
+  explicit DropDatabase(utils::UUID uuid) : uuid_{std::move(uuid)} {}
+  void do_durability() override { /*Done during */
+  }
+
+  bool do_replication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
+                      memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const storage::replication::DropDatabaseRes &response) {
+      return response.result != storage::replication::DropDatabaseRes::Result::FAILURE;
+    };
+
+    return SteamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
+        client, check_response, epoch.id(), txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
+  }
+  void post_replication() const override {}
+
+ private:
+  utils::UUID uuid_;
+};
+
+DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, system::Transaction *transaction) {
   std::lock_guard<LockT> wr(lock_);
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
@@ -274,9 +330,10 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name) {
 
   // Success
   // Save delta
-  if (system_transaction_) {
-    system_transaction_->deltas.emplace_back(SystemTransaction::Delta::drop_database, uuid);
+  if (transaction) {
+    transaction->add_action<DropDatabase>(uuid);
   }
+
   return {};
 }
 
@@ -297,15 +354,45 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
   return Delete_(db_name);
 }
 
-DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config) {
+struct CreateDatabase : memgraph::system::ISystemAction {
+  explicit CreateDatabase(storage::SalientConfig config, DatabaseAccess dbAcc, DbmsHandler &dbmsHandler)
+      : config_{std::move(config)}, db_acc(dbAcc), dbms_handler(dbmsHandler) {}
+  void do_durability() override { /*Done during */
+  }
+
+  bool do_replication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
+                      memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const storage::replication::CreateDatabaseRes &response) {
+      return response.result != storage::replication::CreateDatabaseRes::Result::FAILURE;
+    };
+
+    return SteamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
+        client, check_response, epoch.id(), txn.last_committed_system_timestamp(), txn.timestamp(), config_);
+  }
+
+  void post_replication() const override {
+    // Sync database with REPLICAs
+    // NOTE: The function bellow is used to create ReplicationStorageClient, so it must be called on a new storage
+    // We don't need to have it here, since the function won't fail even if the replication client fails to
+    // connect We will just have everything ready, for recovery at some point.
+    dbms_handler.RecoverReplication(db_acc);
+  }
+
+ private:
+  storage::SalientConfig config_;
+  DatabaseAccess db_acc;
+  DbmsHandler &dbms_handler;
+};
+
+DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system::Transaction *txn) {
   auto new_db = db_handler_.New(storage_config, repl_state_);
 
   if (new_db.HasValue()) {  // Success
                             // Save delta
-    if (system_transaction_) {
-      system_transaction_->deltas.emplace_back(SystemTransaction::Delta::create_database, storage_config.salient);
-    }
     UpdateDurability(storage_config);
+    if (txn) {
+      txn->add_action<CreateDatabase>(storage_config.salient, *new_db, *this);
+    }
     return new_db.GetValue();
   }
   return new_db.GetError();
@@ -362,163 +449,80 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
   durability_->Put(key, val);
 }
 
-AllSyncReplicaStatus DbmsHandler::Commit() {
-  if (system_transaction_ == std::nullopt || system_transaction_->deltas.empty()) {
-    return AllSyncReplicaStatus::AllCommitsConfirmed;  // Nothing to commit
-  }
+// AllSyncReplicaStatus DbmsHandler::Commit() {
+//   if (system_transaction_ == std::nullopt || system_transaction_->deltas.empty()) {
+//     return AllSyncReplicaStatus::AllCommitsConfirmed;  // Nothing to commit
+//   }
+//
+//   auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
+//   for (const auto &delta : system_transaction_->deltas) {
+//     switch (delta.action) {
+//       using enum SystemTransaction::Delta::Action;
 
-  auto on_exit = utils::OnScopeExit([&]() {
-    // TODO durability_ is dbms, create another? link?
-    durability_->Put(kLastCommitedSystemTsKey, std::to_string(system_transaction_->system_timestamp));
-    last_commited_system_timestamp_ = system_transaction_->system_timestamp;
-    ResetSystemTransaction();
-  });
-
-  // Ignore deltas if no license
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    return AllSyncReplicaStatus::AllCommitsConfirmed;
-  }
-
-  auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
-  for (const auto &delta : system_transaction_->deltas) {
-    switch (delta.action) {
-      using enum SystemTransaction::Delta::Action;
-      case CREATE_DATABASE: {
-        // Replication
-        auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-          // TODO: data race issue? registered_replicas_ access not protected
-          // This is sync in any case, as this is the startup
-          for (auto &client : main_data.registered_replicas_) {
-            bool completed = SteamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
-                client,
-                [](const storage::replication::CreateDatabaseRes &response) {
-                  return response.result != storage::replication::CreateDatabaseRes::Result::FAILURE;
-                },
-                std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
-                system_transaction_->system_timestamp, delta.config);
-            // TODO: reduce duplicate code
-            if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-              sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
-            }
-          }
-          // Sync database with REPLICAs
-          // TODO Rename, move outside commit (to new?)
-          // NOTE: The function bellow is used to create ReplicationStorageClient, so it must be called on a new storage
-          // We don't need to have it here, since the function won't fail even if the replication client fails to
-          // connect We will just have everything ready, for recovery at some point.
-          RecoverReplication(Get_(delta.config.name));
-        };
-        auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
-        std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-      } break;
-      case DROP_DATABASE: {
-        // Replication
-        auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-          // TODO: data race issue? registered_replicas_ access not protected
-          // This is sync in any case, as this is the startup
-          for (auto &client : main_data.registered_replicas_) {
-            bool completed = SteamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
-                client,
-                [](const storage::replication::DropDatabaseRes &response) {
-                  return response.result != storage::replication::DropDatabaseRes::Result::FAILURE;
-                },
-                std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
-                system_transaction_->system_timestamp, delta.uuid);
-            // TODO: reduce duplicate code
-            if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-              sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
-            }
-          }
-        };
-        auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
-        std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-      } break;
-      case UPDATE_AUTH_DATA: {
-        // Replication
-        auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-          // TODO: data race issue? registered_replicas_ access not protected
-          // This is sync in any case, as this is the startup
-          for (auto &client : main_data.registered_replicas_) {
-            bool completed = false;
-            if (delta.auth_data.user) {
-              completed = SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-                  client, [](const replication::UpdateAuthDataRes &response) { return response.success; },
-                  std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
-                  system_transaction_->system_timestamp, *delta.auth_data.user);
-            } else if (delta.auth_data.role) {
-              completed = SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-                  client, [](const replication::UpdateAuthDataRes &response) { return response.success; },
-                  std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
-                  system_transaction_->system_timestamp, *delta.auth_data.role);
-            } else {
-              throw;  //?
-            }
-            // TODO: reduce duplicate code
-            if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-              sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
-            }
-          }
-        };
-        auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
-        std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-      } break;
-      case DROP_AUTH_DATA: {
-        // Replication
-        auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-          // TODO: data race issue? registered_replicas_ access not protected
-          // This is sync in any case, as this is the startup
-          for (auto &client : main_data.registered_replicas_) {
-            replication::DropAuthDataReq::DataType type{};
-            switch (delta.auth_data_key.type) {
-              case SystemTransaction::Delta::AuthData::USER:
-                type = replication::DropAuthDataReq::DataType::USER;
-                break;
-              case SystemTransaction::Delta::AuthData::ROLE:
-                type = replication::DropAuthDataReq::DataType::ROLE;
-                break;
-            }
-            bool completed = SteamAndFinalizeDelta<replication::DropAuthDataRpc>(
-                client, [](const replication::DropAuthDataRes &response) { return response.success; },
-                std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
-                system_transaction_->system_timestamp, type, delta.auth_data_key.name);
-            // TODO: reduce duplicate code
-            if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-              sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
-            }
-          }
-        };
-        auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
-        std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-      } break;
-    }
-  }
-
-  return sync_status;
-}
-
-#else  // not MG_ENTERPRISE
-
-AllSyncReplicaStatus DbmsHandler::Commit() {
-  if (system_transaction_ == std::nullopt || system_transaction_->deltas.empty()) {
-    return AllSyncReplicaStatus::AllCommitsConfirmed;  // Nothing to commit
-  }
-
-  for (const auto &delta : system_transaction_->deltas) {
-    switch (delta.action) {
-      using enum SystemTransaction::Delta::Action;
-      case CREATE_DATABASE:
-      case DROP_DATABASE:
-      case UPDATE_AUTH_DATA:  // TODO Do we want to have auth replication under community?
-      case DROP_AUTH_DATA:    // TODO Do we want to have auth replication under community?
-        /* Community edition doesn't support multi-tenant replication */
-        break;
-    }
-  }
-
-  last_commited_system_timestamp_ = system_transaction_->system_timestamp;
-  ResetSystemTransaction();
-  return AllSyncReplicaStatus::AllCommitsConfirmed;
-}
+//       case UPDATE_AUTH_DATA: {
+//         // Replication
+//         auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
+//           // TODO: data race issue? registered_replicas_ access not protected
+//           // This is sync in any case, as this is the startup
+//           for (auto &client : main_data.registered_replicas_) {
+//             bool completed = false;
+//             if (delta.auth_data.user) {
+//               completed = SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
+//                   client, [](const replication::UpdateAuthDataRes &response) { return response.success; },
+//                   std::string(main_data.epoch_.id()), last_committed_system_timestamp_,
+//                   system_transaction_->system_timestamp, *delta.auth_data.user);
+//             } else if (delta.auth_data.role) {
+//               completed = SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
+//                   client, [](const replication::UpdateAuthDataRes &response) { return response.success; },
+//                   std::string(main_data.epoch_.id()), last_committed_system_timestamp_,
+//                   system_transaction_->system_timestamp, *delta.auth_data.role);
+//             } else {
+//               throw;  //?
+//             }
+//             // TODO: reduce duplicate code
+//             if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+//               sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+//             }
+//           }
+//         };
+//         auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
+//         std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
+//       } break;
+//       case DROP_AUTH_DATA: {
+//         // Replication
+//         auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
+//           // TODO: data race issue? registered_replicas_ access not protected
+//           // This is sync in any case, as this is the startup
+//           for (auto &client : main_data.registered_replicas_) {
+//             replication::DropAuthDataReq::DataType type;
+//             switch (delta.auth_data_key.type) {
+//               case SystemTransaction::Delta::AuthData::USER:
+//                 type = replication::DropAuthDataReq::DataType::USER;
+//                 break;
+//               case SystemTransaction::Delta::AuthData::ROLE:
+//                 type = replication::DropAuthDataReq::DataType::ROLE;
+//                 break;
+//             }
+//             bool completed = SteamAndFinalizeDelta<replication::DropAuthDataRpc>(
+//                 client, [](const replication::DropAuthDataRes &response) { return response.success; },
+//                 std::string(main_data.epoch_.id()), last_committed_system_timestamp_,
+//                 system_transaction_->system_timestamp, type, delta.auth_data_key.name);
+//             // TODO: reduce duplicate code
+//             if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+//               sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
+//             }
+//           }
+//         };
+//         auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
+//         std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
+//       } break;
+//     }
+//   }
+//
+//   // TODO durability_ is dbms, create another? link?
+//   ResetSystemTransaction();
+//   return sync_status;
+// }
 
 #endif
 }  // namespace memgraph::dbms

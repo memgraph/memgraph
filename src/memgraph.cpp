@@ -44,6 +44,8 @@
 #include "query/auth_query_handler.hpp"
 #include "query/interpreter_context.hpp"
 
+#include "system/system.hpp"
+
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
@@ -383,7 +385,9 @@ int main(int argc, char **argv) {
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   auth_glue(&auth_, auth_handler, auth_checker);
 
-  memgraph::dbms::DbmsHandler dbms_handler(db_config
+  auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
+
+  memgraph::dbms::DbmsHandler dbms_handler(db_config, system
 #ifdef MG_ENTERPRISE
                                            ,
                                            auth_, FLAGS_data_recovery_on_startup
@@ -392,7 +396,7 @@ int main(int argc, char **argv) {
   auto db_acc = dbms_handler.Get();
 
   memgraph::query::InterpreterContext interpreter_context_(
-      interp_config, &dbms_handler, &dbms_handler.ReplicationState(), auth_handler.get(), auth_checker.get());
+      interp_config, &dbms_handler, &dbms_handler.ReplicationState(), system, auth_handler.get(), auth_checker.get());
   MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),

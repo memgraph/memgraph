@@ -44,6 +44,7 @@ std::filesystem::path storage_directory{std::filesystem::temp_directory_path() /
 std::filesystem::path db_dir{storage_directory / "databases"};
 static memgraph::storage::Config storage_conf;
 std::unique_ptr<memgraph::auth::SynchedAuth> auth;
+std::unique_ptr<memgraph::system::System> system_state;
 
 // Let this be global so we can test it different states throughout
 
@@ -66,12 +67,14 @@ class TestEnvironment : public ::testing::Environment {
     }
     auth = std::make_unique<memgraph::auth::SynchedAuth>(storage_directory / "auth",
                                                          memgraph::auth::Auth::Config{/* default */});
-    ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, *auth.get(), false);
+    system_state = std::make_unique<memgraph::system::System>();
+    ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, *system_state.get(), *auth.get(), false);
   }
 
   void TearDown() override {
     ptr_.reset();
     auth.reset();
+    system_state.reset();
     std::filesystem::remove_all(storage_directory);
   }
 

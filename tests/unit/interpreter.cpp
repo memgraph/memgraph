@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -94,7 +94,8 @@ class InterpreterTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::query::InterpreterContext interpreter_context{{}, kNoHandler, &repl_state};
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context{{}, kNoHandler, &repl_state, system_state};
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -1150,8 +1151,9 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
         << "Wrong storage mode!";
 
     memgraph::replication::ReplicationState repl_state{std::nullopt};
+    memgraph::system::System system_state;
     memgraph::query::InterpreterContext csv_interpreter_context{
-        {.query = {.allow_load_csv = allow_load_csv}}, nullptr, &repl_state};
+        {.query = {.allow_load_csv = allow_load_csv}}, nullptr, &repl_state, system_state};
     InterpreterFaker interpreter_faker{&csv_interpreter_context, db_acc};
     for (const auto &query : queries) {
       if (allow_load_csv) {

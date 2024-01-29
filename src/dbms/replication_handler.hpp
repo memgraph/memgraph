@@ -60,15 +60,8 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 void RestoreReplication(replication::ReplicationState &repl_state, DatabaseAccess db_acc);
 
 namespace system_replication {
-// System handlers
 #ifdef MG_ENTERPRISE
-void CreateDatabaseHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
-void SystemHeartbeatHandler(uint64_t ts, slk::Reader *req_reader, slk::Builder *res_builder);
-void SystemRecoveryHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
-#endif
-
-/// Register all system level RPC handlers
-#ifdef MG_ENTERPRISE
+/// Register all DBMS level RPC handlers
 void Register(replication::RoleReplicaData const &data, DbmsHandler &dbms_handler, auth::SynchedAuth &auth);
 #endif
 }  // namespace system_replication

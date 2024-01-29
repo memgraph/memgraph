@@ -24,6 +24,8 @@
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/transaction.hpp"
+#include "system/state.hpp"
+#include "system/system.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
@@ -48,7 +50,8 @@ class Interpreter;
  */
 struct InterpreterContext {
   InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
-                     replication::ReplicationState *rs, AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr);
+                     replication::ReplicationState *rs, memgraph::system::System &system,
+                     AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr);
 
   memgraph::dbms::DbmsHandler *dbms_handler;
 
@@ -62,6 +65,7 @@ struct InterpreterContext {
 
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;
+  system::System *system_;
 
   // Used to check active transactions
   // TODO: Have a way to read the current database

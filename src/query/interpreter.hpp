@@ -296,32 +296,12 @@ class Interpreter final {
 
   void SetUser(std::string_view username);
 
-  struct SystemTransactionGuard {
-    explicit SystemTransactionGuard(std::unique_lock<utils::ResourceLock> guard, dbms::DbmsHandler &dbms_handler)
-        : system_guard_(std::move(guard)), dbms_handler_{&dbms_handler} {
-      dbms_handler_->NewSystemTransaction();
-    }
-    SystemTransactionGuard &operator=(SystemTransactionGuard &&) = default;
-    SystemTransactionGuard(SystemTransactionGuard &&) = default;
-
-    ~SystemTransactionGuard() {
-      if (system_guard_.owns_lock()) dbms_handler_->ResetSystemTransaction();
-    }
-
-    dbms::AllSyncReplicaStatus Commit() { return dbms_handler_->Commit(); }
-
-   private:
-    std::unique_lock<utils::ResourceLock> system_guard_;
-    dbms::DbmsHandler *dbms_handler_;
-  };
-
-  std::optional<SystemTransactionGuard> system_transaction_guard_{};
+  std::optional<memgraph::system::Transaction> system_transaction_{};
 
  private:
   void ResetInterpreter() {
     query_executions_.clear();
-    system_guard.reset();
-    system_transaction_guard_.reset();
+    system_transaction_.reset();
     transaction_queries_->clear();
     if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
       current_db_.db_acc_.reset();
@@ -386,8 +366,6 @@ class Interpreter final {
   // TODO Figure out how this would work for multi-database
   // Exists only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
-  // TODO: our upgradable lock guard for system
-  std::optional<utils::ResourceLockGuard> system_guard;
 
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;

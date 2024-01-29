@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,6 +42,7 @@ class QueryExecution : public testing::Test {
 
   std::optional<memgraph::replication::ReplicationState> repl_state;
   std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
+  std::optional<memgraph::system::System> system_state;
 
   void SetUp() override {
     auto config = [&]() {
@@ -65,14 +66,15 @@ class QueryExecution : public testing::Test {
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
               "Wrong storage mode!");
     db_acc_ = std::move(db_acc);
-
-    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value());
+    system_state.emplace();
+    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value(), *system_state);
     interpreter_.emplace(&*interpreter_context_, *db_acc_);
   }
 
   void TearDown() override {
     interpreter_ = std::nullopt;
     interpreter_context_ = std::nullopt;
+    system_state.reset();
     db_acc_.reset();
     db_gk.reset();
     repl_state.reset();

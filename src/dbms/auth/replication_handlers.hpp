@@ -15,14 +15,16 @@
 #include "dbms/dbms_handler.hpp"
 #include "slk/streams.hpp"
 
+#include "system/state.hpp"
+
 namespace memgraph::dbms {
 namespace auth_replication {
 
 // #ifdef MG_ENTERPRISE // TODO Is it???
-void UpdateAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
-                           slk::Builder *res_builder);
-void DropAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
-                         slk::Builder *res_builder);
+void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access, auth::SynchedAuth &auth,
+                           slk::Reader *req_reader, slk::Builder *res_builder);
+void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access, auth::SynchedAuth &auth,
+                         slk::Reader *req_reader, slk::Builder *res_builder);
 // #endif
 
 }  // namespace auth_replication

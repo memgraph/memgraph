@@ -17,8 +17,8 @@ namespace memgraph::dbms {
 
 namespace auth_replication {
 
-void UpdateAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
-                           slk::Builder *res_builder) {
+void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access, auth::SynchedAuth &auth,
+                           slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::UpdateAuthDataReq req;
   memgraph::slk::Load(&req, req_reader);
 
@@ -30,9 +30,9 @@ void UpdateAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, s
   //       If MAIN has changed we need to check this new group_timestamp is consistent with
   //       what we have so far.
 
-  if (req.expected_group_timestamp != dbms_handler.LastCommitedTS()) {
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("UpdateAuthDataHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
-                  dbms_handler.LastCommitedTS());
+                  system_state_access.LastCommitedTS());
     memgraph::slk::Save(res, res_builder);
     return;
   }
@@ -42,7 +42,7 @@ void UpdateAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, s
     if (req.user) auth->SaveUser(*req.user);
     if (req.role) auth->SaveRole(*req.role);
     // Success
-    dbms_handler.SetLastCommitedTS(req.new_group_timestamp);
+    system_state_access.SetLastCommitedTS(req.new_group_timestamp);
     res = UpdateAuthDataRes(true);
     spdlog::debug("UpdateAuthDataHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
   } catch (const auth::AuthException & /* not used */) {
@@ -52,8 +52,8 @@ void UpdateAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, s
   memgraph::slk::Save(res, res_builder);
 }
 
-void DropAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
-                         slk::Builder *res_builder) {
+void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access, auth::SynchedAuth &auth,
+                         slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::DropAuthDataReq req;
   memgraph::slk::Load(&req, req_reader);
 
@@ -65,9 +65,9 @@ void DropAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk
   //       If MAIN has changed we need to check this new group_timestamp is consistent with
   //       what we have so far.
 
-  if (req.expected_group_timestamp != dbms_handler.LastCommitedTS()) {
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("DropAuthDataHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
-                  dbms_handler.LastCommitedTS());
+                  system_state_access.LastCommitedTS());
     memgraph::slk::Save(res, res_builder);
     return;
   }
@@ -83,7 +83,7 @@ void DropAuthDataHandler(DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk
         break;
     }
     // Success
-    dbms_handler.SetLastCommitedTS(req.new_group_timestamp);
+    system_state_access.SetLastCommitedTS(req.new_group_timestamp);
     res = DropAuthDataRes(true);
     spdlog::debug("DropAuthDataHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
   } catch (const auth::AuthException & /* not used */) {

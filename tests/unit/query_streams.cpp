@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -104,7 +104,9 @@ class StreamsTestFixture : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
-  memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{}, nullptr, &repl_state};
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{}, nullptr, &repl_state,
+                                                           system_state};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<StreamsTest> proxyStreams_;
 

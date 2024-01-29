@@ -3713,7 +3713,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
                                         InterpreterContext *interpreter_context,
-                                        std::optional<std::function<void(std::string_view)>> on_change_cb) {
+                                        std::optional<std::function<void(std::string_view)>> on_change_cb,
+                                        Interpreter &interpreter) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
@@ -3732,12 +3733,16 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, db_handler](AnyStream *stream,
-                                                  std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          [db_name = query->db_name_, db_handler, interpreter = &interpreter](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
-            const auto success = db_handler->New(db_name);
+            const auto success = db_handler->New(db_name, &*interpreter->system_transaction_);
             if (success.HasError()) {
               switch (success.GetError()) {
                 case dbms::NewError::EXISTS:
@@ -3812,13 +3817,17 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, db_handler, auth = interpreter_context->auth](
+          [db_name = query->db_name_, db_handler, auth = interpreter_context->auth, interpreter = &interpreter](
               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+
             std::vector<std::vector<TypedValue>> status;
 
             try {
               // Remove database
-              auto success = db_handler->TryDelete(db_name);
+              auto success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
               if (!success.HasError()) {
                 // Remove from auth
                 if (auth) auth->DeleteDatabase(db_name);
@@ -4072,18 +4081,16 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                           utils::Downcast<ReplicationQuery>(parsed_query.query);
 
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
-    auto system_transaction_guard = std::invoke([&]() -> std::optional<SystemTransactionGuard> {
-      if (system_queries) {
-        // TODO: Ordering between system and data queries
-        // Start a system transaction
-        auto system_unique = std::unique_lock{interpreter_context_->dbms_handler->system_lock_, std::defer_lock};
-        if (!system_unique.try_lock_for(std::chrono::milliseconds(kSystemTxTryMS))) {
-          throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
-        }
-        return std::optional<SystemTransactionGuard>{std::in_place, std::move(system_unique),
-                                                     *interpreter_context_->dbms_handler};
+    auto system_transaction = std::invoke([&]() -> std::optional<memgraph::system::Transaction> {
+      if (!system_queries) return std::nullopt;
+
+      // TODO: Ordering between system and data queries
+      auto system_txn =
+          interpreter_context_->system_->try_create_transaction(std::chrono::milliseconds(kSystemTxTryMS));
+      if (!system_txn) {
+        throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
       }
-      return std::nullopt;
+      return system_txn;
     });
 
     // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
@@ -4209,8 +4216,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       }
       /// SYSTEM (Replication) + INTERPRETER
       // DMG_ASSERT(system_guard);
-      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_
-                                                 /*, *system_guard*/);
+      prepared_query =
+          PrepareMultiDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_, *this);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, username_);
     } else if (utils::Downcast<EdgeImportModeQuery>(parsed_query.query)) {
@@ -4242,7 +4249,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["db"] = *query_execution->prepared_query->db;
 
     // prepare is done, move system txn guard to be owned by interpreter
-    system_transaction_guard_ = std::move(system_transaction_guard);
+    system_transaction_ = std::move(system_transaction);
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid,
             query_execution->prepared_query->db};
   } catch (const utils::BasicException &) {
@@ -4392,13 +4399,13 @@ void Interpreter::Commit() {
   current_transaction_.reset();
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
     // No database nor db transaction; check for system transaction
-    if (!system_transaction_guard_) return;
+    if (!system_transaction_) return;
 
     // TODO Distinguish between data and system transaction state
     // Think about updating the status to a struct with bitfield
     // Clean transaction status on exit
     utils::OnScopeExit clean_status([this]() {
-      system_transaction_guard_.reset();
+      system_transaction_.reset();
       // System transactions are not terminable
       // Durability has happened at time of PULL
       // Commit is doing replication and timestamp update
@@ -4416,7 +4423,23 @@ void Interpreter::Commit() {
       }
     });
 
-    system_transaction_guard_->Commit();
+    auto const main_commit = [&](replication::RoleMainData &mainData) {
+    // Only enterprise can do system replication
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast()) {
+        return system_transaction_->commit(memgraph::system::DoReplication{mainData});
+      }
+#endif
+      return system_transaction_->commit(memgraph::system::DoNothing{});
+    };
+
+    auto const replica_commit = [&](replication::RoleReplicaData &) {
+      return system_transaction_->commit(memgraph::system::DoNothing{});
+    };
+
+    auto const commit_method = utils::Overloaded{main_commit, replica_commit};
+    [[maybe_unused]] auto sync_result = std::visit(commit_method, interpreter_context_->repl_state->ReplicationData());
+    // TODO: something with sync_result
     return;
   }
   auto *db = current_db_.db_acc_->get();

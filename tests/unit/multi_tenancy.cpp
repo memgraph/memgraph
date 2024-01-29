@@ -100,8 +100,8 @@ class MultiTenantTest : public ::testing::Test {
   struct MinMemgraph {
     explicit MinMemgraph(const memgraph::storage::Config &conf)
         : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
-          dbms{conf, auth, true},
-          interpreter_context{{}, &dbms, &dbms.ReplicationState()} {
+          dbms{conf, system, auth, true},
+          interpreter_context{{}, &dbms, &dbms.ReplicationState(), system} {
       memgraph::utils::global_settings.Initialize(conf.durability.storage_directory / "settings");
       memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
                                                  memgraph::utils::global_settings);
@@ -114,6 +114,7 @@ class MultiTenantTest : public ::testing::Test {
     auto NewInterpreter() { return InterpreterFaker{&interpreter_context, dbms.Get()}; }
 
     memgraph::auth::SynchedAuth auth;
+    memgraph::system::System system;
     memgraph::dbms::DbmsHandler dbms;
     memgraph::query::InterpreterContext interpreter_context;
   };

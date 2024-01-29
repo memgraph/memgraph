@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,7 +39,9 @@ int main(int argc, char *argv[]) {
   auto db_acc_opt = db_gk.access();
   MG_ASSERT(db_acc_opt, "Failed to access db");
   auto &db_acc = *db_acc_opt;
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state);
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state,
+                                                          system_state);
   memgraph::query::Interpreter interpreter{&interpreter_context, db_acc};
 
   ResultStreamFaker stream(db_acc->storage());

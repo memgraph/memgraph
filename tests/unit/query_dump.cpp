@@ -267,7 +267,7 @@ memgraph::storage::EdgeAccessor CreateEdge(memgraph::storage::Storage::Accessor 
 }
 
 template <class... TArgs>
-void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::Value>> &results, TArgs &&... args) {
+void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::Value>> &results, TArgs &&...args) {
   std::vector<std::string> expected{std::forward<TArgs>(args)...};
   std::vector<std::string> got;
   got.reserve(results.size());
@@ -314,8 +314,8 @@ class DumpTest : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
-
-  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr, &repl_state};
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr, &repl_state, system_state};
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -722,7 +722,9 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
       << "Wrong storage mode!";
 
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state);
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state,
+                                                          system_state);
 
   {
     ResultStreamFaker stream(this->db->storage());
@@ -842,7 +844,9 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
       << "Wrong storage mode!";
 
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state);
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state,
+                                                          system_state);
   {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());

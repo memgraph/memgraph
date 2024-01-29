@@ -114,7 +114,7 @@ class ReplicationTest : public ::testing::Test {
 struct MinMemgraph {
   MinMemgraph(const memgraph::storage::Config &conf)
       : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
-        dbms{conf
+        dbms{conf, system_
 #ifdef MG_ENTERPRISE
              ,
              auth, true
@@ -131,6 +131,7 @@ struct MinMemgraph {
         ) {
   }
   memgraph::auth::SynchedAuth auth;
+  memgraph::system::System system_;
   memgraph::dbms::DbmsHandler dbms;
   memgraph::replication::ReplicationState &repl_state;
   memgraph::dbms::DatabaseAccess db_acc;

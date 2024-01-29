@@ -32,6 +32,7 @@
 #include "replication/replication_client.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/transaction.hpp"
+#include "system/system.hpp"
 #include "utils/thread_pool.hpp"
 #ifdef MG_ENTERPRISE
 #include "coordination/coordinator_state.hpp"
@@ -43,6 +44,7 @@
 #include "query/interpreter_context.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/isolation_level.hpp"
+#include "system/system.hpp"
 #include "utils/logging.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
@@ -50,11 +52,6 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
-
-enum class AllSyncReplicaStatus {
-  AllCommitsConfirmed,
-  SomeCommitsUnconfirmed,
-};
 
 struct Statistics {
   uint64_t num_vertex;           //!< Sum of vertexes in every database
@@ -111,7 +108,7 @@ class DbmsHandler {
    * @param auth pointer to the global authenticator
    * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  DbmsHandler(storage::Config config, auth::SynchedAuth &auth,
+  DbmsHandler(storage::Config config, memgraph::system::System &system, auth::SynchedAuth &auth,
               bool recovery_on_startup);  // TODO If more arguments are added use a config struct
 #else
   /**
@@ -119,8 +116,9 @@ class DbmsHandler {
    *
    * @param configs storage configuration
    */
-  DbmsHandler(storage::Config config)
+  DbmsHandler(storage::Config config, memgraph::system::System &system)
       : repl_state_{ReplicationStateRootPath(config)},
+        system_{&system},
         db_gatekeeper_{[&] {
                          config.salient.name = kDefaultDB;
                          return std::move(config);
@@ -137,10 +135,10 @@ class DbmsHandler {
    * @param name name of the database
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New(const std::string &name) {
+  NewResultT New(const std::string &name, system::Transaction *txn = nullptr) {
     std::lock_guard<LockT> wr(lock_);
     const auto uuid = utils::UUID{};
-    return New_(name, uuid);
+    return New_(name, uuid, txn);
   }
 
   /**
@@ -233,7 +231,7 @@ class DbmsHandler {
    * @param db_name database name
    * @return DeleteResult error on failure
    */
-  DeleteResult TryDelete(std::string_view db_name);
+  DeleteResult TryDelete(std::string_view db_name, system::Transaction *transaction = nullptr);
 
   /**
    * @brief Delete or defer deletion of database.
@@ -406,61 +404,9 @@ class DbmsHandler {
     }
   }
 
-  void NewSystemTransaction() {
-    DMG_ASSERT(!system_transaction_, "Already running a system transaction");
-    system_transaction_.emplace(++system_timestamp_);
-  }
-
-  void ResetSystemTransaction() { system_transaction_.reset(); }
-
-  //! \tparam RPC An rpc::RequestResponse
-  //! \tparam Args the args type
-  //! \param client the client to use for rpc communication
-  //! \param check predicate to check response is ok
-  //! \param args arguments to forward to the rpc request
-  //! \return If replica stream is completed or enqueued
-  template <typename RPC, typename... Args>
-  bool SteamAndFinalizeDelta(auto &client, auto &&check, Args &&...args) {
-    try {
-      auto stream = client.rpc_client_.template Stream<RPC>(std::forward<Args>(args)...);
-      auto task = [&client, check = std::forward<decltype(check)>(check), stream = std::move(stream)]() mutable {
-        if (stream.IsDefunct()) {
-          client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
-          return false;
-        }
-        try {
-          if (check(stream.AwaitResponse())) {
-            return true;
-          }
-        } catch (memgraph::rpc::GenericRpcFailedException const &e) {
-          // swallow error, fallthrough to error handling
-        }
-        // This replica needs SYSTEM recovery
-        client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
-        return false;
-      };
-
-      if (client.mode_ == memgraph::replication_coordination_glue::ReplicationMode::ASYNC) {
-        client.thread_pool_.AddTask([task = utils::CopyMovableFunctionWrapper{std::move(task)}]() mutable { task(); });
-        return true;
-      }
-
-      return task();
-    } catch (memgraph::rpc::GenericRpcFailedException const &e) {
-      // This replica needs SYSTEM recovery
-      client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
-      return false;
-    }
-  };
-
-  AllSyncReplicaStatus Commit();
-
-  auto LastCommitedTS() const -> uint64_t { return last_commited_system_timestamp_; }
-  void SetLastCommitedTS(uint64_t new_ts) { last_commited_system_timestamp_.store(new_ts); }
-
 #ifdef MG_ENTERPRISE
   // When being called by interpreter no need to gain lock, it should already be under a system transaction
-  // But concurrently the FrequentCheck is running and will need to lock before reading last_commited_system_timestamp_
+  // But concurrently the FrequentCheck is running and will need to lock before reading last_committed_system_timestamp_
   template <bool REQUIRE_LOCK = false>
   void SystemRestore(replication::ReplicationClient &client) {
     // Check if system is up to date
@@ -475,20 +421,22 @@ class DbmsHandler {
         uint64_t last_committed_timestamp;
       };
       DbInfo db_info = std::invoke([&] {
-        auto sys_guard =
-            std::unique_lock{system_lock_, std::defer_lock};  // ensure no other system transaction in progress
-        if constexpr (REQUIRE_LOCK) {
-          sys_guard.lock();
-        }
+        auto guard = std::invoke([&]() -> std::optional<memgraph::system::TransactionGuard> {
+          if constexpr (REQUIRE_LOCK) {
+            return system_->transaction_guard();
+          }
+          return std::nullopt;
+        });
 
         if (license::global_license_checker.IsEnterpriseValidFast()) {
           auto configs = std::vector<storage::SalientConfig>{};
           ForEach([&configs](DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
-          return DbInfo{configs, last_commited_system_timestamp_.load()};
+          // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
+          return DbInfo{configs, system_->LastCommittedSystemTimestamp()};
         }
 
         // No license -> send only default config
-        return DbInfo{{Get()->config().salient}, last_commited_system_timestamp_.load()};
+        return DbInfo{{Get()->config().salient}, system_->LastCommittedSystemTimestamp()};
       });
       try {
         auto stream = std::invoke([&]() {
@@ -528,6 +476,19 @@ class DbmsHandler {
 #endif
   }
 
+  void RecoverReplication(DatabaseAccess db_acc) {
+    if (allow_mt_repl || db_acc->name() == dbms::kDefaultDB) {
+      // Handle global replication state
+      spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
+      // RECOVER REPLICA CONNECTIONS
+      memgraph::dbms::RestoreReplication(repl_state_, std::move(db_acc));
+    } else if (const ::memgraph::replication::RoleMainData *data =
+                   std::get_if<::memgraph::replication::RoleMainData>(&repl_state_.ReplicationData());
+               data && !data->registered_replicas_.empty()) {
+      spdlog::warn("Multi-tenant replication is currently not supported!");
+    }
+  }
+
  private:
 #ifdef MG_ENTERPRISE
   /**
@@ -552,7 +513,8 @@ class DbmsHandler {
    * @param uuid undelying RocksDB directory
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(std::string_view name, utils::UUID uuid, std::optional<std::filesystem::path> rel_dir = {}) {
+  NewResultT New_(std::string_view name, utils::UUID uuid, system::Transaction *txn = nullptr,
+                  std::optional<std::filesystem::path> rel_dir = {}) {
     auto config_copy = default_config_;
     config_copy.salient.name = name;
     config_copy.salient.uuid = uuid;
@@ -563,7 +525,7 @@ class DbmsHandler {
       storage::UpdatePaths(config_copy,
                            default_config_.durability.storage_directory / kMultiTenantDir / std::string{uuid});
     }
-    return New_(std::move(config_copy));
+    return New_(std::move(config_copy), txn);
   }
 
   /**
@@ -572,11 +534,11 @@ class DbmsHandler {
    * @param config configuration to be used
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(const storage::SalientConfig &config) {
+  NewResultT New_(const storage::SalientConfig &config, system::Transaction *txn = nullptr) {
     auto config_copy = default_config_;
     config_copy.salient = config;  // name, uuid, mode, etc
     UpdatePaths(config_copy, config_copy.durability.storage_directory / kMultiTenantDir / std::string{config.uuid});
-    return New_(std::move(config_copy));
+    return New_(std::move(config_copy), txn);
   }
 
   /**
@@ -585,7 +547,7 @@ class DbmsHandler {
    * @param storage_config storage configuration
    * @return NewResultT context on success, error on failure
    */
-  NewResultT New_(storage::Config storage_config);
+  DbmsHandler::NewResultT New_(storage::Config storage_config, system::Transaction *txn = nullptr);
 
   // TODO: new overload of Delete_ with DatabaseAccess
   DeleteResult Delete_(std::string_view db_name);
@@ -600,7 +562,8 @@ class DbmsHandler {
       Get(kDefaultDB);
     } catch (const UnknownDatabaseException &) {
       // No default DB restored, create it
-      MG_ASSERT(New_(kDefaultDB, {/* random UUID */}, ".").HasValue(), "Failed while creating the default database");
+      MG_ASSERT(New_(kDefaultDB, {/* random UUID */}, nullptr, ".").HasValue(),
+                "Failed while creating the default database");
     }
 
     // For back-compatibility...
@@ -687,36 +650,22 @@ class DbmsHandler {
   }
 #endif
 
-  void RecoverReplication(DatabaseAccess db_acc) {
-    if (allow_mt_repl || db_acc->name() == dbms::kDefaultDB) {
-      // Handle global replication state
-      spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-      // RECOVER REPLICA CONNECTIONS
-      memgraph::dbms::RestoreReplication(repl_state_, std::move(db_acc));
-    } else if (const ::memgraph::replication::RoleMainData *data =
-                   std::get_if<::memgraph::replication::RoleMainData>(&repl_state_.ReplicationData());
-               data && !data->registered_replicas_.empty()) {
-      spdlog::warn("Multi-tenant replication is currently not supported!");
-    }
-  }
-
 #ifdef MG_ENTERPRISE
   mutable LockT lock_{utils::RWLock::Priority::READ};  //!< protective lock
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
-  std::unique_ptr<kvstore::KVStore> durability_;       //!< list of active dbs (pointer so we can postpone its creation)
-  coordination::CoordinatorState coordinator_state_;   //!< Replication coordinator
-  auth::SynchedAuth &auth_;                            //!< Synchronized auth::Auth
+  // TODO: move to be common
+  std::unique_ptr<kvstore::KVStore> durability_;      //!< list of active dbs (pointer so we can postpone its creation)
+  coordination::CoordinatorState coordinator_state_;  //!< Replication coordinator
+  auth::SynchedAuth &auth_;                           //!< Synchronized auth::Auth
 #endif
-  // TODO: Make an api
- public:
-  utils::ResourceLock system_lock_{};  //!> Ensure exclusive access for system queries
  private:
-  std::optional<SystemTransaction> system_transaction_;      //!< Current system transaction (only one at a time)
-  uint64_t system_timestamp_{storage::kTimestampInitialId};  //!< System timestamp
-  std::atomic_uint64_t last_commited_system_timestamp_{
-      storage::kTimestampInitialId};          //!< Last commited system timestamp
   replication::ReplicationState repl_state_;  //!< Global replication state
+ public:
+  // TODO fix to be non public/remove from dbms....maybe
+  system::System *system_;
+
+ private:
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
 #endif
