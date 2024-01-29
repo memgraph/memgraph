@@ -18,7 +18,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/storage.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::UnorderedElementsAre;
 
 class StorageEdgeTest : public ::testing::TestWithParam<bool> {};

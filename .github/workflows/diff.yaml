@@ -96,7 +96,7 @@ jobs:
 
       - name: Python code analysis
         run: |
-          CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only)
+          CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only --diff-filter=d)
           for file in ${CHANGED_FILES}; do
             echo ${file}
             if [[ ${file} == *.py ]]; then

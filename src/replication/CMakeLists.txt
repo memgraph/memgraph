@@ -5,7 +5,6 @@ target_sources(mg-replication
         include/replication/state.hpp
         include/replication/epoch.hpp
         include/replication/config.hpp
-        include/replication/role.hpp
         include/replication/status.hpp
         include/replication/messages.hpp
         include/replication/replication_client.hpp

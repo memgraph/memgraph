@@ -20,7 +20,7 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 // Add chained MATCH (node1) -- (node2), MATCH (node2) -- (node3) ... clauses.
 static memgraph::query::CypherQuery *AddChainedMatches(int num_matches, memgraph::query::AstStorage &storage) {

@@ -41,9 +41,9 @@ using memgraph::dbms::RegisterReplicaError;
 using memgraph::dbms::ReplicationHandler;
 using memgraph::dbms::UnregisterReplicaResult;
 using memgraph::replication::ReplicationClientConfig;
-using memgraph::replication::ReplicationRole;
 using memgraph::replication::ReplicationServerConfig;
 using memgraph::replication_coordination_glue::ReplicationMode;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Config;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::Gid;
@@ -940,7 +940,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
                       .ip_address = local_host,
                       .port = common_port,
                   })
-                  .GetError() == RegisterReplicaError::END_POINT_EXISTS);
+                  .GetError() == RegisterReplicaError::ENDPOINT_EXISTS);
 }
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {

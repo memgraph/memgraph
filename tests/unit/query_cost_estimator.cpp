@@ -23,7 +23,7 @@
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using CardParam = CostEstimator<memgraph::query::DbAccessor>::CardParam;
 using CostParam = CostEstimator<memgraph::query::DbAccessor>::CostParam;
 using MiscParam = CostEstimator<memgraph::query::DbAccessor>::MiscParam;
