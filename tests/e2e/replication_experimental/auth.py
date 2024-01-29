@@ -174,7 +174,7 @@ def test_manual_users_replication(connection):
     }
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
     cursor = connection(BOLT_PORTS["main"], "main", "user1").cursor()
 
     # 1/
@@ -191,6 +191,85 @@ def test_manual_users_replication(connection):
     connection(BOLT_PORTS["replica_1"], "replica", "user2", "password").cursor()
     connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor()
     connection(BOLT_PORTS["replica_2"], "replica", "user2", "password").cursor()
+
+
+def test_env_users_replication(connection):
+    # Goal: show system recovery in action at registration time
+    # 0/ Set users from the environment
+    #    MAIN gets users from the environment
+    #    Setup replication cluster
+    # 1/ Check that both MAIN and REPLICA have user1
+
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/replica1",
+            ],
+            "log_file": "replica1.log",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "replica_2": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/replica2",
+            ],
+            "log_file": "replica2.log",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
+            ],
+        },
+        "main": {
+            "username": "user1",
+            "password": "password",
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/main",
+            ],
+            "log_file": "main.log",
+            "setup_queries": [
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
+            ],
+        },
+    }
+
+    # 0/
+    # Start only replicas without the env user
+    interactive_mg_runner.stop_all(keep_directories=False)
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, "replica_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, "replica_2")
+    # Setup user
+    try:
+        os.environ["MEMGRAPH_USER"] = "user1"
+        os.environ["MEMGRAPH_PASSWORD"] = "password"
+        # Start main
+        interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, "main")
+    finally:
+        # Cleanup
+        del os.environ["MEMGRAPH_USER"]
+        del os.environ["MEMGRAPH_PASSWORD"]
+
+    # 1/
+    expected_data = {("user1",)}
+    assert expected_data == show_users_func(connection(BOLT_PORTS["main"], "main", "user1", "password").cursor())()
+    mg_sleep_and_assert(
+        expected_data, show_users_func(connection(BOLT_PORTS["replica_1"], "replica", "user1", "password").cursor())
+    )
+    mg_sleep_and_assert(
+        expected_data, show_users_func(connection(BOLT_PORTS["replica_2"], "replica", "user1", "password").cursor())
+    )
 
 
 def test_manual_roles_replication(connection):
@@ -254,7 +333,7 @@ def test_manual_roles_replication(connection):
     }
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
     connection(BOLT_PORTS["main"], "main", "user2").cursor()  # Just check if it connects
     cursor_replica_1 = connection(BOLT_PORTS["replica_1"], "replica", "user2").cursor()
     cursor_replica_2 = connection(BOLT_PORTS["replica_2"], "replica", "user2").cursor()
@@ -358,7 +437,7 @@ def test_auth_config_replication(connection):
     }
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
 
     # 1/
     cursor_main = connection(BOLT_PORTS["main"], "main", "UsErA", "pass").cursor()
@@ -431,7 +510,7 @@ def test_auth_queries_on_replica(connection):
     }
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
     cursor_main = connection(BOLT_PORTS["main"], "main", "UsErA", "pass").cursor()
     cursor_replica_1 = connection(BOLT_PORTS["replica_1"], "replica", "UsErA", "pass").cursor()
     cursor_replica_2 = connection(BOLT_PORTS["replica_2"], "replica", "UsErA", "pass").cursor()
