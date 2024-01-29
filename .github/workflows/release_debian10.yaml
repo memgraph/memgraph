@@ -109,7 +109,7 @@ jobs:
           tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu
 
       - name: Save code coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "Code coverage"
           path: tools/github/generated/code_coverage.tar.gz
@@ -163,7 +163,7 @@ jobs:
           ./cppcheck_and_clang_format diff
 
       - name: Save cppcheck and clang-format errors
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "Code coverage"
           path: tools/github/cppcheck_and_clang_format.txt
@@ -240,7 +240,7 @@ jobs:
           cpack -G DEB --config ../CPackConfig.cmake
 
       - name: Save enterprise DEB package
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "Enterprise DEB package"
           path: build/output/memgraph*.deb
@@ -253,7 +253,7 @@ jobs:
           ./continuous_integration
 
       - name: Save quality assurance status
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "GQL Behave Status"
           path: |
@@ -452,7 +452,7 @@ jobs:
           ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
 
       - name: Save Jepsen report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: "Jepsen Report"
