@@ -42,7 +42,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -60,7 +60,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -78,7 +78,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -96,7 +96,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -114,7 +114,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -132,7 +132,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -150,7 +150,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -168,7 +168,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -188,7 +188,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -206,7 +206,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -224,7 +224,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -242,7 +242,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -260,7 +260,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
