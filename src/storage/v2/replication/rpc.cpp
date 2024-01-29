@@ -136,10 +136,12 @@ void Load(memgraph::storage::replication::CurrentWalRes *self, memgraph::slk::Re
 // Serialize code for CurrentWalReq
 
 void Save(const memgraph::storage::replication::CurrentWalReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.uuid, builder);
 }
 
 void Load(memgraph::storage::replication::CurrentWalReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->uuid, reader);
 }
 
@@ -158,11 +160,13 @@ void Load(memgraph::storage::replication::WalFilesRes *self, memgraph::slk::Read
 // Serialize code for WalFilesReq
 
 void Save(const memgraph::storage::replication::WalFilesReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.uuid, builder);
   memgraph::slk::Save(self.file_number, builder);
 }
 
 void Load(memgraph::storage::replication::WalFilesReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->uuid, reader);
   memgraph::slk::Load(&self->file_number, reader);
 }
@@ -182,10 +186,12 @@ void Load(memgraph::storage::replication::SnapshotRes *self, memgraph::slk::Read
 // Serialize code for SnapshotReq
 
 void Save(const memgraph::storage::replication::SnapshotReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.uuid, builder);
 }
 
 void Load(memgraph::storage::replication::SnapshotReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->uuid, reader);
 }
 
@@ -206,12 +212,14 @@ void Load(memgraph::storage::replication::HeartbeatRes *self, memgraph::slk::Rea
 // Serialize code for HeartbeatReq
 
 void Save(const memgraph::storage::replication::HeartbeatReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.uuid, builder);
   memgraph::slk::Save(self.main_commit_timestamp, builder);
   memgraph::slk::Save(self.epoch_id, builder);
 }
 
 void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->uuid, reader);
   memgraph::slk::Load(&self->main_commit_timestamp, reader);
   memgraph::slk::Load(&self->epoch_id, reader);
@@ -232,12 +240,14 @@ void Load(memgraph::storage::replication::AppendDeltasRes *self, memgraph::slk::
 // Serialize code for AppendDeltasReq
 
 void Save(const memgraph::storage::replication::AppendDeltasReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.uuid, builder);
   memgraph::slk::Save(self.previous_commit_timestamp, builder);
   memgraph::slk::Save(self.seq_num, builder);
 }
 
 void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->uuid, reader);
   memgraph::slk::Load(&self->previous_commit_timestamp, reader);
   memgraph::slk::Load(&self->seq_num, reader);

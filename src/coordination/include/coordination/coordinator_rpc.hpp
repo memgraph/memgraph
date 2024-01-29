@@ -30,6 +30,8 @@ struct PromoteReplicaToMainReq {
       : replication_clients_info(std::move(replication_clients_info)) {}
   PromoteReplicaToMainReq() = default;
 
+  // get uuid here
+  // utils::UUID main_uuid_ (uuid which coordinator will set for main)
   std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info;
 };
 

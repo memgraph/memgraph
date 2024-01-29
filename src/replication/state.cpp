@@ -10,12 +10,14 @@
 // licenses/APL.txt.
 
 #include "replication/state.hpp"
+#include <optional>
 
 #include "replication/replication_client.hpp"
 #include "replication/replication_server.hpp"
 #include "replication/status.hpp"
 #include "utils/file.hpp"
 #include "utils/result.hpp"
+#include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
 
 constexpr auto kReplicationDirectory = std::string_view{"replication"};
@@ -150,7 +152,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               return {std::move(res)};
             },
             [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t {
-              return {RoleReplicaData{r.config, std::make_unique<ReplicationServer>(r.config)}};
+              return {RoleReplicaData{r.config, std::make_unique<ReplicationServer>(r.config), std::nullopt}};
             },
         },
         std::move(data.role));
@@ -232,7 +234,7 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   if (!TryPersistRoleReplica(config)) {
     return false;
   }
-  replication_data_ = RoleReplicaData{config, std::make_unique<ReplicationServer>(config)};
+  replication_data_ = RoleReplicaData{config, std::make_unique<ReplicationServer>(config), std::nullopt};
   return true;
 }
 

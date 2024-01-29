@@ -21,6 +21,7 @@
 #include "status.hpp"
 #include "utils/result.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/uuid.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -47,11 +48,14 @@ struct RoleMainData {
 
   ReplicationEpoch epoch_;
   std::list<ReplicationClient> registered_replicas_{};  // TODO: data race issues
+  utils::UUID uuid_;
 };
 
 struct RoleReplicaData {
   ReplicationServerConfig config;
   std::unique_ptr<ReplicationServer> server;
+  // uuid of main replica is listening to
+  std::optional<utils::UUID> uuid_;
 };
 
 // Global (instance) level object

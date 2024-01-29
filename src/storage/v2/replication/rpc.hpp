@@ -32,9 +32,11 @@ struct AppendDeltasReq {
   static void Load(AppendDeltasReq *self, memgraph::slk::Reader *reader);
   static void Save(const AppendDeltasReq &self, memgraph::slk::Builder *builder);
   AppendDeltasReq() = default;
-  AppendDeltasReq(const utils::UUID &uuid, uint64_t previous_commit_timestamp, uint64_t seq_num)
-      : uuid{uuid}, previous_commit_timestamp(previous_commit_timestamp), seq_num(seq_num) {}
+  AppendDeltasReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t previous_commit_timestamp,
+                  uint64_t seq_num)
+      : main_uuid{main_uuid}, uuid{uuid}, previous_commit_timestamp(previous_commit_timestamp), seq_num(seq_num) {}
 
+  utils::UUID main_uuid;
   utils::UUID uuid;
   uint64_t previous_commit_timestamp;
   uint64_t seq_num;
@@ -63,9 +65,11 @@ struct HeartbeatReq {
   static void Load(HeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const HeartbeatReq &self, memgraph::slk::Builder *builder);
   HeartbeatReq() = default;
-  HeartbeatReq(const utils::UUID &uuid, uint64_t main_commit_timestamp, std::string epoch_id)
-      : uuid{uuid}, main_commit_timestamp(main_commit_timestamp), epoch_id(std::move(epoch_id)) {}
+  HeartbeatReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t main_commit_timestamp,
+               std::string epoch_id)
+      : main_uuid(main_uuid), uuid{uuid}, main_commit_timestamp(main_commit_timestamp), epoch_id(std::move(epoch_id)) {}
 
+  utils::UUID main_uuid;
   utils::UUID uuid;
   uint64_t main_commit_timestamp;
   std::string epoch_id;
@@ -95,8 +99,9 @@ struct SnapshotReq {
   static void Load(SnapshotReq *self, memgraph::slk::Reader *reader);
   static void Save(const SnapshotReq &self, memgraph::slk::Builder *builder);
   SnapshotReq() = default;
-  explicit SnapshotReq(const utils::UUID &uuid) : uuid{uuid} {}
+  explicit SnapshotReq(const utils::UUID &main_uuid, const utils::UUID &uuid) : main_uuid{main_uuid}, uuid{uuid} {}
 
+  utils::UUID main_uuid;
   utils::UUID uuid;
 };
 
@@ -123,8 +128,10 @@ struct WalFilesReq {
   static void Load(WalFilesReq *self, memgraph::slk::Reader *reader);
   static void Save(const WalFilesReq &self, memgraph::slk::Builder *builder);
   WalFilesReq() = default;
-  explicit WalFilesReq(const utils::UUID &uuid, uint64_t file_number) : uuid{uuid}, file_number(file_number) {}
+  explicit WalFilesReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t file_number)
+      : main_uuid{main_uuid}, uuid{uuid}, file_number(file_number) {}
 
+  utils::UUID main_uuid;
   utils::UUID uuid;
   uint64_t file_number;
 };
@@ -152,8 +159,9 @@ struct CurrentWalReq {
   static void Load(CurrentWalReq *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalReq &self, memgraph::slk::Builder *builder);
   CurrentWalReq() = default;
-  explicit CurrentWalReq(const utils::UUID &uuid) : uuid{uuid} {}
+  explicit CurrentWalReq(const utils::UUID &main_uuid, const utils::UUID &uuid) : main_uuid(main_uuid), uuid{uuid} {}
 
+  utils::UUID main_uuid;
   utils::UUID uuid;
 };
 
@@ -200,6 +208,116 @@ struct TimestampRes {
 };
 
 using TimestampRpc = rpc::RequestResponse<TimestampReq, TimestampRes>;
+
+struct CreateDatabaseReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(CreateDatabaseReq *self, memgraph::slk::Reader *reader);
+  static void Save(const CreateDatabaseReq &self, memgraph::slk::Builder *builder);
+  CreateDatabaseReq() = default;
+  CreateDatabaseReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_group_timestamp,
+                    uint64_t new_group_timestamp, storage::SalientConfig config)
+      : main_uuid(main_uuid),
+        epoch_id(std::move(epoch_id)),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        config(std::move(config)) {}
+
+  utils::UUID main_uuid;
+  std::string epoch_id;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
+  storage::SalientConfig config;
+};
+
+struct CreateDatabaseRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(CreateDatabaseRes *self, memgraph::slk::Reader *reader);
+  static void Save(const CreateDatabaseRes &self, memgraph::slk::Builder *builder);
+  CreateDatabaseRes() = default;
+  explicit CreateDatabaseRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using CreateDatabaseRpc = rpc::RequestResponse<CreateDatabaseReq, CreateDatabaseRes>;
+
+struct DropDatabaseReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(DropDatabaseReq *self, memgraph::slk::Reader *reader);
+  static void Save(const DropDatabaseReq &self, memgraph::slk::Builder *builder);
+  DropDatabaseReq() = default;
+  DropDatabaseReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_group_timestamp,
+                  uint64_t new_group_timestamp, const utils::UUID &uuid)
+      : main_uuid(main_uuid),
+        epoch_id(std::move(epoch_id)),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        uuid(uuid) {}
+
+  utils::UUID main_uuid;
+  std::string epoch_id;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
+  utils::UUID uuid;
+};
+
+struct DropDatabaseRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(DropDatabaseRes *self, memgraph::slk::Reader *reader);
+  static void Save(const DropDatabaseRes &self, memgraph::slk::Builder *builder);
+  DropDatabaseRes() = default;
+  explicit DropDatabaseRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using DropDatabaseRpc = rpc::RequestResponse<DropDatabaseReq, DropDatabaseRes>;
+
+struct SystemRecoveryReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
+  static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
+  SystemRecoveryReq() = default;
+  SystemRecoveryReq(const utils::UUID &main_uuid, uint64_t forced_group_timestamp,
+                    std::vector<storage::SalientConfig> database_configs)
+      : main_uuid(main_uuid),
+        forced_group_timestamp{forced_group_timestamp},
+        database_configs(std::move(database_configs)) {}
+
+  utils::UUID main_uuid;
+  uint64_t forced_group_timestamp;
+  std::vector<storage::SalientConfig> database_configs;
+};
+
+struct SystemRecoveryRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(SystemRecoveryRes *self, memgraph::slk::Reader *reader);
+  static void Save(const SystemRecoveryRes &self, memgraph::slk::Builder *builder);
+  SystemRecoveryRes() = default;
+  explicit SystemRecoveryRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using SystemRecoveryRpc = rpc::RequestResponse<SystemRecoveryReq, SystemRecoveryRes>;
 
 }  // namespace memgraph::storage::replication
 
