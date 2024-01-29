@@ -44,7 +44,7 @@ class CoordinatorInstance {
   auto IsReplica() const -> bool;
   auto IsMain() const -> bool;
 
-  auto PromoteToMain(ReplicationClientsInfo repl_clients_info, HealthCheckCallback main_succ_cb,
+  auto PromoteToMain(utils::UUID main_uuid, ReplicationClientsInfo repl_clients_info, HealthCheckCallback main_succ_cb,
                      HealthCheckCallback main_fail_cb) -> bool;
   auto DemoteToReplica(HealthCheckCallback replica_succ_cb, HealthCheckCallback replica_fail_cb) -> bool;
 

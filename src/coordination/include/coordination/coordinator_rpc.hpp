@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "utils/uuid.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_config.hpp"
@@ -26,12 +27,13 @@ struct PromoteReplicaToMainReq {
   static void Load(PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader);
   static void Save(const PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder);
 
-  explicit PromoteReplicaToMainReq(std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info)
-      : replication_clients_info(std::move(replication_clients_info)) {}
+  explicit PromoteReplicaToMainReq(const utils::UUID &uuid,
+                                   std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info)
+      : main_uuid_(uuid), replication_clients_info(std::move(replication_clients_info)) {}
   PromoteReplicaToMainReq() = default;
 
   // get uuid here
-  // utils::UUID main_uuid_ (uuid which coordinator will set for main)
+  utils::UUID main_uuid_;
   std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info;
 };
 
@@ -80,26 +82,58 @@ struct DemoteMainToReplicaRes {
 
 using DemoteMainToReplicaRpc = rpc::RequestResponse<DemoteMainToReplicaReq, DemoteMainToReplicaRes>;
 
+struct SwapMainUUIDReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(SwapMainUUIDReq *self, memgraph::slk::Reader *reader);
+  static void Save(const SwapMainUUIDReq &self, memgraph::slk::Builder *builder);
+
+  explicit SwapMainUUIDReq(const utils::UUID &uuid) : uuid(uuid) {}
+
+  SwapMainUUIDReq() = default;
+
+  utils::UUID uuid;
+};
+
+struct SwapMainUUIDRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(SwapMainUUIDRes *self, memgraph::slk::Reader *reader);
+  static void Save(const SwapMainUUIDRes &self, memgraph::slk::Builder *builder);
+
+  explicit SwapMainUUIDRes(bool success) : success(success) {}
+  SwapMainUUIDRes() = default;
+
+  bool success;
+};
+
+using SwapMainUUIDRpc = rpc::RequestResponse<SwapMainUUIDReq, SwapMainUUIDRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
 namespace memgraph::slk {
 
+// PromoteReplicaToMainRpc
 void Save(const memgraph::coordination::PromoteReplicaToMainRes &self, memgraph::slk::Builder *builder);
-
 void Load(memgraph::coordination::PromoteReplicaToMainRes *self, memgraph::slk::Reader *reader);
-
 void Save(const memgraph::coordination::PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder);
-
 void Load(memgraph::coordination::PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader);
 
+// DemoteMainToReplicaRpc
 void Save(const memgraph::coordination::DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder);
-
 void Load(memgraph::coordination::DemoteMainToReplicaRes *self, memgraph::slk::Reader *reader);
-
 void Save(const memgraph::coordination::DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder);
-
 void Load(memgraph::coordination::DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader);
+
+
+// SwapMainUUIDRpc
+void Save(const memgraph::coordination::SwapMainUUIDReq &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::SwapMainUUIDReq *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::SwapMainUUIDRes &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::SwapMainUUIDRes *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

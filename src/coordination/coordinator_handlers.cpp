@@ -16,6 +16,7 @@
 
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/include/coordination/coordinator_server.hpp"
+#include "replication/state.hpp"
 
 namespace memgraph::dbms {
 
@@ -32,6 +33,29 @@ void CoordinatorHandlers::Register(memgraph::coordination::CoordinatorServer &se
         spdlog::info("Received DemoteMainToReplicaRpc from coordinator server");
         CoordinatorHandlers::DemoteMainToReplicaHandler(replication_handler, req_reader, res_builder);
       });
+
+  server.Register<coordination::SwapMainUUIDRpc>(
+      [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+        spdlog::info("Received SwapMainUUIDRPC on coordinator server");
+        CoordinatorHandlers::SwapMainUUIDHandler(replication_handler, req_reader, res_builder);
+      });
+}
+
+void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
+                                              slk::Builder *res_builder) {
+
+  if (!replication_handler.IsReplica()) {
+    spdlog::error("Setting main uuid must be performed on replica.");
+    slk::Save(coordination::SwapMainUUIDRes{false}, res_builder);
+    return;
+  }
+
+  coordination::SwapMainUUIDReq req;
+  slk::Load(&req, req_reader);
+  spdlog::info(fmt::format("Set replica data UUID"));
+  std::get<memgraph::replication::RoleReplicaData>(replication_handler.GetReplState().ReplicationData()).uuid_ = req.uuid;
+
+  slk::Save(coordination::SwapMainUUIDRes{true}, res_builder);
 }
 
 void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHandler &replication_handler,

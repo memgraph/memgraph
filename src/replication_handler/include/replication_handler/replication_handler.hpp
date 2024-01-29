@@ -128,6 +128,8 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   bool IsMain() const override;
   bool IsReplica() const override;
 
+  auto GetReplState() const -> const memgraph::replication::ReplicationState &;
+  auto GetReplState()  ->  memgraph::replication::ReplicationState &;
  private:
   template <bool HandleFailure>
   auto RegisterReplica_(const memgraph::replication::ReplicationClientConfig &config)
@@ -215,6 +217,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   memgraph::system::System *system_;
   memgraph::auth::SynchedAuth &auth_;
 #endif
+
 };
 
 }  // namespace memgraph::replication

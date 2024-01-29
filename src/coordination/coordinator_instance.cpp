@@ -49,9 +49,9 @@ auto CoordinatorInstance::IsMain() const -> bool {
   return replication_role_ == replication_coordination_glue::ReplicationRole::MAIN;
 }
 
-auto CoordinatorInstance::PromoteToMain(ReplicationClientsInfo repl_clients_info, HealthCheckCallback main_succ_cb,
+auto CoordinatorInstance::PromoteToMain(utils::UUID uuid, ReplicationClientsInfo repl_clients_info, HealthCheckCallback main_succ_cb,
                                         HealthCheckCallback main_fail_cb) -> bool {
-  if (!client_.SendPromoteReplicaToMainRpc(std::move(repl_clients_info))) {
+  if (!client_.SendPromoteReplicaToMainRpc(uuid, std::move(repl_clients_info))) {
     return false;
   }
 

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "utils/uuid.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_instance.hpp"
@@ -42,6 +43,7 @@ class CoordinatorData {
   HealthCheckCallback main_succ_cb_, main_fail_cb_, replica_succ_cb_, replica_fail_cb_;
   // NOTE: Must be std::list because we rely on pointer stability
   std::list<CoordinatorInstance> registered_instances_;
+  utils::UUID main_id;
 };
 
 struct CoordinatorMainReplicaData {
