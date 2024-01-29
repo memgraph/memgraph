@@ -48,6 +48,36 @@ struct PromoteReplicaToMainRes {
 
 using PromoteReplicaToMainRpc = rpc::RequestResponse<PromoteReplicaToMainReq, PromoteReplicaToMainRes>;
 
+struct SetMainToReplicaReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(SetMainToReplicaReq *self, memgraph::slk::Reader *reader);
+  static void Save(const SetMainToReplicaReq &self, memgraph::slk::Builder *builder);
+
+  explicit SetMainToReplicaReq(CoordinatorClientConfig::ReplicationClientInfo replication_client_info)
+      : replication_client_info(std::move(replication_client_info)) {}
+
+  SetMainToReplicaReq() = default;
+
+  CoordinatorClientConfig::ReplicationClientInfo replication_client_info;
+};
+
+struct SetMainToReplicaRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(SetMainToReplicaRes *self, memgraph::slk::Reader *reader);
+  static void Save(const SetMainToReplicaRes &self, memgraph::slk::Builder *builder);
+
+  explicit SetMainToReplicaRes(bool success) : success(success) {}
+  SetMainToReplicaRes() = default;
+
+  bool success;
+};
+
+using SetMainToReplicaRpc = rpc::RequestResponse<SetMainToReplicaReq, SetMainToReplicaRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -60,6 +90,14 @@ void Load(memgraph::coordination::PromoteReplicaToMainRes *self, memgraph::slk::
 void Save(const memgraph::coordination::PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::coordination::PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::coordination::SetMainToReplicaRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::coordination::SetMainToReplicaRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::coordination::SetMainToReplicaReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::coordination::SetMainToReplicaReq *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2024 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,31 +28,86 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     "instance_1": {
         "args": ["--bolt-port", "7688", "--log-level", "TRACE", "--coordinator-server-port", "10011"],
         "log_file": "replica1.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        "setup_queries": [],
     },
     "instance_2": {
         "args": ["--bolt-port", "7689", "--log-level", "TRACE", "--coordinator-server-port", "10012"],
         "log_file": "replica2.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+        "setup_queries": [],
     },
     "instance_3": {
         "args": ["--bolt-port", "7687", "--log-level", "TRACE", "--coordinator-server-port", "10013"],
         "log_file": "main.log",
-        "setup_queries": [
-            "REGISTER REPLICA instance_1 SYNC TO '127.0.0.1:10001'",
-            "REGISTER REPLICA instance_2 SYNC TO '127.0.0.1:10002'",
-        ],
+        "setup_queries": [],
     },
     "coordinator": {
         "args": ["--bolt-port", "7690", "--log-level=TRACE", "--coordinator"],
         "log_file": "replica3.log",
         "setup_queries": [
-            "REGISTER REPLICA instance_1 SYNC TO '127.0.0.1:10001' WITH COORDINATOR SERVER ON '127.0.0.1:10011';",
-            "REGISTER REPLICA instance_2 SYNC TO '127.0.0.1:10002' WITH COORDINATOR SERVER ON '127.0.0.1:10012';",
-            "REGISTER MAIN instance_3 WITH COORDINATOR SERVER ON '127.0.0.1:10013';",
+            "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
+            "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
+            "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
+            "SET INSTANCE instance_3 TO MAIN",
         ],
     },
 }
+
+
+def test_replication_works_on_failover(connection):
+    # Goal of this test is to check the replication works after failover command.
+    # 1. We start all replicas, main and coordinator manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
+    # 2. We check that main has correct state
+    # 3. We kill main
+    # 4. We check that coordinator and new main have correct state
+    # 5. We insert one vertex on new main
+    # 6. We check that vertex appears on new replica
+
+    # 1
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    # 2
+    main_cursor = connection(7687, "instance_3").cursor()
+    expected_data_on_main = [
+        ("instance_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+    ]
+    actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+    assert actual_data_on_main == expected_data_on_main
+
+    # 3
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+
+    # 4
+    coord_cursor = connection(7690, "coordinator").cursor()
+
+    def retrieve_data_show_repl_cluster():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;")))
+
+    expected_data_on_coord = [
+        ("instance_1", "127.0.0.1:10011", True, "main"),
+        ("instance_2", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "127.0.0.1:10013", False, ""),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
+
+    new_main_cursor = connection(7688, "instance_1").cursor()
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;")))
+
+    expected_data_on_new_main = [
+        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+    ]
+    mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
+
+    # 5
+    execute_and_fetch_all(new_main_cursor, "CREATE ();")
+
+    # 6
+    alive_replica_cursror = connection(7689, "instance_2").cursor()
+    res = execute_and_fetch_all(alive_replica_cursror, "MATCH (n) RETURN count(n) as count;")[0][0]
+    assert res == 1, "Vertex should be replicated"
+    interactive_mg_runner.stop_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
 
 def test_show_replication_cluster(connection):
@@ -71,153 +126,97 @@ def test_show_replication_cluster(connection):
 
     # We leave some time for the coordinator to realise the replicas are down.
     def retrieve_data():
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
+        return sorted(list(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")))
 
-    expected_data = {
+    expected_data = [
         ("instance_1", "127.0.0.1:10011", True, "replica"),
         ("instance_2", "127.0.0.1:10012", True, "replica"),
         ("instance_3", "127.0.0.1:10013", True, "main"),
-    }
+    ]
     mg_sleep_and_assert(expected_data, retrieve_data)
 
     # 3.
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
 
-    expected_data = {
+    expected_data = [
+        ("instance_1", "127.0.0.1:10011", False, ""),
         ("instance_2", "127.0.0.1:10012", True, "replica"),
         ("instance_3", "127.0.0.1:10013", True, "main"),
-        ("instance_1", "127.0.0.1:10011", False, "replica"),
-    }
+    ]
     mg_sleep_and_assert(expected_data, retrieve_data)
 
     # 4.
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
-    expected_data = {
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_1", "127.0.0.1:10011", False, "replica"),
-        ("instance_3", "127.0.0.1:10013", False, "main"),
-    }
+    expected_data = [
+        ("instance_1", "127.0.0.1:10011", False, ""),
+        ("instance_2", "127.0.0.1:10012", False, ""),
+        ("instance_3", "127.0.0.1:10013", True, "main"),
+    ]
     mg_sleep_and_assert(expected_data, retrieve_data)
 
 
-def test_simple_client_initiated_failover(connection):
-    # 1. Start all instances
-    # 2. Kill main
-    # 3. Run DO FAILOVER on COORDINATOR
-    # 4. Assert new config on coordinator by running show replication cluster
-    # 5. Assert replicas on new main
-
-    # 1.
+def test_simple_automatic_failover(connection):
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    # 2.
     main_cursor = connection(7687, "instance_3").cursor()
-    expected_data_on_main = {
+    expected_data_on_main = [
         ("instance_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
         ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-    }
-    actual_data_on_main = set(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;"))
+    ]
+    actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
     assert actual_data_on_main == expected_data_on_main
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+
     coord_cursor = connection(7690, "coordinator").cursor()
 
     def retrieve_data_show_repl_cluster():
-        return set(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;"))
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;")))
 
-    expected_data_on_coord = {
-        ("instance_1", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", False, "main"),
-    }
-    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
-
-    # 3.
-    execute_and_fetch_all(coord_cursor, "DO FAILOVER")
-
-    expected_data_on_coord = {
+    expected_data_on_coord = [
         ("instance_1", "127.0.0.1:10011", True, "main"),
         ("instance_2", "127.0.0.1:10012", True, "replica"),
-    }
+        ("instance_3", "127.0.0.1:10013", False, ""),
+    ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
-    # 4.
     new_main_cursor = connection(7688, "instance_1").cursor()
 
     def retrieve_data_show_replicas():
-        return set(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;"))
+        return sorted(list(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;")))
 
-    expected_data_on_new_main = {
+    expected_data_on_new_main = [
         ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-    }
+    ]
     mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
 
 
-def test_failover_fails_all_replicas_down(connection):
-    # 1. Start all instances
-    # 2. Kill all replicas
-    # 3. Kill main
-    # 4. Run DO FAILOVER on COORDINATOR. Assert exception is being thrown due to all replicas being down
-    # 5. Assert cluster status didn't change
-
-    # 1.
+def test_registering_replica_fails_name_exists(connection):
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    # 2.
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
-
-    # 3.
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
-
     coord_cursor = connection(7690, "coordinator").cursor()
-    # 4.
     with pytest.raises(Exception) as e:
-        execute_and_fetch_all(coord_cursor, "DO FAILOVER;")
-    assert str(e.value) == "Failover aborted since all replicas are down!"
-
-    # 5.
-
-    def retrieve_data():
-        return set(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;"))
-
-    expected_data_on_coord = {
-        ("instance_1", "127.0.0.1:10011", False, "replica"),
-        ("instance_2", "127.0.0.1:10012", False, "replica"),
-        ("instance_3", "127.0.0.1:10013", False, "main"),
-    }
-    mg_sleep_and_assert(expected_data_on_coord, retrieve_data)
+        execute_and_fetch_all(
+            coord_cursor,
+            "REGISTER INSTANCE instance_1 ON '127.0.0.1:10051' WITH '127.0.0.1:10111';",
+        )
+    assert str(e.value) == "Couldn't register replica instance since instance with such name already exists!"
 
 
-def test_failover_fails_main_is_alive(connection):
-    # 1. Start all instances
-    # 2. Run DO FAILOVER on COORDINATOR. Assert exception is being thrown due to main is still live.
-    # 3. Assert cluster status didn't change
-
-    # 1.
+def test_registering_replica_fails_endpoint_exists(connection):
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    # 2.
     coord_cursor = connection(7690, "coordinator").cursor()
-
-    def retrieve_data():
-        return set(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;"))
-
-    expected_data_on_coord = {
-        ("instance_1", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", True, "main"),
-    }
-    mg_sleep_and_assert(expected_data_on_coord, retrieve_data)
-
-    # 4.
     with pytest.raises(Exception) as e:
-        execute_and_fetch_all(coord_cursor, "DO FAILOVER;")
-    assert str(e.value) == "Failover aborted since main is alive!"
-
-    # 5.
-    mg_sleep_and_assert(expected_data_on_coord, retrieve_data)
+        execute_and_fetch_all(
+            coord_cursor,
+            "REGISTER INSTANCE instance_5 ON '127.0.0.1:10001' WITH '127.0.0.1:10013';",
+        )
+    assert (
+        str(e.value)
+        == "Couldn't register replica because promotion on replica failed! Check logs on replica to find out more info!"
+    )
 
 
 if __name__ == "__main__":

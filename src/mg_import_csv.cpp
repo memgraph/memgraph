@@ -32,7 +32,7 @@
 #include "utils/timer.hpp"
 #include "version.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 bool ValidateControlCharacter(const char *flagname, const std::string &value) {
   if (value.empty()) {

@@ -18,6 +18,7 @@
 namespace memgraph::dbms {
 
 inline bool DoReplicaToMainPromotion(dbms::DbmsHandler &dbms_handler) {
+  auto &repl_state = dbms_handler.ReplicationState();
   // STEP 1) bring down all REPLICA servers
   dbms_handler.ForEach([](DatabaseAccess db_acc) {
     auto *storage = db_acc->storage();
@@ -27,7 +28,7 @@ inline bool DoReplicaToMainPromotion(dbms::DbmsHandler &dbms_handler) {
 
   // STEP 2) Change to MAIN
   // TODO: restore replication servers if false?
-  if (!dbms_handler.ReplicationState().SetReplicationRoleMain()) {
+  if (!repl_state.SetReplicationRoleMain()) {
     // TODO: Handle recovery on failure???
     return false;
   }
@@ -42,6 +43,38 @@ inline bool DoReplicaToMainPromotion(dbms::DbmsHandler &dbms_handler) {
 
   return true;
 };
+
+inline bool SetReplicationRoleReplica(dbms::DbmsHandler &dbms_handler,
+                                      const memgraph::replication::ReplicationServerConfig &config) {
+  if (dbms_handler.ReplicationState().IsReplica()) {
+    return false;
+  }
+
+  // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
+  //      deleting the replica.
+  // Remove database specific clients
+  dbms_handler.ForEach([&](DatabaseAccess db_acc) {
+    auto *storage = db_acc->storage();
+    storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+  });
+  // Remove instance level clients
+  std::get<replication::RoleMainData>(dbms_handler.ReplicationState().ReplicationData()).registered_replicas_.clear();
+
+  // Creates the server
+  dbms_handler.ReplicationState().SetReplicationRoleReplica(config);
+
+  // Start
+  const auto success = std::visit(utils::Overloaded{[](replication::RoleMainData const &) {
+                                                      // ASSERT
+                                                      return false;
+                                                    },
+                                                    [&dbms_handler](replication::RoleReplicaData const &data) {
+                                                      return StartRpcServer(dbms_handler, data);
+                                                    }},
+                                  dbms_handler.ReplicationState().ReplicationData());
+  // TODO Handle error (restore to main?)
+  return success;
+}
 
 inline bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
                                         replication::ReplicationClient &instance_client) {
@@ -69,7 +102,7 @@ inline bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
           // MAYBE_BEHIND isn't a statement of the current state, this is the default value
           // Failed to start due an error like branching of MAIN and REPLICA
           if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
-            return false;
+            return false;  // TODO: sometimes we need to still add to storage_clients
           }
           storage_clients.push_back(std::move(client));
           return true;
@@ -79,7 +112,7 @@ inline bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
   return all_clients_good;
 }
 
-inline std::optional<RegisterReplicaError> HandleErrorOnReplicaClient(
+inline std::optional<RegisterReplicaError> HandleRegisterReplicaStatus(
     utils::BasicResult<replication::RegisterReplicaError, replication::ReplicationClient *> &instance_client) {
   if (instance_client.HasError()) switch (instance_client.GetError()) {
       case replication::RegisterReplicaError::NOT_MAIN:
@@ -87,8 +120,8 @@ inline std::optional<RegisterReplicaError> HandleErrorOnReplicaClient(
         return {};
       case replication::RegisterReplicaError::NAME_EXISTS:
         return dbms::RegisterReplicaError::NAME_EXISTS;
-      case replication::RegisterReplicaError::END_POINT_EXISTS:
-        return dbms::RegisterReplicaError::END_POINT_EXISTS;
+      case replication::RegisterReplicaError::ENDPOINT_EXISTS:
+        return dbms::RegisterReplicaError::ENDPOINT_EXISTS;
       case replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
         return dbms::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
       case replication::RegisterReplicaError::SUCCESS:

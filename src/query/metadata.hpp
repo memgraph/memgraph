@@ -44,7 +44,6 @@ enum class NotificationCode : uint8_t {
   REGISTER_REPLICA,
 #ifdef MG_ENTERPRISE
   REGISTER_COORDINATOR_SERVER,
-  DO_FAILOVER,
 #endif
   SET_REPLICA,
   START_STREAM,

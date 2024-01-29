@@ -141,7 +141,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   // Capture all vertices
   std::map<memgraph::storage::Gid, int64_t> gid_mapping;
   std::set<DatabaseState::Vertex> vertices;
-  auto dba = db->Access(memgraph::replication::ReplicationRole::MAIN);
+  auto dba = db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
   for (const auto &vertex : dba->Vertices(memgraph::storage::View::NEW)) {
     std::set<std::string, std::less<>> labels;
     auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
@@ -1105,7 +1105,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 }
 
 TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
-  auto acc = this->db->storage()->Access(memgraph::replication::ReplicationRole::MAIN);
+  auto acc = this->db->storage()->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(acc.get());
   {
     auto trigger_store = this->db.get()->trigger_store();

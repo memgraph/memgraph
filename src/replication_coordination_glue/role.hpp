@@ -11,24 +11,9 @@
 
 #pragma once
 
-#ifdef MG_ENTERPRISE
+#include <cstdint>
+namespace memgraph::replication_coordination_glue {
 
-#include "slk/serialization.hpp"
-
-namespace memgraph::dbms {
-
-class DbmsHandler;
-
-class CoordinatorHandlers {
- public:
-  static void Register(DbmsHandler &dbms_handler);
-
- private:
-  static void PromoteReplicaToMainHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
-                                          slk::Builder *res_builder);
-  static void SetMainToReplicaHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
-};
-
-}  // namespace memgraph::dbms
-
-#endif
+// TODO: figure out a way of ensuring that usage of this type is never uninitialed/defaulted incorrectly to MAIN
+enum class ReplicationRole : uint8_t { MAIN, REPLICA };
+}  // namespace memgraph::replication_coordination_glue

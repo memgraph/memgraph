@@ -79,6 +79,7 @@ IMPORT                  : I M P O R T ;
 INACTIVE                : I N A C T I V E ;
 IN_MEMORY_ANALYTICAL    : I N UNDERSCORE M E M O R Y UNDERSCORE A N A L Y T I C A L ;
 IN_MEMORY_TRANSACTIONAL : I N UNDERSCORE M E M O R Y UNDERSCORE T R A N S A C T I O N A L ;
+INSTANCE                : I N S T A N C E ;
 ISOLATION               : I S O L A T I O N ;
 KAFKA                   : K A F K A ;
 LABELS                  : L A B E L S ;

@@ -36,6 +36,22 @@ void PromoteReplicaToMainRes::Load(PromoteReplicaToMainRes *self, memgraph::slk:
   memgraph::slk::Load(self, reader);
 }
 
+void SetMainToReplicaReq::Save(const SetMainToReplicaReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void SetMainToReplicaReq::Load(SetMainToReplicaReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void SetMainToReplicaRes::Save(const SetMainToReplicaRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void SetMainToReplicaRes::Load(SetMainToReplicaRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 }  // namespace coordination
 
 constexpr utils::TypeInfo coordination::PromoteReplicaToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ,
@@ -43,6 +59,12 @@ constexpr utils::TypeInfo coordination::PromoteReplicaToMainReq::kType{utils::Ty
 
 constexpr utils::TypeInfo coordination::PromoteReplicaToMainRes::kType{utils::TypeId::COORD_FAILOVER_RES,
                                                                        "CoordPromoteReplicaToMainRes", nullptr};
+
+constexpr utils::TypeInfo coordination::SetMainToReplicaReq::kType{utils::TypeId::COORD_SET_REPL_MAIN_REQ,
+                                                                   "CoordSetReplMainReq", nullptr};
+
+constexpr utils::TypeInfo coordination::SetMainToReplicaRes::kType{utils::TypeId::COORD_SET_REPL_MAIN_RES,
+                                                                   "CoordSetReplMainRes", nullptr};
 
 namespace slk {
 
@@ -60,6 +82,22 @@ void Save(const memgraph::coordination::PromoteReplicaToMainReq &self, memgraph:
 
 void Load(memgraph::coordination::PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->replication_clients_info, reader);
+}
+
+void Save(const memgraph::coordination::SetMainToReplicaReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.replication_client_info, builder);
+}
+
+void Load(memgraph::coordination::SetMainToReplicaReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->replication_client_info, reader);
+}
+
+void Save(const memgraph::coordination::SetMainToReplicaRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.success, builder);
+}
+
+void Load(memgraph::coordination::SetMainToReplicaRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->success, reader);
 }
 
 }  // namespace slk

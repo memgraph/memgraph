@@ -145,9 +145,9 @@ class Storage {
     } unique_access;
 
     Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-             memgraph::replication::ReplicationRole replication_role);
+             memgraph::replication_coordination_glue::ReplicationRole replication_role);
     Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-             memgraph::replication::ReplicationRole replication_role);
+             memgraph::replication_coordination_glue::ReplicationRole replication_role);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;
@@ -328,16 +328,17 @@ class Storage {
 
   void FreeMemory() { FreeMemory({}); }
 
-  virtual std::unique_ptr<Accessor> Access(memgraph::replication::ReplicationRole replication_role,
+  virtual std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                            std::optional<IsolationLevel> override_isolation_level) = 0;
 
-  std::unique_ptr<Accessor> Access(memgraph::replication::ReplicationRole replication_role) {
+  std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
     return Access(replication_role, {});
   }
 
-  virtual std::unique_ptr<Accessor> UniqueAccess(memgraph::replication::ReplicationRole replication_role,
-                                                 std::optional<IsolationLevel> override_isolation_level) = 0;
-  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication::ReplicationRole replication_role) {
+  virtual std::unique_ptr<Accessor> UniqueAccess(
+      memgraph::replication_coordination_glue::ReplicationRole replication_role,
+      std::optional<IsolationLevel> override_isolation_level) = 0;
+  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
     return UniqueAccess(replication_role, {});
   }
 
@@ -356,10 +357,11 @@ class Storage {
     return GetBaseInfo(force_dir);
   }
 
-  virtual StorageInfo GetInfo(bool force_directory, memgraph::replication::ReplicationRole replication_role) = 0;
+  virtual StorageInfo GetInfo(bool force_directory,
+                              memgraph::replication_coordination_glue::ReplicationRole replication_role) = 0;
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                        memgraph::replication::ReplicationRole replication_role) = 0;
+                                        memgraph::replication_coordination_glue::ReplicationRole replication_role) = 0;
 
   virtual void PrepareForNewEpoch() = 0;
 

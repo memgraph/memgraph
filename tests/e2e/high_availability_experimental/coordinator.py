@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2024 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,13 +41,13 @@ def test_coordinator_show_replication_cluster(connection):
     cursor = connection(7690, "coordinator").cursor()
 
     def retrieve_data():
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;"))
+        return sorted(list(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")))
 
-    expected_data = {
-        ("main", "127.0.0.1:10013", True, "main"),
-        ("replica_1", "127.0.0.1:10011", True, "replica"),
-        ("replica_2", "127.0.0.1:10012", True, "replica"),
-    }
+    expected_data = [
+        ("instance_1", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "127.0.0.1:10013", True, "main"),
+    ]
     mg_sleep_and_assert(expected_data, retrieve_data)
 
 
@@ -78,20 +78,9 @@ def test_main_and_replicas_cannot_register_coord_server(port, role, connection):
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(
             cursor,
-            "REGISTER REPLICA instance_1 SYNC TO '127.0.0.1:10001' WITH COORDINATOR SERVER ON '127.0.0.1:10011';",
+            "REGISTER INSTANCE instance_1 ON '127.0.0.1:10001' WITH '127.0.0.1:10011';",
         )
     assert str(e.value) == "Only coordinator can register coordinator server!"
-
-
-@pytest.mark.parametrize(
-    "port, role",
-    [(7687, "main"), (7688, "replica"), (7689, "replica")],
-)
-def test_main_and_replicas_cannot_run_do_failover(port, role, connection):
-    cursor = connection(port, role).cursor()
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(cursor, "DO FAILOVER;")
-    assert str(e.value) == "Only coordinator can run DO FAILOVER!"
 
 
 if __name__ == "__main__":

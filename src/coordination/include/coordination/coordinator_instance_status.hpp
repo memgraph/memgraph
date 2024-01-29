@@ -11,9 +11,21 @@
 
 #pragma once
 
-#include <cstdint>
-namespace memgraph::replication {
+#ifdef MG_ENTERPRISE
 
-// TODO: figure out a way of ensuring that usage of this type is never uninitialed/defaulted incorrectly to MAIN
-enum class ReplicationRole : uint8_t { MAIN, REPLICA };
-}  // namespace memgraph::replication
+#include "io/network/endpoint.hpp"
+
+#include <string_view>
+
+namespace memgraph::coordination {
+
+struct CoordinatorInstanceStatus {
+  std::string instance_name;
+  std::string socket_address;
+  std::string replication_role;
+  bool is_alive;
+};
+
+}  // namespace memgraph::coordination
+
+#endif

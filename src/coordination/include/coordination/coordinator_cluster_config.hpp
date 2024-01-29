@@ -12,23 +12,11 @@
 #pragma once
 
 #ifdef MG_ENTERPRISE
+namespace memgraph::coordination {
 
-#include "slk/serialization.hpp"
-
-namespace memgraph::dbms {
-
-class DbmsHandler;
-
-class CoordinatorHandlers {
- public:
-  static void Register(DbmsHandler &dbms_handler);
-
- private:
-  static void PromoteReplicaToMainHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
-                                          slk::Builder *res_builder);
-  static void SetMainToReplicaHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
+struct CoordinatorClusterConfig {
+  static constexpr int alive_response_time_difference_sec_{5};
 };
 
-}  // namespace memgraph::dbms
-
+}  // namespace memgraph::coordination
 #endif

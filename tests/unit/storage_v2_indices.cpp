@@ -25,7 +25,7 @@
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::IsEmpty;
 using testing::Types;
 using testing::UnorderedElementsAre;

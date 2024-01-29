@@ -11,8 +11,8 @@
 
 #pragma once
 
+#include "replication_coordination_glue/role.hpp"
 #include "dbms/database.hpp"
-#include "replication/role.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::replication {
@@ -25,7 +25,7 @@ namespace memgraph::dbms {
 
 class DbmsHandler;
 
-enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
+enum class RegisterReplicaError : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
 
 enum class UnregisterReplicaResult : uint8_t {
   NOT_MAIN,
@@ -53,7 +53,7 @@ struct ReplicationHandler {
   auto UnregisterReplica(std::string_view name) -> UnregisterReplicaResult;
 
   // Helper pass-through (TODO: remove)
-  auto GetRole() const -> memgraph::replication::ReplicationRole;
+  auto GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole;
   bool IsMain() const;
   bool IsReplica() const;
 

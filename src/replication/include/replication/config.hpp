@@ -40,7 +40,7 @@ struct ReplicationClientConfig {
     friend bool operator==(const SSL &, const SSL &) = default;
   };
 
-  std::optional<SSL> ssl;
+  std::optional<SSL> ssl{};
 
   friend bool operator==(ReplicationClientConfig const &, ReplicationClientConfig const &) = default;
 };

@@ -21,7 +21,7 @@
 
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
-#include "replication/role.hpp"
+#include "replication_coordination_glue/role.hpp"
 
 namespace memgraph::replication::durability {
 

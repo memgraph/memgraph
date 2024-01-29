@@ -28,7 +28,7 @@
 
 #include "formatters.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using namespace memgraph::query::plan;
 using memgraph::query::AstStorage;
 using Type = memgraph::query::EdgeAtom::Type;
