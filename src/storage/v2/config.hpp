@@ -129,12 +129,17 @@ struct Config {
 };
 
 inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
-  if (!config.durability.restore_replication_state_on_startup && !FLAGS_coordinator_server_port) {
+  if (!config.durability.restore_replication_state_on_startup
+#ifdef MG_ENTERPRISE
+      && !FLAGS_coordinator_server_port
+#endif
+  ) {
     spdlog::warn(
         "Replication configuration will NOT be stored. When the server restarts, replication state will be "
         "forgotten.");
-    return std::nullopt;
   }
+
+  return std::nullopt;
   return {config.durability.storage_directory};
 }
 
