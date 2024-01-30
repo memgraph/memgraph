@@ -480,7 +480,6 @@ void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<std::st
     if (!node_label.HasValue()) throw LoadException("Couldn't add label '{}' to the node", label);
     if (!*node_label) throw LoadException("The label '{}' already exists", label);
   }
-  // TODO: refresh text index
   if (acc->Commit().HasError()) throw LoadException("Couldn't store the node");
 }
 
