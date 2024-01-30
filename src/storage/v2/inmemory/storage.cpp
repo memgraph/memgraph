@@ -1983,7 +1983,7 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
       } break;
       case MetadataDelta::Action::TEXT_INDEX_DROP: {
         const auto &info = md_delta.text;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_CREATE, info.index_name, info.label,
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_DROP, info.index_name, info.label,
                                   final_commit_timestamp);
       } break;
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {

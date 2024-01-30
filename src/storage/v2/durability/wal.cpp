@@ -948,18 +948,20 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
                                     "The label index stats doesn't exist!");
           break;
         }
-        case WalDeltaData::Type::TEXT_INDEX_CREATE:
+        case WalDeltaData::Type::TEXT_INDEX_CREATE: {
           auto index_name = delta.operation_text.index_name;
           auto label = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_text.label));
           AddRecoveredIndexConstraint(&indices_constraints->indices.text, {index_name, label},
                                       "The text index already exists!");
           break;
-        case WalDeltaData::Type::TEXT_INDEX_DROP:
+        }
+        case WalDeltaData::Type::TEXT_INDEX_DROP: {
           auto index_name = delta.operation_text.index_name;
           auto label = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_text.label));
           RemoveRecoveredIndexConstraint(&indices_constraints->indices.text, {index_name, label},
                                          "The text index doesn't exist!");
           break;
+        }
         case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
           auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
           auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
