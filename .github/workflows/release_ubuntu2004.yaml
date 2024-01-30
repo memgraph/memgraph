@@ -107,7 +107,7 @@ jobs:
       - name: Save code coverage
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage"
+          name: "Code coverage(Coverage build)"
           path: tools/github/generated/code_coverage.tar.gz
 
   debug_build:
@@ -161,7 +161,7 @@ jobs:
       - name: Save cppcheck and clang-format errors
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage"
+          name: "Code coverage(Debug build)"
           path: tools/github/cppcheck_and_clang_format.txt
 
   debug_integration_test:
