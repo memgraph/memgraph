@@ -18,6 +18,8 @@ jobs:
     name: "Community build"
     runs-on: [self-hosted, Linux, X64, Diff]
     strategy:
+      max-parallel: 1
+      fail-fast: false
       matrix:
         try_id: [1,2,3,4,5,6,7,8,9,10]
     env:
@@ -65,6 +67,8 @@ jobs:
     name: "Code analysis"
     runs-on: [self-hosted, Linux, X64, Diff]
     strategy:
+      max-parallel: 1
+      fail-fast: false
       matrix:
         try_id: [1,2,3,4,5,6,7,8,9,10]
     env:
@@ -166,6 +170,8 @@ jobs:
     name: "Debug build"
     runs-on: [self-hosted, Linux, X64, Diff]
     strategy:
+      max-parallel: 1
+      fail-fast: false
       matrix:
         try_id: [1,2,3,4,5,6,7,8,9,10]
     env:
@@ -236,6 +242,8 @@ jobs:
     name: "Release build"
     runs-on: [self-hosted, Linux, X64, Diff]
     strategy:
+      max-parallel: 1
+      fail-fast: false
       matrix:
         try_id: [1,2,3,4,5,6,7,8,9,10]
     env:
@@ -368,6 +376,8 @@ jobs:
   #   name: "High availability build"
   #   runs-on: [self-hosted, Linux, X64, Diff]
   #   strategy:
+      # max-parallel: 1
+      # fail-fast: false
   #     matrix:
   #       try_id: [1,2,3,4,5,6,7,8,9,10]
   #   env:
@@ -424,6 +434,8 @@ jobs:
   #   name: "MultiTenancy replication build"
   #   runs-on: [self-hosted, Linux, X64, Diff]
   #   strategy:
+      # max-parallel: 1
+      # fail-fast: false
   #     matrix:
   #       try_id: [1,2,3,4,5,6,7,8,9,10]
   #   env:
@@ -496,6 +508,8 @@ jobs:
     name: "Release Jepsen Test"
     runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
     strategy:
+      max-parallel: 1
+      fail-fast: false
       matrix:
         try_id: [1,2,3,4,5,6,7,8,9,10]
     #continue-on-error: true
@@ -551,6 +565,8 @@ jobs:
     name: "Release benchmarks"
     runs-on: [self-hosted, Linux, X64, Diff, Gen7]
     strategy:
+      max-parallel: 1
+      fail-fast: false
       matrix:
         try_id: [1,2,3,4,5,6,7,8,9,10]
     env:
