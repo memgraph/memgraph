@@ -1057,7 +1057,8 @@ class ExpandVariableCursor : public Cursor {
           if (!self_.common_.existing_node) {
             frame[self_.common_.node_symbol] = start_vertex;
             return true;
-          } else if (CheckExistingNode(start_vertex, self_.common_.node_symbol, frame)) {
+          }
+          if (CheckExistingNode(start_vertex, self_.common_.node_symbol, frame)) {
             return true;
           }
         }
@@ -1264,10 +1265,9 @@ class ExpandVariableCursor : public Cursor {
       if (self_.common_.existing_node && !CheckExistingNode(current_vertex, self_.common_.node_symbol, frame)) continue;
 
       // We only yield true if we satisfy the lower bound.
-      if (static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_)
+      if (static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_) {
         return true;
-      else
-        continue;
+      }
     }
   }
 };
@@ -1547,8 +1547,6 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
 
-    auto *pull_memory = context.evaluation_context.memory;
-
     // for the given (edge, vertex) pair checks if they satisfy the
     // "where" condition. if so, places them in the to_visit_ structure.
     auto expand_pair = [this, &evaluator, &frame, &context](EdgeAccessor edge, VertexAccessor vertex) {
@@ -1586,30 +1584,33 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
             throw QueryRuntimeException("Expansion condition must evaluate to boolean or null.");
         }
       }
-      to_visit_next_.emplace_back(edge, vertex, curr_acc_path);
+      to_visit_next_.emplace_back(edge, vertex, std::move(curr_acc_path));
       processed_.emplace(vertex, edge);
+    };
+
+    auto restore_frame_state_after_expansion = [this, &frame]() {
+      if (self_.filter_lambda_.accumulated_path_symbol) {
+        frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath().Shrink();
+      }
     };
 
     // populates the to_visit_next_ structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &pull_memory, &frame, &expand_pair](const auto &vertex) {
+    auto expand_from_vertex = [this, &expand_pair, &restore_frame_state_after_expansion](const auto &vertex) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        Path curr_acc_path(pull_memory);
-        if (self_.filter_lambda_.accumulated_path_symbol) {
-          curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
-        }
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
           expand_pair(edge, edge.To());
-          if (self_.filter_lambda_.accumulated_path_symbol) {
-            frame[self_.filter_lambda_.accumulated_path_symbol.value()] = curr_acc_path;
-          }
+          restore_frame_state_after_expansion();
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
-        for (const auto &edge : in_edges) expand_pair(edge, edge.From());
+        for (const auto &edge : in_edges) {
+          expand_pair(edge, edge.From());
+          restore_frame_state_after_expansion();
+        }
       }
     };
 
@@ -1655,7 +1656,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       }
 
       // take the next expansion from the queue
-      const auto [curr_edge, curr_vertex, curr_acc_path] = to_visit_current_.back();
+      auto [curr_edge, curr_vertex, curr_acc_path] = to_visit_current_.back();
       to_visit_current_.pop_back();
 
       // create the frame value for the edges
@@ -1677,7 +1678,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       if (static_cast<int64_t>(edge_list.size()) < upper_bound_) {
         if (self_.filter_lambda_.accumulated_path_symbol) {
           MG_ASSERT(curr_acc_path.has_value(), "Expected non-null accumulated path");
-          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = curr_acc_path.value();
+          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = std::move(curr_acc_path.value());
         }
         expand_from_vertex(curr_vertex);
       }
@@ -1844,34 +1845,29 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       pq_.emplace(next_weight, depth + 1, vertex, edge, curr_acc_path);
     };
 
+    auto restore_frame_state_after_expansion = [this, &frame]() {
+      if (self_.filter_lambda_.accumulated_path_symbol) {
+        frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath().Shrink();
+      }
+    };
+
     // Populates the priority queue structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &frame, &expand_pair](const VertexAccessor &vertex, const TypedValue &weight,
-                                                           int64_t depth, std::optional<Path> &curr_acc_path) {
-      if (self_.filter_lambda_.accumulated_path_symbol) {
-        DMG_ASSERT(curr_acc_path.has_value(), "Accumulated path must be set");
-        frame[self_.filter_lambda_.accumulated_path_symbol.value()] = curr_acc_path.value();
-      }
-
+    auto expand_from_vertex = [this, &expand_pair, &restore_frame_state_after_expansion](
+                                  const VertexAccessor &vertex, const TypedValue &weight, int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
           expand_pair(edge, edge.To(), weight, depth);
-          if (self_.filter_lambda_.accumulated_path_symbol) {
-            DMG_ASSERT(curr_acc_path.has_value(), "Accumulated path must be set");
-            frame[self_.filter_lambda_.accumulated_path_symbol.value()] = curr_acc_path.value();
-          }
+          restore_frame_state_after_expansion();
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) {
           expand_pair(edge, edge.From(), weight, depth);
-          if (self_.filter_lambda_.accumulated_path_symbol) {
-            DMG_ASSERT(curr_acc_path.has_value(), "Accumulated path must be set");
-            frame[self_.filter_lambda_.accumulated_path_symbol.value()] = curr_acc_path.value();
-          }
+          restore_frame_state_after_expansion();
         }
       }
     };
@@ -1941,7 +1937,10 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
         // Expand only if what we've just expanded is less than max depth.
         if (current_depth < upper_bound_) {
-          expand_from_vertex(current_vertex, current_weight, current_depth, curr_acc_path);
+          if (self_.filter_lambda_.accumulated_path_symbol) {
+            frame[self_.filter_lambda_.accumulated_path_symbol.value()] = curr_acc_path.value();
+          }
+          expand_from_vertex(current_vertex, current_weight, current_depth);
         }
 
         // If we yielded a path for a vertex already, make the expansion but
@@ -2130,15 +2129,17 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       pq_.emplace(next_weight, depth + 1, next_vertex, directed_edge, curr_acc_path);
     };
 
+    auto restore_frame_state_after_expansion = [this, &frame]() {
+      if (self_.filter_lambda_.accumulated_path_symbol) {
+        frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath().Shrink();
+      }
+    };
+
     // Populates the priority queue structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &frame, &memory, &expand_vertex, &context](
+    auto expand_from_vertex = [this, &expand_vertex, &context, &restore_frame_state_after_expansion](
                                   const VertexAccessor &vertex, const TypedValue &weight, int64_t depth) {
-      Path curr_acc_path(memory);
-      if (self_.filter_lambda_.accumulated_path_symbol) {
-        curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
-      }
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
@@ -2151,9 +2152,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           }
 #endif
           expand_vertex(edge, EdgeAtom::Direction::OUT, weight, depth);
-          if (self_.filter_lambda_.accumulated_path_symbol) {
-            frame[self_.filter_lambda_.accumulated_path_symbol.value()] = curr_acc_path;
-          }
+          restore_frame_state_after_expansion();
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
@@ -2168,9 +2167,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           }
 #endif
           expand_vertex(edge, EdgeAtom::Direction::IN, weight, depth);
-          if (self_.filter_lambda_.accumulated_path_symbol) {
-            frame[self_.filter_lambda_.accumulated_path_symbol.value()] = curr_acc_path;
-          }
+          restore_frame_state_after_expansion();
         }
       }
     };
