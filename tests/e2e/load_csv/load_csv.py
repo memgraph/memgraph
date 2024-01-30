@@ -9,11 +9,13 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import gzip
 import os
 import sys
 from pathlib import Path
 
 import pytest
+from content_server import ContentServer
 from gqlalchemy import Memgraph
 from mgclient import DatabaseError
 
@@ -50,6 +52,44 @@ def test_given_one_row_in_db_when_load_csv_after_match_then_pass():
     )
 
     assert len(list(results)) == 4
+
+
+def test_can_load_from_http_source():
+    memgraph = Memgraph("localhost", 7687)
+
+    with open(get_file_path(SIMPLE_CSV_FILE), "r") as file:
+        content = file.read()
+
+    with ContentServer(content).http_server() as server:
+        host = server.server_address[0]
+        port = server.server_address[1]
+        endpoint = f"http://{host}:{port}"
+        results = memgraph.execute_and_fetch(
+            f"""LOAD CSV FROM '{endpoint}' WITH HEADER AS row
+            CREATE (n:Person {{name: row.name}})
+            RETURN n
+            """
+        )
+        assert len(list(results)) == 4
+
+
+def test_can_load_from_http_source_with_gzip_contents():
+    memgraph = Memgraph("localhost", 7687)
+
+    with open(get_file_path(SIMPLE_CSV_FILE), "r") as file:
+        content = file.read()
+
+    with ContentServer(content, gzip.compress).http_server() as server:
+        host = server.server_address[0]
+        port = server.server_address[1]
+        endpoint = f"http://{host}:{port}"
+        results = memgraph.execute_and_fetch(
+            f"""LOAD CSV FROM '{endpoint}' WITH HEADER AS row
+            CREATE (n:Person {{name: row.name}})
+            RETURN n
+            """
+        )
+        assert len(list(results)) == 4
 
 
 if __name__ == "__main__":
