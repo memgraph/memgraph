@@ -16,7 +16,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 const int kNumThreads = 8;
 

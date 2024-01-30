@@ -30,7 +30,7 @@
 #include "storage/v2/view.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;

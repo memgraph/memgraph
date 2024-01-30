@@ -22,6 +22,7 @@
 #include <storage/v2/inmemory/storage.hpp>
 #include <storage/v2/property_value.hpp>
 #include <storage/v2/replication/enums.hpp>
+#include "auth/auth.hpp"
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/replication_handler.hpp"
@@ -31,6 +32,7 @@
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
 using testing::UnorderedElementsAre;
@@ -39,9 +41,9 @@ using memgraph::dbms::RegisterReplicaError;
 using memgraph::dbms::ReplicationHandler;
 using memgraph::dbms::UnregisterReplicaResult;
 using memgraph::replication::ReplicationClientConfig;
-using memgraph::replication::ReplicationRole;
 using memgraph::replication::ReplicationServerConfig;
 using memgraph::replication_coordination_glue::ReplicationMode;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Config;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::Gid;
@@ -111,12 +113,11 @@ class ReplicationTest : public ::testing::Test {
 
 struct MinMemgraph {
   MinMemgraph(const memgraph::storage::Config &conf)
-      : dbms{conf
+      : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
+        dbms{conf
 #ifdef MG_ENTERPRISE
              ,
-             reinterpret_cast<
-                 memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *>(0),
-             true
+             &auth, true
 #endif
         },
         repl_state{dbms.ReplicationState()},
@@ -124,6 +125,8 @@ struct MinMemgraph {
         db{*db_acc.get()},
         repl_handler(dbms) {
   }
+
+  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth;
   memgraph::dbms::DbmsHandler dbms;
   memgraph::replication::ReplicationState &repl_state;
   memgraph::dbms::DatabaseAccess db_acc;
@@ -937,7 +940,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
                       .ip_address = local_host,
                       .port = common_port,
                   })
-                  .GetError() == RegisterReplicaError::END_POINT_EXISTS);
+                  .GetError() == RegisterReplicaError::ENDPOINT_EXISTS);
 }
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {

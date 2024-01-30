@@ -13,22 +13,9 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "io/network/endpoint.hpp"
-
-#include <string>
+#include <cstdint>
 
 namespace memgraph::coordination {
-
-struct CoordinatorEntityInfo {
-  std::string_view name;
-  const io::network::Endpoint &endpoint;
-};
-
-struct CoordinatorEntityHealthInfo {
-  std::string_view name;
-  bool alive;
-};
-
+enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN, MAIN_ALIVE, RPC_FAILED };
 }  // namespace memgraph::coordination
-
 #endif

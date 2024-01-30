@@ -13,40 +13,36 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_data.hpp"
+#include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_server.hpp"
 #include "coordination/failover_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
+#include "utils/rw_lock.hpp"
 
-#include <variant>
+#include <list>
 
 namespace memgraph::coordination {
-
-class CoordinatorState {
+class CoordinatorData {
  public:
-  CoordinatorState();
-  ~CoordinatorState() = default;
+  CoordinatorData();
 
-  CoordinatorState(const CoordinatorState &) = delete;
-  CoordinatorState &operator=(const CoordinatorState &) = delete;
-
-  CoordinatorState(CoordinatorState &&) noexcept = delete;
-  CoordinatorState &operator=(CoordinatorState &&) noexcept = delete;
+  [[nodiscard]] auto DoFailover() -> DoFailoverStatus;
 
   [[nodiscard]] auto RegisterInstance(CoordinatorClientConfig config) -> RegisterInstanceCoordinatorStatus;
-
   [[nodiscard]] auto SetInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus;
 
   auto ShowInstances() const -> std::vector<CoordinatorInstanceStatus>;
 
-  // The client code must check that the server exists before calling this method.
-  auto GetCoordinatorServer() const -> CoordinatorServer &;
-
-  [[nodiscard]] auto DoFailover() -> DoFailoverStatus;
-
  private:
-  std::variant<CoordinatorData, CoordinatorMainReplicaData> data_;
+  mutable utils::RWLock coord_data_lock_{utils::RWLock::Priority::READ};
+  HealthCheckCallback main_succ_cb_, main_fail_cb_, replica_succ_cb_, replica_fail_cb_;
+  // Must be std::list because we rely on pointer stability
+  std::list<CoordinatorInstance> registered_instances_;
+};
+
+struct CoordinatorMainReplicaData {
+  std::unique_ptr<CoordinatorServer> coordinator_server_;
 };
 
 }  // namespace memgraph::coordination

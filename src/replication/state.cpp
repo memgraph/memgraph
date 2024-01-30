@@ -260,7 +260,7 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
     };
     if (endpoint_check(mainData.registered_replicas_)) {
-      return RegisterReplicaError::END_POINT_EXISTS;
+      return RegisterReplicaError::ENDPOINT_EXISTS;
     }
 
     // Durability
@@ -279,4 +279,5 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
   }
   return res;
 }
+
 }  // namespace memgraph::replication

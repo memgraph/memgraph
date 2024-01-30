@@ -23,7 +23,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Delta;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::EdgeRef;

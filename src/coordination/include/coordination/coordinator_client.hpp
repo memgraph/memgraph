@@ -16,53 +16,61 @@
 #include "coordination/coordinator_config.hpp"
 #include "rpc/client.hpp"
 #include "utils/scheduler.hpp"
-#include "utils/thread_pool.hpp"
-
-#include <string_view>
 
 namespace memgraph::coordination {
 
+class CoordinatorData;
+using HealthCheckCallback = std::function<void(CoordinatorData *, std::string_view)>;
+
 class CoordinatorClient {
  public:
-  explicit CoordinatorClient(const CoordinatorClientConfig &config);
+  using ReplClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
+  using ReplicationClientsInfo = std::vector<ReplClientInfo>;
 
-  ~CoordinatorClient();
+  explicit CoordinatorClient(CoordinatorData *coord_data_, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
+                             HealthCheckCallback fail_cb);
 
-  CoordinatorClient(CoordinatorClient &other) = delete;
-  CoordinatorClient &operator=(CoordinatorClient const &other) = delete;
+  ~CoordinatorClient() = default;
+
+  CoordinatorClient(CoordinatorClient &) = delete;
+  CoordinatorClient &operator=(CoordinatorClient const &) = delete;
 
   CoordinatorClient(CoordinatorClient &&) noexcept = delete;
   CoordinatorClient &operator=(CoordinatorClient &&) noexcept = delete;
 
   void StartFrequentCheck();
   void StopFrequentCheck();
+  void PauseFrequentCheck();
+  void ResumeFrequentCheck();
 
-  auto DoHealthCheck() const -> bool;
-  auto SendPromoteReplicaToMainRpc(
-      std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const -> bool;
+  auto InstanceName() const -> std::string;
+  auto SocketAddress() const -> std::string;
 
-  auto InstanceName() const -> std::string_view;
-  auto Endpoint() const -> io::network::Endpoint const &;
-  auto Config() const -> CoordinatorClientConfig const &;
-  auto ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo const &;
-  auto ReplicationClientInfo() -> std::optional<CoordinatorClientConfig::ReplicationClientInfo> &;
-  void UpdateTimeCheck(const std::chrono::system_clock::time_point &last_checked_time);
-  auto GetLastTimeResponse() -> std::chrono::system_clock::time_point;
+  auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
+
+  auto ReplicationClientInfo() const -> const ReplClientInfo &;
+  auto ResetReplicationClientInfo() -> void;
+
+  auto SendSetToReplicaRpc(ReplClientInfo replication_client_info) const -> bool;
+
+  auto SetSuccCallback(HealthCheckCallback succ_cb) -> void;
+  auto SetFailCallback(HealthCheckCallback fail_cb) -> void;
 
   friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
     return first.config_ == second.config_;
   }
 
  private:
-  utils::ThreadPool thread_pool_{1};
-  utils::Scheduler replica_checker_;
+  utils::Scheduler instance_checker_;
 
+  // TODO: (andi) Pimpl?
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
-  CoordinatorClientConfig config_;
 
-  std::atomic<std::chrono::system_clock::time_point> last_response_time_{};
-  static constexpr int alive_response_time_difference_sec_{5};
+  CoordinatorClientConfig config_;
+  CoordinatorData *coord_data_;
+  HealthCheckCallback succ_cb_;
+  HealthCheckCallback fail_cb_;
 };
 
 }  // namespace memgraph::coordination

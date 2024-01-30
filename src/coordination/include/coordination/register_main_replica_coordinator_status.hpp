@@ -11,7 +11,27 @@
 
 #pragma once
 
-namespace memgraph::glue {
-inline constexpr std::string_view kDefaultUserRoleRegex = "[a-zA-Z0-9_.+-@]+";
-static constexpr std::string_view kDefaultPasswordRegex = ".+";
-}  // namespace memgraph::glue
+#ifdef MG_ENTERPRISE
+
+#include <cstdint>
+
+namespace memgraph::coordination {
+
+enum class RegisterInstanceCoordinatorStatus : uint8_t {
+  NAME_EXISTS,
+  END_POINT_EXISTS,
+  COULD_NOT_BE_PERSISTED,
+  NOT_COORDINATOR,
+  RPC_FAILED,
+  SUCCESS
+};
+
+enum class SetInstanceToMainCoordinatorStatus : uint8_t {
+  NO_INSTANCE_WITH_NAME,
+  NOT_COORDINATOR,
+  SUCCESS,
+  COULD_NOT_PROMOTE_TO_MAIN,
+};
+
+}  // namespace memgraph::coordination
+#endif

@@ -11,7 +11,12 @@
 
 #pragma once
 
-namespace memgraph::glue {
-inline constexpr std::string_view kDefaultUserRoleRegex = "[a-zA-Z0-9_.+-@]+";
-static constexpr std::string_view kDefaultPasswordRegex = ".+";
-}  // namespace memgraph::glue
+#ifdef MG_ENTERPRISE
+namespace memgraph::coordination {
+
+struct CoordinatorClusterConfig {
+  static constexpr int alive_response_time_difference_sec_{5};
+};
+
+}  // namespace memgraph::coordination
+#endif

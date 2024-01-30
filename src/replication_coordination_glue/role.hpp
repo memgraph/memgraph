@@ -11,7 +11,9 @@
 
 #pragma once
 
-namespace memgraph::glue {
-inline constexpr std::string_view kDefaultUserRoleRegex = "[a-zA-Z0-9_.+-@]+";
-static constexpr std::string_view kDefaultPasswordRegex = ".+";
-}  // namespace memgraph::glue
+#include <cstdint>
+namespace memgraph::replication_coordination_glue {
+
+// TODO: figure out a way of ensuring that usage of this type is never uninitialed/defaulted incorrectly to MAIN
+enum class ReplicationRole : uint8_t { MAIN, REPLICA };
+}  // namespace memgraph::replication_coordination_glue
