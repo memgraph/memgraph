@@ -137,9 +137,9 @@ inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) ->
     spdlog::warn(
         "Replication configuration will NOT be stored. When the server restarts, replication state will be "
         "forgotten.");
-  }
 
-  return std::nullopt;
+    return std::nullopt;
+  }
   return {config.durability.storage_directory};
 }
 
