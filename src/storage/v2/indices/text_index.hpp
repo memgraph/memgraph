@@ -23,6 +23,8 @@ class DbAccessor;
 namespace memgraph::storage {
 class Storage;
 
+constexpr bool KDoSkipCommit = true;
+
 struct TextIndexData {
   mgcxx::text_search::Context context_;
   LabelId scope_;
@@ -31,9 +33,11 @@ struct TextIndexData {
 class TextIndex {
  private:
   void AddNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp,
-               const std::vector<mgcxx::text_search::Context *> &applicable_text_indices, bool skip_commit = false);
+               const std::vector<mgcxx::text_search::Context *> &applicable_text_indices, bool skip_commit = true);
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(const std::vector<LabelId> &labels);
+
+  std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(Vertex *vertex);
 
   void RemoveNode(Vertex *vertex, const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
@@ -51,7 +55,7 @@ class TextIndex {
   std::map<LabelId, std::string> label_to_index_;
 
   void AddNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp,
-               bool skip_commit = false);
+               bool skip_commit = true);
 
   void UpdateNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp);
 
@@ -68,8 +72,6 @@ class TextIndex {
 
   void UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage,
                            const std::uint64_t transaction_start_timestamp);
-
-  std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(Vertex *vertex);
 
   bool CreateIndex(std::string index_name, LabelId label, memgraph::query::DbAccessor *db);
 

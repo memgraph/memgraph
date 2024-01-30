@@ -23,6 +23,7 @@
 #include <utility>
 #include <variant>
 
+#include "flags/run_time_configurable.hpp"
 #include "license/license.hpp"
 #include "mg_procedure.h"
 #include "module.hpp"
@@ -1838,10 +1839,12 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     const auto prop_key =
         std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, v->graph->impl);
 
-    const auto result =
-        std::visit([prop_key, property_value](
-                       auto &impl) { return impl.SetProperty(prop_key, ToPropertyValue(*property_value), true); },
-                   v->impl);
+    const auto result = std::visit(
+        [prop_key, property_value](auto &impl) {
+          return impl.SetProperty(prop_key, ToPropertyValue(*property_value),
+                                  memgraph::flags::run_time::GetTextSearchEnabled());
+        },
+        v->impl);
     if (result.HasError()) {
       switch (result.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -1897,7 +1900,7 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
           v->graph->impl));
     }
 
-    const auto result = v->getImpl().UpdateProperties(props, true);
+    const auto result = v->getImpl().UpdateProperties(props, memgraph::flags::run_time::GetTextSearchEnabled());
     if (result.HasError()) {
       switch (result.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -1954,7 +1957,9 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
       throw ImmutableObjectException{"Cannot add a label to an immutable vertex!"};
     }
 
-    const auto result = std::visit([label_id](auto &impl) { return impl.AddLabel(label_id, true); }, v->impl);
+    const auto result = std::visit(
+        [label_id](auto &impl) { return impl.AddLabel(label_id, memgraph::flags::run_time::GetTextSearchEnabled()); },
+        v->impl);
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -1996,7 +2001,11 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot remove a label from an immutable vertex!"};
     }
-    const auto result = std::visit([label_id](auto &impl) { return impl.RemoveLabel(label_id, true); }, v->impl);
+    const auto result = std::visit(
+        [label_id](auto &impl) {
+          return impl.RemoveLabel(label_id, memgraph::flags::run_time::GetTextSearchEnabled());
+        },
+        v->impl);
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -3325,11 +3334,18 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
 
 mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int *result) {
   return WrapExceptions([graph, index_name, result]() {
-    std::visit(memgraph::utils::Overloaded{
-                   [&](memgraph::query::DbAccessor *impl) { *result = impl->TextIndexExists(index_name); },
-                   [&](memgraph::query::SubgraphDbAccessor *impl) {
-                     *result = impl->GetAccessor()->TextIndexExists(index_name);
-                   }},
+    std::visit(memgraph::utils::Overloaded{[&](memgraph::query::DbAccessor *impl) {
+                                             if (!memgraph::flags::run_time::GetTextSearchEnabled()) {
+                                               // TODO antepusic throw exception
+                                             }
+                                             *result = impl->TextIndexExists(index_name);
+                                           },
+                                           [&](memgraph::query::SubgraphDbAccessor *impl) {
+                                             if (!memgraph::flags::run_time::GetTextSearchEnabled()) {
+                                               // TODO antepusic throw exception
+                                             }
+                                             *result = impl->GetAccessor()->TextIndexExists(index_name);
+                                           }},
                graph->impl);
   });
 }
@@ -3376,9 +3392,15 @@ mgp_error mgp_graph_search_text_index(mgp_graph *graph, mgp_memory *memory, cons
   return WrapExceptions([graph, memory, index_name, search_query, result]() {
     std::visit(memgraph::utils::Overloaded{
                    [&](memgraph::query::DbAccessor *impl) {
+                     if (!memgraph::flags::run_time::GetTextSearchEnabled()) {
+                       // TODO antepusic throw exception
+                     }
                      WrapIntoVertexList(impl->SearchTextIndex(index_name, search_query), graph, memory, result);
                    },
                    [&](memgraph::query::SubgraphDbAccessor *impl) {
+                     if (!memgraph::flags::run_time::GetTextSearchEnabled()) {
+                       // TODO antepusic throw exception
+                     }
                      WrapIntoVertexList(impl->GetAccessor()->SearchTextIndex(index_name, search_query), graph, memory,
                                         result);
                    }},

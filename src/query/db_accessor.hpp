@@ -115,11 +115,11 @@ class VertexAccessor final {
 
   auto Labels(storage::View view) const { return impl_.Labels(view); }
 
-  storage::Result<bool> AddLabel(storage::LabelId label, bool update_text_index) {
+  storage::Result<bool> AddLabel(storage::LabelId label, bool update_text_index = false) {
     return impl_.AddLabel(label, update_text_index);
   }
 
-  storage::Result<bool> RemoveLabel(storage::LabelId label, bool update_text_index) {
+  storage::Result<bool> RemoveLabel(storage::LabelId label, bool update_text_index = false) {
     return impl_.RemoveLabel(label, update_text_index);
   }
 
@@ -149,7 +149,7 @@ class VertexAccessor final {
     return impl_.UpdateProperties(properties, update_text_index);
   }
 
-  storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key, bool update_text_index = true) {
+  storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key, bool update_text_index = false) {
     return SetProperty(key, storage::PropertyValue(), update_text_index);
   }
 
@@ -262,11 +262,11 @@ class SubgraphVertexAccessor final {
 
   auto Labels(storage::View view) const { return impl_.Labels(view); }
 
-  storage::Result<bool> AddLabel(storage::LabelId label, bool update_text_index) {
+  storage::Result<bool> AddLabel(storage::LabelId label, bool update_text_index = false) {
     return impl_.AddLabel(label, update_text_index);
   }
 
-  storage::Result<bool> RemoveLabel(storage::LabelId label, bool update_text_index) {
+  storage::Result<bool> RemoveLabel(storage::LabelId label, bool update_text_index = false) {
     return impl_.RemoveLabel(label, update_text_index);
   }
 

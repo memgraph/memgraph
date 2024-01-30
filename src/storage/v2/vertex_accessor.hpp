@@ -47,12 +47,12 @@ class VertexAccessor final {
   /// Add a label and return `true` if insertion took place.
   /// `false` is returned if the label already existed.
   /// @throw std::bad_alloc
-  Result<bool> AddLabel(LabelId label, bool update_text_index);
+  Result<bool> AddLabel(LabelId label, bool update_text_index = false);
 
   /// Remove a label and return `true` if deletion took place.
   /// `false` is returned if the vertex did not have a label already.
   /// @throw std::bad_alloc
-  Result<bool> RemoveLabel(LabelId label, bool update_text_index);
+  Result<bool> RemoveLabel(LabelId label, bool update_text_index = false);
 
   Result<bool> HasLabel(LabelId label, View view) const;
 
@@ -63,20 +63,20 @@ class VertexAccessor final {
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
-  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value, bool update_text_index);
+  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value, bool update_text_index = false);
 
   /// Set property values only if property store is empty. Returns `true` if successully set all values,
   /// `false` otherwise.
   /// @throw std::bad_alloc
   Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties,
-                              bool update_text_index);
+                              bool update_text_index = false);
 
   Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> UpdateProperties(
-      std::map<storage::PropertyId, storage::PropertyValue> &properties, bool update_text_index) const;
+      std::map<storage::PropertyId, storage::PropertyValue> &properties, bool update_text_index = false) const;
 
   /// Remove all properties and return the values of the removed properties.
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> ClearProperties(bool update_text_index);
+  Result<std::map<PropertyId, PropertyValue>> ClearProperties(bool update_text_index = false);
 
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;

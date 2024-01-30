@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/text_index.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "query/db_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "text_search.hpp"
@@ -18,6 +19,10 @@ namespace memgraph::storage {
 
 void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std::uint64_t transaction_start_timestamp,
                         const std::vector<mgcxx::text_search::Context *> &applicable_text_indices, bool skip_commit) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   // NOTE: Text indexes are presently all-property indices. If we allow text indexes restricted to specific properties,
   // an indexable document should be created for each applicable index.
   nlohmann::json document = {};
@@ -58,7 +63,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
           *index_context,
           mgcxx::text_search::DocumentInput{
               .data = document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
-          false);
+          skip_commit);
     } catch (const std::exception &e) {
       throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
     }
@@ -67,6 +72,10 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
 
 void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std::uint64_t transaction_start_timestamp,
                         bool skip_commit) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
   if (applicable_text_indices.empty()) return;
   AddNode(vertex_after_update, storage, transaction_start_timestamp, applicable_text_indices, skip_commit);
@@ -74,6 +83,10 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
 
 void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
                            const std::uint64_t transaction_start_timestamp) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
   if (applicable_text_indices.empty()) return;
   RemoveNode(vertex_after_update, applicable_text_indices);
@@ -83,6 +96,10 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
 void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
                            const std::uint64_t transaction_start_timestamp,
                            const std::vector<LabelId> &removed_labels) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   auto indexes_to_remove_node_from = GetApplicableTextIndices(removed_labels);
   RemoveNode(vertex_after_update, indexes_to_remove_node_from);
 
@@ -94,12 +111,16 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
 
 void TextIndex::RemoveNode(Vertex *vertex_after_update,
                            const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   auto search_node_to_be_deleted =
       mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
 
   for (auto *index_context : applicable_text_indices) {
     try {
-      mgcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, false);
+      mgcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, KDoSkipCommit);
     } catch (const std::exception &e) {
       throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
     }
@@ -107,6 +128,10 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update,
 }
 
 void TextIndex::RemoveNode(Vertex *vertex_after_update) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
   if (applicable_text_indices.empty()) return;
   RemoveNode(vertex_after_update, applicable_text_indices);
@@ -114,6 +139,10 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update) {
 
 void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, Storage *storage,
                                  const std::uint64_t transaction_start_timestamp) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   if (!label_to_index_.contains(added_label)) {
     return;
   }
@@ -123,6 +152,10 @@ void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_updat
 
 void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
                                     const std::uint64_t transaction_start_timestamp) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   if (!label_to_index_.contains(removed_label)) {
     return;
   }
@@ -131,10 +164,18 @@ void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_
 
 void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage,
                                     std::uint64_t transaction_start_timestamp) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   UpdateNode(vertex_after_update, storage, transaction_start_timestamp);
 }
 
 std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(const std::vector<LabelId> &labels) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   std::vector<mgcxx::text_search::Context *> applicable_text_indices;
   for (const auto &label : labels) {
     if (label_to_index_.contains(label)) {
@@ -145,6 +186,10 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(c
 }
 
 std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(Vertex *vertex) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   std::vector<mgcxx::text_search::Context *> applicable_text_indices;
   for (const auto &label : vertex->labels) {
     if (label_to_index_.contains(label)) {
@@ -155,6 +200,10 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(V
 }
 
 bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::query::DbAccessor *db) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   nlohmann::json mappings = {};
   mappings["properties"] = {};
   mappings["properties"]["metadata"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
@@ -225,21 +274,25 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
           index_context,
           mgcxx::text_search::DocumentInput{
               .data = document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
-          true);
+          KDoSkipCommit);
     } catch (const std::exception &e) {
       throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
     }
   }
 
-  try {
-    mgcxx::text_search::commit(index_context);
-  } catch (const std::exception &e) {
-    throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
-  }
+  // try {
+  //   mgcxx::text_search::commit(index_context);
+  // } catch (const std::exception &e) {
+  //   throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
+  // }
   return true;
 }
 
 bool TextIndex::DropIndex(std::string index_name) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   try {
     mgcxx::text_search::drop_index(index_name);
   } catch (const std::exception &e) {
@@ -253,6 +306,10 @@ bool TextIndex::DropIndex(std::string index_name) {
 bool TextIndex::IndexExists(std::string index_name) const { return index_.contains(index_name); }
 
 std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_query) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic throw exception
+  }
+
   auto input = mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"data", "metadata"}};
   // Basic check for search fields in the query (Tantivy syntax delimits them with a `:` to the right)
   if (search_query.find(":") == std::string::npos) {

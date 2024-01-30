@@ -217,7 +217,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   auto new_node = dba.InsertVertex();
   context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
   for (auto label : node_info.labels) {
-    auto maybe_error = new_node.AddLabel(label, false);
+    auto maybe_error = new_node.AddLabel(label, false);  // skip updating text indices until all labels are added
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
@@ -252,6 +252,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   MultiPropsInitChecked(&new_node, properties);
 
   if (flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic cleanup call
     new_node.impl_.storage_->indices_.text_index_->AddNode(new_node.impl_.vertex_, new_node.impl_.storage_,
                                                            new_node.impl_.transaction_->start_timestamp);
   }
@@ -2826,6 +2827,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       }
       if (flags::run_time::GetTextSearchEnabled()) {
         auto new_node = lhs.ValueVertex();
+        // TODO antepusic cleanup call
         new_node.impl_.storage_->indices_.text_index_->UpdateNode(new_node.impl_.vertex_, new_node.impl_.storage_,
                                                                   new_node.impl_.transaction_->start_timestamp);
       }
@@ -2987,6 +2989,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       update_props(new_properties);
       if (flags::run_time::GetTextSearchEnabled()) {
         auto new_node = rhs.ValueVertex();
+        // TODO antepusic cleanup call
         new_node.impl_.storage_->indices_.text_index_->UpdateNode(new_node.impl_.vertex_, new_node.impl_.storage_,
                                                                   new_node.impl_.transaction_->start_timestamp);
       }
@@ -3117,7 +3120,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 #endif
 
   for (auto label : self_.labels_) {
-    auto maybe_value = vertex.AddLabel(label, false);
+    auto maybe_value = vertex.AddLabel(label, false);  // skip updating text indices until all labels are added
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
@@ -3137,6 +3140,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   if (flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic cleanup call
     vertex.impl_.storage_->indices_.text_index_->UpdateNode(vertex.impl_.vertex_, vertex.impl_.storage_,
                                                             vertex.impl_.transaction_->start_timestamp);
   }
@@ -3212,6 +3216,12 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       }
 #endif
       remove_prop(&lhs.ValueVertex());
+      if (flags::run_time::GetTextSearchEnabled()) {
+        // TODO antepusic cleanup call
+        auto &updated_node = lhs.ValueVertex();
+        updated_node.impl_.storage_->indices_.text_index_->UpdateNode(
+            updated_node.impl_.vertex_, updated_node.impl_.storage_, updated_node.impl_.transaction_->start_timestamp);
+      }
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
@@ -3303,6 +3313,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   }
 
   if (flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic cleanup call
     vertex.impl_.storage_->indices_.text_index_->UpdateNode(vertex.impl_.vertex_, vertex.impl_.storage_,
                                                             vertex.impl_.transaction_->start_timestamp, self_.labels_);
   }

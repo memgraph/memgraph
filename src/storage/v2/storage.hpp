@@ -256,10 +256,6 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    std::vector<Gid> TextSearch(std::string index_name, std::string &search_query) const {
-      return storage_->indices_.text_index_->Search(index_name, search_query);
-    }
-
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
@@ -270,11 +266,13 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateTextIndex(std::string index_name, LabelId label,
                                                                                   query::DbAccessor *db) {
+      // TODO antepusic cleanup call
       storage_->indices_.text_index_->CreateIndex(index_name, label, db);
       return {};
     }
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropTextIndex(std::string index_name) {
+      // TODO antepusic cleanup call
       storage_->indices_.text_index_->DropIndex(index_name);
       return {};
     }

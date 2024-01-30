@@ -457,26 +457,25 @@ void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<std::st
         } else {
           pv_id = memgraph::storage::PropertyValue(node_id.id);
         }
-        auto old_node_property = node.SetProperty(acc->NameToProperty(field.name), pv_id, false);
+        auto old_node_property = node.SetProperty(acc->NameToProperty(field.name), pv_id);
         if (!old_node_property.HasValue()) throw LoadException("Couldn't add property '{}' to the node", field.name);
         if (!old_node_property->IsNull()) throw LoadException("The property '{}' already exists", field.name);
       }
       id = node_id;
     } else if (field.type == "LABEL") {
       for (const auto &label : memgraph::utils::Split(value, FLAGS_array_delimiter)) {
-        auto node_label = node.AddLabel(acc->NameToLabel(label), false);
+        auto node_label = node.AddLabel(acc->NameToLabel(label));
         if (!node_label.HasValue()) throw LoadException("Couldn't add label '{}' to the node", label);
         if (!*node_label) throw LoadException("The label '{}' already exists", label);
       }
     } else if (field.type != "IGNORE") {
-      auto old_node_property =
-          node.SetProperty(acc->NameToProperty(field.name), StringToValue(value, field.type), false);
+      auto old_node_property = node.SetProperty(acc->NameToProperty(field.name), StringToValue(value, field.type));
       if (!old_node_property.HasValue()) throw LoadException("Couldn't add property '{}' to the node", field.name);
       if (!old_node_property->IsNull()) throw LoadException("The property '{}' already exists", field.name);
     }
   }
   for (const auto &label : additional_labels) {
-    auto node_label = node.AddLabel(acc->NameToLabel(label), false);
+    auto node_label = node.AddLabel(acc->NameToLabel(label));
     if (!node_label.HasValue()) throw LoadException("Couldn't add label '{}' to the node", label);
     if (!*node_label) throw LoadException("The label '{}' already exists", label);
   }

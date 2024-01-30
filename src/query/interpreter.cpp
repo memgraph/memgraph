@@ -2186,6 +2186,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         if (index_type == IndexQuery::Type::LOOKUP) {
           maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
         } else if (index_type == IndexQuery::Type::TEXT) {
+          if (!flags::run_time::GetTextSearchEnabled()) {
+            // TODO antepusic throw exception
+          }
           maybe_index_error = dba->CreateTextIndex(index_name, label);
         }
         utils::OnScopeExit invalidator(invalidate_plan_cache);
@@ -2213,6 +2216,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         if (index_type == IndexQuery::Type::LOOKUP) {
           maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
         } else if (index_type == IndexQuery::Type::TEXT) {
+          if (!flags::run_time::GetTextSearchEnabled()) {
+            // TODO antepusic throw exception
+          }
           maybe_index_error = dba->DropTextIndex(index_name);
         }
         utils::OnScopeExit invalidator(invalidate_plan_cache);

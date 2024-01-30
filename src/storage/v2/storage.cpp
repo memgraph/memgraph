@@ -149,6 +149,7 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
   }
 
   if (flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic cleanup call
     vertex->storage_->indices_.text_index_->RemoveNode(vertex->vertex_);
   }
 
@@ -190,6 +191,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
   }
 
   if (flags::run_time::GetTextSearchEnabled()) {
+    // TODO antepusic cleanup call
     vertex->storage_->indices_.text_index_->RemoveNode(vertex->vertex_);
   }
 
@@ -283,6 +285,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
 
   if (flags::run_time::GetTextSearchEnabled()) {
     for (auto *node : nodes_to_delete) {
+      // TODO antepusic cleanup call
       storage_->indices_.text_index_->RemoveNode(node);
     }
   }
