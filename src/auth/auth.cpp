@@ -9,13 +9,16 @@
 #include "auth/auth.hpp"
 
 #include <iostream>
+#include <optional>
 #include <utility>
 
 #include <fmt/format.h>
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
+#include "auth/rpc.hpp"
 #include "license/license.hpp"
+#include "system/transaction.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/message.hpp"
 #include "utils/settings.hpp"
@@ -41,12 +44,84 @@ DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
                        FLAG_IN_RANGE(100, 1800000));
 
 namespace memgraph::auth {
+
+namespace {
+#ifdef MG_ENTERPRISE
+/**
+ * REPLICATION SYSTEM ACTION IMPLEMENTATIONS
+ */
+struct UpdateAuthData : memgraph::system::ISystemAction {
+  explicit UpdateAuthData(User user) : user_{std::move(user)}, role_{std::nullopt} {}
+  explicit UpdateAuthData(Role role) : user_{std::nullopt}, role_{std::move(role)} {}
+
+  void do_durability() override { /* Done during Auth execution */
+  }
+
+  bool do_replication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
+                      memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const replication::UpdateAuthDataRes &response) { return response.success; };
+    if (user_) {
+      return client.SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
+          check_response, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(), *user_);
+    }
+    if (role_) {
+      return client.SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
+          check_response, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(), *role_);
+    }
+    // Should never get here
+    MG_ASSERT(false, "Trying to update auth data that is not a user nor a role");
+    return {};
+  }
+
+  void post_replication(replication::RoleMainData &mainData) const override {}
+
+ private:
+  std::optional<User> user_;
+  std::optional<Role> role_;
+};
+
+struct DropAuthData : memgraph::system::ISystemAction {
+  enum class AuthDataType { USER, ROLE };
+
+  explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
+
+  void do_durability() override { /* Done during Auth execution */
+  }
+
+  bool do_replication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
+                      memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const replication::DropAuthDataRes &response) { return response.success; };
+
+    memgraph::replication::DropAuthDataReq::DataType type{};
+    switch (type_) {
+      case AuthDataType::USER:
+        type = memgraph::replication::DropAuthDataReq::DataType::USER;
+        break;
+      case AuthDataType::ROLE:
+        type = memgraph::replication::DropAuthDataReq::DataType::ROLE;
+        break;
+    }
+    return client.SteamAndFinalizeDelta<replication::DropAuthDataRpc>(
+        check_response, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(), type, name_);
+  }
+  void post_replication(replication::RoleMainData &mainData) const override {}
+
+ private:
+  AuthDataType type_;
+  std::string name_;
+};
+#endif
+
+/**
+ * CONSTANTS
+ */
 const std::string kUserPrefix = "user:";
 const std::string kRolePrefix = "role:";
 const std::string kLinkPrefix = "link:";
 const std::string kVersion = "version";
 
 static constexpr auto kVersionV1 = "V1";
+}  // namespace
 
 /**
  * All data stored in the `Auth` storage is stored in an underlying
@@ -148,6 +223,12 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
     // Authenticate the user.
     if (!is_authenticated) return std::nullopt;
 
+    /**
+     * TODO
+     * The auth module should not update auth data.
+     * There is now way to replicate it and we should not be storing sensitive data if we don't have to.
+     */
+
     // Find or create the user and return it.
     auto user = GetUser(username);
     if (!user) {
@@ -240,7 +321,7 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
   return user;
 }
 
-void Auth::SaveUser(const User &user) {
+void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   bool success = false;
   if (const auto *role = user.role(); role != nullptr) {
     success = storage_.PutMultiple(
@@ -252,7 +333,12 @@ void Auth::SaveUser(const User &user) {
   if (!success) {
     throw AuthException("Couldn't save user '{}'!", user.username());
   }
-  // TODO system delta
+  // All changes to the user end up calling this function, so no need to add a delta anywhere else
+  if (system_tx) {
+#ifdef MG_ENTERPRISE
+    system_tx->add_action<UpdateAuthData>(user);
+#endif
+  }
 }
 
 void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) {
@@ -285,7 +371,8 @@ void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &pa
   user.UpdatePassword(password);
 }
 
-std::optional<User> Auth::AddUser(const std::string &username, const std::optional<std::string> &password) {
+std::optional<User> Auth::AddUser(const std::string &username, const std::optional<std::string> &password,
+                                  system::Transaction *system_tx) {
   if (!NameRegexMatch(username)) {
     throw AuthException("Invalid user name.");
   }
@@ -295,18 +382,23 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
   if (existing_role) return std::nullopt;
   auto new_user = User(username);
   UpdatePassword(new_user, password);
-  SaveUser(new_user);
+  SaveUser(new_user, system_tx);
   return new_user;
 }
 
-bool Auth::RemoveUser(const std::string &username_orig) {
+bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
   std::vector<std::string> keys({kLinkPrefix + username, kUserPrefix + username});
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove user '{}'!", username);
   }
-  // TODO system delta
+  // Handling drop user delta
+  if (system_tx) {
+#ifdef MG_ENTERPRISE
+    system_tx->add_action<DropAuthData>(DropAuthData::AuthDataType::USER, username);
+#endif
+  }
   return true;
 }
 
@@ -353,25 +445,30 @@ std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
   return Role::Deserialize(data);
 }
 
-void Auth::SaveRole(const Role &role) {
+void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
   if (!storage_.Put(kRolePrefix + role.rolename(), role.Serialize().dump())) {
     throw AuthException("Couldn't save role '{}'!", role.rolename());
   }
-  // TODO system delta
+  // All changes to the role end up calling this function, so no need to add a delta anywhere else
+  if (system_tx) {
+#ifdef MG_ENTERPRISE
+    system_tx->add_action<UpdateAuthData>(role);
+#endif
+  }
 }
 
-std::optional<Role> Auth::AddRole(const std::string &rolename) {
+std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transaction *system_tx) {
   if (!NameRegexMatch(rolename)) {
     throw AuthException("Invalid role name.");
   }
   if (auto existing_role = GetRole(rolename)) return std::nullopt;
   if (auto existing_user = GetUser(rolename)) return std::nullopt;
   auto new_role = Role(rolename);
-  SaveRole(new_role);
+  SaveRole(new_role, system_tx);
   return new_role;
 }
 
-bool Auth::RemoveRole(const std::string &rolename_orig) {
+bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *system_tx) {
   auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
   std::vector<std::string> keys;
@@ -384,7 +481,12 @@ bool Auth::RemoveRole(const std::string &rolename_orig) {
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }
-  // TODO system delta
+  // Handling drop role delta
+  if (system_tx) {
+#ifdef MG_ENTERPRISE
+    system_tx->add_action<DropAuthData>(DropAuthData::AuthDataType::ROLE, rolename);
+#endif
+  }
   return true;
 }
 
@@ -433,48 +535,48 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
 }
 
 #ifdef MG_ENTERPRISE
-bool Auth::GrantDatabaseToUser(const std::string &db, const std::string &name) {
+bool Auth::GrantDatabaseToUser(const std::string &db, const std::string &name, system::Transaction *system_tx) {
   if (auto user = GetUser(name)) {
     if (db == kAllDatabases) {
       user->db_access().GrantAll();
     } else {
       user->db_access().Add(db);
     }
-    SaveUser(*user);
+    SaveUser(*user, system_tx);
     return true;
   }
   return false;
 }
 
-bool Auth::RevokeDatabaseFromUser(const std::string &db, const std::string &name) {
+bool Auth::RevokeDatabaseFromUser(const std::string &db, const std::string &name, system::Transaction *system_tx) {
   if (auto user = GetUser(name)) {
     if (db == kAllDatabases) {
       user->db_access().DenyAll();
     } else {
       user->db_access().Remove(db);
     }
-    SaveUser(*user);
+    SaveUser(*user, system_tx);
     return true;
   }
   return false;
 }
 
-void Auth::DeleteDatabase(const std::string &db) {
+void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx) {
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
     if (auto user = GetUser(username)) {
       user->db_access().Delete(db);
-      SaveUser(*user);
+      SaveUser(*user, system_tx);
     }
   }
 }
 
-bool Auth::SetMainDatabase(std::string_view db, const std::string &name) {
+bool Auth::SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx) {
   if (auto user = GetUser(name)) {
     if (!user->db_access().SetDefault(db)) {
       throw AuthException("Couldn't set default database '{}' for user '{}'!", db, name);
     }
-    SaveUser(*user);
+    SaveUser(*user, system_tx);
     return true;
   }
   return false;

@@ -105,7 +105,7 @@ struct DoReplication {
       }
     }
 
-    action.post_replication();
+    action.post_replication(main_data_);
     return sync_status;
   }
 

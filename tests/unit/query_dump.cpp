@@ -315,7 +315,12 @@ class DumpTest : public ::testing::Test {
       }()  // iile
   };
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr, &repl_state, system_state};
+  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr, &repl_state, system_state
+#ifdef MG_ENTERPRISE
+                                              ,
+                                              nullptr
+#endif
+  };
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -724,7 +729,12 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
 
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state,
-                                                          system_state);
+                                                          system_state
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr
+#endif
+  );
 
   {
     ResultStreamFaker stream(this->db->storage());
@@ -846,7 +856,12 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
 
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state,
-                                                          system_state);
+                                                          system_state
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr
+#endif
+  );
   {
     ResultStreamFaker stream(this->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());

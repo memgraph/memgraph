@@ -14,7 +14,9 @@
 #include "auth/auth.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "coordination/coordinator_handlers.hpp"
 #include "dbms/constants.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
 #include "glue/MonitoringServerT.hpp"
@@ -25,26 +27,25 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "query/auth_query_handler.hpp"
 #include "query/config.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
+#include "replication_handler/replication_handler.hpp"
+#include "replication_handler/system_replication.hpp"
 #include "requests/requests.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
-
-#include "dbms/dbms_handler.hpp"
-#include "query/auth_query_handler.hpp"
-#include "query/interpreter_context.hpp"
-
-#include "system/system.hpp"
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
@@ -369,11 +370,11 @@ int main(int argc, char **argv) {
     auto *maybe_password = std::getenv(kMgPassword);
     auto *maybe_pass_file = std::getenv(kMgPassfile);
     if (maybe_username && maybe_password) {
-      ah->CreateUser(maybe_username, maybe_password);
+      ah->CreateUser(maybe_username, maybe_password, nullptr);
     } else if (maybe_pass_file) {
       const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
       if (!username.empty() && !password.empty()) {
-        ah->CreateUser(username, password);
+        ah->CreateUser(username, password, nullptr);
       }
     }
   };
@@ -387,16 +388,47 @@ int main(int argc, char **argv) {
 
   auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
 
-  memgraph::dbms::DbmsHandler dbms_handler(db_config, system
+  // singleton replication state
+  memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
+
+  // singleton coordinator state
+#ifdef MG_ENTERPRISE
+  memgraph::coordination::CoordinatorState coordinator_state;
+#endif
+
+  memgraph::dbms::DbmsHandler dbms_handler(db_config, system, repl_state
 #ifdef MG_ENTERPRISE
                                            ,
                                            auth_, FLAGS_data_recovery_on_startup
 #endif
   );
+
+  // Note: Now that all system's subsystems are initialised (dbms & auth)
+  //       We can now initialise the recovery of replication (which will include those subsystems)
+  //       ReplicationHandler will handle the recovery
+  auto replication_handler = memgraph::replication::ReplicationHandler{repl_state, dbms_handler
+#ifdef MG_ENTERPRISE
+                                                                       ,
+                                                                       &system, auth_
+#endif
+  };
+
+#ifdef MG_ENTERPRISE
+  // MAIN or REPLICA instance
+  if (FLAGS_coordinator_server_port) {
+    memgraph::dbms::CoordinatorHandlers::Register(coordinator_state.GetCoordinatorServer(), replication_handler);
+    MG_ASSERT(coordinator_state.GetCoordinatorServer().Start(), "Failed to start coordinator server!");
+  }
+#endif
+
   auto db_acc = dbms_handler.Get();
 
-  memgraph::query::InterpreterContext interpreter_context_(
-      interp_config, &dbms_handler, &dbms_handler.ReplicationState(), system, auth_handler.get(), auth_checker.get());
+  memgraph::query::InterpreterContext interpreter_context_(interp_config, &dbms_handler, &repl_state, system,
+#ifdef MG_ENTERPRISE
+                                                           &coordinator_state,
+#endif
+                                                           auth_handler.get(), auth_checker.get(),
+                                                           &replication_handler);
   MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
@@ -463,9 +495,9 @@ int main(int argc, char **argv) {
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
                       service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
-    telemetry->AddStorageCollector(dbms_handler, auth_);
+    telemetry->AddStorageCollector(dbms_handler, auth_, repl_state);
 #ifdef MG_ENTERPRISE
-    telemetry->AddDatabaseCollector(dbms_handler);
+    telemetry->AddDatabaseCollector(dbms_handler, repl_state);
 #else
     telemetry->AddDatabaseCollector();
 #endif

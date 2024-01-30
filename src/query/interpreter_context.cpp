@@ -17,13 +17,22 @@ namespace memgraph::query {
 
 InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
                                        replication::ReplicationState *rs, memgraph::system::System &system,
-                                       AuthQueryHandler *ah, AuthChecker *ac)
+#ifdef MG_ENTERPRISE
+                                       memgraph::coordination::CoordinatorState *coordinator_state,
+#endif
+                                       AuthQueryHandler *ah, AuthChecker *ac,
+                                       ReplicationQueryHandler *replication_handler)
     : dbms_handler(dbms_handler),
       config(interpreter_config),
       repl_state(rs),
+#ifdef MG_ENTERPRISE
+      coordinator_state_{coordinator_state},
+#endif
       auth(ah),
       auth_checker(ac),
-      system_{&system} {}
+      replication_handler_{replication_handler},
+      system_{&system} {
+}
 
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
     std::vector<std::string> maybe_kill_transaction_ids, const std::optional<std::string> &username,

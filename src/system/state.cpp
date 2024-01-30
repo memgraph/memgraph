@@ -46,7 +46,7 @@ auto intitialiseSystemDurability(std::optional<std::filesystem::path> storage, b
 
 auto loadLastCommittedSystemTimestamp(std::optional<kvstore::KVStore> const &store) -> uint64_t {
   auto lcst = store ? store->Get(kLastCommitedSystemTsKey) : std::nullopt;
-  return lcst ? std::stoul(*lcst) : 0u;
+  return lcst ? std::stoul(*lcst) : 0U;
 }
 
 }  // namespace

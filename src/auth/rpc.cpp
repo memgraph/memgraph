@@ -8,33 +8,17 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-#include "replication/messages.hpp"
+
+#include "auth/rpc.hpp"
+
 #include <json/json.hpp>
 #include "auth/auth.hpp"
-#include "auth/models.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
-#include "storage/v2/replication/rpc.hpp"
 #include "utils/enum.hpp"
 
 namespace memgraph::slk {
-// Serialize code for SystemHeartbeatRes
-void Save(const memgraph::replication::SystemHeartbeatRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.system_timestamp, builder);
-}
-void Load(memgraph::replication::SystemHeartbeatRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->system_timestamp, reader);
-}
 
-// Serialize code for SystemHeartbeatReq
-void Save(const memgraph::replication::SystemHeartbeatReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
-  /* Nothing to serialize */
-}
-void Load(memgraph::replication::SystemHeartbeatReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
-  /* Nothing to serialize */
-}
-
-// TODO Move
 // Serialize code for auth::Role
 void Save(const auth::Role &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.Serialize().dump(), builder);
@@ -155,50 +139,9 @@ void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *r
   memgraph::slk::Load(&self->success, reader);
 }
 
-// Serialize code for SystemRecoveryReq
-void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.forced_group_timestamp, builder);
-  memgraph::slk::Save(self.database_configs, builder);
-  memgraph::slk::Save(self.auth_config, builder);
-  memgraph::slk::Save(self.users, builder);
-  memgraph::slk::Save(self.roles, builder);
-}
-
-void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->forced_group_timestamp, reader);
-  memgraph::slk::Load(&self->database_configs, reader);
-  memgraph::slk::Load(&self->auth_config, reader);
-  memgraph::slk::Load(&self->users, reader);
-  memgraph::slk::Load(&self->roles, reader);
-}
-
-// Serialize code for SystemRecoveryRes
-void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(utils::EnumToNum<uint8_t>(self.result), builder);
-}
-
-void Load(memgraph::replication::SystemRecoveryRes *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
-}
-
 }  // namespace memgraph::slk
 
 namespace memgraph::replication {
-constexpr utils::TypeInfo SystemHeartbeatReq::kType{utils::TypeId::REP_SYSTEM_HEARTBEAT_REQ, "SystemHeartbeatReq",
-                                                    nullptr};
-
-constexpr utils::TypeInfo SystemHeartbeatRes::kType{utils::TypeId::REP_SYSTEM_HEARTBEAT_RES, "SystemHeartbeatRes",
-                                                    nullptr};
-
-constexpr utils::TypeInfo SystemRecoveryReq::kType{utils::TypeId::REP_SYSTEM_RECOVERY_REQ, "SystemRecoveryReq",
-                                                   nullptr};
-
-constexpr utils::TypeInfo SystemRecoveryRes::kType{utils::TypeId::REP_SYSTEM_RECOVERY_RES, "SystemRecoveryRes",
-                                                   nullptr};
 
 constexpr utils::TypeInfo UpdateAuthDataReq::kType{utils::TypeId::REP_UPDATE_AUTH_DATA_REQ, "UpdateAuthDataReq",
                                                    nullptr};
@@ -209,32 +152,6 @@ constexpr utils::TypeInfo UpdateAuthDataRes::kType{utils::TypeId::REP_UPDATE_AUT
 constexpr utils::TypeInfo DropAuthDataReq::kType{utils::TypeId::REP_DROP_AUTH_DATA_REQ, "DropAuthDataReq", nullptr};
 
 constexpr utils::TypeInfo DropAuthDataRes::kType{utils::TypeId::REP_DROP_AUTH_DATA_RES, "DropAuthDataRes", nullptr};
-
-void SystemHeartbeatReq::Save(const SystemHeartbeatReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void SystemHeartbeatReq::Load(SystemHeartbeatReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-void SystemHeartbeatRes::Save(const SystemHeartbeatRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void SystemHeartbeatRes::Load(SystemHeartbeatRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-
-void SystemRecoveryReq::Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void SystemRecoveryReq::Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-void SystemRecoveryRes::Save(const SystemRecoveryRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void SystemRecoveryRes::Load(SystemRecoveryRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
 
 void UpdateAuthDataReq::Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);

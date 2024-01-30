@@ -201,78 +201,6 @@ struct TimestampRes {
 
 using TimestampRpc = rpc::RequestResponse<TimestampReq, TimestampRes>;
 
-struct CreateDatabaseReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(CreateDatabaseReq *self, memgraph::slk::Reader *reader);
-  static void Save(const CreateDatabaseReq &self, memgraph::slk::Builder *builder);
-  CreateDatabaseReq() = default;
-  CreateDatabaseReq(std::string_view epoch_id, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
-                    storage::SalientConfig config)
-      : epoch_id(std::string(epoch_id)),
-        expected_group_timestamp{expected_group_timestamp},
-        new_group_timestamp(new_group_timestamp),
-        config(std::move(config)) {}
-
-  std::string epoch_id;
-  uint64_t expected_group_timestamp;
-  uint64_t new_group_timestamp;
-  storage::SalientConfig config;
-};
-
-struct CreateDatabaseRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
-
-  static void Load(CreateDatabaseRes *self, memgraph::slk::Reader *reader);
-  static void Save(const CreateDatabaseRes &self, memgraph::slk::Builder *builder);
-  CreateDatabaseRes() = default;
-  explicit CreateDatabaseRes(Result res) : result(res) {}
-
-  Result result;
-};
-
-using CreateDatabaseRpc = rpc::RequestResponse<CreateDatabaseReq, CreateDatabaseRes>;
-
-struct DropDatabaseReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(DropDatabaseReq *self, memgraph::slk::Reader *reader);
-  static void Save(const DropDatabaseReq &self, memgraph::slk::Builder *builder);
-  DropDatabaseReq() = default;
-  DropDatabaseReq(std::string_view epoch_id, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
-                  const utils::UUID &uuid)
-      : epoch_id(std::string(epoch_id)),
-        expected_group_timestamp{expected_group_timestamp},
-        new_group_timestamp(new_group_timestamp),
-        uuid(uuid) {}
-
-  std::string epoch_id;
-  uint64_t expected_group_timestamp;
-  uint64_t new_group_timestamp;
-  utils::UUID uuid;
-};
-
-struct DropDatabaseRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
-
-  static void Load(DropDatabaseRes *self, memgraph::slk::Reader *reader);
-  static void Save(const DropDatabaseRes &self, memgraph::slk::Builder *builder);
-  DropDatabaseRes() = default;
-  explicit DropDatabaseRes(Result res) : result(res) {}
-
-  Result result;
-};
-
-using DropDatabaseRpc = rpc::RequestResponse<DropDatabaseReq, DropDatabaseRes>;
-
 }  // namespace memgraph::storage::replication
 
 // SLK serialization declarations
@@ -329,21 +257,5 @@ void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::
 void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader);
-
-void Save(const memgraph::storage::replication::CreateDatabaseReq &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::CreateDatabaseReq *self, memgraph::slk::Reader *reader);
-
-void Save(const memgraph::storage::replication::CreateDatabaseRes &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::CreateDatabaseRes *self, memgraph::slk::Reader *reader);
-
-void Save(const memgraph::storage::replication::DropDatabaseReq &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::DropDatabaseReq *self, memgraph::slk::Reader *reader);
-
-void Save(const memgraph::storage::replication::DropDatabaseRes &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk

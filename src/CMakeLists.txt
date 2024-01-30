@@ -22,6 +22,7 @@ add_subdirectory(dbms)
 add_subdirectory(flags)
 add_subdirectory(distributed)
 add_subdirectory(replication)
+add_subdirectory(replication_handler)
 add_subdirectory(coordination)
 add_subdirectory(replication_coordination_glue)
 add_subdirectory(system)
@@ -44,10 +45,10 @@ set(mg_single_node_v2_sources
 add_executable(memgraph ${mg_single_node_v2_sources})
 target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(memgraph stdc++fs Threads::Threads
-        mg-telemetry mg-communication mg-communication-metrics mg-memory mg-utils mg-license mg-settings mg-glue mg-flags mg::system)
+        mg-telemetry mg-communication mg-communication-metrics mg-memory mg-utils mg-license mg-settings mg-glue mg-flags mg::system mg::replication_handler)
 
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
-# should be dynamically exported, so that `dlopen` can correctly link the
+# should be dynamically exported, so that `dlopen` can correctly link th
 # symbols in custom procedure module libraries.
 target_link_libraries(memgraph "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
 set_target_properties(memgraph PROPERTIES

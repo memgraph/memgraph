@@ -43,7 +43,12 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     auto &db_acc = *db_acc_opt;
 
     system.emplace();
-    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value(), *system);
+    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value(), *system
+#ifdef MG_ENTERPRISE
+                                ,
+                                nullptr
+#endif
+    );
 
     auto label = db_acc->storage()->NameToLabel("Starting");
 

@@ -26,29 +26,33 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   memgraph::auth::SynchedAuth *auth_;
 
  public:
-  AuthQueryHandler(memgraph::auth::SynchedAuth *auth);
+  explicit AuthQueryHandler(memgraph::auth::SynchedAuth *auth);
 
-  bool CreateUser(const std::string &username, const std::optional<std::string> &password) override;
+  bool CreateUser(const std::string &username, const std::optional<std::string> &password,
+                  system::Transaction *system_tx) override;
 
-  bool DropUser(const std::string &username) override;
+  bool DropUser(const std::string &username, system::Transaction *system_tx) override;
 
-  void SetPassword(const std::string &username, const std::optional<std::string> &password) override;
+  void SetPassword(const std::string &username, const std::optional<std::string> &password,
+                   system::Transaction *system_tx) override;
 
 #ifdef MG_ENTERPRISE
-  bool RevokeDatabaseFromUser(const std::string &db, const std::string &username) override;
+  bool RevokeDatabaseFromUser(const std::string &db_name, const std::string &username,
+                              system::Transaction *system_tx) override;
 
-  bool GrantDatabaseToUser(const std::string &db, const std::string &username) override;
+  bool GrantDatabaseToUser(const std::string &db_name, const std::string &username,
+                           system::Transaction *system_tx) override;
 
   std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &username) override;
 
-  bool SetMainDatabase(std::string_view db, const std::string &username) override;
+  bool SetMainDatabase(std::string_view db_name, const std::string &username, system::Transaction *system_tx) override;
 
-  void DeleteDatabase(std::string_view db) override;
+  void DeleteDatabase(std::string_view db_name, system::Transaction *system_tx) override;
 #endif
 
-  bool CreateRole(const std::string &rolename) override;
+  bool CreateRole(const std::string &rolename, system::Transaction *system_tx) override;
 
-  bool DropRole(const std::string &rolename) override;
+  bool DropRole(const std::string &rolename, system::Transaction *system_tx) override;
 
   std::vector<memgraph::query::TypedValue> GetUsernames() override;
 
@@ -58,9 +62,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename) override;
 
-  void SetRole(const std::string &username, const std::string &rolename) override;
+  void SetRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) override;
 
-  void ClearRole(const std::string &username) override;
+  void ClearRole(const std::string &username, system::Transaction *system_tx) override;
 
   std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role) override;
 
@@ -74,10 +78,12 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &edge_type_privileges
 #endif
-      ) override;
+      ,
+      system::Transaction *system_tx) override;
 
   void DenyPrivilege(const std::string &user_or_role,
-                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) override;
+                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                     system::Transaction *system_tx) override;
 
   void RevokePrivilege(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
@@ -88,7 +94,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &edge_type_privileges
 #endif
-      ) override;
+      ,
+      system::Transaction *system_tx) override;
 
  private:
   template <class TEditPermissionsFun
@@ -112,6 +119,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       ,
       const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun
 #endif
-  );
+      ,
+      system::Transaction *system_tx);
 };
 }  // namespace memgraph::glue

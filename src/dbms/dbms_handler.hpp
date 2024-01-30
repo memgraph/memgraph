@@ -25,10 +25,9 @@
 #include "constants.hpp"
 #include "dbms/database.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
-#include "dbms/replication_handler.hpp"
+#include "dbms/rpc.hpp"
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
-#include "replication/messages.hpp"
 #include "replication/replication_client.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/transaction.hpp"
@@ -38,7 +37,6 @@
 #include "coordination/coordinator_state.hpp"
 #include "dbms/database_handler.hpp"
 #endif
-#include "dbms/transaction.hpp"
 #include "global.hpp"
 #include "query/config.hpp"
 #include "query/interpreter_context.hpp"
@@ -108,7 +106,8 @@ class DbmsHandler {
    * @param auth pointer to the global authenticator
    * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  DbmsHandler(storage::Config config, memgraph::system::System &system, auth::SynchedAuth &auth,
+  DbmsHandler(storage::Config config, memgraph::system::System &system, replication::ReplicationState &repl_state,
+              auth::SynchedAuth &auth,
               bool recovery_on_startup);  // TODO If more arguments are added use a config struct
 #else
   /**
@@ -116,16 +115,14 @@ class DbmsHandler {
    *
    * @param configs storage configuration
    */
-  DbmsHandler(storage::Config config, memgraph::system::System &system)
-      : repl_state_{ReplicationStateRootPath(config)},
+  DbmsHandler(storage::Config config, memgraph::system::System &system, replication::ReplicationState &repl_state)
+      : repl_state_{repl_state},
         system_{&system},
         db_gatekeeper_{[&] {
                          config.salient.name = kDefaultDB;
                          return std::move(config);
                        }(),
-                       repl_state_} {
-    RecoverReplication(Get());
-  }
+                       repl_state_} {}
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -264,23 +261,12 @@ class DbmsHandler {
 #endif
   }
 
-  replication::ReplicationState &ReplicationState() { return repl_state_; }
-  replication::ReplicationState const &ReplicationState() const { return repl_state_; }
-
-  bool IsMain() const { return repl_state_.IsMain(); }
-  bool IsReplica() const { return repl_state_.IsReplica(); }
-
-#ifdef MG_ENTERPRISE
-  coordination::CoordinatorState &CoordinatorState() { return coordinator_state_; }
-#endif
-
   /**
    * @brief Return the statistics all databases.
    *
    * @return Statistics
    */
-  Statistics Stats() {
-    auto const replication_role = repl_state_.GetRole();
+  Statistics Stats(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
     Statistics stats{};
     // TODO: Handle overflow?
 #ifdef MG_ENTERPRISE
@@ -316,8 +302,7 @@ class DbmsHandler {
    *
    * @return std::vector<DatabaseInfo>
    */
-  std::vector<DatabaseInfo> Info() {
-    auto const replication_role = repl_state_.GetRole();
+  std::vector<DatabaseInfo> Info(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
     std::vector<DatabaseInfo> res;
 #ifdef MG_ENTERPRISE
     std::shared_lock<LockT> rd(lock_);
@@ -404,89 +389,16 @@ class DbmsHandler {
     }
   }
 
+  static void RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data);
+
+  auto default_config() const -> storage::Config const & {
 #ifdef MG_ENTERPRISE
-  // When being called by interpreter no need to gain lock, it should already be under a system transaction
-  // But concurrently the FrequentCheck is running and will need to lock before reading last_committed_system_timestamp_
-  template <bool REQUIRE_LOCK = false>
-  void SystemRestore(replication::ReplicationClient &client) {
-    // Check if system is up to date
-    if (client.state_.WithLock(
-            [](auto &state) { return state == memgraph::replication::ReplicationClient::State::READY; }))
-      return;
-
-    // Try to recover...
-    {
-      struct DbInfo {
-        std::vector<storage::SalientConfig> configs;
-        uint64_t last_committed_timestamp;
-      };
-      DbInfo db_info = std::invoke([&] {
-        auto guard = std::invoke([&]() -> std::optional<memgraph::system::TransactionGuard> {
-          if constexpr (REQUIRE_LOCK) {
-            return system_->transaction_guard();
-          }
-          return std::nullopt;
-        });
-
-        if (license::global_license_checker.IsEnterpriseValidFast()) {
-          auto configs = std::vector<storage::SalientConfig>{};
-          ForEach([&configs](DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
-          // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
-          return DbInfo{configs, system_->LastCommittedSystemTimestamp()};
-        }
-
-        // No license -> send only default config
-        return DbInfo{{Get()->config().salient}, system_->LastCommittedSystemTimestamp()};
-      });
-      try {
-        auto stream = std::invoke([&]() {
-          // Handle only default database is no license
-          if (!license::global_license_checker.IsEnterpriseValidFast()) {
-            return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
-                db_info.last_committed_timestamp, std::move(db_info.configs), auth::Auth::Config{},
-                std::vector<auth::User>{}, std::vector<auth::Role>{});
-          }
-          return auth_.WithLock([&](auto &locked_auth) {
-            return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
-                db_info.last_committed_timestamp, std::move(db_info.configs), locked_auth.GetConfig(),
-                locked_auth.AllUsers(), locked_auth.AllRoles());
-          });
-        });
-        const auto response = stream.AwaitResponse();
-        if (response.result == replication::SystemRecoveryRes::Result::FAILURE) {
-          client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
-          return;
-        }
-      } catch (memgraph::rpc::GenericRpcFailedException const &e) {
-        client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
-        return;
-      }
-    }
-
-    // Successfully recovered
-    client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::READY; });
-  }
-#endif
-
-  std::unique_ptr<query::ReplicationQueryHandler> GenReplHandler() {
-#ifdef MG_ENTERPRISE
-    return std::make_unique<ReplicationHandler>(*this, auth_);
+    return default_config_;
 #else
-    return std::make_unique<ReplicationHandler>(*this);
+    const auto acc = db_gatekeeper_.access();
+    MG_ASSERT(acc, "Failed to get default database!");
+    return acc->get()->config();
 #endif
-  }
-
-  void RecoverReplication(DatabaseAccess db_acc) {
-    if (allow_mt_repl || db_acc->name() == dbms::kDefaultDB) {
-      // Handle global replication state
-      spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-      // RECOVER REPLICA CONNECTIONS
-      memgraph::dbms::RestoreReplication(repl_state_, std::move(db_acc));
-    } else if (const ::memgraph::replication::RoleMainData *data =
-                   std::get_if<::memgraph::replication::RoleMainData>(&repl_state_.ReplicationData());
-               data && !data->registered_replicas_.empty()) {
-      spdlog::warn("Multi-tenant replication is currently not supported!");
-    }
   }
 
  private:
@@ -655,17 +567,19 @@ class DbmsHandler {
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   // TODO: move to be common
-  std::unique_ptr<kvstore::KVStore> durability_;      //!< list of active dbs (pointer so we can postpone its creation)
-  coordination::CoordinatorState coordinator_state_;  //!< Replication coordinator
-  auth::SynchedAuth &auth_;                           //!< Synchronized auth::Auth
+  std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
+  auth::SynchedAuth &auth_;                       //!< Synchronized auth::Auth
 #endif
  private:
-  replication::ReplicationState repl_state_;  //!< Global replication state
+  // NOTE: atm the only reason this exists here, is because we pass it into the construction of New Database's
+  //       Database only uses it as a convience to make the correct Access without out needing to be told the
+  //       current replication role. TODO: make Database Access explicit about the role and remove this from
+  //       dbms stuff
+  replication::ReplicationState &repl_state_;  //!< Ref to global replication state
  public:
   // TODO fix to be non public/remove from dbms....maybe
   system::System *system_;
 
- private:
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
 #endif

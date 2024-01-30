@@ -13,6 +13,7 @@
 
 #include "replication/epoch.hpp"
 #include "replication/replication_client.hpp"
+#include "replication/state.hpp"
 
 namespace memgraph::system {
 
@@ -29,7 +30,7 @@ struct ISystemAction {
   virtual bool do_replication(memgraph::replication::ReplicationClient &client,
                               memgraph::replication::ReplicationEpoch const &epoch, Transaction const &txn) const = 0;
 
-  virtual void post_replication() const = 0;
+  virtual void post_replication(memgraph::replication::RoleMainData &mainData) const = 0;
 
   virtual ~ISystemAction() = default;
 };

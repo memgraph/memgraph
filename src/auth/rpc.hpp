@@ -11,36 +11,14 @@
 
 #pragma once
 
-#include <cstdint>
-#include <vector>
+#include <optional>
+
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "rpc/messages.hpp"
-#include "storage/v2/config.hpp"
+#include "slk/streams.hpp"
 
 namespace memgraph::replication {
-struct SystemHeartbeatReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(SystemHeartbeatReq *self, memgraph::slk::Reader *reader);
-  static void Save(const SystemHeartbeatReq &self, memgraph::slk::Builder *builder);
-  SystemHeartbeatReq() = default;
-};
-
-struct SystemHeartbeatRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(SystemHeartbeatRes *self, memgraph::slk::Reader *reader);
-  static void Save(const SystemHeartbeatRes &self, memgraph::slk::Builder *builder);
-  SystemHeartbeatRes() = default;
-  explicit SystemHeartbeatRes(uint64_t system_timestamp) : system_timestamp(system_timestamp) {}
-
-  uint64_t system_timestamp;
-};
-
-using SystemHeartbeatRpc = rpc::RequestResponse<SystemHeartbeatReq, SystemHeartbeatRes>;
 
 struct UpdateAuthDataReq {
   static const utils::TypeInfo kType;
@@ -119,51 +97,17 @@ struct DropAuthDataRes {
 
 using DropAuthDataRpc = rpc::RequestResponse<DropAuthDataReq, DropAuthDataRes>;
 
-struct SystemRecoveryReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
-  static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
-  SystemRecoveryReq() = default;
-  SystemRecoveryReq(uint64_t forced_group_timestamp, std::vector<storage::SalientConfig> database_configs,
-                    auth::Auth::Config auth_config, std::vector<auth::User> users, std::vector<auth::Role> roles)
-      : forced_group_timestamp{forced_group_timestamp},
-        database_configs(std::move(database_configs)),
-        auth_config(std::move(auth_config)),
-        users{std::move(users)},
-        roles{std::move(roles)} {}
-
-  uint64_t forced_group_timestamp;
-  std::vector<storage::SalientConfig> database_configs;
-  auth::Auth::Config auth_config;
-  std::vector<auth::User> users;
-  std::vector<auth::Role> roles;
-};
-
-struct SystemRecoveryRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
-
-  static void Load(SystemRecoveryRes *self, memgraph::slk::Reader *reader);
-  static void Save(const SystemRecoveryRes &self, memgraph::slk::Builder *builder);
-  SystemRecoveryRes() = default;
-  explicit SystemRecoveryRes(Result res) : result(res) {}
-
-  Result result;
-};
-
-using SystemRecoveryRpc = rpc::RequestResponse<SystemRecoveryReq, SystemRecoveryRes>;
-
 }  // namespace memgraph::replication
 
 namespace memgraph::slk {
-void Save(const memgraph::replication::SystemHeartbeatRes &self, memgraph::slk::Builder *builder);
-void Load(memgraph::replication::SystemHeartbeatRes *self, memgraph::slk::Reader *reader);
-void Save(const memgraph::replication::SystemHeartbeatReq & /*self*/, memgraph::slk::Builder * /*builder*/);
-void Load(memgraph::replication::SystemHeartbeatReq * /*self*/, memgraph::slk::Reader * /*reader*/);
+
+void Save(const auth::Role &self, memgraph::slk::Builder *builder);
+void Load(auth::Role *self, memgraph::slk::Reader *reader);
+void Save(const auth::User &self, memgraph::slk::Builder *builder);
+void Load(auth::User *self, memgraph::slk::Reader *reader);
+void Save(const auth::Auth::Config &self, memgraph::slk::Builder *builder);
+void Load(auth::Auth::Config *self, memgraph::slk::Reader *reader);
+
 void Save(const memgraph::replication::UpdateAuthDataRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::UpdateAuthDataRes *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::UpdateAuthDataReq & /*self*/, memgraph::slk::Builder * /*builder*/);
@@ -172,8 +116,4 @@ void Save(const memgraph::replication::DropAuthDataRes &self, memgraph::slk::Bui
 void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::DropAuthDataReq & /*self*/, memgraph::slk::Builder * /*builder*/);
 void Load(memgraph::replication::DropAuthDataReq * /*self*/, memgraph::slk::Reader * /*reader*/);
-void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder);
-void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader);
-void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder);
-void Load(memgraph::replication::SystemRecoveryRes *self, memgraph::slk::Reader *reader);
 }  // namespace memgraph::slk

@@ -95,7 +95,15 @@ class InterpreterTest : public ::testing::Test {
   };
 
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext interpreter_context{{}, kNoHandler, &repl_state, system_state};
+  memgraph::query::InterpreterContext interpreter_context{{},
+                                                          kNoHandler,
+                                                          &repl_state,
+                                                          system_state
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr
+#endif
+  };
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -1152,8 +1160,15 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
 
     memgraph::replication::ReplicationState repl_state{std::nullopt};
     memgraph::system::System system_state;
-    memgraph::query::InterpreterContext csv_interpreter_context{
-        {.query = {.allow_load_csv = allow_load_csv}}, nullptr, &repl_state, system_state};
+    memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}},
+                                                                nullptr,
+                                                                &repl_state,
+                                                                system_state
+#ifdef MG_ENTERPRISE
+                                                                ,
+                                                                nullptr
+#endif
+    };
     InterpreterFaker interpreter_faker{&csv_interpreter_context, db_acc};
     for (const auto &query : queries) {
       if (allow_load_csv) {

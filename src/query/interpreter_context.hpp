@@ -20,6 +20,7 @@
 
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
+#include "query/replication_query_handler.hpp"
 #include "query/typed_value.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
@@ -30,6 +31,9 @@
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+#ifdef MG_ENTERPRISE
+#include "coordination/coordinator_state.hpp"
+#endif
 
 namespace memgraph::dbms {
 class DbmsHandler;
@@ -51,7 +55,11 @@ class Interpreter;
 struct InterpreterContext {
   InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
                      replication::ReplicationState *rs, memgraph::system::System &system,
-                     AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr);
+#ifdef MG_ENTERPRISE
+                     memgraph::coordination::CoordinatorState *coordinator_state,
+#endif
+                     AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
+                     ReplicationQueryHandler *replication_handler = nullptr);
 
   memgraph::dbms::DbmsHandler *dbms_handler;
 
@@ -62,9 +70,13 @@ struct InterpreterContext {
 
   // GLOBAL
   memgraph::replication::ReplicationState *repl_state;
+#ifdef MG_ENTERPRISE
+  memgraph::coordination::CoordinatorState *coordinator_state_;
+#endif
 
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;
+  ReplicationQueryHandler *replication_handler_;
   system::System *system_;
 
   // Used to check active transactions

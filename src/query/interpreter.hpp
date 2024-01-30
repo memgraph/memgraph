@@ -72,6 +72,7 @@ inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
+#ifdef MG_ENTERPRISE
 class CoordinatorQueryHandler {
  public:
   CoordinatorQueryHandler() = default;
@@ -93,7 +94,6 @@ class CoordinatorQueryHandler {
     ReplicationQuery::ReplicaState state;
   };
 
-#ifdef MG_ENTERPRISE
   struct MainReplicaStatus {
     std::string_view name;
     std::string_view socket_address;
@@ -103,9 +103,7 @@ class CoordinatorQueryHandler {
     MainReplicaStatus(std::string_view name, std::string_view socket_address, bool alive, bool is_main)
         : name{name}, socket_address{socket_address}, alive{alive}, is_main{is_main} {}
   };
-#endif
 
-#ifdef MG_ENTERPRISE
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RegisterInstance(const std::string &coordinator_socket_address,
                                 const std::string &replication_socket_address,
@@ -117,9 +115,8 @@ class CoordinatorQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<coordination::CoordinatorInstanceStatus> ShowInstances() const = 0;
-
-#endif
 };
+#endif
 
 class AnalyzeGraphQueryHandler {
  public:

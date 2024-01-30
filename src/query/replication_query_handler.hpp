@@ -42,6 +42,9 @@ struct ReplicationQueryHandler {
   virtual bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config) = 0;
 
   // as MAIN, define and connect to REPLICAs
+  virtual auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
+      -> utils::BasicResult<RegisterReplicaError> = 0;
+
   virtual auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterReplicaError> = 0;
 

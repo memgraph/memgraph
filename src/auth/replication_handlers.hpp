@@ -12,21 +12,20 @@
 #pragma once
 
 #include "auth/auth.hpp"
-#include "dbms/dbms_handler.hpp"
+#include "replication/state.hpp"
 #include "slk/streams.hpp"
-
 #include "system/state.hpp"
 
-namespace memgraph::dbms {
-namespace auth_replication {
-
-// #ifdef MG_ENTERPRISE // TODO Is it???
-void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access, auth::SynchedAuth &auth,
+namespace memgraph::auth {
+#ifdef MG_ENTERPRISE
+void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_access, auth::SynchedAuth &auth,
                            slk::Reader *req_reader, slk::Builder *res_builder);
-void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access, auth::SynchedAuth &auth,
+void DropAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_access, auth::SynchedAuth &auth,
                          slk::Reader *req_reader, slk::Builder *res_builder);
-// #endif
 
-}  // namespace auth_replication
-
-}  // namespace memgraph::dbms
+bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_config,
+                           const std::vector<auth::User> &users, const std::vector<auth::Role> &roles);
+void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,
+              auth::SynchedAuth &auth);
+#endif
+}  // namespace memgraph::auth

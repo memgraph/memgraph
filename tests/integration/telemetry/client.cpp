@@ -44,14 +44,19 @@ int main(int argc, char **argv) {
   memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(db_config));
 
   memgraph::system::System system_state;
-  memgraph::dbms::DbmsHandler dbms_handler(db_config, system_state
+  memgraph::dbms::DbmsHandler dbms_handler(db_config, system_state, repl_state
 #ifdef MG_ENTERPRISE
                                            ,
                                            auth_, false
 #endif
   );
-  memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, &repl_state, system_state, &auth_handler,
-                                                           &auth_checker);
+  memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, &repl_state, system_state
+#ifdef MG_ENTERPRISE
+                                                           ,
+                                                           nullptr
+#endif
+                                                           ,
+                                                           &auth_handler, &auth_checker);
 
   memgraph::requests::Init();
   memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory, memgraph::utils::GenerateUUID(),
@@ -66,9 +71,9 @@ int main(int argc, char **argv) {
   });
 
   // Memgraph specific collectors
-  telemetry.AddStorageCollector(dbms_handler, auth_);
+  telemetry.AddStorageCollector(dbms_handler, auth_, repl_state);
 #ifdef MG_ENTERPRISE
-  telemetry.AddDatabaseCollector(dbms_handler);
+  telemetry.AddDatabaseCollector(dbms_handler, repl_state);
 #else
   telemetry.AddDatabaseCollector();
 #endif

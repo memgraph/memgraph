@@ -41,7 +41,12 @@ int main(int argc, char *argv[]) {
   auto &db_acc = *db_acc_opt;
   memgraph::system::System system_state;
   memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state,
-                                                          system_state);
+                                                          system_state
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr
+#endif
+  );
   memgraph::query::Interpreter interpreter{&interpreter_context, db_acc};
 
   ResultStreamFaker stream(db_acc->storage());
