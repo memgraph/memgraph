@@ -37,7 +37,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10011",
-            "--replication-restore-state-on-startup",
         ],
         "log_file": "instance_1.log",
         "data_directory": f"{TEMP_DIR}/instance_1",
@@ -51,7 +50,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10012",
-            "--replication-restore-state-on-startup",
         ],
         "log_file": "instance_2.log",
         "data_directory": f"{TEMP_DIR}/instance_2",
@@ -65,7 +63,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10013",
-            "--replication-restore-state-on-startup",
         ],
         "log_file": "instance_3.log",
         "data_directory": f"{TEMP_DIR}/instance_3",
@@ -82,6 +79,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         ],
     },
 }
+
 
 def test_replication_works_on_failover():
     # Goal of this test is to check the replication works after failover command.
@@ -129,6 +127,13 @@ def test_replication_works_on_failover():
     expected_data_on_new_main = [
         ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
         ("instance_3", "127.0.0.1:10003", "sync", 0, 0, "invalid"),
+    ]
+    mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+    expected_data_on_new_main = [
+        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        ("instance_3", "127.0.0.1:10003", "sync", 0, 0, "ready"),
     ]
     mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
 
@@ -402,4 +407,3 @@ def test_automatic_failover_main_back_as_main():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
-
