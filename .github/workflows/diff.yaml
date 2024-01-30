@@ -139,7 +139,7 @@ jobs:
       - name: Save code coverage
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage"
+          name: "Code coverage(Code analysis)"
           path: tools/github/generated/code_coverage.tar.gz
 
       - name: Run clang-tidy
@@ -210,7 +210,7 @@ jobs:
       - name: Save cppcheck and clang-format errors
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage"
+          name: "Code coverage(Debug build)"
           path: tools/github/cppcheck_and_clang_format.txt
 
   release_build:
@@ -332,7 +332,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Test data"
+          name: "Test data(Release build)"
           path: |
             # multiple paths could be defined
             build/logs
@@ -378,7 +378,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Test data"
+          name: "Test data(High availability build)"
           path: |
             # multiple paths could be defined
             build/logs
@@ -442,7 +442,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Test data"
+          name: "Test data(MultiTenancy replication build)"
           path: |
             # multiple paths could be defined
             build/logs
