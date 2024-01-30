@@ -55,6 +55,18 @@ std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
   return mapping_iter->second;
 }
 
+// Tries to convert a enum into string, which would then contain a value if the conversion
+// has been successful.
+template <typename Enum>
+auto EnumToString(const auto &value, const auto &mappings) -> std::optional<std::string_view> {
+  const auto mapping_iter =
+      std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.second == value; });
+  if (mapping_iter == mappings.cend()) {
+    return std::nullopt;
+  }
+  return mapping_iter->first;
+}
+
 template <typename T, typename Enum>
 requires std::integral<T>
 inline T EnumToNum(Enum res) {
