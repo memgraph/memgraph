@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,6 +52,10 @@ class DurableMetadata {
 
   bool PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property,
                                                                const std::string &key);
+
+  bool PersistTextIndexCreation(std::string index_name);
+
+  bool PersistTextIndexDeletion(std::string index_name);
 
   bool PersistUniqueConstraintCreation(LabelId label, const std::set<PropertyId> &properties);
 

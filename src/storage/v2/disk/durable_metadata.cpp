@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@ constexpr const char *kVertexCountDescr = "vertex_count";
 constexpr const char *kEdgeDountDescr = "edge_count";
 constexpr const char *kLabelIndexStr = "label_index";
 constexpr const char *kLabelPropertyIndexStr = "label_property_index";
+constexpr const char *kTextIndexStr = "label_property_index";
 constexpr const char *kExistenceConstraintsStr = "existence_constraints";
 constexpr const char *kUniqueConstraintsStr = "unique_constraints";
 }  // namespace
@@ -140,6 +141,29 @@ bool DurableMetadata::PersistLabelPropertyIndexAndExistenceConstraintDeletion(La
       return durability_kvstore_.Delete(key);
     }
     return durability_kvstore_.Put(key, utils::Join(label_properties, "|"));
+  }
+  return true;
+}
+
+bool DurableMetadata::PersistTextIndexCreation(std::string index_name) {
+  if (auto text_index_store = durability_kvstore_.Get(kTextIndexStr); text_index_store.has_value()) {
+    std::string &value = text_index_store.value();
+    value += "|";
+    value += index_name;
+    return durability_kvstore_.Put(kTextIndexStr, value);
+  }
+  return durability_kvstore_.Put(kTextIndexStr, index_name);
+}
+
+bool DurableMetadata::PersistTextIndexDeletion(std::string index_name) {
+  if (auto text_index_store = durability_kvstore_.Get(kTextIndexStr); text_index_store.has_value()) {
+    const std::string &value = text_index_store.value();
+    std::vector<std::string> text_indices = utils::Split(value, "|");
+    std::erase(text_indices, index_name);
+    if (text_indices.empty()) {
+      return durability_kvstore_.Delete(kTextIndexStr);
+    }
+    return durability_kvstore_.Put(kTextIndexStr, utils::Join(text_indices, "|"));
   }
   return true;
 }

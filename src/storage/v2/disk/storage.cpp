@@ -1652,10 +1652,14 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage.");
         } break;
         case MetadataDelta::Action::TEXT_INDEX_CREATE: {
-          // TODO antepusic
+          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(md_delta.text.index_name)) {
+            return StorageManipulationError{PersistenceError{}};
+          }
         } break;
         case MetadataDelta::Action::TEXT_INDEX_DROP: {
-          // TODO antepusic
+          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(md_delta.text.index_name)) {
+            return StorageManipulationError{PersistenceError{}};
+          }
         } break;
         case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
           const auto &info = md_delta.label_property;
@@ -1905,8 +1909,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   return {};
 }
 
-// TODO antepusic move text index creation here
-
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label,
                                                                                              PropertyId property) {
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
@@ -1950,8 +1952,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
 }
-
-// TODO antepusic move text index deletion here
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
