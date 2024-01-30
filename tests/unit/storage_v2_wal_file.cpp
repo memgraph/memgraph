@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,6 +49,10 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR;
+    case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
+      return memgraph::storage::durability::WalDeltaData::Type::TEXT_INDEX_CREATE;
+    case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
+      return memgraph::storage::durability::WalDeltaData::Type::TEXT_INDEX_DROP;
     case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
       return memgraph::storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
     case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
@@ -267,6 +271,8 @@ class DeltaGenerator final {
           break;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
           data.operation_label_property.label = label;

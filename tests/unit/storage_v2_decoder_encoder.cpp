@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -355,6 +355,8 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
+        case memgraph::storage::durability::Marker::DELTA_TEXT_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_TEXT_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
         case memgraph::storage::durability::Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
