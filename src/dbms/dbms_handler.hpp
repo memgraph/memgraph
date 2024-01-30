@@ -261,6 +261,16 @@ class DbmsHandler {
 #endif
   }
 
+  replication::ReplicationState &ReplicationState() { return repl_state_; }
+  replication::ReplicationState const &ReplicationState() const { return repl_state_; }
+
+  bool IsMain() const { return repl_state_.IsMain(); }
+  bool IsReplica() const { return repl_state_.IsReplica(); }
+
+#ifdef MG_ENTERPRISE
+  //coordination::CoordinatorState &CoordinatorState() { return coordinator_state_; }
+#endif
+
   /**
    * @brief Return the statistics all databases.
    *

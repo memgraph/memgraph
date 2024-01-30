@@ -101,6 +101,20 @@ auto CoordinatorData::TryFailover() -> void {
     return instance != *chosen_replica_instance;
   };
 
+  main_id = utils::UUID{};
+
+  for (auto &unchosen_replica_instance :
+       replica_instances | ranges::views::filter(not_chosen_replica_instance)) {
+    if (auto res = memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(
+            unchosen_replica_instance.client_.RpcClient(), main_id);
+        !res) {
+      // TODO AF: update message here
+      spdlog::error("Failed to swap uuid for replica, aborting failover");
+    }
+  }
+  spdlog::error(fmt::format("FICO: sending swap main uuid rpc passed {} ", std::string(main_id)));
+
+
   std::ranges::transform(registered_instances_ | ranges::views::filter(not_chosen_replica_instance),
                          std::back_inserter(repl_clients_info),
                          [](const CoordinatorInstance &instance) { return instance.ReplicationClientInfo(); });
@@ -109,35 +123,11 @@ auto CoordinatorData::TryFailover() -> void {
     spdlog::warn("Failover failed since promoting replica to main failed!");
     return;
   }
-<<<<<<< HEAD
-  spdlog::info("Failover successful! Instance {} promoted to main.", chosen_replica_instance->InstanceName());
-=======
 
-  main_id = utils::UUID{};
 
-  for (const auto &unchosen_replica_instance :
-       replica_instances | ranges::views::filter(not_chosen_replica_instance) | ranges::views::filter(not_main)) {
-    if (auto res = unchosen_replica_instance.client_.SendSwapMainUUIDRpc(main_id); !res) {
-      // TODO AF: update message here
-      spdlog::error("Failed to swap uuid for replica, aborting failover");
-      return DoFailoverStatus::RPC_FAILED;
-    }
-  }
-  spdlog::error(fmt::format("FICO: sending swap main uuid rpc passed {} ", std::string(main_id)));
-
-  if (!chosen_replica_instance->client_.SendPromoteReplicaToMainRpc(main_id, std::move(repl_clients_info))) {
-    chosen_replica_instance->RestoreAfterFailedFailover();
-    return DoFailoverStatus::RPC_FAILED;
-  }
-
-  auto old_main = std::ranges::find_if(registered_instances_, &CoordinatorInstance::IsMain);
-  // TODO: (andi) For performing restoration we will have to improve this
-  old_main->client_.PauseFrequentCheck();
-
-  chosen_replica_instance->PostFailover(main_succ_cb_, main_fail_cb_);
-
-  return DoFailoverStatus::SUCCESS;
->>>>>>> df7655e8f (add swap uuid rpc, implement rpc in failover and set instance to main funcs)
+  
+ 
+ spdlog::info("Failover successful! Instance {} promoted to main.", chosen_replica_instance->InstanceName());
 }
 
 auto CoordinatorData::ShowInstances() const -> std::vector<CoordinatorInstanceStatus> {

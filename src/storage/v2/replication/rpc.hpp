@@ -188,8 +188,9 @@ struct TimestampReq {
   static void Load(TimestampReq *self, memgraph::slk::Reader *reader);
   static void Save(const TimestampReq &self, memgraph::slk::Builder *builder);
   TimestampReq() = default;
-  explicit TimestampReq(const utils::UUID &uuid) : uuid{uuid} {}
+  explicit TimestampReq(const utils::UUID &main_uuid, const utils::UUID &uuid) : main_uuid(main_uuid), uuid{uuid} {}
 
+  utils::UUID main_uuid;
   utils::UUID uuid;
 };
 

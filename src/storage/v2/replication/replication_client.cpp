@@ -97,7 +97,7 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
   info.current_number_of_timestamp_behind_master = 0;
 
   try {
-    auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(storage->uuid())};
+    auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(main_uuid_, storage->uuid())};
     const auto response = stream.AwaitResponse();
     const auto is_success = response.success;
 

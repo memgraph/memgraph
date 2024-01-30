@@ -52,18 +52,6 @@ void DemoteMainToReplicaRes::Load(DemoteMainToReplicaRes *self, memgraph::slk::R
   memgraph::slk::Load(self, reader);
 }
 
-void SwapMainUUIDReq::Save(const SwapMainUUIDReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-
-void SwapMainUUIDReq::Load(SwapMainUUIDReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
-
-void SwapMainUUIDRes::Save(const SwapMainUUIDRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-
-void SwapMainUUIDRes::Load(SwapMainUUIDRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
-
 }  // namespace coordination
 
 constexpr utils::TypeInfo coordination::PromoteReplicaToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ,
@@ -77,12 +65,6 @@ constexpr utils::TypeInfo coordination::DemoteMainToReplicaReq::kType{utils::Typ
 
 constexpr utils::TypeInfo coordination::DemoteMainToReplicaRes::kType{utils::TypeId::COORD_SET_REPL_MAIN_RES,
                                                                       "CoordDemoteToReplicaRes", nullptr};
-
-constexpr utils::TypeInfo coordination::SwapMainUUIDReq::kType{utils::TypeId::COORD_SWAP_UUID_REQ, "SwapUUIDReq",
-                                                               nullptr};
-
-constexpr utils::TypeInfo coordination::SwapMainUUIDRes::kType{utils::TypeId::COORD_SWAP_UUID_RES, "SwapUUIDRes",
-                                                               nullptr};
 
 namespace slk {
 
@@ -118,22 +100,6 @@ void Save(const memgraph::coordination::DemoteMainToReplicaRes &self, memgraph::
 
 void Load(memgraph::coordination::DemoteMainToReplicaRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
-}
-
-void Save(const memgraph::coordination::SwapMainUUIDRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
-}
-
-void Load(memgraph::coordination::SwapMainUUIDRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
-}
-
-void Save(const memgraph::coordination::SwapMainUUIDReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.uuid, builder);
-}
-
-void Load(memgraph::coordination::SwapMainUUIDReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->uuid, reader);
 }
 
 }  // namespace slk

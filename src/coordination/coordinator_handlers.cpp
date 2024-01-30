@@ -34,7 +34,7 @@ void CoordinatorHandlers::Register(memgraph::coordination::CoordinatorServer &se
         CoordinatorHandlers::DemoteMainToReplicaHandler(replication_handler, req_reader, res_builder);
       });
 
-  server.Register<coordination::SwapMainUUIDRpc>(
+  server.Register<replication_coordination_glue::SwapMainUUIDRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         spdlog::info("Received SwapMainUUIDRPC on coordinator server");
         CoordinatorHandlers::SwapMainUUIDHandler(replication_handler, req_reader, res_builder);
@@ -46,16 +46,16 @@ void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &r
 
   if (!replication_handler.IsReplica()) {
     spdlog::error("Setting main uuid must be performed on replica.");
-    slk::Save(coordination::SwapMainUUIDRes{false}, res_builder);
+    slk::Save(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
     return;
   }
 
-  coordination::SwapMainUUIDReq req;
+  replication_coordination_glue::SwapMainUUIDReq req;
   slk::Load(&req, req_reader);
   spdlog::info(fmt::format("Set replica data UUID"));
   std::get<memgraph::replication::RoleReplicaData>(replication_handler.GetReplState().ReplicationData()).uuid_ = req.uuid;
 
-  slk::Save(coordination::SwapMainUUIDRes{true}, res_builder);
+  slk::Save(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
 }
 
 void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHandler &replication_handler,
@@ -96,7 +96,6 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
 
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues.
-  if (!replication_handler.DoReplicaToMainPromotion()) {
   if (const bool success = replication_handler.DoReplicaToMainPromotion(req.main_uuid_); !success) {
     spdlog::error("Promoting replica to main failed!");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);

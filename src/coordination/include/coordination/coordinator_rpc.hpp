@@ -82,35 +82,6 @@ struct DemoteMainToReplicaRes {
 
 using DemoteMainToReplicaRpc = rpc::RequestResponse<DemoteMainToReplicaReq, DemoteMainToReplicaRes>;
 
-struct SwapMainUUIDReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(SwapMainUUIDReq *self, memgraph::slk::Reader *reader);
-  static void Save(const SwapMainUUIDReq &self, memgraph::slk::Builder *builder);
-
-  explicit SwapMainUUIDReq(const utils::UUID &uuid) : uuid(uuid) {}
-
-  SwapMainUUIDReq() = default;
-
-  utils::UUID uuid;
-};
-
-struct SwapMainUUIDRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(SwapMainUUIDRes *self, memgraph::slk::Reader *reader);
-  static void Save(const SwapMainUUIDRes &self, memgraph::slk::Builder *builder);
-
-  explicit SwapMainUUIDRes(bool success) : success(success) {}
-  SwapMainUUIDRes() = default;
-
-  bool success;
-};
-
-using SwapMainUUIDRpc = rpc::RequestResponse<SwapMainUUIDReq, SwapMainUUIDRes>;
-
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -128,12 +99,6 @@ void Load(memgraph::coordination::DemoteMainToReplicaRes *self, memgraph::slk::R
 void Save(const memgraph::coordination::DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader);
 
-
-// SwapMainUUIDRpc
-void Save(const memgraph::coordination::SwapMainUUIDReq &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::SwapMainUUIDReq *self, memgraph::slk::Reader *reader);
-void Save(const memgraph::coordination::SwapMainUUIDRes &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::SwapMainUUIDRes *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

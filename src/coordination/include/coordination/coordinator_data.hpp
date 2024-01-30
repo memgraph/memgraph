@@ -14,14 +14,14 @@
 #include "utils/uuid.hpp"
 #ifdef MG_ENTERPRISE
 
+#include <list>
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_server.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
+#include "replication_coordination_glue/handler.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/thread_pool.hpp"
-
-#include <list>
 
 namespace memgraph::coordination {
 class CoordinatorData {

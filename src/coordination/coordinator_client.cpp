@@ -89,6 +89,7 @@ auto CoordinatorClient::SendPromoteReplicaToMainRpc(
   return false;
 }
 
+
 auto CoordinatorClient::DemoteToReplica() const -> bool {
   auto const &instance_name = config_.instance_name;
   try {
@@ -104,6 +105,8 @@ auto CoordinatorClient::DemoteToReplica() const -> bool {
   }
   return false;
 }
+
+
 
 auto CoordinatorClient::SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bool {
   try {

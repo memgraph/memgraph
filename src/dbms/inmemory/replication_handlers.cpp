@@ -78,7 +78,7 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
 }
 }  // namespace
 
-void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, const replication::RoleReplicaData &data) {
+void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
   auto &server = *data.server;
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
@@ -105,10 +105,39 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, cons
         spdlog::debug("Received CurrentWalRpc");
         InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
-  server.rpc_server_.Register<storage::replication::TimestampRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received TimestampRpc");
-    InMemoryReplicationHandlers::TimestampHandler(dbms_handler, req_reader, res_builder);
-  });
+  server.rpc_server_.Register<storage::replication::TimestampRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received TimestampRpc");
+        InMemoryReplicationHandlers::TimestampHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received SwapMainUUIDRPC");
+        InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, req_reader, res_builder);
+      });
+}
+
+void InMemoryReplicationHandlers::LogWrongMain(const std::optional<utils::UUID> &current_main_uuid,
+                                               const utils::UUID &main_req_id, std::string_view rpc_req) {
+  spdlog::error(fmt::format("Received {} with main_id: {} != current_main_uuid: {}", rpc_req, std::string(main_req_id),
+                            current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : ""));
+}
+
+void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler,
+                                                      replication::RoleReplicaData &role_replica_data,
+                                                      slk::Reader *req_reader, slk::Builder *res_builder) {
+  if (!dbms_handler->IsReplica()) {
+    spdlog::error("Setting main uuid must be performed on replica.");
+    slk::Save(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
+    return;
+  }
+
+  replication_coordination_glue::SwapMainUUIDReq req;
+  slk::Load(&req, req_reader);
+  spdlog::error(fmt::format("Set replica data UUID  to main uuid {}", std::string(req.uuid)));
+  role_replica_data.uuid_ = req.uuid;
+
+  slk::Save(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
 }
 
 void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handler,
@@ -119,14 +148,11 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
-    std::string current_main_uuid_str;
-    if (current_main_uuid) {
-      current_main_uuid_str = std::string(*current_main_uuid);
-    }
-    spdlog::error(fmt::format("FICO: Received HeartbeatHandler rpc with id {}, where current_main_uuid is {}",
-                              std::string(req.main_uuid), current_main_uuid_str));
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
+    storage::replication::HeartbeatRes res{false, 0, ""};
+    slk::Save(res, res_builder);
+    return;
   }
-
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();
   storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load(),
@@ -141,12 +167,10 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   slk::Load(&req, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
-    std::string current_main_uuid_str;
-    if (current_main_uuid) {
-      current_main_uuid_str = std::string(*current_main_uuid);
-    }
-    spdlog::error(fmt::format("FICO: Received AppendDeltasHandler rpc with id {}, where current_main_uuid is {}",
-                              std::string(req.main_uuid), current_main_uuid_str));
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::AppendDeltasReq::kType.name);
+    storage::replication::AppendDeltasRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
   }
 
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
@@ -220,12 +244,10 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
-    std::string current_main_uuid_str;
-    if (current_main_uuid) {
-      current_main_uuid_str = std::string(*current_main_uuid);
-    }
-    spdlog::error(fmt::format("FICO: Received SnapshotHandler rpc with id {}, where current_main_uuid is {}",
-                              std::string(req.main_uuid), current_main_uuid_str));
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
+    storage::replication::SnapshotRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
   }
 
   storage::replication::Decoder decoder(req_reader);
@@ -312,12 +334,10 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
-    std::string current_main_uuid_str;
-    if (current_main_uuid) {
-      current_main_uuid_str = std::string(*current_main_uuid);
-    }
-    spdlog::error(fmt::format("FICO: Received WalFilesHandler rpc with id {}, where current_main_uuid is {}",
-                              std::string(req.main_uuid), current_main_uuid_str));
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
+    storage::replication::WalFilesRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
   }
 
   const auto wal_file_number = req.file_number;
@@ -338,12 +358,19 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
 }
 
 void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_handler,
-                                                    const std::optional<utils::UUID> &main_uuid,
+                                                    const std::optional<utils::UUID> &current_main_uuid,
                                                     slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::CurrentWalReq req;
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
+    storage::replication::CurrentWalRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
     storage::replication::CurrentWalRes res{false, 0};
     slk::Save(res, res_builder);
     return;
@@ -410,13 +437,21 @@ void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
   }
 }
 
-void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                   slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handler,
+                                                   const std::optional<utils::UUID> &current_main_uuid,
+                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::TimestampReq req;
   slk::Load(&req, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     storage::replication::TimestampRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::TimestampReq::kType.name);
+    storage::replication::CurrentWalRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }

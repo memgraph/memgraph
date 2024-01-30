@@ -24,7 +24,7 @@ class DbmsHandler;
 
 class InMemoryReplicationHandlers {
  public:
-  static void Register(dbms::DbmsHandler *dbms_handler, const replication::RoleReplicaData &data);
+  static void Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data);
 
  private:
   // RPC handlers
@@ -43,12 +43,19 @@ class InMemoryReplicationHandlers {
   static void CurrentWalHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                                 slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void TimestampHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
+  static void TimestampHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
+                               slk::Reader *req_reader, slk::Builder *res_builder);
+
+  static void SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &role_replica_data,
+                                  slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder);
 
   static uint64_t ReadAndApplyDelta(storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder,
                                     uint64_t version);
+
+  static void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
+                           std::string_view rpc_req);
 };
 
 }  // namespace memgraph::dbms
