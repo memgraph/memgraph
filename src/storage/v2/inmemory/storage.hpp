@@ -73,7 +73,8 @@ class InMemoryStorage final : public Storage {
     friend class InMemoryStorage;
 
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode, memgraph::replication::ReplicationRole replication_role);
+                              StorageMode storage_mode,
+                              memgraph::replication_coordination_glue::ReplicationRole replication_role);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -214,8 +215,8 @@ class InMemoryStorage final : public Storage {
     /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {},
-                                                              bool is_main = true) override;
+    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
+                                                              DatabaseAccessProtector db_acc = {}) override;
 
     /// @throw std::bad_alloc
     void Abort() override;
@@ -301,7 +302,7 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
-    Config::Items config_;
+    SalientConfig::Items config_;
   };
 
   class ReplicationAccessor final : public InMemoryAccessor {
@@ -322,10 +323,10 @@ class InMemoryStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Accessor> Access(memgraph::replication::ReplicationRole replication_role,
+  std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                    std::optional<IsolationLevel> override_isolation_level) override;
   using Storage::UniqueAccess;
-  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication::ReplicationRole replication_role,
+  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                          std::optional<IsolationLevel> override_isolation_level) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) override;
@@ -335,12 +336,12 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
   utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
-      memgraph::replication::ReplicationRole replication_role);
+      memgraph::replication_coordination_glue::ReplicationRole replication_role);
 
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                memgraph::replication::ReplicationRole replication_role) override;
+                                memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
   void SetStorageMode(StorageMode storage_mode);
 
@@ -365,13 +366,13 @@ class InMemoryStorage final : public Storage {
   void FinalizeWalFile();
 
   StorageInfo GetBaseInfo(bool force_directory) override;
-  StorageInfo GetInfo(bool force_directory, memgraph::replication::ReplicationRole replication_role) override;
+  StorageInfo GetInfo(bool force_directory,
+                      memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
-  /// Return true in all cases except if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
-  /// Return true in all cases except if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWalDataDefinition(const Transaction &transaction, uint64_t final_commit_timestamp);
-  /// Return true in all cases except if any sync replicas have not sent confirmation.
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
+                                 DatabaseAccessProtector db_acc);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  uint64_t final_commit_timestamp);
   /// Return true in all cases except if any sync replicas have not sent confirmation.
@@ -464,6 +465,9 @@ class InMemoryStorage final : public Storage {
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
   std::function<void()> create_snapshot_handler{};
+
+  // A way to tell async operation to stop
+  std::stop_source stop_source;
 };
 
 }  // namespace memgraph::storage

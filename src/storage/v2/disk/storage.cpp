@@ -288,7 +288,8 @@ DiskStorage::~DiskStorage() {
 
 DiskStorage::DiskAccessor::DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level,
                                         StorageMode storage_mode)
-    : Accessor(tag, storage, isolation_level, storage_mode, memgraph::replication::ReplicationRole::MAIN) {
+    : Accessor(tag, storage, isolation_level, storage_mode,
+               memgraph::replication_coordination_glue::ReplicationRole::MAIN) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
   transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
@@ -837,7 +838,8 @@ StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
   return info;
 }
 
-StorageInfo DiskStorage::GetInfo(bool force_dir, memgraph::replication::ReplicationRole replication_role) {
+StorageInfo DiskStorage::GetInfo(bool force_dir,
+                                 memgraph::replication_coordination_glue::ReplicationRole replication_role) {
   StorageInfo info = GetBaseInfo(force_dir);
   {
     auto access = Access(replication_role);
@@ -951,7 +953,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   EdgeRef edge(gid);
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
-  if (storage_->config_.items.properties_on_edges) {
+  if (storage_->config_.salient.items.properties_on_edges) {
     auto acc = edge_import_mode_active ? disk_storage->edge_import_mode_cache_->AccessToEdges()
                                        : transaction_.edges_->access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
@@ -975,7 +977,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
   transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-  if (storage_->config_.items.enable_schema_metadata) {
+  if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);
   }
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
@@ -1283,7 +1285,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     const auto src_vertex_gid = modified_edge.second.src_vertex_gid.ToString();
     const auto dst_vertex_gid = modified_edge.second.dest_vertex_gid.ToString();
 
-    if (!config_.items.properties_on_edges) {
+    if (!config_.salient.items.properties_on_edges) {
       /// If the object was created then flush it, otherwise since properties on edges are false
       /// edge wasn't modified for sure.
       if (root_action == Delta::Action::DELETE_OBJECT &&
@@ -1400,7 +1402,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
   }
 
   EdgeRef edge(gid);
-  if (config_.items.properties_on_edges) {
+  if (config_.salient.items.properties_on_edges) {
     auto acc = edge_import_mode_active ? edge_import_mode_cache_->AccessToEdges() : transaction->edges_->access();
     auto *delta = CreateDeleteDeserializedObjectDelta(transaction, old_disk_key, std::move(read_ts));
     auto [it, inserted] = acc.insert(Edge(gid, delta));
@@ -1458,7 +1460,8 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
     if (!edge_types.empty() && !utils::Contains(edge_types, edge_type_id)) continue;
 
     auto edge_gid = Gid::FromString(edge_gid_str);
-    auto properties_str = config_.items.properties_on_edges ? utils::GetPropertiesFromEdgeValue(edge_val_str) : "";
+    auto properties_str =
+        config_.salient.items.properties_on_edges ? utils::GetPropertiesFromEdgeValue(edge_val_str) : "";
 
     const auto edge = std::invoke([this, destination, &edge_val_str, transaction, view, src_vertex, edge_type_id,
                                    edge_gid, &properties_str, &edge_gid_str]() {
@@ -1599,7 +1602,7 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Commit(
-    const std::optional<uint64_t> desired_commit_timestamp, bool /*is_main*/) {
+    CommitReplArgs reparg, DatabaseAccessProtector /*db_acc*/) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -1610,7 +1613,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-    commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
+    commit_timestamp_.emplace(disk_storage->CommitTimestamp(reparg.desired_commit_timestamp));
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
     for (const auto &md_delta : transaction_.md_deltas) {
@@ -1696,7 +1699,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
               }))) {
   } else {
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-    commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
+    commit_timestamp_.emplace(disk_storage->CommitTimestamp(reparg.desired_commit_timestamp));
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
     if (edge_import_mode_active) {
@@ -2016,7 +2019,7 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 }
 
 Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                           memgraph::replication::ReplicationRole /*is_main*/) {
+                                           memgraph::replication_coordination_glue::ReplicationRole /*is_main*/) {
   /// We acquire the transaction engine lock here because we access (and
   /// modify) the transaction engine variables (`transaction_id` and
   /// `timestamp`) below.
@@ -2041,8 +2044,9 @@ uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_comm
   return *desired_commit_timestamp;
 }
 
-std::unique_ptr<Storage::Accessor> DiskStorage::Access(memgraph::replication::ReplicationRole /*replication_role*/,
-                                                       std::optional<IsolationLevel> override_isolation_level) {
+std::unique_ptr<Storage::Accessor> DiskStorage::Access(
+    memgraph::replication_coordination_glue::ReplicationRole /*replication_role*/,
+    std::optional<IsolationLevel> override_isolation_level) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
@@ -2051,7 +2055,7 @@ std::unique_ptr<Storage::Accessor> DiskStorage::Access(memgraph::replication::Re
       new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_});
 }
 std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(
-    memgraph::replication::ReplicationRole /*replication_role*/,
+    memgraph::replication_coordination_glue::ReplicationRole /*replication_role*/,
     std::optional<IsolationLevel> override_isolation_level) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {

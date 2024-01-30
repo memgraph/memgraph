@@ -644,6 +644,25 @@ void Streams::Drop(const std::string &stream_name) {
   // TODO(antaljanosbenjamin) Release the transformation
 }
 
+void Streams::DropAll() {
+  streams_.WithLock([this](StreamsMap &streams) {
+    bool durability_ok = true;
+    for (auto &[name, stream] : streams) {
+      // streams_ is write locked, which means there is no access to it outside of this function, thus only the Test
+      // function can be executing with the consumer, nothing else.
+      // By acquiring the write lock here for the consumer, we make sure there is
+      // no running Test function for this consumer, therefore it can be erased.
+      std::visit([&](const auto &stream_data) { stream_data.stream_source->Lock(); }, stream);
+      if (!storage_.Delete(name)) {
+        durability_ok = false;
+      }
+    }
+
+    streams.clear();
+    return durability_ok;  // TODO: do we need special case for this cleanup if false
+  });
+}
+
 void Streams::Start(const std::string &stream_name) {
   auto locked_streams = streams_.Lock();
   auto it = GetStream(*locked_streams, stream_name);

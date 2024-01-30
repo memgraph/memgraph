@@ -11,13 +11,11 @@
 
 #include <cstdint>
 #include "audit/log.hpp"
-#include "communication/metrics.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
-#include "flags/run_time_configurable.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
@@ -33,9 +31,9 @@
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
+#include "storage/v2/durability/durability.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/signals.hpp"
-#include "utils/skip_list.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
@@ -73,7 +71,7 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
         spdlog::warn("{} The rest of the init-file will be run.", e.what());
       }
       if (audit_log) {
-        audit_log->Record("", "", line, {}, memgraph::dbms::kDefaultDB);
+        audit_log->Record("", "", line, {}, std::string{memgraph::dbms::kDefaultDB});
       }
     }
   }
@@ -300,8 +298,7 @@ int main(int argc, char **argv) {
   memgraph::storage::Config db_config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
-      .items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
-                .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
+
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
@@ -323,7 +320,9 @@ int main(int argc, char **argv) {
                .id_name_mapper_directory = FLAGS_data_directory + "/rocksdb_id_name_mapper",
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
-      .storage_mode = memgraph::flags::ParseStorageMode()};
+      .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
+                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
+      .salient.storage_mode = memgraph::flags::ParseStorageMode()};
 
   memgraph::utils::Scheduler jemalloc_purge_scheduler;
   jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
@@ -358,11 +357,10 @@ int main(int argc, char **argv) {
       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
 
   auto auth_glue =
-      [flag = FLAGS_auth_user_or_role_name_regex](
-          memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-          std::unique_ptr<memgraph::query::AuthQueryHandler> &ah, std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+      [](memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+         std::unique_ptr<memgraph::query::AuthQueryHandler> &ah, std::unique_ptr<memgraph::query::AuthChecker> &ac) {
         // Glue high level auth implementations to the query side
-        ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, flag);
+        ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth);
         ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
         // Handle users passed via arguments
         auto *maybe_username = std::getenv(kMgUser);
@@ -378,9 +376,10 @@ int main(int argc, char **argv) {
         }
       };
 
-  // WIP
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory /
-                                                                                                     "auth"};
+  memgraph::auth::Auth::Config auth_config{FLAGS_auth_user_or_role_name_regex, FLAGS_auth_password_strength_regex,
+                                           FLAGS_auth_password_permit_null};
+  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{
+      data_directory / "auth", auth_config};
   std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   auth_glue(&auth_, auth_handler, auth_checker);
@@ -388,7 +387,7 @@ int main(int argc, char **argv) {
   memgraph::dbms::DbmsHandler dbms_handler(db_config
 #ifdef MG_ENTERPRISE
                                            ,
-                                           &auth_, FLAGS_data_recovery_on_startup, FLAGS_storage_delete_on_drop
+                                           &auth_, FLAGS_data_recovery_on_startup
 #endif
   );
   auto db_acc = dbms_handler.Get();

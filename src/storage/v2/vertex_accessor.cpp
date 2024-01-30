@@ -117,7 +117,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label, bool update_text_index) {
   }};
   std::invoke(atomic_memory_block);
 
-  if (storage_->config_.items.enable_schema_metadata) {
+  if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_node_labels_.try_insert(label);
   }
 

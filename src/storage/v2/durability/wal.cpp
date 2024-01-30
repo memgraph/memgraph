@@ -560,7 +560,7 @@ WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder) {
   return delta.type;
 }
 
-void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Config::Items items, const Delta &delta,
+void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConfig::Items items, const Delta &delta,
                  const Vertex &vertex, uint64_t timestamp) {
   // When converting a Delta to a WAL delta the logic is inverted. That is
   // because the Delta's represent undo actions and we want to store redo
@@ -723,7 +723,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
                      const std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     Config::Items items) {
+                     SalientConfig::Items items) {
   spdlog::info("Trying to load WAL file {}.", path);
   RecoveryInfo ret;
 
@@ -1012,8 +1012,8 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
 }
 
 WalFile::WalFile(const std::filesystem::path &wal_directory, const std::string_view uuid,
-                 const std::string_view epoch_id, Config::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
-                 utils::FileRetainer *file_retainer)
+                 const std::string_view epoch_id, SalientConfig::Items items, NameIdMapper *name_id_mapper,
+                 uint64_t seq_num, utils::FileRetainer *file_retainer)
     : items_(items),
       name_id_mapper_(name_id_mapper),
       path_(wal_directory / MakeWalName()),
@@ -1055,7 +1055,7 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, const std::string_v
   wal_.Sync();
 }
 
-WalFile::WalFile(std::filesystem::path current_wal_path, Config::Items items, NameIdMapper *name_id_mapper,
+WalFile::WalFile(std::filesystem::path current_wal_path, SalientConfig::Items items, NameIdMapper *name_id_mapper,
                  uint64_t seq_num, uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
                  utils::FileRetainer *file_retainer)
     : items_(items),

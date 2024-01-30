@@ -110,6 +110,11 @@ class Streams final {
   /// @throws StreamsException if the stream doesn't exist or if the persisted metadata can't be deleted.
   void Drop(const std::string &stream_name);
 
+  /// Deletes all existing streams and all the data that was persisted.
+  ///
+  /// @throws StreamsException if the persisted metadata can't be deleted.
+  void DropAll();
+
   /// Start consuming from a stream.
   ///
   /// @param stream_name name of the stream that needs to be started

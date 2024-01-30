@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,9 +17,10 @@
 namespace memgraph::utils {
 
 enum class TypeId : uint64_t {
+  UNKNOWN = 0,
+
   // Operators
-  UNKNOWN,
-  LOGICAL_OPERATOR,
+  LOGICAL_OPERATOR = 1000,
   ONCE,
   NODE_CREATION_INFO,
   CREATE_NODE,
@@ -69,7 +70,8 @@ enum class TypeId : uint64_t {
   HASH_JOIN,
 
   // Replication
-  REP_APPEND_DELTAS_REQ,
+  // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
+  REP_APPEND_DELTAS_REQ = 2000,
   REP_APPEND_DELTAS_RES,
   REP_HEARTBEAT_REQ,
   REP_HEARTBEAT_RES,
@@ -83,9 +85,23 @@ enum class TypeId : uint64_t {
   REP_CURRENT_WAL_RES,
   REP_TIMESTAMP_REQ,
   REP_TIMESTAMP_RES,
+  REP_CREATE_DATABASE_REQ,
+  REP_CREATE_DATABASE_RES,
+  REP_DROP_DATABASE_REQ,
+  REP_DROP_DATABASE_RES,
+  REP_SYSTEM_HEARTBEAT_REQ,
+  REP_SYSTEM_HEARTBEAT_RES,
+  REP_SYSTEM_RECOVERY_REQ,
+  REP_SYSTEM_RECOVERY_RES,
+
+  // Coordinator
+  COORD_FAILOVER_REQ,
+  COORD_FAILOVER_RES,
+  COORD_SET_REPL_MAIN_REQ,
+  COORD_SET_REPL_MAIN_RES,
 
   // AST
-  AST_LABELIX,
+  AST_LABELIX = 3000,
   AST_PROPERTYIX,
   AST_EDGETYPEIX,
   AST_TREE,
@@ -191,8 +207,10 @@ enum class TypeId : uint64_t {
   AST_SHOW_DATABASES,
   AST_EDGE_IMPORT_MODE_QUERY,
   AST_PATTERN_COMPREHENSION,
+  AST_COORDINATOR_QUERY,
+
   // Symbol
-  SYMBOL,
+  SYMBOL = 4000,
 };
 
 /// Type information on a C++ type.

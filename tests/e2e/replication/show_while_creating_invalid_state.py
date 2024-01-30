@@ -308,7 +308,7 @@ def test_basic_recovery(connection):
                 "--bolt-port",
                 "7687",
                 "--log-level=TRACE",
-                "--storage-recover-on-startup=true",
+                "--data-recovery-on-startup=true",
                 "--replication-restore-state-on-startup=true",
             ],
             "log_file": "main.log",

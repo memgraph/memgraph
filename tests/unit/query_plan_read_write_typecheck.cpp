@@ -37,7 +37,7 @@ class ReadWriteTypeCheckTest : public ::testing::Test {
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> dba_storage{
-      db->Access(memgraph::replication::ReplicationRole::MAIN)};
+      db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)};
   memgraph::query::DbAccessor dba{dba_storage.get()};
 
   void TearDown() override {

@@ -4,3 +4,5 @@ endfunction()
 
 copy_show_index_info_e2e_python_files(common.py)
 copy_show_index_info_e2e_python_files(test_show_index_info.py)
+
+copy_e2e_files(show_index_info workloads.yaml)

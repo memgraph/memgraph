@@ -141,7 +141,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   // Capture all vertices
   std::map<memgraph::storage::Gid, int64_t> gid_mapping;
   std::set<DatabaseState::Vertex> vertices;
-  auto dba = db->Access(memgraph::replication::ReplicationRole::MAIN);
+  auto dba = db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
   for (const auto &vertex : dba->Vertices(memgraph::storage::View::NEW)) {
     std::set<std::string, std::less<>> labels;
     auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
@@ -267,7 +267,7 @@ memgraph::storage::EdgeAccessor CreateEdge(memgraph::storage::Storage::Accessor 
 }
 
 template <class... TArgs>
-void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::Value>> &results, TArgs &&...args) {
+void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::Value>> &results, TArgs &&... args) {
   std::vector<std::string> expected{std::forward<TArgs>(args)...};
   std::vector<std::string> got;
   got.reserve(results.size());
@@ -704,11 +704,13 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s1").disk;
     config.force_on_disk = true;
   }
-  auto on_exit_s1 = memgraph::utils::OnScopeExit{[&]() {
-    if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+  auto clean_up_s1 = memgraph::utils::OnScopeExit{[&] {
+    if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs("query-dump-s1");
     }
+    std::filesystem::remove_all(config.durability.storage_directory);
   }};
+
   memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(config));
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config, repl_state);
@@ -823,11 +825,13 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     config.disk = disk_test_utils::GenerateOnDiskConfig("query-dump-s2").disk;
     config.force_on_disk = true;
   }
-  auto on_exit_s2 = memgraph::utils::OnScopeExit{[&]() {
-    if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+  auto clean_up_s2 = memgraph::utils::OnScopeExit{[&] {
+    if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs("query-dump-s2");
     }
+    std::filesystem::remove_all(config.durability.storage_directory);
   }};
+
   memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   auto db_acc_opt = db_gk.access();
@@ -1101,7 +1105,7 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
 }
 
 TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
-  auto acc = this->db->storage()->Access(memgraph::replication::ReplicationRole::MAIN);
+  auto acc = this->db->storage()->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(acc.get());
   {
     auto trigger_store = this->db.get()->trigger_store();

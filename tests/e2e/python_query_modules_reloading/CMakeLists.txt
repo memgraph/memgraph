@@ -6,3 +6,5 @@ copy_query_modules_reloading_procedures_e2e_python_files(common.py)
 copy_query_modules_reloading_procedures_e2e_python_files(test_reload_query_module.py)
 
 add_subdirectory(procedures)
+
+copy_e2e_files(python_query_modules_reloading workloads.yaml)

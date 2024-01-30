@@ -14,19 +14,21 @@ on:
   schedule:
     - cron: "0 22 * * *"
 
+env:
+  THREADS: 24
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+
 jobs:
   community_build:
     name: "Community build"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-    timeout-minutes: 960
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -39,10 +41,6 @@ jobs:
 
           # Initialize dependencies.
           ./init
-
-          # Set default build_type to Release
-          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
-          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
 
           # Build community binaries.
           cd build
@@ -65,10 +63,11 @@ jobs:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -110,22 +109,19 @@ jobs:
           tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu
 
       - name: Save code coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage"
+          name: "Code coverage(Coverage build)"
           path: tools/github/generated/code_coverage.tar.gz
 
   debug_build:
     name: "Debug build"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -157,10 +153,6 @@ jobs:
         run: |
           ./tests/drivers/run.sh
 
-      - name: Run integration tests
-        run: |
-          tests/integration/run.sh
-
       - name: Run cppcheck and clang-format
         run: |
           # Activate toolchain.
@@ -171,23 +163,49 @@ jobs:
           ./cppcheck_and_clang_format diff
 
       - name: Save cppcheck and clang-format errors
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage"
+          name: "Code coverage(Debug build)"
           path: tools/github/cppcheck_and_clang_format.txt
 
-  release_build:
-    name: "Release build"
-    runs-on: [self-hosted, Linux, X64, Debian10, BigMemory]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-    timeout-minutes: 960
+  debug_integration_test:
+    name: "Debug integration tests"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build debug binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build debug binaries.
+          cd build
+          cmake ..
+          make -j$THREADS
+
+      - name: Run integration tests
+        run: |
+          tests/integration/run.sh
+
+  release_build:
+    name: "Release build"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    timeout-minutes: 90
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -200,10 +218,6 @@ jobs:
 
           # Initialize dependencies.
           ./init
-
-          # Set default build_type to Release
-          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
-          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
 
           # Build release binaries.
           cd build
@@ -226,10 +240,59 @@ jobs:
           cpack -G DEB --config ../CPackConfig.cmake
 
       - name: Save enterprise DEB package
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "Enterprise DEB package"
           path: build/output/memgraph*.deb
+
+      - name: Run GQL Behave tests
+        run: |
+          cd tests
+          ./setup.sh /opt/toolchain-v4/activate
+          cd gql_behave
+          ./continuous_integration
+
+      - name: Save quality assurance status
+        uses: actions/upload-artifact@v4
+        with:
+          name: "GQL Behave Status"
+          path: |
+            tests/gql_behave/gql_behave_status.csv
+            tests/gql_behave/gql_behave_status.html
+
+      - name: Run unit tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Run unit tests.
+          cd build
+          ctest -R memgraph__unit --output-on-failure
+
+  release_benchmark_tests:
+    name: "Release Benchmark Tests"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    timeout-minutes: 90
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+          # Initialize dependencies.
+          ./init
+
+          # Build release binaries
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          make -j$THREADS
 
       - name: Run micro benchmark tests
         run: |
@@ -257,29 +320,31 @@ jobs:
             --num-database-workers 9 --num-clients-workers 30 \
             --no-strict
 
-      - name: Run GQL Behave tests
-        run: |
-          cd tests
-          ./setup.sh /opt/toolchain-v4/activate
-          cd gql_behave
-          ./continuous_integration
+  release_e2e_test:
+    if: false
+    name: "Release End-to-end Test"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    timeout-minutes: 90
 
-      - name: Save quality assurance status
-        uses: actions/upload-artifact@v3
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
         with:
-          name: "GQL Behave Status"
-          path: |
-            tests/gql_behave/gql_behave_status.csv
-            tests/gql_behave/gql_behave_status.html
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
 
-      - name: Run unit tests
+      - name: Build release binaries
         run: |
           # Activate toolchain.
           source /opt/toolchain-v4/activate
+          # Initialize dependencies.
+          ./init
 
-          # Run unit tests.
+          # Build release binaries
           cd build
-          ctest -R memgraph__unit --output-on-failure
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          make -j$THREADS
 
       - name: Ensure Kafka and Pulsar are up
         run: |
@@ -304,6 +369,32 @@ jobs:
           cd ../pulsar
           docker-compose down
 
+  release_durability_stress_tests:
+    name: "Release durability and stress tests"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    timeout-minutes: 90
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build release binaries.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          make -j$THREADS
+
       - name: Run stress test (plain)
         run: |
           cd tests/stress
@@ -313,11 +404,6 @@ jobs:
         run: |
           cd tests/stress
           ./continuous_integration --use-ssl
-
-      - name: Run stress test (large)
-        run: |
-          cd tests/stress
-          ./continuous_integration --large-dataset
 
       - name: Run durability test (plain)
         run: |
@@ -334,15 +420,11 @@ jobs:
   release_jepsen_test:
     name: "Release Jepsen Test"
     runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -355,14 +437,15 @@ jobs:
           # Initialize dependencies.
           ./init
 
-          # Set default build_type to Release
-          INPUT_BUILD_TYPE=${{ github.event.inputs.build_type }}
-          BUILD_TYPE=${INPUT_BUILD_TYPE:-"Release"}
-
           # Build only memgraph release binary.
           cd build
           cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
           make -j$THREADS memgraph
+
+      - name: Refresh Jepsen Cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh
 
       - name: Run Jepsen tests
         run: |
@@ -370,7 +453,7 @@ jobs:
           ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
 
       - name: Save Jepsen report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: "Jepsen Report"

@@ -34,7 +34,7 @@
 #include "utils/memory.hpp"
 #include "utils/variant_helpers.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 #define EXPECT_SUCCESS(...) EXPECT_EQ(__VA_ARGS__, mgp_error::MGP_ERROR_NO_ERROR)
 
