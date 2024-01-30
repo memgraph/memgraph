@@ -219,13 +219,17 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   return false;
 }
 
-bool ReplicationState::SetReplicationRoleMain() {
+bool ReplicationState::SetReplicationRoleMain(const std::optional<utils::UUID> &main_uuid) {
   auto new_epoch = utils::GenerateUUID();
 
   if (!TryPersistRoleMain(new_epoch)) {
     return false;
   }
-  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}};
+  if (main_uuid) {
+    replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, *main_uuid};
+  } else {
+    replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}};
+  }
 
   return true;
 }

@@ -105,23 +105,26 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, cons
         spdlog::debug("Received CurrentWalRpc");
         InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
-  server.rpc_server_.Register<storage::replication::TimestampRpc>(
-      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received TimestampRpc");
-        InMemoryReplicationHandlers::TimestampHandler(dbms_handler, data.uuid_, req_reader, res_builder);
-      });
+  server.rpc_server_.Register<storage::replication::TimestampRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
+    spdlog::debug("Received TimestampRpc");
+    InMemoryReplicationHandlers::TimestampHandler(dbms_handler, req_reader, res_builder);
+  });
 }
 
 void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handler,
-                                                   const std::optional<utils::UUID> &main_uuid, slk::Reader *req_reader,
-                                                   slk::Builder *res_builder) {
+                                                   const std::optional<utils::UUID> &current_main_uuid,
+                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
-  if (!db_acc) {
-    storage::replication::HeartbeatRes res{false, 0, ""};
-    slk::Save(res, res_builder);
-    return;
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    std::string current_main_uuid_str;
+    if (current_main_uuid) {
+      current_main_uuid_str = std::string(*current_main_uuid);
+    }
+    spdlog::error(fmt::format("FICO: Received HeartbeatHandler rpc with id {}, where current_main_uuid is {}",
+                              std::string(req.main_uuid), current_main_uuid_str));
   }
 
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
@@ -132,10 +135,20 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
 }
 
 void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler,
-                                                      const std::optional<utils::UUID> &main_uuid,
+                                                      const std::optional<utils::UUID> &current_main_uuid,
                                                       slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::AppendDeltasReq req;
   slk::Load(&req, req_reader);
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    std::string current_main_uuid_str;
+    if (current_main_uuid) {
+      current_main_uuid_str = std::string(*current_main_uuid);
+    }
+    spdlog::error(fmt::format("FICO: Received AppendDeltasHandler rpc with id {}, where current_main_uuid is {}",
+                              std::string(req.main_uuid), current_main_uuid_str));
+  }
+
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     storage::replication::AppendDeltasRes res{false, 0};
@@ -196,8 +209,8 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
 }
 
 void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handler,
-                                                  const std::optional<utils::UUID> &main_uuid, slk::Reader *req_reader,
-                                                  slk::Builder *res_builder) {
+                                                  const std::optional<utils::UUID> &current_main_uuid,
+                                                  slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
@@ -205,6 +218,14 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     storage::replication::SnapshotRes res{false, 0};
     slk::Save(res, res_builder);
     return;
+  }
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    std::string current_main_uuid_str;
+    if (current_main_uuid) {
+      current_main_uuid_str = std::string(*current_main_uuid);
+    }
+    spdlog::error(fmt::format("FICO: Received SnapshotHandler rpc with id {}, where current_main_uuid is {}",
+                              std::string(req.main_uuid), current_main_uuid_str));
   }
 
   storage::replication::Decoder decoder(req_reader);
@@ -280,8 +301,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
 }
 
 void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
-                                                  const std::optional<utils::UUID> &main_uuid, slk::Reader *req_reader,
-                                                  slk::Builder *res_builder) {
+                                                  const std::optional<utils::UUID> &current_main_uuid,
+                                                  slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::WalFilesReq req;
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
@@ -289,6 +310,14 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
     storage::replication::WalFilesRes res{false, 0};
     slk::Save(res, res_builder);
     return;
+  }
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    std::string current_main_uuid_str;
+    if (current_main_uuid) {
+      current_main_uuid_str = std::string(*current_main_uuid);
+    }
+    spdlog::error(fmt::format("FICO: Received WalFilesHandler rpc with id {}, where current_main_uuid is {}",
+                              std::string(req.main_uuid), current_main_uuid_str));
   }
 
   const auto wal_file_number = req.file_number;
@@ -381,8 +410,7 @@ void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
   }
 }
 
-void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handler,
-                                                   const std::optional<utils::UUID> &main_uuid, slk::Reader *req_reader,
+void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
                                                    slk::Builder *res_builder) {
   storage::replication::TimestampReq req;
   slk::Load(&req, req_reader);

@@ -26,6 +26,7 @@
 #include <atomic>
 #include <cstdint>
 #include <list>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -38,6 +39,7 @@ enum class RegisterReplicaError : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD_
 
 struct RoleMainData {
   RoleMainData() = default;
+  explicit RoleMainData(ReplicationEpoch e, utils::UUID uuid) : epoch_(std::move(e)), uuid_{uuid} {}
   explicit RoleMainData(ReplicationEpoch e) : epoch_(std::move(e)) {}
   ~RoleMainData() = default;
 
@@ -97,7 +99,7 @@ struct ReplicationState {
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
-  bool SetReplicationRoleMain();
+  bool SetReplicationRoleMain(const std::optional<utils::UUID> &main_uuid = std::nullopt);
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
 
  private:

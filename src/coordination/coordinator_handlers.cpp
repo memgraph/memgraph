@@ -91,17 +91,17 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;
   }
+  coordination::PromoteReplicaToMainReq req;
+  slk::Load(&req, req_reader);
 
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues.
   if (!replication_handler.DoReplicaToMainPromotion()) {
+  if (const bool success = replication_handler.DoReplicaToMainPromotion(req.main_uuid_); !success) {
     spdlog::error("Promoting replica to main failed!");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;
   }
-
-  coordination::PromoteReplicaToMainReq req;
-  slk::Load(&req, req_reader);
 
   auto const converter = [](const auto &repl_info_config) {
     return replication::ReplicationClientConfig{
@@ -139,7 +139,7 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
       }
     }
   }
-
+  spdlog::error(fmt::format("FICO : Promote replica to main was success {}", std::string(req.main_uuid_)));
   slk::Save(coordination::PromoteReplicaToMainRes{true}, res_builder);
 }
 

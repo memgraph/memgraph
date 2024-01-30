@@ -123,6 +123,7 @@ auto CoordinatorData::TryFailover() -> void {
       return DoFailoverStatus::RPC_FAILED;
     }
   }
+  spdlog::error(fmt::format("FICO: sending swap main uuid rpc passed {} ", std::string(main_id)));
 
   if (!chosen_replica_instance->client_.SendPromoteReplicaToMainRpc(main_id, std::move(repl_clients_info))) {
     chosen_replica_instance->RestoreAfterFailedFailover();
@@ -192,6 +193,7 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
   
 
   main_id = utils::UUID{};
+  spdlog::error(fmt::format("FICO: UUID for new main is {} ", std::string(main_id)));
 
 
   for (const auto &unchosen_replica_instance :
@@ -201,6 +203,8 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
       spdlog::error("Failed to swap uuid for replica, aborting failover");
       return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
     }
+    spdlog::error(fmt::format("FICO: sent new main UUID {} to instance {} ", std::string(main_id),
+                              unchosen_replica_instance.InstanceName()));
   }
 
   // PROMOTE REPLICA TO MAIN

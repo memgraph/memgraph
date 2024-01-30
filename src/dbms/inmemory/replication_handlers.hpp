@@ -28,23 +28,22 @@ class InMemoryReplicationHandlers {
 
  private:
   // RPC handlers
-  static void HeartbeatHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &main_uuid,
+  static void HeartbeatHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                                slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void AppendDeltasHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &main_uuid,
+  static void AppendDeltasHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                                   slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void SnapshotHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &main_uuid,
+  static void SnapshotHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                               slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void WalFilesHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &main_uuid,
+  static void WalFilesHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                               slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void CurrentWalHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &main_uuid,
+  static void CurrentWalHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                                 slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void TimestampHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &main_uuid,
-                               slk::Reader *req_reader, slk::Builder *res_builder);
+  static void TimestampHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder);
 

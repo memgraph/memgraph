@@ -218,7 +218,7 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
   return success;
 }
 
-bool ReplicationHandler::DoReplicaToMainPromotion() {
+bool ReplicationHandler::DoReplicaToMainPromotion(const std::optional<utils::UUID> &main_uuid) {
   // STEP 1) bring down all REPLICA servers
   dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
     auto *storage = db_acc->storage();
@@ -228,7 +228,7 @@ bool ReplicationHandler::DoReplicaToMainPromotion() {
 
   // STEP 2) Change to MAIN
   // TODO: restore replication servers if false?
-  if (!repl_state_.SetReplicationRoleMain()) {
+  if (!repl_state_.SetReplicationRoleMain(main_uuid)) {
     // TODO: Handle recovery on failure???
     return false;
   }
