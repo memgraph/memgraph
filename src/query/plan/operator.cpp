@@ -1938,7 +1938,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         // Expand only if what we've just expanded is less than max depth.
         if (current_depth < upper_bound_) {
           if (self_.filter_lambda_.accumulated_path_symbol) {
-            frame[self_.filter_lambda_.accumulated_path_symbol.value()] = curr_acc_path.value();
+            frame[self_.filter_lambda_.accumulated_path_symbol.value()] = std::move(curr_acc_path.value());
           }
           expand_from_vertex(current_vertex, current_weight, current_depth);
         }
@@ -2228,7 +2228,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       while (!pq_.empty()) {
         AbortCheck(context);
 
-        const auto [current_weight, current_depth, current_vertex, directed_edge, acc_path] = pq_.top();
+        auto [current_weight, current_depth, current_vertex, directed_edge, acc_path] = pq_.top();
         pq_.pop();
 
         const auto &[current_edge, direction, weight] = directed_edge;
@@ -2242,7 +2242,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           if (current_depth < upper_bound_) {
             if (self_.filter_lambda_.accumulated_path_symbol) {
               DMG_ASSERT(acc_path.has_value(), "Path must be already filled in AllShortestPath DFS traversals");
-              frame[self_.filter_lambda_.accumulated_path_symbol.value()] = acc_path.value();
+              frame[self_.filter_lambda_.accumulated_path_symbol.value()] = std::move(acc_path.value());
             }
             expand_from_vertex(current_vertex, current_weight, current_depth);
           }
