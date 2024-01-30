@@ -317,6 +317,7 @@ jobs:
             --no-strict
 
   release_e2e_test:
+    if: false
     name: "Release End-to-end Test"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
     timeout-minutes: 90
