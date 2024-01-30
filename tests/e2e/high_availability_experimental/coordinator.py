@@ -23,7 +23,7 @@ def test_disable_cypher_queries():
     assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
-def test_coordinator_cannot_be_replica_role(connection):
+def test_coordinator_cannot_be_replica_role():
     cursor = connect(host="localhost", port=7690).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
@@ -51,7 +51,7 @@ def test_coordinator_show_replication_cluster():
     mg_sleep_and_assert(expected_data, retrieve_data)
 
 
-def test_coordinator_cannot_call_show_replicas(connection):
+def test_coordinator_cannot_call_show_replicas():
     cursor = connect(host="localhost", port=7690).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SHOW REPLICAS;")

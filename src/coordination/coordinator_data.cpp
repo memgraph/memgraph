@@ -125,7 +125,7 @@ auto CoordinatorData::DoFailover() -> DoFailoverStatus {
     return instance != *chosen_replica_instance;
   };
 
-  std::ranges::transform(replica_instances | ranges::views::filter(not_chosen_replica_instance),
+  std::ranges::transform(registered_instances_ | ranges::views::filter(not_chosen_replica_instance),
                          std::back_inserter(repl_clients_info),
                          [](const CoordinatorInstance &instance) { return instance.ReplicationClientInfo(); });
 

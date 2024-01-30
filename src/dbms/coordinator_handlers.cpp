@@ -140,9 +140,7 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
     // Update system before enabling individual storage <-> replica clients
     dbms_handler.SystemRestore(instance_client_ref);
 
-    // TODO: (andi) Policy for register all databases
-    // Will be resolved after deciding about choosing new replica
-    const bool all_clients_good = memgraph::dbms::RegisterAllDatabasesClients(dbms_handler, instance_client_ref);
+    const bool all_clients_good = memgraph::dbms::RegisterAllDatabasesClients<true>(dbms_handler, instance_client_ref);
     MG_ASSERT(all_clients_good, "Failed to register one or more databases to the REPLICA \"{}\".", config.name);
 
     StartReplicaClient(dbms_handler, instance_client_ref);
