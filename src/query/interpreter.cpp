@@ -2182,7 +2182,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error{};
+        std::optional<utils::BasicResult<storage::StorageIndexDefinitionError, void>> maybe_index_error;
         if (index_type == IndexQuery::Type::LOOKUP) {
           maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
         } else if (index_type == IndexQuery::Type::TEXT) {
@@ -2193,7 +2193,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         }
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
-        if (maybe_index_error.HasError()) {
+        if (maybe_index_error.has_value() && maybe_index_error.value().HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
           index_notification.title =
               fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
@@ -2212,7 +2212,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error{};
+        std::optional<utils::BasicResult<storage::StorageIndexDefinitionError, void>> maybe_index_error;
         if (index_type == IndexQuery::Type::LOOKUP) {
           maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
         } else if (index_type == IndexQuery::Type::TEXT) {
@@ -2223,7 +2223,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         }
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
-        if (maybe_index_error.HasError()) {
+        if (maybe_index_error.has_value() && maybe_index_error.value().HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
               fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
