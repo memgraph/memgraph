@@ -7,7 +7,7 @@ text_search_cluster: &text_search_cluster
       validation_queries: []
 
 workloads:
-  - name: "Test text search behavior in Memgraphm"
+  - name: "Test text search behavior in Memgraph"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/text_search/query_modules/"
     args: ["text_search/test_text_search.py"]
