@@ -15,6 +15,8 @@ target_sources(mg-coordination
         include/coordination/coordinator_cluster_config.hpp
         include/coordination/coordinator_handlers.hpp
 
+        include/nuraft/coordinator_state_machine.hpp
+
         PRIVATE
         coordinator_client.cpp
         coordinator_state.cpp
