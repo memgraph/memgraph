@@ -89,18 +89,18 @@ struct ReplicationState {
 
   bool HasDurability() const { return nullptr != durability_; }
 
-  bool TryPersistRoleMain(std::string new_epoch);
-  bool TryPersistRoleReplica(const ReplicationServerConfig &config);
+  bool TryPersistRoleMain(std::string new_epoch, utils::UUID main_uuid);
+  bool TryPersistRoleReplica(const ReplicationServerConfig &config, const std::optional<utils::UUID> &main_uuid);
   bool TryPersistUnregisterReplica(std::string_view name);
-  bool TryPersistRegisteredReplica(const ReplicationClientConfig &config);
+  bool TryPersistRegisteredReplica(const ReplicationClientConfig &config, utils::UUID main_uuid);
 
   // TODO: locked access
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
-  bool SetReplicationRoleMain(const std::optional<utils::UUID> &main_uuid = std::nullopt);
-  bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
+  bool SetReplicationRoleMain(const utils::UUID &main_uuid);
+  bool SetReplicationRoleReplica(const ReplicationServerConfig &config, const std::optional<utils::UUID> &main_uuid);
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;

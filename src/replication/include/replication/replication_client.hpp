@@ -54,7 +54,7 @@ struct ReplicationClient {
             } catch (const rpc::RpcFailedException &) {
               // Nothing to do...wait for a reconnect
               // NOTE: Here we are communicating with the instance connection.
-              //       We don't have access to the undelying client; so the only thing we can do it
+              //       We don't have access to the underlying client; so the only thing we can do it
               //       tell the callback that this is a reconnection and to check the state
               reconnect = true;
             }

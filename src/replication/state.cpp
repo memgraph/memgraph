@@ -56,12 +56,12 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   replication_data_ = std::move(replicationData).GetValue();
 }
 
-bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config) {
+bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config,
+                                             const std::optional<utils::UUID> &main_uuid) {
   if (!HasDurability()) return true;
 
-  auto data = durability::ReplicationRoleEntry{.role = durability::ReplicaRole{
-                                                   .config = config,
-                                               }};
+  auto data =
+      durability::ReplicationRoleEntry{.role = durability::ReplicaRole{.config = config, .main_uuid = main_uuid}};
 
   if (!durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
     spdlog::error("Error when saving REPLICA replication role in settings.");
@@ -80,11 +80,11 @@ bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &conf
   return true;
 }
 
-bool ReplicationState::TryPersistRoleMain(std::string new_epoch) {
+bool ReplicationState::TryPersistRoleMain(std::string new_epoch, utils::UUID main_uuid) {
   if (!HasDurability()) return true;
 
-  auto data =
-      durability::ReplicationRoleEntry{.role = durability::MainRole{.epoch = ReplicationEpoch{std::move(new_epoch)}}};
+  auto data = durability::ReplicationRoleEntry{
+      .role = durability::MainRole{.epoch = ReplicationEpoch{std::move(new_epoch)}, .main_uuid = main_uuid}};
 
   if (durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) {
     role_persisted = RolePersisted::YES;
@@ -152,7 +152,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               return {std::move(res)};
             },
             [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t {
-              return {RoleReplicaData{r.config, std::make_unique<ReplicationServer>(r.config), std::nullopt}};
+              return {RoleReplicaData{r.config, std::make_unique<ReplicationServer>(r.config), r.main_uuid}};
             },
         },
         std::move(data.role));
@@ -194,21 +194,31 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
       [[fallthrough]];
     }
     case durability::DurabilityVersion::V2: {
-      // do nothing - add code if V3 ever happens
+      if (std::holds_alternative<durability::ReplicaRole>(data.role)) {
+        throw std::runtime_error("Migration for replica from older version to new version is not possible");
+      } else {
+        auto &main = std::get<durability::MainRole>(data.role);
+        main.main_uuid = utils::UUID{};
+      }
+      data.version = durability::DurabilityVersion::V3;
+      break;
+    }
+    case durability::DurabilityVersion::V3: {
+      // do nothing - add code if V4 ever happens
       break;
     }
   }
   return true;
 }
 
-bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig &config) {
+bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig &config, utils::UUID main_uuid) {
   if (!HasDurability()) return true;
 
   // If any replicas are persisted then Role must be persisted
   if (role_persisted != RolePersisted::YES) {
     DMG_ASSERT(IsMain(), "MAIN is expected");
     auto epoch_str = std::string(std::get<RoleMainData>(replication_data_).epoch_.id());
-    if (!TryPersistRoleMain(std::move(epoch_str))) return false;
+    if (!TryPersistRoleMain(std::move(epoch_str), main_uuid)) return false;
   }
 
   auto data = durability::ReplicationReplicaEntry{.config = config};
@@ -219,23 +229,21 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
   return false;
 }
 
-bool ReplicationState::SetReplicationRoleMain(const std::optional<utils::UUID> &main_uuid) {
+bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
   auto new_epoch = utils::GenerateUUID();
 
-  if (!TryPersistRoleMain(new_epoch)) {
+  if (!TryPersistRoleMain(new_epoch, main_uuid)) {
     return false;
   }
-  if (main_uuid) {
-    replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, *main_uuid};
-  } else {
-    replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}};
-  }
+
+  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, main_uuid};
 
   return true;
 }
 
-bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config) {
-  if (!TryPersistRoleReplica(config)) {
+bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config,
+                                                 const std::optional<utils::UUID> &main_uuid) {
+  if (!TryPersistRoleReplica(config, main_uuid)) {
     return false;
   }
   replication_data_ = RoleReplicaData{config, std::make_unique<ReplicationServer>(config), std::nullopt};
@@ -270,7 +278,7 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
     }
 
     // Durability
-    if (!TryPersistRegisteredReplica(config)) {
+    if (!TryPersistRegisteredReplica(config, mainData.uuid_)) {
       return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
     }
 
