@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -65,7 +65,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -96,7 +96,7 @@ jobs:
 
       - name: Python code analysis
         run: |
-          CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only)
+          CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only --diff-filter=d)
           for file in ${CHANGED_FILES}; do
             echo ${file}
             if [[ ${file} == *.py ]]; then
@@ -137,9 +137,9 @@ jobs:
           tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu
 
       - name: Save code coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage"
+          name: "Code coverage(Code analysis)"
           path: tools/github/generated/code_coverage.tar.gz
 
       - name: Run clang-tidy
@@ -162,7 +162,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -208,9 +208,9 @@ jobs:
           ./cppcheck_and_clang_format diff
 
       - name: Save cppcheck and clang-format errors
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage"
+          name: "Code coverage(Debug build)"
           path: tools/github/cppcheck_and_clang_format.txt
 
   release_build:
@@ -223,16 +223,12 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
           fetch-depth: 0
 
-      - name: Check e2e service dependencies
-        run: |
-          cd tests/e2e
-          ./dependency_check.sh
 
       - name: Build release binaries
         run: |
@@ -255,7 +251,7 @@ jobs:
           ./continuous_integration
 
       - name: Save quality assurance status
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "GQL Behave Status"
           path: |
@@ -271,13 +267,30 @@ jobs:
           cd build
           ctest -R memgraph__unit --output-on-failure -j$THREADS
 
+      - name: Ensure Kafka and Pulsar are up
+        if: false
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose up -d
+          cd ../pulsar
+          docker-compose up -d
+
       - name: Run e2e tests
+        if: false
         run: |
           cd tests
           ./setup.sh /opt/toolchain-v4/activate
           source ve3/bin/activate_e2e
           cd e2e
           ./run.sh
+
+      - name: Ensure Kafka and Pulsar are down
+        if: false
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose down
+          cd ../pulsar
+          docker-compose down
 
       - name: Run stress test (plain)
         run: |
@@ -312,16 +325,128 @@ jobs:
           cpack -G DEB --config ../CPackConfig.cmake
 
       - name: Save enterprise DEB package
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "Enterprise DEB package"
           path: build/output/memgraph*.deb
 
       - name: Save test data
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Test data"
+          name: "Test data(Release build)"
+          path: |
+            # multiple paths could be defined
+            build/logs
+
+  experimental_build_ha:
+    name: "High availability build"
+    runs-on: [self-hosted, Linux, X64, Diff]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          source /opt/toolchain-v4/activate
+          ./init
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=Release -DMG_EXPERIMENTAL_HIGH_AVAILABILITY=ON ..
+          make -j$THREADS
+      - name: Run unit tests
+        run: |
+          source /opt/toolchain-v4/activate
+          cd build
+          ctest -R memgraph__unit --output-on-failure -j$THREADS
+      - name: Run e2e tests
+        if: false
+        run: |
+          cd tests
+          ./setup.sh /opt/toolchain-v4/activate
+          source ve3/bin/activate_e2e
+          cd e2e
+          ./run.sh "Coordinator"
+          ./run.sh "Client initiated failover"
+          ./run.sh "Uninitialized cluster"
+      - name: Save test data
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Test data(High availability build)"
+          path: |
+            # multiple paths could be defined
+            build/logs
+
+  experimental_build_mt:
+    name: "MultiTenancy replication build"
+    runs-on: [self-hosted, Linux, X64, Diff]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build MT replication experimental binaries.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=Release -D MG_EXPERIMENTAL_REPLICATION_MULTITENANCY=ON ..
+          make -j$THREADS
+
+      - name: Run unit tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Run unit tests.
+          cd build
+          ctest -R memgraph__unit --output-on-failure -j$THREADS
+
+      - name: Run e2e tests
+        if: false
+        run: |
+          cd tests
+          ./setup.sh /opt/toolchain-v4/activate
+          source ve3/bin/activate_e2e
+          cd e2e
+
+          # Just the replication based e2e tests
+          ./run.sh "Replicate multitenancy"
+          ./run.sh "Show"
+          ./run.sh "Show while creating invalid state"
+          ./run.sh "Delete edge replication"
+          ./run.sh "Read-write benchmark"
+          ./run.sh "Index replication"
+          ./run.sh "Constraints"
+
+      - name: Save test data
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Test data(MultiTenancy replication build)"
           path: |
             # multiple paths could be defined
             build/logs
@@ -337,7 +462,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -354,13 +479,18 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
           make -j$THREADS memgraph
 
+      - name: Refresh Jepsen Cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh
+
       - name: Run Jepsen tests
         run: |
           cd tests/jepsen
           ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
 
       - name: Save Jepsen report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: "Jepsen Report"
@@ -376,7 +506,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)

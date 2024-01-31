@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,7 +51,7 @@ class TestEnvironment : public ::testing::Environment {
     }
     auth =
         std::make_unique<memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>>(
-            storage_directory / "auth");
+            storage_directory / "auth", memgraph::auth::Auth::Config{/* default */});
     ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf);
   }
 
@@ -90,9 +90,9 @@ TEST(DBMS_Handler, Get) {
   ASSERT_TRUE(default_db->streams() != nullptr);
   ASSERT_TRUE(default_db->trigger_store() != nullptr);
   ASSERT_TRUE(default_db->thread_pool() != nullptr);
-  ASSERT_EQ(default_db->storage()->id(), memgraph::dbms::kDefaultDB);
+  ASSERT_EQ(default_db->storage()->name(), memgraph::dbms::kDefaultDB);
   auto conf = storage_conf;
-  conf.name = memgraph::dbms::kDefaultDB;
+  conf.salient.name = memgraph::dbms::kDefaultDB;
   ASSERT_EQ(default_db->storage()->config_, conf);
 }
 

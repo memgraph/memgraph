@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,12 +24,9 @@ namespace memgraph::glue {
 
 class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
-  std::string name_regex_string_;
-  std::regex name_regex_;
 
  public:
-  AuthQueryHandler(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-                   std::string name_regex_string);
+  AuthQueryHandler(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth);
 
   bool CreateUser(const std::string &username, const std::optional<std::string> &password) override;
 
@@ -44,7 +41,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &username) override;
 
-  bool SetMainDatabase(const std::string &db, const std::string &username) override;
+  bool SetMainDatabase(std::string_view db, const std::string &username) override;
 
   void DeleteDatabase(std::string_view db) override;
 #endif

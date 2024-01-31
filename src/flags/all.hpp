@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,5 +17,6 @@
 #include "flags/log_level.hpp"
 #include "flags/memory_limit.hpp"
 #include "flags/query.hpp"
+#include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "flags/storage_mode.hpp"

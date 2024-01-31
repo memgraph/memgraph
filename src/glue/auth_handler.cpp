@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -249,25 +249,10 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
 namespace memgraph::glue {
 
 AuthQueryHandler::AuthQueryHandler(
-    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-    std::string name_regex_string)
-    : auth_(auth), name_regex_string_(std::move(name_regex_string)), name_regex_(name_regex_string_) {}
+    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
+    : auth_(auth) {}
 
 bool AuthQueryHandler::CreateUser(const std::string &username, const std::optional<std::string> &password) {
-  if (name_regex_string_ != kDefaultUserRoleRegex) {
-    if (const auto license_check_result =
-            memgraph::license::global_license_checker.IsEnterpriseValid(memgraph::utils::global_settings);
-        license_check_result.HasError()) {
-      throw memgraph::auth::AuthException(
-          "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "
-          "(\"--auth-user-or-role-name-regex\") to its default value (\"{}\") or remove the flag.\n{}",
-          kDefaultUserRoleRegex,
-          memgraph::license::LicenseCheckErrorToString(license_check_result.GetError(), "user/role regex"));
-    }
-  }
-  if (!std::regex_match(username, name_regex_)) {
-    throw query::QueryRuntimeException("Invalid user name.");
-  }
   try {
     const auto [first_user, user_added] = std::invoke([&, this] {
       auto locked_auth = auth_->Lock();
@@ -294,7 +279,7 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
       );
 #ifdef MG_ENTERPRISE
       GrantDatabaseToUser(auth::kAllDatabases, username);
-      SetMainDatabase(username, dbms::kDefaultDB);
+      SetMainDatabase(dbms::kDefaultDB, username);
 #endif
     }
 
@@ -305,9 +290,6 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
 }
 
 bool AuthQueryHandler::DropUser(const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
@@ -319,16 +301,13 @@ bool AuthQueryHandler::DropUser(const std::string &username) {
 }
 
 void AuthQueryHandler::SetPassword(const std::string &username, const std::optional<std::string> &password) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) {
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
-    user->UpdatePassword(password);
+    locked_auth->UpdatePassword(*user, password);
     locked_auth->SaveUser(*user);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -336,9 +315,6 @@ void AuthQueryHandler::SetPassword(const std::string &username, const std::optio
 }
 
 bool AuthQueryHandler::CreateRole(const std::string &rolename) {
-  if (!std::regex_match(rolename, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid role name.");
-  }
   try {
     auto locked_auth = auth_->Lock();
     return locked_auth->AddRole(rolename).has_value();
@@ -349,9 +325,6 @@ bool AuthQueryHandler::CreateRole(const std::string &rolename) {
 
 #ifdef MG_ENTERPRISE
 bool AuthQueryHandler::RevokeDatabaseFromUser(const std::string &db, const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
@@ -363,9 +336,6 @@ bool AuthQueryHandler::RevokeDatabaseFromUser(const std::string &db, const std::
 }
 
 bool AuthQueryHandler::GrantDatabaseToUser(const std::string &db, const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
@@ -378,9 +348,6 @@ bool AuthQueryHandler::GrantDatabaseToUser(const std::string &db, const std::str
 
 std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatabasePrivileges(
     const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
-  }
   try {
     auto locked_auth = auth_->ReadLock();
     auto user = locked_auth->GetUser(username);
@@ -393,10 +360,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatab
   }
 }
 
-bool AuthQueryHandler::SetMainDatabase(const std::string &db, const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
+bool AuthQueryHandler::SetMainDatabase(std::string_view db, const std::string &username) {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
@@ -417,9 +381,6 @@ void AuthQueryHandler::DeleteDatabase(std::string_view db) {
 #endif
 
 bool AuthQueryHandler::DropRole(const std::string &rolename) {
-  if (!std::regex_match(rolename, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid role name.");
-  }
   try {
     auto locked_auth = auth_->Lock();
     auto role = locked_auth->GetRole(rolename);
@@ -465,9 +426,6 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetRolenames() {
 }
 
 std::optional<std::string> AuthQueryHandler::GetRolenameForUser(const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
   try {
     auto locked_auth = auth_->ReadLock();
     auto user = locked_auth->GetUser(username);
@@ -485,9 +443,6 @@ std::optional<std::string> AuthQueryHandler::GetRolenameForUser(const std::strin
 }
 
 std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernamesForRole(const std::string &rolename) {
-  if (!std::regex_match(rolename, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid role name.");
-  }
   try {
     auto locked_auth = auth_->ReadLock();
     auto role = locked_auth->GetRole(rolename);
@@ -507,12 +462,6 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernamesForRole(c
 }
 
 void AuthQueryHandler::SetRole(const std::string &username, const std::string &rolename) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
-  if (!std::regex_match(rolename, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid role name.");
-  }
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
@@ -535,9 +484,6 @@ void AuthQueryHandler::SetRole(const std::string &username, const std::string &r
 }
 
 void AuthQueryHandler::ClearRole(const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
@@ -552,9 +498,6 @@ void AuthQueryHandler::ClearRole(const std::string &username) {
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivileges(const std::string &user_or_role) {
-  if (!std::regex_match(user_or_role, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
-  }
   try {
     auto locked_auth = auth_->ReadLock();
     std::vector<std::vector<memgraph::query::TypedValue>> grants;
@@ -704,9 +647,6 @@ void AuthQueryHandler::EditPermissions(
     const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun
 #endif
 ) {
-  if (!std::regex_match(user_or_role, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
-  }
   try {
     std::vector<memgraph::auth::Permission> permissions;
     permissions.reserve(privileges.size());

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -93,12 +93,12 @@ TYPED_TEST(InfoTest, InfoCheck) {
 
   {
     {
-      auto unique_acc = db_acc->storage()->UniqueAccess();
+      auto unique_acc = db_acc->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateExistenceConstraint(lbl, prop).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto unique_acc = db_acc->storage()->UniqueAccess();
+      auto unique_acc = db_acc->UniqueAccess();
       ASSERT_FALSE(unique_acc->DropExistenceConstraint(lbl, prop).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
@@ -108,7 +108,7 @@ TYPED_TEST(InfoTest, InfoCheck) {
     auto v2 = acc->CreateVertex();
     auto v3 = acc->CreateVertex();
     auto v4 = acc->CreateVertex();
-    auto v5 = acc->CreateVertex();
+    [[maybe_unused]] auto v5 = acc->CreateVertex();
 
     ASSERT_FALSE(v2.AddLabel(lbl).HasError());
     ASSERT_FALSE(v3.AddLabel(lbl).HasError());
@@ -123,49 +123,50 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
 
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(lbl).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop2).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->DropIndex(lbl, prop).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl, {prop2}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl2, {prop}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl3, {prop}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = db_acc->storage()->UniqueAccess();
+    auto unique_acc = db_acc->UniqueAccess();
     ASSERT_EQ(unique_acc->DropUniqueConstraint(lbl, {prop2}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  const auto &info = db_acc->GetInfo(true);  // force to use configured directory
+  const auto &info = db_acc->GetInfo(
+      true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);  // force to use configured directory
 
   ASSERT_EQ(info.storage_info.vertex_count, 5);
   ASSERT_EQ(info.storage_info.edge_count, 2);

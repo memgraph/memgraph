@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -88,6 +88,8 @@ struct LicenseChecker {
   void StartBackgroundLicenseChecker(const utils::Settings &settings);
 
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &GetLicenseInfo();
+
+  void Finalize() { scheduler_.Stop(); }
 
  private:
   std::pair<std::string, std::string> ExtractLicenseInfo(const utils::Settings &settings) const;

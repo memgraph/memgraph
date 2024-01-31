@@ -6,3 +6,5 @@ copy_set_properties_e2e_python_files(common.py)
 copy_set_properties_e2e_python_files(set_properties.py)
 
 add_subdirectory(procedures)
+
+copy_e2e_files(set_properties workloads.yaml)

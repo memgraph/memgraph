@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "utils/counter.hpp"
 
 namespace memgraph::storage {
 
@@ -79,10 +80,18 @@ std::vector<LabelId> InMemoryLabelIndex::ListIndices() const {
   return ret;
 }
 
-void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
+void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+  auto maybe_stop = utils::ResettableCounter<2048>();
+
   for (auto &label_storage : index_) {
+    // before starting index, check if stop_requested
+    if (token.stop_requested()) return;
+
     auto vertices_acc = label_storage.second.access();
     for (auto it = vertices_acc.begin(); it != vertices_acc.end();) {
+      // Hot loop, don't check stop_requested every time
+      if (maybe_stop() && token.stop_requested()) return;
+
       auto next_it = it;
       ++next_it;
 

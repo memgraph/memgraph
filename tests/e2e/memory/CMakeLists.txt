@@ -49,3 +49,5 @@ target_link_libraries(memgraph__e2e__procedure_memory_limit gflags mgclient mg-u
 
 add_executable(memgraph__e2e__procedure_memory_limit_multi_proc procedure_memory_limit_multi_proc.cpp)
 target_link_libraries(memgraph__e2e__procedure_memory_limit_multi_proc gflags mgclient mg-utils mg-io)
+
+copy_e2e_files(memory workloads.yaml)

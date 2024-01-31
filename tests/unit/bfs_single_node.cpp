@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,9 @@ class SingleNodeDb : public Database {
     }
   }
 
-  std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override { return db_->Access(); }
+  std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override {
+    return db_->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  }
 
   std::unique_ptr<LogicalOperator> MakeBfsOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
                                                    EdgeAtom::Direction direction,

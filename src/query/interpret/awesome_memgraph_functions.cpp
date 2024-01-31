@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -504,8 +504,8 @@ TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContex
     return TypedValue(value.ValueInt() != 0L, ctx.memory);
   } else {
     auto s = utils::ToUpperCase(utils::Trim(value.ValueString()));
-    if (s == "TRUE") return TypedValue(true, ctx.memory);
-    if (s == "FALSE") return TypedValue(false, ctx.memory);
+    if (s == "TRUE" || s == "T") return TypedValue(true, ctx.memory);
+    if (s == "FALSE" || s == "F") return TypedValue(false, ctx.memory);
     // I think this is just stupid and that exception should be thrown, but
     // neo4j does it this way...
     return TypedValue(ctx.memory);
@@ -957,7 +957,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
   }
   if (arg.IsDouble()) {
-    return TypedValue(std::to_string(arg.ValueDouble()), ctx.memory);
+    return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
   }
   if (arg.IsDate()) {
     return TypedValue(arg.ValueDate().ToString(), ctx.memory);

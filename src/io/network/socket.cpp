@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include <poll.h>
 
 #include "io/network/addrinfo.hpp"
+#include "io/network/network_error.hpp"
 #include "io/network/socket.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
@@ -55,17 +56,21 @@ bool Socket::IsOpen() const { return socket_ != -1; }
 bool Socket::Connect(const Endpoint &endpoint) {
   if (socket_ != -1) return false;
 
-  for (const auto &it : AddrInfo{endpoint}) {
-    int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
-    if (sfd == -1) continue;
-    if (connect(sfd, it.ai_addr, it.ai_addrlen) == 0) {
-      socket_ = sfd;
-      endpoint_ = endpoint;
-      break;
+  try {
+    for (const auto &it : AddrInfo{endpoint}) {
+      int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
+      if (sfd == -1) continue;
+      if (connect(sfd, it.ai_addr, it.ai_addrlen) == 0) {
+        socket_ = sfd;
+        endpoint_ = endpoint;
+        break;
+      }
+      // If the connect failed close the file descriptor to prevent file
+      // descriptors being leaked
+      close(sfd);
     }
-    // If the connect failed close the file descriptor to prevent file
-    // descriptors being leaked
-    close(sfd);
+  } catch (const NetworkError &e) {
+    return false;
   }
 
   return !(socket_ == -1);

@@ -308,7 +308,7 @@ def test_basic_recovery(connection):
                 "--bolt-port",
                 "7687",
                 "--log-level=TRACE",
-                "--storage-recover-on-startup=true",
+                "--data-recovery-on-startup=true",
                 "--replication-restore-state-on-startup=true",
             ],
             "log_file": "main.log",
@@ -1752,6 +1752,75 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica():
     assert len(res_from_main) == 3
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+
+
+def test_replication_not_messed_up_by_CreateSnapshot(connection):
+    # Goal of this test is to check the replica can not run CreateSnapshot
+    # 1/ CREATE SNAPSHOT should raise a DatabaseError
+
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    cursor = connection(7688, "replica_1").cursor()
+
+    # 1/
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+
+
+def test_replication_not_messed_up_by_ShowIndexInfo(connection):
+    # Goal of this test is to check the replicas timestamp and hence ability to recieve MAINs writes
+    # is uneffected by SHOW INDEX INFO
+
+    # 1/ Run SHOW INDEX INFO; multiple times on REPLICA
+    # 2/ Send a write from MAIN
+    # 3/ Check REPLICA processed the write
+
+    BASIC_MEMGRAPH_INSTANCES_DESCRIPTION = {
+        "replica_1": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": "replica1.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "log_file": "main.log",
+            "setup_queries": [
+                "REGISTER REPLICA replica_1 ASYNC TO '127.0.0.1:10001';",
+            ],
+        },
+    }
+
+    interactive_mg_runner.start_all(BASIC_MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    cursor = connection(7688, "replica_1").cursor()
+
+    # 1/
+    # This query use to incorrectly change REPLICA storage timestamp
+    # run this multiple times to try and get into error case of MAIN timestamp < REPLICA timestamp
+    for _ in range(20):
+        execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # 2/
+    execute_and_fetch_all(cursor, "CREATE ();")
+
+    def retrieve_data():
+        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+        return replicas
+
+    expected_data = [
+        ("replica_1", "127.0.0.1:10001", "async", 2, 0, "ready"),
+    ]
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    assert actual_data == expected_data
+
+    # 3/
+    cursor = connection(7688, "replica_1").cursor()
+    result = execute_and_fetch_all(cursor, "MATCH () RETURN count(*);")
+
+    assert len(result) == 1
+    assert result[0][0] == 1  # The one node was replicated from MAIN to REPLICA
 
 
 if __name__ == "__main__":

@@ -77,6 +77,15 @@ add_subdirectory(query_modules_storage_modes)
 add_subdirectory(garbage_collection)
 add_subdirectory(query_planning)
 
+if (MG_EXPERIMENTAL_HIGH_AVAILABILITY)
+  add_subdirectory(high_availability_experimental)
+endif ()
+
+
+if (MG_EXPERIMENTAL_REPLICATION_MULTITENANCY)
+  add_subdirectory(replication_experimental)
+endif ()
+
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 copy_e2e_python_files(x x.sh "")
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/memgraph-selfsigned.crt DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
