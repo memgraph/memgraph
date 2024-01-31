@@ -114,10 +114,12 @@ void Load(memgraph::storage::replication::TimestampRes *self, memgraph::slk::Rea
 // Serialize code for TimestampReq
 
 void Save(const memgraph::storage::replication::TimestampReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.uuid, builder);
 }
 
 void Load(memgraph::storage::replication::TimestampReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->uuid, reader);
 }
 
