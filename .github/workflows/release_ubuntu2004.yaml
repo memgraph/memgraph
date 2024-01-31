@@ -24,7 +24,7 @@ jobs:
   community_build:
     name: "Community build"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -59,7 +59,7 @@ jobs:
   coverage_build:
     name: "Coverage build"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -113,7 +113,7 @@ jobs:
   debug_build:
     name: "Debug build"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -167,7 +167,7 @@ jobs:
   debug_integration_test:
     name: "Debug integration tests"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -197,7 +197,7 @@ jobs:
   release_build:
     name: "Release build"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -268,7 +268,7 @@ jobs:
   release_benchmark_tests:
     name: "Release Benchmark Tests"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -320,7 +320,7 @@ jobs:
     if: false
     name: "Release End-to-end Test"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -368,7 +368,7 @@ jobs:
   release_durability_stress_tests:
     name: "Release durability and stress tests"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
