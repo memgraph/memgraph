@@ -18,8 +18,6 @@ RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${TOOLCHAIN}/${T
     && tar xzvf ${TOOLCHAIN}-binaries-${OS}-${TARGETARCH}.tar.gz -C /opt \
     && rm ${TOOLCHAIN}-binaries-${OS}-${TARGETARCH}.tar.gz
 
-COPY . /memgraph
-
 SHELL ["/bin/bash", "-c"]
 
 COPY . /memgraph
@@ -29,8 +27,6 @@ RUN cd memgraph && \
     ./environment/os/${OS}.sh install TOOLCHAIN_RUN_DEPS && \
     ./environment/os/${OS}.sh install MEMGRAPH_BUILD_DEPS && \
     source /opt/${TOOLCHAIN}/activate && \
-    ./init && \
-    cd / && \
-    rm -rf memgraph
+    ./init
 
 ENTRYPOINT ["sleep", "infinity"]
