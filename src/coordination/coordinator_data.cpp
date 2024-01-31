@@ -17,6 +17,7 @@
 
 #include <range/v3/view.hpp>
 #include <shared_mutex>
+#include "libnuraft/nuraft.hxx"
 
 namespace memgraph::coordination {
 
