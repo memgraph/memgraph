@@ -24,7 +24,7 @@ jobs:
   community_build:
     name: "Community build"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -63,7 +63,7 @@ jobs:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -117,7 +117,7 @@ jobs:
   debug_build:
     name: "Debug build"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -171,7 +171,7 @@ jobs:
   debug_integration_test:
     name: "Debug integration tests"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -201,7 +201,7 @@ jobs:
   release_build:
     name: "Release build"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -272,7 +272,7 @@ jobs:
   release_benchmark_tests:
     name: "Release Benchmark Tests"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -323,7 +323,7 @@ jobs:
   release_e2e_test:
     name: "Release End-to-end Test"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -371,7 +371,7 @@ jobs:
   release_durability_stress_tests:
     name: "Release durability and stress tests"
     runs-on: [self-hosted, Linux, X64, Debian10]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
@@ -419,7 +419,7 @@ jobs:
   release_jepsen_test:
     name: "Release Jepsen Test"
     runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
-    timeout-minutes: 90
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
