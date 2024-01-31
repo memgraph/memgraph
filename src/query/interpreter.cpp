@@ -518,7 +518,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
       case COULD_NOT_PROMOTE_TO_MAIN:
         throw QueryRuntimeException(
-            "Couldn't set replica instance to main!. Check coordinator and replica for more logs");
+            "Couldn't set replica instance to main! Check coordinator and replica for more logs");
+      case SWAP_UUID_FAILED:
+        throw QueryRuntimeException("Couldn't set replica instance to main. Replicas didn't swap uuid of new main.");
       case SUCCESS:
         break;
     }

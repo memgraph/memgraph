@@ -69,7 +69,6 @@ CoordinatorData::CoordinatorData() {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing main failure callback", instance_name);
     find_instance(coord_data, instance_name).OnFailPing();
-
     if (!coord_data->ClusterHasAliveMain_()) {
       spdlog::info("Cluster without main instance, trying automatic failover");
       coord_data->TryFailover();
@@ -101,33 +100,37 @@ auto CoordinatorData::TryFailover() -> void {
     return instance != *chosen_replica_instance;
   };
 
-  main_id = utils::UUID{};
 
-  for (auto &unchosen_replica_instance :
+
+  utils::UUID potential_new_main_uuid = utils::UUID{};
+  spdlog::trace("Generated potential new main uuid");
+  // TODO (af): what if instance is down, we need to filter it out and remember for later to send new UUID
+  for (auto &other_replica_instance :
        replica_instances | ranges::views::filter(not_chosen_replica_instance)) {
     if (auto res = memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(
-            unchosen_replica_instance.client_.RpcClient(), main_id);
+            other_replica_instance.client_.RpcClient(), potential_new_main_uuid);
         !res) {
-      // TODO AF: update message here
-      spdlog::error("Failed to swap uuid for replica, aborting failover");
+      spdlog::error(
+          fmt::format("Failed to swap uuid for instance {}, aborting failover", other_replica_instance.InstanceName()));
+      return;
     }
   }
-  spdlog::error(fmt::format("FICO: sending swap main uuid rpc passed {} ", std::string(main_id)));
-
 
   std::ranges::transform(registered_instances_ | ranges::views::filter(not_chosen_replica_instance),
                          std::back_inserter(repl_clients_info),
                          [](const CoordinatorInstance &instance) { return instance.ReplicationClientInfo(); });
 
-  if (!chosen_replica_instance->PromoteToMain(std::move(repl_clients_info), main_succ_cb_, main_fail_cb_)) {
+  if (!chosen_replica_instance->PromoteToMain(potential_new_main_uuid, std::move(repl_clients_info), main_succ_cb_, main_fail_cb_)) {
     spdlog::warn("Failover failed since promoting replica to main failed!");
     return;
   }
 
-
   
  
- spdlog::info("Failover successful! Instance {} promoted to main.", chosen_replica_instance->InstanceName());
+  spdlog::info("Failover successful! Instance {} promoted to main.", chosen_replica_instance->InstanceName());
+
+  main_uuid_ = potential_new_main_uuid;
+
 }
 
 auto CoordinatorData::ShowInstances() const -> std::vector<CoordinatorInstanceStatus> {
@@ -176,27 +179,26 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
   ReplicationClientsInfo repl_clients_info;
   repl_clients_info.reserve(registered_instances_.size() - 1);
 
-
   auto const is_not_new_main = [&instance_name](CoordinatorInstance const &instance) {
     return instance.InstanceName() != instance_name;
   };
   
 
-  main_id = utils::UUID{};
-  spdlog::error(fmt::format("FICO: UUID for new main is {} ", std::string(main_id)));
+  auto potential_new_main_uuid = utils::UUID{};
+  spdlog::trace("Generated potential new main uuid");
+  auto const not_chosen_replica_instance = [&registered_replica](const CoordinatorInstance &instance) {
+    return instance != *registered_replica;
+  };
 
-
-  for (const auto &unchosen_replica_instance :
-       registered_instances_ | ranges::views::filter(is_not_new_main)) {
-    if (auto res = unchosen_replica_instance.client_.SendSwapMainUUIDRpc(main_id); !res) {
-      // TODO AF: update message here
-      spdlog::error("Failed to swap uuid for replica, aborting failover");
-      return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
+  for (auto &other_instance : registered_instances_ | ranges::views::filter(is_not_new_main)) {
+    if (auto res = memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(other_instance.client_.RpcClient(),
+                                                                                potential_new_main_uuid);
+        !res) {
+      spdlog::error(
+          fmt::format("Failed to swap uuid for instance {}, aborting failover", other_instance.InstanceName()));
+      return SetInstanceToMainCoordinatorStatus::SWAP_UUID_FAILED;
     }
-    spdlog::error(fmt::format("FICO: sent new main UUID {} to instance {} ", std::string(main_id),
-                              unchosen_replica_instance.InstanceName()));
   }
-
   // PROMOTE REPLICA TO MAIN
   // THIS SHOULD FAIL HERE IF IT IS DOWN
 
@@ -204,11 +206,12 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
                          std::back_inserter(repl_clients_info),
                          [](const CoordinatorInstance &instance) { return instance.ReplicationClientInfo(); });
 
-  if (!new_main->PromoteToMain(main_id, std::move(repl_clients_info), main_succ_cb_, main_fail_cb_)) {
+  if (!new_main->PromoteToMain(potential_new_main_uuid, std::move(repl_clients_info), main_succ_cb_, main_fail_cb_)) {
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
 
   spdlog::info("Instance {} promoted to main", instance_name);
+  main_uuid_ = potential_new_main_uuid;
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
 }
 
