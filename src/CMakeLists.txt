@@ -22,6 +22,8 @@ add_subdirectory(dbms)
 add_subdirectory(flags)
 add_subdirectory(distributed)
 add_subdirectory(replication)
+add_subdirectory(coordination)
+add_subdirectory(replication_coordination_glue)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
@@ -53,7 +55,10 @@ set_target_properties(memgraph PROPERTIES
         OUTPUT_NAME "memgraph-${MEMGRAPH_VERSION}_${CMAKE_BUILD_TYPE}"
 
         # Output the executable in main binary dir.
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+
+        POSITION_INDEPENDENT_CODE ON
+        )
 
 # Create symlink to the built executable.
 add_custom_command(TARGET memgraph POST_BUILD

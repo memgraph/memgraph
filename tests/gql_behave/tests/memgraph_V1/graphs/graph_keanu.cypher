@@ -1,0 +1,16 @@
+CREATE
+  (keanu:Person {name: 'Keanu Reeves'}),
+  (johnnyMnemonic:Movie {title: 'Johnny Mnemonic', released: 1995}),
+  (theMatrixRevolutions:Movie {title: 'The Matrix Revolutions', released: 2003}),
+  (theMatrixReloaded:Movie {title: 'The Matrix Reloaded', released: 2003}),
+  (theReplacements:Movie {title: 'The Replacements', released: 2000}),
+  (theMatrix:Movie {title: 'The Matrix', released: 1999}),
+  (theDevilsAdvocate:Movie {title: 'The Devils Advocate', released: 1997}),
+  (theMatrixResurrections:Movie {title: 'The Matrix Resurrections', released: 2021}),
+  (keanu)-[:ACTED_IN]->(johnnyMnemonic),
+  (keanu)-[:ACTED_IN]->(theMatrixRevolutions),
+  (keanu)-[:ACTED_IN]->(theMatrixReloaded),
+  (keanu)-[:ACTED_IN]->(theReplacements),
+  (keanu)-[:ACTED_IN]->(theMatrix),
+  (keanu)-[:ACTED_IN]->(theDevilsAdvocate),
+  (keanu)-[:ACTED_IN]->(theMatrixResurrections);

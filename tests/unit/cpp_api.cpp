@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,7 +43,8 @@ struct CppApiTestFixture : public ::testing::Test {
   }
 
   memgraph::query::DbAccessor &CreateDbAccessor(const memgraph::storage::IsolationLevel isolationLevel) {
-    accessors_.push_back(storage->Access(isolationLevel));
+    accessors_.push_back(
+        storage->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN, isolationLevel));
     db_accessors_.emplace_back(accessors_.back().get());
     return db_accessors_.back();
   }

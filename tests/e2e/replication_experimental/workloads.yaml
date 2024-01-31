@@ -1,0 +1,4 @@
+workloads:
+  - name: "Replicate multitenancy"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication_experimental/multitenancy.py"]

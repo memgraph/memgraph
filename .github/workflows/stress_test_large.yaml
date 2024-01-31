@@ -1,0 +1,62 @@
+name: Stress test large
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        type: choice
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
+        options:
+          - Release
+          - RelWithDebInfo
+
+  schedule:
+    - cron: "0 22 * * *"
+
+env:
+  THREADS: 24
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+
+jobs:
+  stress_test_large:
+    name: "Stress test large"
+    timeout-minutes: 600
+    strategy:
+      matrix:
+        os: [Debian10, Ubuntu20.04]
+        extra: [BigMemory, Gen8]
+        exclude:
+          - os: Debian10
+            extra: Gen8
+          - os: Ubuntu20.04
+            extra: BigMemory
+    runs-on: [self-hosted, Linux, X64, "${{ matrix.os }}", "${{ matrix.extra }}"]
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build release binaries.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          make -j$THREADS
+
+      - name: Run stress test (large)
+        run: |
+          cd tests/stress
+          ./continuous_integration --large-dataset

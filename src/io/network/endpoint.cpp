@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -139,18 +139,13 @@ Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip
 }
 
 // NOLINTNEXTLINE
-Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port) : port(port) {
-  address = ResolveHostnameIntoIpAddress(hostname, port);
-  IpFamily ip_family = GetIpFamily(address);
-  if (ip_family == IpFamily::NONE) {
-    throw NetworkError("Not a valid IPv4 or IPv6 address: {}", address);
-  }
-  family = ip_family;
-}
+Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port)
+    : address(std::move(hostname)), port(port), family{GetIpFamily(address)} {}
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
   // no need to cover the IpFamily::NONE case, as you can't even construct an
   // Endpoint object if the IpFamily is NONE (i.e. the IP address is invalid)
+  // unless you use DNS hostname
   if (endpoint.family == Endpoint::IpFamily::IP6) {
     return os << "[" << endpoint.address << "]"
               << ":" << endpoint.port;
@@ -166,12 +161,12 @@ bool Endpoint::IsResolvableAddress(const std::string &address, uint16_t port) {
   };
   addrinfo *info = nullptr;
   auto status = getaddrinfo(address.c_str(), std::to_string(port).c_str(), &hints, &info);
-  freeaddrinfo(info);
+  if (info) freeaddrinfo(info);
   return status == 0;
 }
 
 std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrAddress(
-    const std::string &address, const std::optional<uint16_t> default_port = {}) {
+    const std::string &address, const std::optional<uint16_t> default_port) {
   const std::string delimiter = ":";
   std::vector<std::string> parts = utils::Split(address, delimiter);
   if (parts.size() == 1) {
@@ -187,36 +182,6 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrAddress(
     return ParseSocketOrIpAddress(address, default_port);
   }
   return std::nullopt;
-}
-
-std::string Endpoint::ResolveHostnameIntoIpAddress(const std::string &address, uint16_t port) {
-  addrinfo hints{
-      .ai_flags = AI_PASSIVE,
-      .ai_family = AF_UNSPEC,     // IPv4 and IPv6
-      .ai_socktype = SOCK_STREAM  // TCP socket
-  };
-  addrinfo *info = nullptr;
-  auto status = getaddrinfo(address.c_str(), std::to_string(port).c_str(), &hints, &info);
-  if (status != 0) throw NetworkError(gai_strerror(status));
-
-  for (auto *result = info; result != nullptr; result = result->ai_next) {
-    if (result->ai_family == AF_INET) {
-      char ipstr[INET_ADDRSTRLEN];
-      auto *ipv4 = reinterpret_cast<struct sockaddr_in *>(result->ai_addr);
-      inet_ntop(AF_INET, &(ipv4->sin_addr), ipstr, sizeof(ipstr));
-      freeaddrinfo(info);
-      return ipstr;
-    }
-    if (result->ai_family == AF_INET6) {
-      char ipstr[INET6_ADDRSTRLEN];
-      auto *ipv6 = reinterpret_cast<struct sockaddr_in6 *>(result->ai_addr);
-      inet_ntop(AF_INET6, &(ipv6->sin6_addr), ipstr, sizeof(ipstr));
-      freeaddrinfo(info);
-      return ipstr;
-    }
-  }
-  freeaddrinfo(info);
-  throw NetworkError("Not a valid address: {}", address);
 }
 
 }  // namespace memgraph::io::network

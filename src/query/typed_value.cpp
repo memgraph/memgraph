@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -125,9 +125,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
     case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       auto &vec = other.ValueList();
-      new (&list_v) TVector(memory_);
-      list_v.reserve(vec.size());
-      for (auto &v : vec) list_v.emplace_back(std::move(v));
+      new (&list_v) TVector(std::make_move_iterator(vec.begin()), std::make_move_iterator(vec.end()), memory_);
       break;
     }
     case storage::PropertyValue::Type::Map: {
@@ -324,13 +322,13 @@ TypedValue::operator storage::PropertyValue() const {
 
 #define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)                              \
   type_param &TypedValue::Value##type_enum() {                                                   \
-    if (type_ != Type::type_enum)                                                                \
+    if (type_ != Type::type_enum) [[unlikely]]                                                   \
       throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
     return field;                                                                                \
   }                                                                                              \
                                                                                                  \
   const type_param &TypedValue::Value##type_enum() const {                                       \
-    if (type_ != Type::type_enum)                                                                \
+    if (type_ != Type::type_enum) [[unlikely]]                                                   \
       throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
     return field;                                                                                \
   }                                                                                              \

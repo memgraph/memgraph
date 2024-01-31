@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,7 @@
 
 #include "formatters.hpp"
 
+using memgraph::replication_coordination_glue::ReplicationRole;
 using namespace memgraph::query::plan;
 using memgraph::query::AstStorage;
 using Type = memgraph::query::EdgeAtom::Type;
@@ -110,7 +111,7 @@ using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgra
 TYPED_TEST_CASE(TestVariableStartPlanner, StorageTypes);
 
 TYPED_TEST(TestVariableStartPlanner, MatchReturn) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Make a graph (v1) -[:r]-> (v2)
   auto v1 = dba.InsertVertex();
@@ -127,7 +128,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchReturn) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
@@ -159,7 +160,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
@@ -186,7 +187,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Graph (v1) -[:r]-> (v2)
   memgraph::query::VertexAccessor v1(dba.InsertVertex());
@@ -210,7 +211,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Graph (v1) -[:r]-> (v2)
   memgraph::query::VertexAccessor v1(dba.InsertVertex());
@@ -230,7 +231,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchVariableExpand) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Graph (v1) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
@@ -253,7 +254,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchVariableExpand) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
@@ -281,7 +282,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2) -[:r2]-> (v3)
@@ -307,7 +308,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchBfs) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
@@ -334,7 +335,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchBfs) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, TestBasicSubquery) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
@@ -356,7 +357,7 @@ TYPED_TEST(TestVariableStartPlanner, TestBasicSubquery) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, TestBasicSubqueryWithMatching) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
@@ -377,7 +378,7 @@ TYPED_TEST(TestVariableStartPlanner, TestBasicSubqueryWithMatching) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithUnion) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
 
@@ -405,7 +406,7 @@ TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithUnion) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithTripleUnion) {
-  auto storage_dba = this->db->Access();
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
 

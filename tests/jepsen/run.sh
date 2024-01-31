@@ -24,7 +24,7 @@ PRINT_CONTEXT() {
 
 HELP_EXIT() {
     echo ""
-    echo "HELP: $0 help|cluster-up|cluster-cleanup|cluster-dealloc|mgbuild|test|test-all-individually [args]"
+    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-cleanup|cluster-dealloc|mgbuild|test|test-all-individually [args]"
     echo ""
     echo "    test args --binary                 MEMGRAPH_BINARY_PATH"
     echo "              --ignore-run-stdout-logs Ignore lein run stdout logs."
@@ -184,6 +184,37 @@ PROCESS_RESULTS() {
     INFO "Result processing (printing and packing) DONE."
 }
 
+CLUSTER_UP() {
+  PRINT_CONTEXT
+  "$script_dir/jepsen/docker/bin/up" --daemon
+  sleep 10
+  # Ensure all SSH connections between Jepsen containers work
+  for node in $(docker ps --filter name=jepsen* --filter status=running --format "{{.Names}}"); do
+      if [ "$node" == "jepsen-control" ]; then
+          continue
+      fi
+      node_hostname="${node##jepsen-}"
+      docker exec jepsen-control bash -c "ssh -oStrictHostKeyChecking=no -t $node_hostname exit"
+  done
+}
+
+CLUSTER_DEALLOC() {
+  ps=$(docker ps --filter name=jepsen* --filter status=running -q)
+  if [[ ! -z ${ps} ]]; then
+      echo "Killing ${ps}"
+      docker rm -f ${ps}
+      imgs=$(docker images "jepsen*" -q)
+      if [[ ! -z ${imgs} ]]; then
+          echo "Removing ${imgs}"
+          docker images "jepsen*" -q | xargs docker image rmi -f
+      else
+          echo "No Jepsen images detected!"
+      fi
+  else
+      echo "No Jepsen containers detected!"
+  fi
+}
+
 # Initialize testing context by copying source/binary files. Inside CI,
 # Memgraph is tested on a single machine cluster based on Docker containers.
 # Once these tests will be part of the official Jepsen repo, the majority of
@@ -196,8 +227,16 @@ case $1 in
     # the current cluster is broken because it relies on the folder. That can
     # happen easiliy because the jepsen folder is git ignored.
     cluster-up)
-        PRINT_CONTEXT
-        "$script_dir/jepsen/docker/bin/up" --daemon
+        CLUSTER_UP
+    ;;
+
+    cluster-refresh)
+        CLUSTER_DEALLOC
+        CLUSTER_UP
+    ;;
+
+    cluster-dealloc)
+        CLUSTER_DEALLOC
     ;;
 
     cluster-cleanup)
@@ -210,23 +249,6 @@ case $1 in
             INFO "Deleting /opt/memgraph/* on $jepsen_node_name"
             $jepsen_node_exec "rm -rf /opt/memgraph/*"
         done
-    ;;
-
-    cluster-dealloc)
-        ps=$(docker ps --filter name=jepsen* --filter status=running -q)
-        if [[ ! -z ${ps} ]]; then
-            echo "Killing ${ps}"
-            docker rm -f ${ps}
-            imgs=$(docker images "jepsen*" -q)
-            if [[ ! -z ${imgs} ]]; then
-                echo "Removing ${imgs}"
-                docker images "jepsen*" -q | xargs docker image rmi -f
-            else
-                echo "No Jepsen images detected!"
-            fi
-        else
-            echo "No Jepsen containers detected!"
-        fi
     ;;
 
     mgbuild)

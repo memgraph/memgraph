@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,11 +37,13 @@
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/stripped.hpp"
+#include "query/parameters.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -118,7 +120,8 @@ class AstGenerator : public Base {
  public:
   Query *ParseQuery(const std::string &query_string) override {
     ::frontend::opencypher::Parser parser(query_string);
-    CypherMainVisitor visitor(context_, &ast_storage_);
+    Parameters parameters;
+    CypherMainVisitor visitor(context_, &ast_storage_, &parameters);
     visitor.visit(parser.tree());
     return visitor.query();
   }
@@ -151,6 +154,7 @@ class ClonedAstGenerator : public Base {
  public:
   Query *ParseQuery(const std::string &query_string) override {
     ::frontend::opencypher::Parser parser(query_string);
+    Parameters parameters;
     AstStorage tmp_storage;
     {
       // Add a label, property and edge type into temporary storage so
@@ -159,7 +163,7 @@ class ClonedAstGenerator : public Base {
       tmp_storage.GetPropertyIx("fdjakfjdklfjdaslk");
       tmp_storage.GetEdgeTypeIx("fdjkalfjdlkajfdkla");
     }
-    CypherMainVisitor visitor(context_, &tmp_storage);
+    CypherMainVisitor visitor(context_, &tmp_storage, &parameters);
     visitor.visit(parser.tree());
     return visitor.query()->Clone(&ast_storage_);
   }
@@ -182,8 +186,9 @@ class CachedAstGenerator : public Base {
     StrippedQuery stripped(query_string);
     parameters_ = stripped.literals();
     ::frontend::opencypher::Parser parser(stripped.query());
+    Parameters parameters;
     AstStorage tmp_storage;
-    CypherMainVisitor visitor(context_, &tmp_storage);
+    CypherMainVisitor visitor(context_, &tmp_storage, &parameters);
     visitor.visit(parser.tree());
     return visitor.query()->Clone(&ast_storage_);
   }
@@ -2546,7 +2551,7 @@ TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
 void check_replication_query(Base *ast_generator, const ReplicationQuery *query, const std::string name,
                              const std::optional<TypedValue> socket_address, const ReplicationQuery::SyncMode sync_mode,
                              const std::optional<TypedValue> port = {}) {
-  EXPECT_EQ(query->replica_name_, name);
+  EXPECT_EQ(query->instance_name_, name);
   EXPECT_EQ(query->sync_mode_, sync_mode);
   ASSERT_EQ(static_cast<bool>(query->socket_address_), static_cast<bool>(socket_address));
   if (socket_address) {
@@ -2593,7 +2598,7 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
   }
 
   {
-    const std::string query = "SET REPLICATION ROLE TO MAIN WITH PORT 10000";
+    const std::string query = "SET REPLICATION ROLE TO REPLICA";
     ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
   }
 
@@ -2636,7 +2641,7 @@ TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   std::string correct_query = "DROP REPLICA replica1";
   auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
   ASSERT_TRUE(correct_query_parsed);
-  EXPECT_EQ(correct_query_parsed->replica_name_, "replica1");
+  EXPECT_EQ(correct_query_parsed->instance_name_, "replica1");
 }
 
 TEST_P(CypherMainVisitorTest, TestExplainRegularQuery) {
@@ -3641,7 +3646,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
     ASSERT_EQ(single_query->clauses_.size(), 2U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    [[maybe_unused]] auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   }
 
   {
@@ -3701,7 +3706,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
     ASSERT_EQ(single_query->clauses_.size(), 1U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    [[maybe_unused]] auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   }
 }
 

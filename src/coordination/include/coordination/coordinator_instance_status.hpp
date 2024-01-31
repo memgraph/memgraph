@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,7 +10,22 @@
 // licenses/APL.txt.
 
 #pragma once
-#include <cstdint>
-namespace memgraph::replication {
-enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
-}
+
+#ifdef MG_ENTERPRISE
+
+#include "io/network/endpoint.hpp"
+
+#include <string_view>
+
+namespace memgraph::coordination {
+
+struct CoordinatorInstanceStatus {
+  std::string instance_name;
+  std::string socket_address;
+  std::string replication_role;
+  bool is_alive;
+};
+
+}  // namespace memgraph::coordination
+
+#endif

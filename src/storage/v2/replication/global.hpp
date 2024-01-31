@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,7 @@ struct TimestampInfo {
 
 struct ReplicaInfo {
   std::string name;
-  memgraph::replication::ReplicationMode mode;
+  replication_coordination_glue::ReplicationMode mode;
   io::network::Endpoint endpoint;
   replication::ReplicaState state;
   TimestampInfo timestamp_info;

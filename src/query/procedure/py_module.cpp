@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include <datetime.h>
 #include <methodobject.h>
+#include <objimpl.h>
 #include <pyerrors.h>
 #include <array>
 #include <optional>
@@ -57,7 +58,6 @@ PyObject *gMgpValueConversionError{nullptr};     // NOLINT(cppcoreguidelines-avo
 PyObject *gMgpSerializationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 PyObject *gMgpAuthorizationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-constexpr bool kStartGarbageCollection{true};
 constexpr auto kMicrosecondsInMillisecond{1000};
 constexpr auto kMicrosecondsInSecond{1000000};
 
@@ -867,6 +867,27 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
   return MgpListToPyTuple(list, reinterpret_cast<PyGraph *>(py_graph));
 }
 
+void PyCollectGarbage() {
+  // NOTE: No need to call _Py_IsFinalizing(), we ensure
+  // Python GC thread is stopped before Py_Finalize() is called
+  // in memgraph.cpp
+  if (!Py_IsInitialized()) {
+    // Calling EnsureGIL will crash the program if this is true.
+    return;
+  }
+
+  auto gil = py::EnsureGIL();
+
+  py::Object gc(PyImport_ImportModule("gc"));
+  if (!gc) {
+    LOG_FATAL(py::FetchError().value());
+  }
+
+  if (!gc.CallMethod("collect")) {
+    LOG_FATAL(py::FetchError().value());
+  }
+}
+
 namespace {
 struct RecordFieldCache {
   PyObject *key;
@@ -1027,24 +1048,8 @@ std::optional<py::ExceptionInfo> AddMultipleBatchRecordsFromPython(mgp_result *r
   return std::nullopt;
 }
 
-std::function<void()> PyObjectCleanup(py::Object &py_object, bool start_gc) {
-  return [py_object, start_gc]() {
-    if (start_gc) {
-      // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
-      // sure the procedure cleaned up everything it held references to. If the
-      // user stored a reference to one of our `_mgp` instances then the
-      // internally used `mgp_*` structs will stay unfreed and a memory leak
-      // will be reported at the end of the query execution.
-      py::Object gc(PyImport_ImportModule("gc"));
-      if (!gc) {
-        LOG_FATAL(py::FetchError().value());
-      }
-
-      if (!gc.CallMethod("collect")) {
-        LOG_FATAL(py::FetchError().value());
-      }
-    }
-
+std::function<void()> PyObjectCleanup(py::Object &py_object) {
+  return [py_object]() {
     // After making sure all references from our side have been cleared,
     // invalidate the `_mgp.Graph` object. If the user kept a reference to one
     // of our `_mgp` instances then this will prevent them from using those
@@ -1095,7 +1100,7 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
-    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph, !is_batched));
+    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
     if (py_graph) {
       maybe_msg = error_to_msg(call(py_graph));
     } else {
@@ -1110,22 +1115,11 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
 
 void CallPythonCleanup(const py::Object &py_cleanup) {
   auto gil = py::EnsureGIL();
-
   auto py_res = py_cleanup.Call();
-
-  py::Object gc(PyImport_ImportModule("gc"));
-  if (!gc) {
-    LOG_FATAL(py::FetchError().value());
-  }
-
-  if (!gc.CallMethod("collect")) {
-    LOG_FATAL(py::FetchError().value());
-  }
 }
 
 void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
   auto gil = py::EnsureGIL();
-
   auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
     if (!exc_info) return std::nullopt;
     // Here we tell the traceback formatter to skip the first line of the
@@ -1146,7 +1140,7 @@ void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
-    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph, !kStartGarbageCollection));
+    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph));
     if (py_graph) {
       maybe_msg = error_to_msg(call(py_graph));
     } else {
@@ -1194,8 +1188,8 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
     py::Object py_graph(MakePyGraph(graph, memory));
     py::Object py_messages(MakePyMessages(msgs, memory));
 
-    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph, kStartGarbageCollection));
-    utils::OnScopeExit clean_up_messages(PyObjectCleanup(py_messages, kStartGarbageCollection));
+    utils::OnScopeExit clean_up_graph(PyObjectCleanup(py_graph));
+    utils::OnScopeExit clean_up_messages(PyObjectCleanup(py_messages));
 
     if (py_graph && py_messages) {
       maybe_msg = error_to_msg(call(py_graph, py_messages));
@@ -1264,7 +1258,7 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
   std::optional<std::string> maybe_msg;
   {
     py::Object py_graph(MakePyGraph(graph, memory));
-    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph, kStartGarbageCollection));
+    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
     if (py_graph) {
       auto maybe_result = call(py_graph);
       if (!maybe_result.HasError()) {

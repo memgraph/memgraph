@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "glue/auth_checker.hpp"
+#include "glue/auth_global.hpp"
 #include "glue/auth_handler.hpp"
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
@@ -32,9 +33,10 @@ int main(int argc, char **argv) {
 
   // Memgraph backend
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_telemetry_integration_test"};
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory /
-                                                                                                     "auth"};
-  memgraph::glue::AuthQueryHandler auth_handler(&auth_, "");
+  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{
+      data_directory / "auth",
+      memgraph::auth::Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, "", true}};
+  memgraph::glue::AuthQueryHandler auth_handler(&auth_);
   memgraph::glue::AuthChecker auth_checker(&auth_);
 
   memgraph::storage::Config db_config;
@@ -44,7 +46,7 @@ int main(int argc, char **argv) {
   memgraph::dbms::DbmsHandler dbms_handler(db_config
 #ifdef MG_ENTERPRISE
                                            ,
-                                           &auth_, false, false
+                                           &auth_, false
 #endif
   );
   memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, &repl_state, &auth_handler,

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -182,7 +182,7 @@ void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::S
   output.clear();
 
   // create vertex
-  auto dba = db->Access();
+  auto dba = db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
   auto va1 = dba->CreateVertex();
   auto va2 = dba->CreateVertex();
   auto l1 = dba->NameToLabel("label1");
@@ -206,11 +206,11 @@ void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::S
 
   // check everything
   std::vector<Value> vals;
-  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va1)), *db,
-                                              memgraph::storage::View::NEW));
-  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va2)), *db,
-                                              memgraph::storage::View::NEW));
-  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::EdgeAccessor(ea)), *db,
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va1)),
+                                              db.get(), memgraph::storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va2)),
+                                              db.get(), memgraph::storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::EdgeAccessor(ea)), db.get(),
                                               memgraph::storage::View::NEW));
   bolt_encoder.MessageRecord(vals);
 

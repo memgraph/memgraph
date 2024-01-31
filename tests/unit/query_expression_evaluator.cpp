@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -67,7 +67,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   ExpressionEvaluatorTest()
       : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
         db(new StorageType(config)),
-        storage_dba(db->Access()),
+        storage_dba(db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)),
         dba(storage_dba.get()) {}
 
   ~ExpressionEvaluatorTest() override {
@@ -2075,9 +2075,10 @@ TYPED_TEST(FunctionTest, ToStringInteger) {
 }
 
 TYPED_TEST(FunctionTest, ToStringDouble) {
-  EXPECT_EQ(this->EvaluateFunction("TOSTRING", -42.42).ValueString(), "-42.420000");
-  EXPECT_EQ(this->EvaluateFunction("TOSTRING", 0.0).ValueString(), "0.000000");
-  EXPECT_EQ(this->EvaluateFunction("TOSTRING", 238910.2313217).ValueString(), "238910.231322");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRING", -42.42).ValueString(), "-42.420000000000002");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRING", 0.0).ValueString(), "0");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRING", 238910.2313217).ValueString(), "238910.231321700004628");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRING", 238910.23132171234).ValueString(), "238910.231321712344652");
 }
 
 TYPED_TEST(FunctionTest, ToStringBool) {

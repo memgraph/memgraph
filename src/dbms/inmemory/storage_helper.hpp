@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,36 +24,14 @@ namespace memgraph::dbms {
 
 inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(storage::Config config,
                                                                ::memgraph::replication::ReplicationState &repl_state) {
-  const auto wal_mode = config.durability.snapshot_wal_mode;
-  const auto name = config.name;
+  const auto name = config.salient.name;
   auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config));
 
   // Connect replication state and storage
   storage->CreateSnapshotHandler(
       [storage = storage.get(), &repl_state]() -> utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError> {
-        if (repl_state.IsReplica()) {
-          return storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica;
-        }
-        return storage->CreateSnapshot();
+        return storage->CreateSnapshot(repl_state.GetRole());
       });
-
-  if (allow_mt_repl || name == dbms::kDefaultDB) {
-    // Handle global replication state
-    spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-    // RECOVER REPLICA CONNECTIONS
-    memgraph::dbms::RestoreReplication(repl_state, *storage);
-  } else if (const ::memgraph::replication::RoleMainData *data =
-                 std::get_if<::memgraph::replication::RoleMainData>(&repl_state.ReplicationData());
-             data && !data->registered_replicas_.empty()) {
-    spdlog::warn("Multi-tenant replication is currently not supported!");
-  }
-
-  if (wal_mode == storage::Config::Durability::SnapshotWalMode::DISABLED && repl_state.IsMain()) {
-    spdlog::warn(
-        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
-        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-        "without write-ahead logs this instance is not replicating any data.");
-  }
 
   return std::move(storage);
 }
