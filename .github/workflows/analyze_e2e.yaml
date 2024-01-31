@@ -1,0 +1,72 @@
+name: Analyze e2e flakiness
+concurrency:
+  group: ${{ github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".clang-format"
+      - "CODEOWNERS"
+      - "licenses/*"
+
+jobs:
+  release_e2e_test:
+    name: "Release End-to-end Test"
+    runs-on: [self-hosted, Linux, X64, Diff]
+    strategy:
+      max-parallel: 5
+      fail-fast: false
+      matrix:
+        try_id: [1,2,3,4,5,6,7,8,9,10]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v3
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build release binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+          # Initialize dependencies.
+          ./init
+
+          # Build release binaries
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          make -j$THREADS
+
+      - name: Ensure Kafka and Pulsar are up
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose up -d
+          cd ../pulsar
+          docker-compose up -d
+
+      - name: Run e2e tests
+        run: |
+          cd tests
+          ./setup.sh /opt/toolchain-v4/activate
+          source ve3/bin/activate_e2e
+          cd e2e
+          ./run.sh
+
+      - name: Ensure Kafka and Pulsar are down
+        if: always()
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose down
+          cd ../pulsar
+          docker-compose down
