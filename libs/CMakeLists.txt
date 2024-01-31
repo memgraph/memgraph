@@ -295,13 +295,6 @@ set_path_external_library(jemalloc STATIC
 
 import_header_library(rangev3 ${CMAKE_CURRENT_SOURCE_DIR}/rangev3/include)
 
-
-
-# Set NuRaft
-# set_path_external_library(nuraft STATIC
-#   ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a
-#   ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
-
 # Setup NuRaft
 import_external_library(nuraft STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a
