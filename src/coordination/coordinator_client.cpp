@@ -20,7 +20,7 @@
 namespace memgraph::coordination {
 
 namespace {
-auto CreateClientContext(const memgraph::coordination::CoordinatorClientConfig &config)
+auto CreateClientContext(memgraph::coordination::CoordinatorClientConfig const &config)
     -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
                       : communication::ClientContext{};
@@ -49,10 +49,12 @@ void CoordinatorClient::StartFrequentCheck() {
         try {
           spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
                         rpc_client_.Endpoint().SocketAddress());
-          auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
-          stream.AwaitResponse();
+          {  // NOTE: This is intentionally scoped so that stream lock could get released.
+            auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
+            stream.AwaitResponse();
+          }
           succ_cb_(coord_data_, instance_name);
-        } catch (const rpc::RpcFailedException &) {
+        } catch (rpc::RpcFailedException const &) {
           fail_cb_(coord_data_, instance_name);
         }
       });
@@ -67,12 +69,9 @@ auto CoordinatorClient::SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCal
   fail_cb_ = std::move(fail_cb);
 }
 
-auto CoordinatorClient::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo {
-  return config_.replication_client_info;
-}
+auto CoordinatorClient::ReplicationClientInfo() const -> ReplClientInfo { return config_.replication_client_info; }
 
-auto CoordinatorClient::SendPromoteReplicaToMainRpc(
-    std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const -> bool {
+auto CoordinatorClient::SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool {
   try {
     auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(std::move(replication_clients_info))};
     if (!stream.AwaitResponse().success) {
@@ -80,23 +79,23 @@ auto CoordinatorClient::SendPromoteReplicaToMainRpc(
       return false;
     }
     return true;
-  } catch (const rpc::RpcFailedException &) {
+  } catch (rpc::RpcFailedException const &) {
     spdlog::error("RPC error occurred while sending failover RPC!");
   }
   return false;
 }
 
 auto CoordinatorClient::DemoteToReplica() const -> bool {
-  const auto instance_name = config_.instance_name;
+  auto const &instance_name = config_.instance_name;
   try {
-    auto stream{rpc_client_.Stream<SetMainToReplicaRpc>(config_.replication_client_info)};
+    auto stream{rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info)};
     if (!stream.AwaitResponse().success) {
       spdlog::error("Failed to receive successful RPC response for setting instance {} to replica!", instance_name);
       return false;
     }
     spdlog::info("Sent request RPC from coordinator to instance to set it as replica!");
     return true;
-  } catch (const rpc::RpcFailedException &) {
+  } catch (rpc::RpcFailedException const &) {
     spdlog::error("Failed to set instance {} to replica!", instance_name);
   }
   return false;

@@ -13,12 +13,10 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "utils/result.hpp"
-
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_instance_status.hpp"
-#include "coordination/failover_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
+#include "utils/result.hpp"
 
 #include <cstdint>
 #include <optional>

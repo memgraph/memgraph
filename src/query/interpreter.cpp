@@ -501,12 +501,11 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't register replica instance since instance with such endpoint already exists!");
       case NOT_COORDINATOR:
-        throw QueryRuntimeException("Couldn't register replica instance since this instance is not a coordinator!");
+        throw QueryRuntimeException("REGISTER INSTANCE query can only be run on a coordinator!");
       case RPC_FAILED:
         throw QueryRuntimeException(
-            "Couldn't register instance because setting instance to replica failed! Check logs on replica to find out "
-            "more "
-            "info!");
+            "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
+            "find out more info!");
       case SUCCESS:
         break;
     }
@@ -519,10 +518,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case NO_INSTANCE_WITH_NAME:
         throw QueryRuntimeException("No instance with such name!");
       case NOT_COORDINATOR:
-        throw QueryRuntimeException("Couldn't set replica instance to main since this instance is not a coordinator!");
+        throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
       case COULD_NOT_PROMOTE_TO_MAIN:
         throw QueryRuntimeException(
-            "Couldn't set replica instance to main. Check coordinator and replica for more logs");
+            "Couldn't set replica instance to main!. Check coordinator and replica for more logs");
       case SUCCESS:
         break;
     }

@@ -12,12 +12,12 @@
 #ifdef MG_ENTERPRISE
 
 #include "dbms/coordinator_handlers.hpp"
-#include "dbms/utils.hpp"
 
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/replication_client.hpp"
+#include "dbms/utils.hpp"
 
 #include "range/v3/view.hpp"
 
@@ -32,33 +32,33 @@ void CoordinatorHandlers::Register(DbmsHandler &dbms_handler) {
         CoordinatorHandlers::PromoteReplicaToMainHandler(dbms_handler, req_reader, res_builder);
       });
 
-  server.Register<coordination::SetMainToReplicaRpc>(
+  server.Register<coordination::DemoteMainToReplicaRpc>(
       [&dbms_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received SetMainToReplicaRpc from coordinator server");
-        CoordinatorHandlers::SetMainToReplicaHandler(dbms_handler, req_reader, res_builder);
+        spdlog::info("Received DemoteMainToReplicaRpc from coordinator server");
+        CoordinatorHandlers::DemoteMainToReplicaHandler(dbms_handler, req_reader, res_builder);
       });
 }
 
-void CoordinatorHandlers::SetMainToReplicaHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
-                                                  slk::Builder *res_builder) {
+void CoordinatorHandlers::DemoteMainToReplicaHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
+                                                     slk::Builder *res_builder) {
   auto &repl_state = dbms_handler.ReplicationState();
   spdlog::info("Executing SetMainToReplicaHandler");
 
   if (repl_state.IsReplica()) {
     spdlog::error("Setting to replica must be performed on main.");
-    slk::Save(coordination::SetMainToReplicaRes{false}, res_builder);
+    slk::Save(coordination::DemoteMainToReplicaRes{false}, res_builder);
     return;
   }
 
-  coordination::SetMainToReplicaReq req;
+  coordination::DemoteMainToReplicaReq req;
   slk::Load(&req, req_reader);
 
   const replication::ReplicationServerConfig clients_config{
       .ip_address = req.replication_client_info.replication_ip_address,
       .port = req.replication_client_info.replication_port};
 
-  if (bool success = memgraph::dbms::SetReplicationRoleReplica(dbms_handler, clients_config); !success) {
-    spdlog::error("Setting main to replica failed!");
+  if (bool const success = memgraph::dbms::SetReplicationRoleReplica(dbms_handler, clients_config); !success) {
+    spdlog::error("Demoting main to replica failed!");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;
   }
@@ -76,11 +76,9 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
     return;
   }
 
-  auto repl_server_config = std::get<replication::RoleReplicaData>(repl_state.ReplicationData()).config;
-
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues.
-  if (bool success = memgraph::dbms::DoReplicaToMainPromotion(dbms_handler); !success) {
+  if (bool const success = memgraph::dbms::DoReplicaToMainPromotion(dbms_handler); !success) {
     spdlog::error("Promoting replica to main failed!");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;
@@ -106,28 +104,29 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(DbmsHandler &dbms_handler,
   for (auto const &config : req.replication_clients_info | ranges::views::transform(converter)) {
     auto instance_client = repl_state.RegisterReplica(config);
     if (instance_client.HasError()) {
+      using enum memgraph::replication::RegisterReplicaError;
       switch (instance_client.GetError()) {
         // Can't happen, we are already replica
-        case memgraph::replication::RegisterReplicaError::NOT_MAIN:
-          spdlog::error("Failover must be performed to main!");
+        case NOT_MAIN:
+          spdlog::error("Failover must be performed on main!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
         // Can't happen, checked on the coordinator side
-        case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
+        case NAME_EXISTS:
           spdlog::error("Replica with the same name already exists!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
         // Can't happen, checked on the coordinator side
-        case memgraph::replication::RegisterReplicaError::ENDPOINT_EXISTS:
+        case ENDPOINT_EXISTS:
           spdlog::error("Replica with the same endpoint already exists!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
         // We don't handle disk issues
-        case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+        case COULD_NOT_BE_PERSISTED:
           spdlog::error("Registered replica could not be persisted!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
-        case memgraph::replication::RegisterReplicaError::SUCCESS:
+        case SUCCESS:
           break;
       }
     }
