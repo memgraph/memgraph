@@ -42,14 +42,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package amzn-2 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: amzn-2
           path: build/output/amzn-2/memgraph*.rpm
@@ -60,14 +60,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package centos-7 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: centos-7
           path: build/output/centos-7/memgraph*.rpm
@@ -78,14 +78,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package centos-9 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: centos-9
           path: build/output/centos-9/memgraph*.rpm
@@ -96,14 +96,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package debian-10 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: debian-10
           path: build/output/debian-10/memgraph*.deb
@@ -114,14 +114,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package debian-11 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: debian-11
           path: build/output/debian-11/memgraph*.deb
@@ -132,14 +132,14 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package debian-11-arm ${{ github.event.inputs.build_type }}
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: debian-11-aarch64
           path: build/output/debian-11-arm/memgraph*.deb
@@ -150,14 +150,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package debian-11 ${{ github.event.inputs.build_type }} --for-platform
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: debian-11-platform
           path: build/output/debian-11/memgraph*.deb
@@ -168,7 +168,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
@@ -177,7 +177,7 @@ jobs:
           ./run.sh package debian-11 ${{ github.event.inputs.build_type }} --for-docker
           ./run.sh docker
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: docker
           path: build/output/docker/memgraph*.tar.gz
@@ -188,14 +188,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package fedora-36 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: fedora-36
           path: build/output/fedora-36/memgraph*.rpm
@@ -206,14 +206,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package ubuntu-18.04 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ubuntu-18.04
           path: build/output/ubuntu-18.04/memgraph*.deb
@@ -224,14 +224,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package ubuntu-20.04 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ubuntu-20.04
           path: build/output/ubuntu-20.04/memgraph*.deb
@@ -242,14 +242,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package ubuntu-22.04 ${{ github.event.inputs.build_type }}
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ubuntu-22.04
           path: build/output/ubuntu-22.04/memgraph*.deb
@@ -260,14 +260,14 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: "Set up repository"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
       - name: "Build package"
         run: |
           ./release/package/run.sh package ubuntu-22.04-arm ${{ github.event.inputs.build_type }}
       - name: "Upload package"
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ubuntu-22.04-aarch64
           path: build/output/ubuntu-22.04-arm/memgraph*.deb
@@ -279,7 +279,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           # name: # if name input parameter is not provided, all artifacts are downloaded
                   # and put in directories named after each one.
