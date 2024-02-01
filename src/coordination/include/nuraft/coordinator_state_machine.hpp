@@ -36,84 +36,29 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
   ~CoordinatorStateMachine() override {}
 
-  ptr<buffer> pre_commit(ulong const log_idx, buffer &data) override {
-    buffer_serializer bs(data);
-    std::string str = bs.get_str();
+  auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
-    spdlog::info("pre_commit {} : {}", log_idx, str);
-    return nullptr;
-  }
+  auto commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
-  ptr<buffer> commit(ulong const log_idx, buffer &data) override {
-    buffer_serializer bs(data);
-    std::string str = bs.get_str();
+  auto commit_config(ulong log_idx, ptr<cluster_config> & /*new_conf*/) -> void override;
 
-    spdlog::info("commit {} : {}", log_idx, str);
+  auto rollback(ulong log_idx, buffer &data) -> void override;
 
-    last_committed_idx_ = log_idx;
-    return nullptr;
-  }
+  auto read_logical_snp_obj(snapshot & /*snapshot*/, void *& /*user_snp_ctx*/, ulong /*obj_id*/, ptr<buffer> &data_out,
+                            bool &is_last_obj) -> int override;
 
-  void commit_config(ulong const log_idx, ptr<cluster_config> & /*new_conf*/) override {
-    last_committed_idx_ = log_idx;
-  }
+  auto save_logical_snp_obj(snapshot &s, ulong &obj_id, buffer & /*data*/, bool /*is_first_obj*/, bool /*is_last_obj*/)
+      -> void override;
 
-  void rollback(ulong const log_idx, buffer &data) override {
-    buffer_serializer bs(data);
-    std::string str = bs.get_str();
+  auto apply_snapshot(snapshot &s) -> bool override;
 
-    spdlog::info("rollback {} : {}", log_idx, str);
-  }
+  auto free_user_snp_ctx(void *&user_snp_ctx) -> void override;
 
-  int read_logical_snp_obj(snapshot & /*snapshot*/, void *& /*user_snp_ctx*/, ulong /*obj_id*/, ptr<buffer> &data_out,
-                           bool &is_last_obj) override {
-    // Put dummy data.
-    data_out = buffer::alloc(sizeof(int32));
-    buffer_serializer bs(data_out);
-    bs.put_i32(0);
+  auto last_snapshot() -> ptr<snapshot> override;
 
-    is_last_obj = true;
-    return 0;
-  }
+  auto last_commit_index() -> ulong override;
 
-  void save_logical_snp_obj(snapshot &s, ulong &obj_id, buffer & /*data*/, bool /*is_first_obj*/,
-                            bool /*is_last_obj*/) override {
-    spdlog::info("save snapshot {} term {} object ID", s.get_last_log_idx(), s.get_last_log_term(), obj_id);
-    // Request next object.
-    obj_id++;
-  }
-
-  bool apply_snapshot(snapshot &s) override {
-    spdlog::info("apply snapshot {} term {}", s.get_last_log_idx(), s.get_last_log_term());
-    {
-      auto lock = std::lock_guard{last_snapshot_lock_};
-      ptr<buffer> snp_buf = s.serialize();
-      last_snapshot_ = snapshot::deserialize(*snp_buf);
-    }
-    return true;
-  }
-
-  void free_user_snp_ctx(void *&user_snp_ctx) override {}
-
-  ptr<snapshot> last_snapshot() override {
-    auto lock = std::lock_guard{last_snapshot_lock_};
-    return last_snapshot_;
-  }
-
-  ulong last_commit_index() override { return last_committed_idx_; }
-
-  void create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) override {
-    spdlog::info("create snapshot {} term {}", s.get_last_log_idx(), s.get_last_log_term());
-    // Clone snapshot from `s`.
-    {
-      auto lock = std::lock_guard{last_snapshot_lock_};
-      ptr<buffer> snp_buf = s.serialize();
-      last_snapshot_ = snapshot::deserialize(*snp_buf);
-    }
-    ptr<std::exception> except(nullptr);
-    bool ret = true;
-    when_done(ret, except);
-  }
+  auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
  private:
   std::atomic<uint64_t> last_committed_idx_{0};

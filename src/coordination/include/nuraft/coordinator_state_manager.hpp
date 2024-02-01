@@ -28,55 +28,30 @@ using nuraft::state_mgr;
 
 class CoordinatorStateManager : public state_mgr {
  public:
-  explicit CoordinatorStateManager(int srv_id, std::string const &endpoint)
-      : my_id_(srv_id), my_endpoint_(endpoint), cur_log_store_(cs_new<CoordinatorLogStore>()) {
-    my_srv_config_ = cs_new<srv_config>(srv_id, endpoint);
-
-    // Initial cluster config: contains only one server (myself).
-    cluster_config_ = cs_new<cluster_config>();
-    cluster_config_->get_servers().push_back(my_srv_config_);
-  }
+  explicit CoordinatorStateManager(int srv_id, std::string const &endpoint);
 
   CoordinatorStateManager(CoordinatorStateManager const &) = delete;
   CoordinatorStateManager &operator=(CoordinatorStateManager const &) = delete;
   CoordinatorStateManager(CoordinatorStateManager &&) = delete;
   CoordinatorStateManager &operator=(CoordinatorStateManager &&) = delete;
 
-  ~CoordinatorStateManager() override {}
+  ~CoordinatorStateManager() override = default;
 
-  ptr<cluster_config> load_config() override {
-    // Just return in-memory data in this example.
-    // May require reading from disk here, if it has been written to disk.
-    return cluster_config_;
-  }
+  auto load_config() -> ptr<cluster_config> override;
 
-  void save_config(const cluster_config &config) override {
-    // Just keep in memory in this example.
-    // Need to write to disk here, if want to make it durable.
-    ptr<buffer> buf = config.serialize();
-    cluster_config_ = cluster_config::deserialize(*buf);
-  }
+  auto save_config(cluster_config const &config) -> void override;
 
-  void save_state(const srv_state &state) override {
-    // Just keep in memory in this example.
-    // Need to write to disk here, if want to make it durable.
-    ptr<buffer> buf = state.serialize();
-    saved_state_ = srv_state::deserialize(*buf);
-  }
+  auto save_state(srv_state const &state) -> void override;
 
-  ptr<srv_state> read_state() override {
-    // Just return in-memory data in this example.
-    // May require reading from disk here, if it has been written to disk.
-    return saved_state_;
-  }
+  auto read_state() -> ptr<srv_state> override;
 
-  ptr<log_store> load_log_store() override { return cur_log_store_; }
+  auto load_log_store() -> ptr<log_store> override;
 
-  int32 server_id() override { return my_id_; }
+  auto server_id() -> int32 override;
 
-  void system_exit(const int exit_code) override {}
+  auto system_exit(int exit_code) -> void override;
 
-  ptr<srv_config> get_srv_config() const { return my_srv_config_; }
+  auto GetSrvConfig() const -> ptr<srv_config>;
 
  private:
   int my_id_;
