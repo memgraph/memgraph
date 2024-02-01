@@ -15,7 +15,9 @@ target_sources(mg-coordination
         include/coordination/coordinator_cluster_config.hpp
         include/coordination/coordinator_handlers.hpp
 
+        include/nuraft/coordinator_log_store.hpp
         include/nuraft/coordinator_state_machine.hpp
+        include/nuraft/coordinator_state_manager.hpp
 
         PRIVATE
         coordinator_client.cpp
@@ -25,6 +27,8 @@ target_sources(mg-coordination
         coordinator_data.cpp
         coordinator_instance.cpp
         coordinator_handlers.cpp
+
+        coordinator_log_store.cpp
 )
 target_include_directories(mg-coordination PUBLIC include)
 
