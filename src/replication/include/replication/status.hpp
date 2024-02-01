@@ -31,7 +31,7 @@ constexpr auto *kReplicationReplicaPrefix{"__replication_replica:"};  // introdu
 
 enum class DurabilityVersion : uint8_t {
   V1,  // no distinct key for replicas
-  V2,  // this version, epoch, replica prefix introduced
+  V2,  // epoch, replica prefix introduced
   V3,  // this version, main uuid introduced
 };
 
