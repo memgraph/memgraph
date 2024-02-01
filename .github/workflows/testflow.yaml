@@ -1,0 +1,85 @@
+name: Test workflow
+concurrency:
+  group: ${{ github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".clang-format"
+      - "CODEOWNERS"
+      - "licenses/*"
+
+jobs:
+  release_build:
+    name: "Release build"
+    runs-on: [self-hosted, Linux, X64, Diff]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      IMAGE_TAG: "memgraph/mgbuilder:${{ github.run_id }}"
+      OS: "debian-10"
+      TOOLCHAIN_VERSION: "4"
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build release binaries
+        run: |
+          # Build memgraph inside docker image
+          ./docker/ci.bash build release
+
+          # Push image to dockerhub
+          docker push $IMAGE_TAG
+
+          # Cleanup
+          docker image rm $IMAGE_TAG  
+
+  test_build:
+    name: "Test download"
+    needs: [release_build]
+    runs-on: [self-hosted, Linux, X64, Diff]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      IMAGE_TAG: "memgraph/mgbuilder:${{ github.run_id }}"
+      OS: "debian-10"
+      TOOLCHAIN_VERSION: "4"
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull mgbuilder
+        run: |
+          # Push image to dockerhub
+          docker pull $IMAGE_TAG

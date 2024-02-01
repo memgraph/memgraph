@@ -1,27 +1,29 @@
 ARG TOOLCHAIN_VERSION=4
 ARG OS=debian-10
 
-FROM mgbuilder-base:v${TOOLCHAIN_VERSION}_${OS}
+FROM memgraph/mgbuilder-base:toolchain-v${TOOLCHAIN_VERSION}_${OS}
+
+ARG BUILD_TYPE=Release
+ARG THREADS
+ENV BUILD_TYPE=${BUILD_TYPE}
+ENV THREADS=${THREADS}
+ARG CMAKE_CMD="cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE .."
+ARG MAKE_CMD="make -j$THREADS"
+
+COPY . /memgraph
 
 SHELL ["/bin/bash", "-c"]
 
-ARG TOOLCHAIN_VERSION=4
-ARG OS=debian-10
-ARG BUILD_TYPE=Release
-ARG THREAD_COUNT=8
-
-# COPY . /memgraph
-
+# Initialize deps
 RUN cd memgraph && \
     git remote set-url origin https://github.com/memgraph/memgraph.git && \
-    source /opt/toolchain-v${TOOLCHAIN_VERSION}/activate && \
-    # ./init && \
-    cd build && \
-    cmake -DCMAKE_BUILD_TYPE=$MG_BUILD_TYPE ..
+    $TOOLCHAIN_ACTIVATE && \
+    ./init
 
-RUN cd  memgraph/build && \
-    source /opt/toolchain-v${TOOLCHAIN_VERSION}/activate && \
-    make -j$THREAD_COUNT
+# Build memgraph
+RUN cd memgraph/build && \
+    $TOOLCHAIN_ACTIVATE && \
+    $CMAKE_CMD && \
+    $MAKE_CMD
 
-# Sleep for 2 hours
-ENTRYPOINT ["sleep", "7200"]
+ENTRYPOINT ["sleep", "infinity"]
