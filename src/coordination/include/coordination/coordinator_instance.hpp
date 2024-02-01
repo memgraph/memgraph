@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_client.hpp"
 #include "coordination/coordinator_cluster_config.hpp"
+#include "coordination/coordinator_exceptions.hpp"
 #include "replication_coordination_glue/role.hpp"
 
 namespace memgraph::coordination {
@@ -24,10 +25,7 @@ class CoordinatorData;
 class CoordinatorInstance {
  public:
   CoordinatorInstance(CoordinatorData *data, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
-                      HealthCheckCallback fail_cb, replication_coordination_glue::ReplicationRole replication_role)
-      : client_(data, std::move(config), std::move(succ_cb), std::move(fail_cb)),
-        replication_role_(replication_role),
-        is_alive_(true) {}
+                      HealthCheckCallback fail_cb);
 
   CoordinatorInstance(CoordinatorInstance const &other) = delete;
   CoordinatorInstance &operator=(CoordinatorInstance const &other) = delete;
@@ -35,34 +33,27 @@ class CoordinatorInstance {
   CoordinatorInstance &operator=(CoordinatorInstance &&other) noexcept = delete;
   ~CoordinatorInstance() = default;
 
-  auto UpdateInstanceStatus() -> bool {
-    is_alive_ = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_response_time_)
-                    .count() < CoordinatorClusterConfig::alive_response_time_difference_sec_;
-    return is_alive_;
-  }
-  auto UpdateLastResponseTime() -> void { last_response_time_ = std::chrono::system_clock::now(); }
+  auto OnSuccessPing() -> void;
+  auto OnFailPing() -> bool;
 
-  auto InstanceName() const -> std::string { return client_.InstanceName(); }
-  auto SocketAddress() const -> std::string { return client_.SocketAddress(); }
-  auto IsAlive() const -> bool { return is_alive_; }
+  auto IsAlive() const -> bool;
 
-  auto IsReplica() const -> bool {
-    return replication_role_ == replication_coordination_glue::ReplicationRole::REPLICA;
-  }
-  auto IsMain() const -> bool { return replication_role_ == replication_coordination_glue::ReplicationRole::MAIN; }
+  auto InstanceName() const -> std::string;
+  auto SocketAddress() const -> std::string;
 
-  auto PrepareForFailover() -> void { client_.PauseFrequentCheck(); }
-  auto RestoreAfterFailedFailover() -> void { client_.ResumeFrequentCheck(); }
+  auto IsReplica() const -> bool;
+  auto IsMain() const -> bool;
 
-  auto PostFailover(HealthCheckCallback main_succ_cb, HealthCheckCallback main_fail_cb) -> void {
-    replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
-    client_.SetSuccCallback(std::move(main_succ_cb));
-    client_.SetFailCallback(std::move(main_fail_cb));
-    // Comment with Andi but we shouldn't delete this, what if this MAIN FAILS AGAIN
-    // client_.ResetReplicationClientInfo();
-    client_.ResumeFrequentCheck();
-  }
+  auto PromoteToMain(ReplicationClientsInfo repl_clients_info, HealthCheckCallback main_succ_cb,
+                     HealthCheckCallback main_fail_cb) -> bool;
+  auto DemoteToReplica(HealthCheckCallback replica_succ_cb, HealthCheckCallback replica_fail_cb) -> bool;
 
+  auto PauseFrequentCheck() -> void;
+  auto ResumeFrequentCheck() -> void;
+
+  auto ReplicationClientInfo() const -> ReplClientInfo;
+
+ private:
   CoordinatorClient client_;
   replication_coordination_glue::ReplicationRole replication_role_;
   std::chrono::system_clock::time_point last_response_time_{};
