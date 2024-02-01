@@ -33,7 +33,7 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
     j = nlohmann::json{{kVersion, p.version},
                        {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
                        {kEpoch, main.epoch.id()},
-                       {kMainUUID, main.main_uuid}};
+                       {kMainUUID, nlohmann::json(main.main_uuid)}};
   };
   auto processREPLICA = [&](ReplicaRole const &replica) {
     if (replica.main_uuid.has_value()) {
@@ -69,20 +69,11 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       auto json_epoch = j.value(kEpoch, std::string{});
       auto epoch = ReplicationEpoch{};
       if (!json_epoch.empty()) epoch.SetEpoch(json_epoch);
-      auto main_uuid = j.value(kMainUUID, std::string());
-      if (!main_uuid.empty()) {
-        memgraph::utils::UUID uuid{};
-        memgraph::utils::from_json(j.at(kMainUUID), uuid);
-        p = ReplicationRoleEntry{
-            .version = version,
-            .role = MainRole{.epoch = std::move(epoch), .main_uuid = uuid},
-        };
-      } else {
-        p = ReplicationRoleEntry{
-            .version = version,
-            .role = MainRole{.epoch = std::move(epoch), .main_uuid = utils::UUID{}},
-        };
-      }
+      utils::UUID main_uuid = j.at(kMainUUID);
+      p = ReplicationRoleEntry{
+          .version = version,
+          .role = MainRole{.epoch = std::move(epoch), .main_uuid = main_uuid},
+      };
       break;
     }
     case memgraph::replication_coordination_glue::ReplicationRole::REPLICA: {
@@ -92,13 +83,15 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       j.at(kIpAddress).get_to(ip_address);
       j.at(kPort).get_to(port);
       auto config = ReplicationServerConfig{.ip_address = std::move(ip_address), .port = port};
-
-      auto main_uuid = j.value(kMainUUID, std::string());
-      if (!main_uuid.empty()) {
-        memgraph::utils::UUID uuid{};
-        memgraph::utils::from_json(j.at(kMainUUID), uuid);
+      std::optional<utils::UUID> stored_uuid;
+      try {
+        stored_uuid.emplace(j.at(kMainUUID));
+      } catch (std::exception &e) {
+        // when replica is not registered to certain main yet
+      }
+      if (stored_uuid.has_value()) {
         p = ReplicationRoleEntry{.version = version,
-                                 .role = ReplicaRole{.config = std::move(config), .main_uuid = uuid}};
+                                 .role = ReplicaRole{.config = std::move(config), .main_uuid = *stored_uuid}};
       } else {
         p = ReplicationRoleEntry{.version = version, .role = ReplicaRole{.config = std::move(config)}};
       }
