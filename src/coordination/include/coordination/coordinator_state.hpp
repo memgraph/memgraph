@@ -16,7 +16,6 @@
 #include "coordination/coordinator_data.hpp"
 #include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_server.hpp"
-#include "coordination/failover_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 
 #include <variant>
@@ -28,8 +27,8 @@ class CoordinatorState {
   CoordinatorState();
   ~CoordinatorState() = default;
 
-  CoordinatorState(const CoordinatorState &) = delete;
-  CoordinatorState &operator=(const CoordinatorState &) = delete;
+  CoordinatorState(CoordinatorState const &) = delete;
+  CoordinatorState &operator=(CoordinatorState const &) = delete;
 
   CoordinatorState(CoordinatorState &&) noexcept = delete;
   CoordinatorState &operator=(CoordinatorState &&) noexcept = delete;
@@ -42,8 +41,6 @@ class CoordinatorState {
 
   // The client code must check that the server exists before calling this method.
   auto GetCoordinatorServer() const -> CoordinatorServer &;
-
-  [[nodiscard]] auto DoFailover() -> DoFailoverStatus;
 
  private:
   std::variant<CoordinatorData, CoordinatorMainReplicaData> data_;

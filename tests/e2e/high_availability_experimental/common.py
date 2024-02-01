@@ -23,3 +23,10 @@ def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(**kwargs)
     connection.autocommit = True
     return connection
+
+
+def safe_execute(function, *args):
+    try:
+        function(*args)
+    except:
+        pass

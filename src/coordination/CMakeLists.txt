@@ -12,7 +12,6 @@ target_sources(mg-coordination
         include/coordination/coordinator_slk.hpp
         include/coordination/coordinator_data.hpp
         include/coordination/constants.hpp
-        include/coordination/failover_status.hpp
         include/coordination/coordinator_cluster_config.hpp
 
         PRIVATE
@@ -21,6 +20,7 @@ target_sources(mg-coordination
         coordinator_rpc.cpp
         coordinator_server.cpp
         coordinator_data.cpp
+        coordinator_instance.cpp
 )
 target_include_directories(mg-coordination PUBLIC include)
 

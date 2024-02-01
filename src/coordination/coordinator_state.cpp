@@ -74,12 +74,6 @@ auto CoordinatorState::ShowInstances() const -> std::vector<CoordinatorInstanceS
   return std::get<CoordinatorData>(data_).ShowInstances();
 }
 
-[[nodiscard]] auto CoordinatorState::DoFailover() -> DoFailoverStatus {
-  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_), "Cannot do failover since variant holds wrong alternative");
-  auto &coord_state = std::get<CoordinatorData>(data_);
-  return coord_state.DoFailover();
-}
-
 auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
   MG_ASSERT(std::holds_alternative<CoordinatorMainReplicaData>(data_),
             "Cannot get coordinator server since variant holds wrong alternative");
