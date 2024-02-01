@@ -34,7 +34,7 @@ jobs:
     name: "Release build"
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
-      TAG: $TAG_RELEASE
+      TAG: ${{ env.TAG_RELEASE }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -62,7 +62,7 @@ jobs:
     name: "Community build"
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
-      TAG: $TAG_COMMUNITY
+      TAG: ${{ env.TAG_COMMUNITY }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -90,7 +90,7 @@ jobs:
     name: "Debug build"
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
-      TAG: $TAG_DEBUG
+      TAG: ${{ env.TAG_DEBUG }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -118,7 +118,7 @@ jobs:
     name: "High availability build"
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
-      TAG: $TAG_EXP_HA
+      TAG: ${{ env.TAG_EXP_HA }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -146,7 +146,7 @@ jobs:
     name: "MultiTenancy replication build"
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
-      TAG: $TAG_EXP_MT
+      TAG: ${{ env.TAG_EXP_MT }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -175,7 +175,7 @@ jobs:
     needs: [release_build]
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
-      TAG: $TAG_RELEASE
+      TAG: ${{ env.TAG_RELEASE }}
     steps:
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
@@ -191,7 +191,7 @@ jobs:
     needs: [community_build]
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
-      TAG: $TAG_COMMUNITY
+      TAG: ${{ env.TAG_COMMUNITY }}
     steps:
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
@@ -207,7 +207,7 @@ jobs:
     needs: [debug_build]
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
-      TAG: $TAG_DEBUG
+      TAG: ${{ env.TAG_DEBUG }}
     steps:
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
@@ -223,7 +223,7 @@ jobs:
     needs: [experimental_ha_build]
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
-      TAG: $TAG_EXP_HA
+      TAG: ${{ env.TAG_EXP_HA }}
     steps:
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
@@ -239,7 +239,7 @@ jobs:
     needs: [experimental_build_mt]
     runs-on: [self-hosted, Linux, X64, Diff]
     env:
-      TAG: $TAG_EXP_MT
+      TAG: ${{ env.TAG_EXP_MT }}
     steps:
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
