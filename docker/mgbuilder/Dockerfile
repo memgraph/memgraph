@@ -18,11 +18,8 @@ SHELL ["/bin/bash", "-c"]
 RUN cd memgraph && \
     git remote set-url origin https://github.com/memgraph/memgraph.git && \
     $TOOLCHAIN_ACTIVATE && \
-    ./init
-
-# Build memgraph
-RUN cd memgraph/build && \
-    $TOOLCHAIN_ACTIVATE && \
+    ./init && \
+    cd build && \
     $CMAKE_CMD && \
     $MAKE_CMD
 
