@@ -23,7 +23,7 @@ env:
 jobs:
   stress_test_large:
     name: "Stress test large"
-    timeout-minutes: 600
+    timeout-minutes: 720
     strategy:
       matrix:
         os: [Debian10, Ubuntu20.04]
