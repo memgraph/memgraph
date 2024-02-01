@@ -47,11 +47,11 @@ jobs:
           # Build memgraph inside docker image
           ./docker/ci.bash build release
 
-          # Push image to dockerhub
-          docker push $IMAGE_TAG
+      - name: Push mgbuilder image
+        run: docker push $TAG
 
-          # Cleanup
-          docker image rm $IMAGE_TAG  
+      - name: Clean up
+        run:  docker image rm $TAG  
 
   test_build:
     name: "Test download"
@@ -61,7 +61,7 @@ jobs:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-      IMAGE_TAG: "memgraph/mgbuilder:${{ github.run_id }}"
+      TAG: "memgraph/mgbuilder:${{ github.run_id }}"
       OS: "debian-10"
       TOOLCHAIN_VERSION: "4"
 
@@ -81,5 +81,4 @@ jobs:
 
       - name: Pull mgbuilder
         run: |
-          # Push image to dockerhub
-          docker pull $IMAGE_TAG
+          docker pull $TAG
