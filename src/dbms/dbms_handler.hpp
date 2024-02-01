@@ -410,6 +410,9 @@ class DbmsHandler {
     return acc->get()->config();
 #endif
   }
+  bool TrySwapReplicaMainUUID(replication::ReplicationClient &client, const utils::UUID &main_uuid) {
+    return memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, main_uuid);
+  }
 
  private:
 #ifdef MG_ENTERPRISE

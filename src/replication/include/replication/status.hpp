@@ -38,7 +38,7 @@ enum class DurabilityVersion : uint8_t {
 // fragment of key: "__replication_role"
 struct MainRole {
   ReplicationEpoch epoch{};
-  utils::UUID main_uuid{};
+  std::optional<utils::UUID> main_uuid{};
   friend bool operator==(MainRole const &, MainRole const &) = default;
 };
 

@@ -30,10 +30,11 @@ constexpr auto *kMainUUID = "main_uuid";
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
+    MG_ASSERT(main.main_uuid.has_value(), "Main should have id ready");
     j = nlohmann::json{{kVersion, p.version},
                        {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
                        {kEpoch, main.epoch.id()},
-                       {kMainUUID, nlohmann::json(main.main_uuid)}};
+                       {kMainUUID, nlohmann::json(*main.main_uuid)}};
   };
   auto processREPLICA = [&](ReplicaRole const &replica) {
     if (replica.main_uuid.has_value()) {
@@ -69,11 +70,14 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       auto json_epoch = j.value(kEpoch, std::string{});
       auto epoch = ReplicationEpoch{};
       if (!json_epoch.empty()) epoch.SetEpoch(json_epoch);
-      utils::UUID main_uuid = j.at(kMainUUID);
-      p = ReplicationRoleEntry{
-          .version = version,
-          .role = MainRole{.epoch = std::move(epoch), .main_uuid = main_uuid},
-      };
+      std::optional<utils::UUID> main_uuid;
+      try {
+        main_uuid.emplace(j.at(kMainUUID));
+      } catch (std::exception &e) {
+        MG_ASSERT(version == DurabilityVersion::V2 || version == DurabilityVersion::V1,
+                  "Main should have id on version V3 and later.");
+      }
+      p = ReplicationRoleEntry{.version = version, .role = MainRole{.epoch = std::move(epoch), .main_uuid = main_uuid}};
       break;
     }
     case memgraph::replication_coordination_glue::ReplicationRole::REPLICA: {
@@ -88,6 +92,7 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
         stored_uuid.emplace(j.at(kMainUUID));
       } catch (std::exception &e) {
         // when replica is not registered to certain main yet
+        // or when replica was version V1 or version V2
       }
       if (stored_uuid.has_value()) {
         p = ReplicationRoleEntry{.version = version,

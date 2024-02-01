@@ -232,6 +232,35 @@ DbmsHandler::DbmsHandler(storage::Config config, memgraph::system::System &syste
    */
   // Setup the default DB
   SetupDefault_();
+
+  /*
+   * REPLICATION RECOVERY AND STARTUP
+   */
+  // Startup replication state (if recovered at startup)
+  /*
+  auto replica = [this](replication::RoleReplicaData &data) { return StartRpcServer(*this, data); };
+  // Replication recovery and frequent check start
+  auto main = [this](replication::RoleMainData &data) {
+    for (auto &client : data.registered_replicas_) {
+      if (client.try_set_uuid) {
+        auto res = TrySwapReplicaMainUUID(client, data.uuid_);
+        if (res) {
+          client.try_set_uuid = false;
+        }
+      }
+      SystemRestore(client, data.uuid_);
+    }
+    ForEach([this](DatabaseAccess db) { RecoverReplication(db); });
+    for (auto &client : data.registered_replicas_) {
+      StartReplicaClient(*this, client, data.uuid_);
+    }
+    return true;
+  };
+  // Startup process for main/replica
+  MG_ASSERT(std::visit(memgraph::utils::Overloaded{replica, main}, repl_state_.ReplicationData()),
+            "Replica recovery failure!");
+  */
+
 }
 
 struct DropDatabase : memgraph::system::ISystemAction {

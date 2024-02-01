@@ -130,7 +130,8 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
     return std::visit(
         utils::Overloaded{
             [&](durability::MainRole &&r) -> FetchReplicationResult_t {
-              auto res = RoleMainData{std::move(r.epoch)};
+              auto res =
+                  RoleMainData{std::move(r.epoch), r.main_uuid.has_value() ? r.main_uuid.value() : utils::UUID{}};
               auto b = durability_->begin(durability::kReplicationReplicaPrefix);
               auto e = durability_->end(durability::kReplicationReplicaPrefix);
               for (; b != e; ++b) {
@@ -145,6 +146,8 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                   }
                   // Instance clients
                   res.registered_replicas_.emplace_back(data.config);
+                  // Bump for each replica uuid
+                  res.registered_replicas_.back().try_set_uuid = !r.main_uuid.has_value();
                 } catch (...) {
                   return FetchReplicationError::PARSE_ERROR;
                 }
