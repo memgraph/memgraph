@@ -21,12 +21,10 @@ namespace memgraph::coordination {
 
 class CoordinatorData;
 using HealthCheckCallback = std::function<void(CoordinatorData *, std::string_view)>;
+using ReplicationClientsInfo = std::vector<ReplClientInfo>;
 
 class CoordinatorClient {
  public:
-  using ReplClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
-  using ReplicationClientsInfo = std::vector<ReplClientInfo>;
-
   explicit CoordinatorClient(CoordinatorData *coord_data_, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
                              HealthCheckCallback fail_cb);
 
@@ -46,15 +44,12 @@ class CoordinatorClient {
   auto InstanceName() const -> std::string;
   auto SocketAddress() const -> std::string;
 
-  auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
+  [[nodiscard]] auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
+  [[nodiscard]] auto DemoteToReplica() const -> bool;
 
-  auto ReplicationClientInfo() const -> const ReplClientInfo &;
-  auto ResetReplicationClientInfo() -> void;
+  auto ReplicationClientInfo() const -> ReplClientInfo;
 
-  auto SendSetToReplicaRpc(ReplClientInfo replication_client_info) const -> bool;
-
-  auto SetSuccCallback(HealthCheckCallback succ_cb) -> void;
-  auto SetFailCallback(HealthCheckCallback fail_cb) -> void;
+  auto SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCallback fail_cb) -> void;
 
   friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
     return first.config_ == second.config_;

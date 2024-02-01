@@ -76,6 +76,7 @@ inline bool SetReplicationRoleReplica(dbms::DbmsHandler &dbms_handler,
   return success;
 }
 
+template <bool AllowRPCFailure = false>
 inline bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
                                         replication::ReplicationClient &instance_client) {
   if (!allow_mt_repl && dbms_handler.All().size() > 1) {
@@ -84,7 +85,6 @@ inline bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
 
   bool all_clients_good = true;
 
-  // Add database specific clients (NOTE Currently all databases are connected to each replica)
   dbms_handler.ForEach([&](DatabaseAccess db_acc) {
     auto *storage = db_acc->storage();
     if (!allow_mt_repl && storage->name() != kDefaultDB) {
@@ -93,16 +93,14 @@ inline bool RegisterAllDatabasesClients(dbms::DbmsHandler &dbms_handler,
     // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
     if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
+    using enum storage::replication::ReplicaState;
+
     all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
         [storage, &instance_client, db_acc = std::move(db_acc)](auto &storage_clients) mutable {  // NOLINT
           auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client);
-          // All good, start replica client
           client->Start(storage, std::move(db_acc));
-          // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
-          // MAYBE_BEHIND isn't a statement of the current state, this is the default value
-          // Failed to start due an error like branching of MAIN and REPLICA
-          if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
-            return false;  // TODO: sometimes we need to still add to storage_clients
+          if (client->State() == MAYBE_BEHIND && !AllowRPCFailure) {
+            return false;
           }
           storage_clients.push_back(std::move(client));
           return true;

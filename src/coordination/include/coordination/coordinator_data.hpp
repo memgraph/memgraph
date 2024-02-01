@@ -16,9 +16,9 @@
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_server.hpp"
-#include "coordination/failover_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/thread_pool.hpp"
 
 #include <list>
 
@@ -27,17 +27,20 @@ class CoordinatorData {
  public:
   CoordinatorData();
 
-  [[nodiscard]] auto DoFailover() -> DoFailoverStatus;
-
   [[nodiscard]] auto RegisterInstance(CoordinatorClientConfig config) -> RegisterInstanceCoordinatorStatus;
+
   [[nodiscard]] auto SetInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus;
+
+  auto TryFailover() -> void;
 
   auto ShowInstances() const -> std::vector<CoordinatorInstanceStatus>;
 
  private:
+  auto ClusterHasAliveMain_() const -> bool;
+
   mutable utils::RWLock coord_data_lock_{utils::RWLock::Priority::READ};
   HealthCheckCallback main_succ_cb_, main_fail_cb_, replica_succ_cb_, replica_fail_cb_;
-  // Must be std::list because we rely on pointer stability
+  // NOTE: Must be std::list because we rely on pointer stability
   std::list<CoordinatorInstance> registered_instances_;
 };
 
