@@ -73,6 +73,27 @@ def show_role_for_user_func(cursor, username):
     return func
 
 
+def show_privileges_func(cursor, user_or_role):
+    def func():
+        return set(execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR {user_or_role};"))
+
+    return func
+
+
+def show_database_privileges_func(cursor, user):
+    def func():
+        return execute_and_fetch_all(cursor, f"SHOW DATABASE PRIVILEGES FOR {user};")
+
+    return func
+
+
+def show_database_func(cursor):
+    def func():
+        return execute_and_fetch_all(cursor, f"SHOW DATABASE;")
+
+    return func
+
+
 def try_and_count(cursor, query):
     try:
         execute_and_fetch_all(cursor, query)
@@ -118,7 +139,70 @@ def main_and_repl_queries(cursor):
     return n_exceptions
 
 
-def test_manual_users_replication(connection):
+def test_auth_queries_on_replica(connection):
+    # Goal: check that write auth queries are forbidden on REPLICAs
+    # 0/ Setup replication cluster
+    # 1/ Check queries
+
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/replica1",
+            ],
+            "log_file": "replica1.log",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "replica_2": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/replica2",
+            ],
+            "log_file": "replica2.log",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
+            ],
+        },
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+                "--data_directory",
+                TEMP_DIR + "/main",
+            ],
+            "log_file": "main.log",
+            "setup_queries": [
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
+            ],
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
+    cursor_main = connection(BOLT_PORTS["main"], "main", "UsErA", "pass").cursor()
+    cursor_replica_1 = connection(BOLT_PORTS["replica_1"], "replica", "UsErA", "pass").cursor()
+    cursor_replica_2 = connection(BOLT_PORTS["replica_2"], "replica", "UsErA", "pass").cursor()
+
+    # 1/
+    assert only_main_queries(cursor_main) == 0
+    assert only_main_queries(cursor_replica_1) == 17
+    assert only_main_queries(cursor_replica_2) == 17
+    assert main_and_repl_queries(cursor_main) == 0
+    assert main_and_repl_queries(cursor_replica_1) == 0
+    assert main_and_repl_queries(cursor_replica_2) == 0
+
+
+def test_manual_users_recovery(connection):
     # Goal: show system recovery in action at registration time
     # 0/ MAIN CREATE USER user1, user2
     #    REPLICA CREATE USER user3, user4
@@ -193,7 +277,7 @@ def test_manual_users_replication(connection):
     connection(BOLT_PORTS["replica_2"], "replica", "user2", "password").cursor()
 
 
-def test_env_users_replication(connection):
+def test_env_users_recovery(connection):
     # Goal: show system recovery in action at registration time
     # 0/ Set users from the environment
     #    MAIN gets users from the environment
@@ -272,7 +356,7 @@ def test_env_users_replication(connection):
     )
 
 
-def test_manual_roles_replication(connection):
+def test_manual_roles_recovery(connection):
     # Goal: show system recovery in action at registration time
     # 0/ MAIN CREATE USER user1, user2
     #    REPLICA CREATE USER user3, user4
@@ -362,7 +446,7 @@ def test_manual_roles_replication(connection):
     )
 
 
-def test_auth_config_replication(connection):
+def test_auth_config_recovery(connection):
     # Goal: show we are replicating Auth::Config
     # 0/ Setup auth configuration and compliant users
     # 1/ Check that both MAIN and REPLICA have the same users
@@ -452,7 +536,6 @@ def test_auth_config_replication(connection):
             add_user(cursor, "UsErC")
         with pytest.raises(mgclient.DatabaseError, match="The user password doesn't conform to the required strength!"):
             add_user(cursor, "UsErC", "123456")
-        add_user(cursor, "UsErC", "abcdef")
 
     user_test(cursor_main)
     update_to_main(cursor_replica_1)
@@ -461,10 +544,8 @@ def test_auth_config_replication(connection):
     user_test(cursor_replica_2)
 
 
-def test_auth_queries_on_replica(connection):
-    # Goal: check that write auth queries are forbidden on REPLICAs
-    # 0/ Setup replication cluster
-    # 1/ Check queries
+def test_auth_replication(connection):
+    # Goal: show that individual auth queries get replicated
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -511,17 +592,238 @@ def test_auth_queries_on_replica(connection):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
-    cursor_main = connection(BOLT_PORTS["main"], "main", "UsErA", "pass").cursor()
-    cursor_replica_1 = connection(BOLT_PORTS["replica_1"], "replica", "UsErA", "pass").cursor()
-    cursor_replica_2 = connection(BOLT_PORTS["replica_2"], "replica", "UsErA", "pass").cursor()
+    cursor_main = connection(BOLT_PORTS["main"], "main", "user1").cursor()
+    cursor_replica1 = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
 
     # 1/
-    assert only_main_queries(cursor_main) == 0
-    assert only_main_queries(cursor_replica_1) == 17
-    assert only_main_queries(cursor_replica_2) == 17
-    assert main_and_repl_queries(cursor_main) == 0
-    assert main_and_repl_queries(cursor_replica_1) == 0
-    assert main_and_repl_queries(cursor_replica_2) == 0
+    def check(f, expected_data):
+        # mg_sleep_and_assert(
+        # REPLICA 1 is SYNC, should already be ready
+        assert expected_data == f(cursor_replica1)()
+        # )
+        mg_sleep_and_assert(expected_data, f(cursor_replica2))
+
+    # CREATE USER
+    execute_and_fetch_all(cursor_main, "CREATE USER user1")
+    check(
+        show_users_func,
+        {
+            ("user1",),
+        },
+    )
+    execute_and_fetch_all(cursor_main, "CREATE USER user2 IDENTIFIED BY 'pass'")
+    check(
+        show_users_func,
+        {
+            ("user2",),
+            ("user1",),
+        },
+    )
+    connection(BOLT_PORTS["replica_1"], "replica", "user1").cursor()  # Just check connection
+    connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor()  # Just check connection
+    connection(BOLT_PORTS["replica_1"], "replica", "user2", "pass").cursor()  # Just check connection
+    connection(BOLT_PORTS["replica_2"], "replica", "user2", "pass").cursor()  # Just check connection
+
+    # SET PASSWORD
+    execute_and_fetch_all(cursor_main, "SET PASSWORD FOR user1 TO '1234'")
+    execute_and_fetch_all(cursor_main, "SET PASSWORD FOR user2 TO 'new_pass'")
+    connection(BOLT_PORTS["replica_1"], "replica", "user1", "1234").cursor()  # Just check connection
+    connection(BOLT_PORTS["replica_2"], "replica", "user1", "1234").cursor()  # Just check connection
+    connection(BOLT_PORTS["replica_1"], "replica", "user2", "new_pass").cursor()  # Just check connection
+    connection(BOLT_PORTS["replica_2"], "replica", "user2", "new_pass").cursor()  # Just check connection
+
+    # DROP USER
+    execute_and_fetch_all(cursor_main, "DROP USER user2")
+    check(
+        show_users_func,
+        {
+            ("user1",),
+        },
+    )
+    execute_and_fetch_all(cursor_main, "DROP USER user1")
+    check(show_users_func, set())
+    connection(BOLT_PORTS["replica_1"], "replica").cursor()  # Just check connection
+    connection(BOLT_PORTS["replica_2"], "replica").cursor()  # Just check connection
+
+    # CREATE ROLE
+    execute_and_fetch_all(cursor_main, "CREATE ROLE role1")
+    check(
+        show_roles_func,
+        {
+            ("role1",),
+        },
+    )
+    execute_and_fetch_all(cursor_main, "CREATE ROLE role2")
+    check(
+        show_roles_func,
+        {
+            ("role2",),
+            ("role1",),
+        },
+    )
+
+    # DROP ROLE
+    execute_and_fetch_all(cursor_main, "DROP ROLE role2")
+    check(
+        show_roles_func,
+        {
+            ("role1",),
+        },
+    )
+    execute_and_fetch_all(cursor_main, "DROP ROLE role1")
+    check(show_roles_func, set())
+
+    # SET ROLE
+    execute_and_fetch_all(cursor_main, "CREATE USER user3")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE role3")
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR user3 TO role3")
+    check(partial(show_role_for_user_func, username="user3"), {("role3",)})
+    execute_and_fetch_all(cursor_main, "CREATE USER user3b")
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR user3b TO role3")
+    check(partial(show_role_for_user_func, username="user3b"), {("role3",)})
+    check(
+        partial(show_users_for_role_func, rolename="role3"),
+        {
+            ("user3",),
+            ("user3b",),
+        },
+    )
+
+    # CLEAR ROLE
+    execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR user3")
+    check(partial(show_role_for_user_func, username="user3"), {("null",)})
+    check(
+        partial(show_users_for_role_func, rolename="role3"),
+        {
+            ("user3b",),
+        },
+    )
+
+    # GRANT/REVOKE/DENY privileges TO user
+    execute_and_fetch_all(cursor_main, "CREATE USER user4")
+    execute_and_fetch_all(cursor_main, "REVOKE ALL PRIVILEGES FROM user4")
+    execute_and_fetch_all(cursor_main, "GRANT CREATE, DELETE, SET TO user4")
+    check(
+        partial(show_privileges_func, user_or_role="user4"),
+        {
+            ("CREATE", "GRANT", "GRANTED TO USER"),
+            ("DELETE", "GRANT", "GRANTED TO USER"),
+            ("SET", "GRANT", "GRANTED TO USER"),
+        },
+    )
+    execute_and_fetch_all(cursor_main, "REVOKE SET FROM user4")
+    check(
+        partial(show_privileges_func, user_or_role="user4"),
+        {("CREATE", "GRANT", "GRANTED TO USER"), ("DELETE", "GRANT", "GRANTED TO USER")},
+    )
+    execute_and_fetch_all(cursor_main, "DENY DELETE TO user4")
+    check(
+        partial(show_privileges_func, user_or_role="user4"),
+        {("CREATE", "GRANT", "GRANTED TO USER"), ("DELETE", "DENY", "DENIED TO USER")},
+    )
+
+    # GRANT/REVOKE/DENY privileges TO role
+    execute_and_fetch_all(cursor_main, "REVOKE ALL PRIVILEGES FROM role3")
+    execute_and_fetch_all(cursor_main, "REVOKE ALL PRIVILEGES FROM user3b")
+    execute_and_fetch_all(cursor_main, "GRANT CREATE, DELETE, SET TO role3")
+    check(
+        partial(show_privileges_func, user_or_role="role3"),
+        {
+            ("CREATE", "GRANT", "GRANTED TO ROLE"),
+            ("DELETE", "GRANT", "GRANTED TO ROLE"),
+            ("SET", "GRANT", "GRANTED TO ROLE"),
+        },
+    )
+    check(
+        partial(show_privileges_func, user_or_role="user3b"),
+        {
+            ("CREATE", "GRANT", "GRANTED TO ROLE"),
+            ("DELETE", "GRANT", "GRANTED TO ROLE"),
+            ("SET", "GRANT", "GRANTED TO ROLE"),
+        },
+    )
+    execute_and_fetch_all(cursor_main, "REVOKE SET FROM role3")
+    check(
+        partial(show_privileges_func, user_or_role="role3"),
+        {("CREATE", "GRANT", "GRANTED TO ROLE"), ("DELETE", "GRANT", "GRANTED TO ROLE")},
+    )
+    check(
+        partial(show_privileges_func, user_or_role="user3b"),
+        {("CREATE", "GRANT", "GRANTED TO ROLE"), ("DELETE", "GRANT", "GRANTED TO ROLE")},
+    )
+    execute_and_fetch_all(cursor_main, "DENY DELETE TO role3")
+    check(
+        partial(show_privileges_func, user_or_role="role3"),
+        {("CREATE", "GRANT", "GRANTED TO ROLE"), ("DELETE", "DENY", "DENIED TO ROLE")},
+    )
+    check(
+        partial(show_privileges_func, user_or_role="user3b"),
+        {("CREATE", "GRANT", "GRANTED TO ROLE"), ("DELETE", "DENY", "DENIED TO ROLE")},
+    )
+
+    # GRANT permission ON LABEL/EDGE to user/role
+    execute_and_fetch_all(cursor_main, "REVOKE ALL PRIVILEGES FROM role3")
+    execute_and_fetch_all(cursor_main, "REVOKE ALL PRIVILEGES FROM user4")
+    execute_and_fetch_all(cursor_main, "REVOKE ALL PRIVILEGES FROM user3b")
+    execute_and_fetch_all(cursor_main, "GRANT READ ON LABELS :l1 TO user4")
+    execute_and_fetch_all(cursor_main, "GRANT UPDATE ON LABELS :l2, :l3 TO role3")
+    check(
+        partial(show_privileges_func, user_or_role="user4"),
+        {
+            ("LABEL :l1", "READ", "LABEL PERMISSION GRANTED TO USER"),
+        },
+    )
+    check(
+        partial(show_privileges_func, user_or_role="role3"),
+        {
+            ("LABEL :l3", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE"),
+            ("LABEL :l2", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE"),
+        },
+    )
+    check(
+        partial(show_privileges_func, user_or_role="user3b"),
+        {
+            ("LABEL :l3", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE"),
+            ("LABEL :l2", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE"),
+        },
+    )
+    execute_and_fetch_all(cursor_main, "REVOKE LABELS :l1 FROM user4")
+    execute_and_fetch_all(cursor_main, "REVOKE LABELS :l2 FROM role3")
+    check(partial(show_privileges_func, user_or_role="user4"), set())
+    check(
+        partial(show_privileges_func, user_or_role="role3"),
+        {("LABEL :l3", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE")},
+    )
+    check(
+        partial(show_privileges_func, user_or_role="user3b"),
+        {("LABEL :l3", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE")},
+    )
+
+    # GRANT/REVOKE DATABASE
+    execute_and_fetch_all(cursor_main, "CREATE DATABASE auth_test")
+    execute_and_fetch_all(cursor_main, "CREATE DATABASE auth_test2")
+    execute_and_fetch_all(cursor_main, "GRANT DATABASE auth_test TO user4")
+    check(partial(show_database_privileges_func, user="user4"), [(["auth_test", "memgraph"], [])])
+    execute_and_fetch_all(cursor_main, "REVOKE DATABASE auth_test2 FROM user4")
+    check(partial(show_database_privileges_func, user="user4"), [(["auth_test", "memgraph"], ["auth_test2"])])
+
+    # SET MAIN DATABASE
+    execute_and_fetch_all(cursor_main, "GRANT ALL PRIVILEGES TO user4")
+    execute_and_fetch_all(cursor_main, "SET MAIN DATABASE auth_test FOR user4")
+    # Reconnect and check current db
+    assert (
+        execute_and_fetch_all(connection(BOLT_PORTS["main"], "main", "user4").cursor(), "SHOW DATABASE")[0][0]
+        == "auth_test"
+    )
+    assert (
+        execute_and_fetch_all(connection(BOLT_PORTS["replica_1"], "replica", "user4").cursor(), "SHOW DATABASE")[0][0]
+        == "auth_test"
+    )
+    assert (
+        execute_and_fetch_all(connection(BOLT_PORTS["replica_2"], "replica", "user4").cursor(), "SHOW DATABASE")[0][0]
+        == "auth_test"
+    )
 
 
 if __name__ == "__main__":
