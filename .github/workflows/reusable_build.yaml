@@ -17,11 +17,11 @@ name: Build Memgraph
     #     required: true
 
 env:
-  TAG: ${{ github.event.inputs.image_tag }}
+  TAG: ${{ inputs.image_tag }}
 
 jobs:
   build:
-    name: "${{ github.event.inputs.build_name }} build"
+    name: "${{ inputs.build_name }} build"
     runs-on: [self-hosted, Linux, X64, Diff]
     steps:
       - name: Set up repository
@@ -38,7 +38,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build mgbuilder image
-        run: ./docker/ci.bash build ${{ github.event.inputs.build_name }}
+        run: ./docker/ci.bash build ${{ inputs.build_name }}
 
       - name: Push memgraph/mgbuilder:$TAG
         run: docker push $TAG
