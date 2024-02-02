@@ -30,7 +30,7 @@ auto CoordinatorHandler::SetInstanceToMain(std::string instance_name)
   return coordinator_state_.SetInstanceToMain(std::move(instance_name));
 }
 
-auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::ReplicationInstanceStatus> {
+auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::InstanceStatus> {
   return coordinator_state_.ShowInstances();
 }
 }  // namespace memgraph::dbms

@@ -15,8 +15,8 @@
 
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_state.hpp"
+#include "coordination/instance_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
-#include "coordination/replication_instance_status.hpp"
 
 #include <vector>
 
@@ -33,7 +33,7 @@ class CoordinatorHandler {
 
   auto SetInstanceToMain(std::string instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
 
-  auto ShowInstances() const -> std::vector<coordination::ReplicationInstanceStatus>;
+  auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
 
  private:
   coordination::CoordinatorState &coordinator_state_;

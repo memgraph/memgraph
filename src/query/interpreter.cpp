@@ -526,7 +526,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  std::vector<coordination::ReplicationInstanceStatus> ShowInstances() const override {
+  std::vector<coordination::InstanceStatus> ShowInstances() const override {
     return coordinator_handler_.ShowInstances();
   }
 
@@ -1099,7 +1099,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
       auto raft_socket_address_tv = coordinator_query->raft_socket_address_->Accept(evaluator);
-      callback.fn = [handler = CoordQueryHandler{dbms_handler}, raft_socket_address_tv,
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, raft_socket_address_tv,
                      instance_name = coordinator_query->instance_name_]() mutable {
         return std::vector<std::vector<TypedValue>>();
       };
@@ -1184,7 +1184,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Only coordinator can run SHOW REPLICATION CLUSTER.");
       }
 
-      callback.header = {"name", "socket_address", "alive", "role"};
+      callback.header = {"name", "raft_socket_address", "coordinator_socket_address", "alive", "role"};
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      replica_nfields = callback.header.size()]() mutable {
         auto const instances = handler.ShowInstances();
@@ -1193,15 +1193,15 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
         std::ranges::transform(instances, std::back_inserter(result),
                                [](const auto &status) -> std::vector<TypedValue> {
-                                 return {TypedValue{status.instance_name}, TypedValue{status.socket_address},
-                                         TypedValue{status.is_alive}, TypedValue{status.replication_role}};
+                                 return {TypedValue{status.instance_name}, TypedValue{status.raft_socket_address},
+                                         TypedValue{status.coord_socket_address}, TypedValue{status.is_alive},
+                                         TypedValue{status.replication_role}};
                                });
 
         return result;
       };
       return callback;
     }
-      return callback;
   }
 }
 #endif

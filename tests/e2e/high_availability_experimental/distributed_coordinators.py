@@ -73,6 +73,15 @@ def test_start_distributed_coordinators():
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
+    coordinator3_cursor = connect(host="localhost", port=7689).cursor()
+    expected_cluster = [
+        ("coordinator1", "127.0.0.1:100111", "", True, "coordinator"),
+        ("coordinator2", "127.0.0.1:100112", "", True, "coordinator"),
+        ("coordinator3", "127.0.0.1:100113", "", True, "coordinator"),
+    ]
+    coord3_cluster_state = sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW REPLICATION CLUSTER")))
+    assert coord3_cluster_state == expected_cluster
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
