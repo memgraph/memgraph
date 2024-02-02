@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build_name: [community, debug, release, experimental_ha, experimental_ha]
+        build_name: [community, debug, release, experimental_ha, experimental_mt]
     uses: ./.github/workflows/reusable_build.yaml
     with:
       build_name: ${{ matrix.build_name }}
