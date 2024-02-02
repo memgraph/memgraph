@@ -55,7 +55,13 @@ CoordinatorData::CoordinatorData() {
   replica_fail_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing replica failure callback", instance_name);
-    find_instance(coord_data, instance_name).OnFailPing();
+    auto &instance = find_instance(coord_data, instance_name);
+    instance.OnFailPing();
+    // we need to restart main uuid from instance since it was "down" at least a second
+    // There is slight delay, if we choose to use isAlive, instance can be down and back up in less than
+    // our isAlive time, which would lead to instance setting UUID to nullopt and stopped accepting any
+    // incoming RPCs from valid main
+    instance.SetNewMainUUID(utils::UUID{});
   };
 
   main_succ_cb_ = [this, find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {

@@ -12,6 +12,7 @@
 #include "replication/state.hpp"
 #include <optional>
 
+#include "flags/replication.hpp"
 #include "replication/replication_client.hpp"
 #include "replication/replication_server.hpp"
 #include "replication/status.hpp"
@@ -38,9 +39,9 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   durability_ = std::make_unique<kvstore::KVStore>(std::move(repl_dir));
   spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
 
-  auto replicationData = FetchReplicationData();
-  if (replicationData.HasError()) {
-    switch (replicationData.GetError()) {
+  auto fetched_replication_data = FetchReplicationData();
+  if (fetched_replication_data.HasError()) {
+    switch (fetched_replication_data.GetError()) {
       using enum ReplicationState::FetchReplicationError;
       case NOTHING_FETCHED: {
         spdlog::debug("Cannot find data needed for restore replication role in persisted metadata.");
@@ -53,7 +54,13 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
       }
     }
   }
-  replication_data_ = std::move(replicationData).GetValue();
+  auto replication_data = std::move(fetched_replication_data).GetValue();
+  if (FLAGS_coordinator_server_port) {
+    if (std::holds_alternative<RoleReplicaData>(replication_data)) {
+      std::get<RoleReplicaData>(replication_data).uuid_ = std::nullopt;
+    }
+  }
+  replication_data_ = std::move(replication_data);
 }
 
 bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config,
