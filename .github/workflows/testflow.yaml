@@ -34,7 +34,7 @@ jobs:
     uses: ./.github/workflows/reusable_build.yaml
     with:
       build_name: release
-      image_tag: $TAG_RELEASE
+      image_tag: "memgraph/mgbuilder:${{ github.run_id }}-release"
       secrets: inherit
 
   #
