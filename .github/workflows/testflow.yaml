@@ -28,20 +28,20 @@ jobs:
   ######################################## BUILDS ########################################
   ########################################################################################
   MgbuilderCommunity:
+    if: false
     uses: ./.github/workflows/reusable_build.yaml
     with:
       build_name: community
-      image_tag: "memgraph/mgbuilder:${{ github.run_id }}-community"
       threads: 24
       os: debian-10
       toolchain_version: 4
     secrets: inherit
 
   MgbuilderDebug:
+    if: false
     uses: ./.github/workflows/reusable_build.yaml
     with:
       build_name: debug
-      image_tag: "memgraph/mgbuilder:${{ github.run_id }}-debug"
       threads: 24
       os: debian-10
       toolchain_version: 4
@@ -51,99 +51,75 @@ jobs:
     uses: ./.github/workflows/reusable_build.yaml
     with:
       build_name: release
-      image_tag: "memgraph/mgbuilder:${{ github.run_id }}-release"
       threads: 24
       os: debian-10
       toolchain_version: 4
     secrets: inherit
 
   MgbuilderExperimentalHA:
+    if: false
     uses: ./.github/workflows/reusable_build.yaml
     with:
       build_name: experimental_ha
-      image_tag: "memgraph/mgbuilder:${{ github.run_id }}-experimental_ha"
       threads: 24
       os: debian-10
       toolchain_version: 4
     secrets: inherit
 
   MgbuilderExperimentalMT:
+    if: false
     uses: ./.github/workflows/reusable_build.yaml
     with:
       build_name: experimental_mt
-      image_tag: "memgraph/mgbuilder:${{ github.run_id }}-experimental_mt"
       threads: 24
       os: debian-10
       toolchain_version: 4
     secrets: inherit
 
-  #
-  # test_release:
-  #   name: "Test release"
-  #   needs: [release_build]
-  #   runs-on: [self-hosted, Linux, X64, Diff]
-  #   steps:
-  #     - name: Log in to Docker Hub
-  #       uses: docker/login-action@v3
-  #       with:
-  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
-  #
-  #     - name: Pull mgbuilder image
-  #       run: docker pull $TAG_RELEASE
-  #
-  # test_community:
-  #   name: "Test community"
-  #   needs: [community_build]
-  #   runs-on: [self-hosted, Linux, X64, Diff]
-  #   steps:
-  #     - name: Log in to Docker Hub
-  #       uses: docker/login-action@v3
-  #       with:
-  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
-  #
-  #     - name: Pull mgbuilder image
-  #       run: docker pull $TAG_COMMUNITY
-  #
-  # test_debug:
-  #   name: "Test debug"
-  #   needs: [debug_build]
-  #   runs-on: [self-hosted, Linux, X64, Diff]
-  #   steps:
-  #     - name: Log in to Docker Hub
-  #       uses: docker/login-action@v3
-  #       with:
-  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
-  #
-  #     - name: Pull mgbuilder image
-  #       run: docker pull $TAG_DEBUG
-  #
-  # test_exp_ha:
-  #   name: "Test exp ha"
-  #   needs: [experimental_ha_build]
-  #   runs-on: [self-hosted, Linux, X64, Diff]
-  #   steps:
-  #     - name: Log in to Docker Hub
-  #       uses: docker/login-action@v3
-  #       with:
-  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
-  #
-  #     - name: Pull mgbuilder image
-  #       run: docker pull $TAG_EXP_HA
-  #
-  # test_exp_mt:
-  #   name: "Test exp mt"
-  #   needs: [experimental_build_mt]
-  #   runs-on: [self-hosted, Linux, X64, Diff]
-  #   steps:
-  #     - name: Log in to Docker Hub
-  #       uses: docker/login-action@v3
-  #       with:
-  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
-  #
-  #     - name: Pull mgbuilder image
-  #       run: docker pull $TAG_EXP_MT
+  ########################################################################################
+  ######################################## TESTS #########################################
+  ########################################################################################
+  StressTestPlain:
+    needs: [MgbuilderRelease]
+    uses: ./.github/workflows/reusable_test.yaml
+    with:
+      test_name: stress
+      build_name: release
+      threads: 24
+    secrets: inherit
+
+  StressTestSSL:
+    needs: [MgbuilderRelease]
+    uses: ./.github/workflows/reusable_test.yaml
+    with:
+      test_name: stress_ssl
+      build_name: release
+      threads: 24
+    secrets: inherit
+
+  DurabilityTest:
+    needs: [MgbuilderRelease]
+    uses: ./.github/workflows/reusable_test.yaml
+    with:
+      test_name: durability
+      build_name: release
+      threads: 24
+    secrets: inherit
+
+  UnitTest:
+    needs: [MgbuilderRelease]
+    uses: ./.github/workflows/reusable_test.yaml
+    with:
+      test_name: unit
+      build_name: release
+      threads: 24
+    secrets: inherit
+
+  GQLBehaveTest:
+    needs: [MgbuilderRelease]
+    uses: ./.github/workflows/reusable_test.yaml
+    with:
+      test_name: gql_behave
+      build_name: release
+      threads: 24
+    secrets: inherit

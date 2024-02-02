@@ -1,7 +1,11 @@
-name: Build Memgraph
+name: Run a test
 on:
   workflow_call:
     inputs:
+      test_name:
+        description: Which test will be run?
+        required: true
+        type: string
       build_name:
         description: Which build type will be used (community, debug, release ...)?
         required: true
@@ -28,28 +32,22 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
 jobs:
-  build:
-    name: "${{ github.run_id }}-${{ inputs.build_name }}"
+  test:
+    name: "${{ inputs.test_name }} on ${{ inputs.build_name }} build"
     runs-on: [self-hosted, Linux, X64, Diff]
     steps:
-      - name: Set up repository
-        uses: actions/checkout@v4
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build "memgraph/mgbuilder:${{ github.run_id }}-${{ inputs.build_name }}"
-        run: ./docker/ci.bash build ${{ inputs.build_name }}
+      - name: Pull memgraph/mgbuilder:${{ github.run_id }}-${{ inputs.build_name }}
+        run: docker pull $TAG
 
-      - name: Push mgbuilder image
-        run: docker push $TAG
-
-      - name: Clean up
-        run: docker image rm $TAG
+      - name: Run ${{ inputs.test_name }}
+        run: |
+          docker run --name ${{ inputs.test_name }}-${{ github.run_id }} \
+          --rm \
+          --entrypoint /bin/bash \
+          $TAG -c ./docker/ci.bash test ${{ inputs.test_name }}

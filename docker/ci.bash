@@ -2,7 +2,8 @@
 set -eo pipefail
 
 DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-BUILD_DIR=$DIR/../build
+ROOT_DIR=$DIR/..
+BUILD_DIR=$ROOT_DIRDIR/build
 
 OS=${OS:-debian-10}
 TOOLCHAIN_VERSION=${TOOLCHAIN_VERSION:-4}
@@ -44,7 +45,7 @@ build() {
       make_cmd="make -j$THREADS"
     ;;
     *) 
-      print_help
+      print_help build
     ;;
   esac
 
@@ -61,18 +62,91 @@ build() {
 }
 
 unit_tests() {
+  $TOOLCHAIN_ACTIVATE
   cd $BUILD_DIR
   ctest -R memgraph__unit --output-on-failure -j$THREADS
+}
+
+leftover_ctests() {
+  $TOOLCHAIN_ACTIVATE
+  cd $BUILD_DIR
+  ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure
+}
+
+drivers_test() {
+  cd $ROOT_DIR
+  ./tests/drivers/run.sh
+}
+
+integration_test() {
+  cd $ROOT_DIR
+  tests/integration/run.sh
+}
+
+cppcheck_and_clang_format() {
+  $TOOLCHAIN_ACTIVATE
+  cd $ROOT_DIR/tools/github
+  ./cppcheck_and_clang_format diff
+}
+
+stress_test () {
+  cd $ROOT_DIR/tests/stress
+  source ve3/bin/activate
+  case "$1" in
+    plain) 
+      ./continuous_integration
+    ;;
+    ssl)
+      ./continuous_integration --use-ssl
+    ;;
+    *)
+      print_help test
+    ;;
+  esac
+}
+
+durability_test() {
+  cd $ROOT_DIR/tests/stress
+  python3 durability --num-steps 5
+}
+
+gql_behave_test() {
+  $TOOLCHAIN_ACTIVATE
+  cd $ROOT_DIR/tests/gql_behave
+  ./continuous_integration
 }
 
 run_test() {
   case "$1" in
     unit) 
-      unit_tests
+      unit_test
     ;;
-    2|3) echo 2 or 3
+    leftover-CTest)
+      leftover_ctest
     ;;
-    *) echo default
+    drivers)
+      drivers_test
+    ;;
+    integration)
+      integration_test
+    ;;
+    cppcheck-and-clang-format)
+      cppcheck_and_clang_format
+    ;;
+    stress)
+      stress_test plain
+    ;;
+    stress_ssl)
+      stress_test ssl
+    ;;
+    durability)
+      durability_test
+    ;;
+    gql_behave)
+      gql_behave_test
+    ;;
+    *) 
+      print_help test
     ;;
   esac
 }
@@ -85,7 +159,6 @@ else
       build $2
     ;;
     test)
-      $TOOLCHAIN_ACTIVATE
       run_test $2
     ;;
     *)
