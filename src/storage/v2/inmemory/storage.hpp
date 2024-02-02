@@ -304,7 +304,7 @@ class InMemoryStorage final : public Storage {
 
     /// Duiring commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
-    void FastDiscardOfDeltas();
+    void FastDiscardOfDeltas(uint64_t oldest_active_timestamp, std::unique_lock<std::mutex> gc_guard);
     SalientConfig::Items config_;
   };
 
