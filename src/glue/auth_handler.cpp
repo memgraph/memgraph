@@ -210,16 +210,25 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivile
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
-  const auto &label_permissions = user->GetFineGrainedAccessLabelPermissions();
-  const auto &edge_type_permissions = user->GetFineGrainedAccessEdgeTypePermissions();
 
-  auto all_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(label_permissions, "LABEL", "USER");
-  auto edge_type_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(edge_type_permissions, "EDGE_TYPE", "USER");
+  auto all_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
+      user->GetUserFineGrainedAccessLabelPermissions(), "LABEL", "USER");
+  auto all_role_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
+      user->GetRoleFineGrainedAccessLabelPermissions(), "LABEL", "ROLE");
+  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
+                                      std::make_move_iterator(all_role_fine_grained_permissions.begin()),
+                                      std::make_move_iterator(all_role_fine_grained_permissions.end()));
 
-  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(), edge_type_fine_grained_permissions.begin(),
-                                      edge_type_fine_grained_permissions.end());
+  auto edge_type_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
+      user->GetUserFineGrainedAccessEdgeTypePermissions(), "EDGE_TYPE", "USER");
+  auto role_edge_type_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
+      user->GetRoleFineGrainedAccessEdgeTypePermissions(), "EDGE_TYPE", "ROLE");
+  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
+                                      std::make_move_iterator(edge_type_fine_grained_permissions.begin()),
+                                      std::make_move_iterator(edge_type_fine_grained_permissions.end()));
+  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
+                                      std::make_move_iterator(role_edge_type_fine_grained_permissions.begin()),
+                                      std::make_move_iterator(role_edge_type_fine_grained_permissions.end()));
 
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
@@ -233,9 +242,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
   const auto &edge_type_permissions = role->GetFineGrainedAccessEdgeTypePermissions();
 
   auto all_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(label_permissions, "LABEL", "USER");
+      GetFineGrainedPermissionForPrivilegeForUserOrRole(label_permissions, "LABEL", "ROLE");
   auto edge_type_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(edge_type_permissions, "EDGE_TYPE", "USER");
+      GetFineGrainedPermissionForPrivilegeForUserOrRole(edge_type_permissions, "EDGE_TYPE", "ROLE");
 
   all_fine_grained_permissions.insert(all_fine_grained_permissions.end(), edge_type_fine_grained_permissions.begin(),
                                       edge_type_fine_grained_permissions.end());
