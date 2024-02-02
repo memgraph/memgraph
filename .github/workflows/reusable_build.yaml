@@ -10,6 +10,11 @@ name: Build Memgraph
         description: image tag
         required: true
         type: string
+    # secrets:
+    #   DOCKERHUB_USERNAME:
+    #     required: true
+    #   DOCKERHUB_TOKEN:
+    #     required: true
 
 env:
   TAG: ${{ github.event.inputs.image_tag }}
