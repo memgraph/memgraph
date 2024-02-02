@@ -30,11 +30,17 @@ constexpr auto *kMainUUID = "main_uuid";
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
-    MG_ASSERT(main.main_uuid.has_value(), "Main should have id ready");
+    if (p.version != DurabilityVersion::V1 && p.version != DurabilityVersion::V2) {
+      MG_ASSERT(main.main_uuid.has_value(), "Main should have id ready on version >= V3");
+      j = nlohmann::json{{kVersion, p.version},
+                         {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
+                         {kEpoch, main.epoch.id()},
+                         {kMainUUID, nlohmann::json(*main.main_uuid)}};
+      return;
+    }
     j = nlohmann::json{{kVersion, p.version},
                        {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
-                       {kEpoch, main.epoch.id()},
-                       {kMainUUID, nlohmann::json(*main.main_uuid)}};
+                       {kEpoch, main.epoch.id()}};
   };
   auto processREPLICA = [&](ReplicaRole const &replica) {
     if (replica.main_uuid.has_value()) {

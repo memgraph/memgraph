@@ -53,11 +53,19 @@ class CoordinatorInstance {
 
   auto ReplicationClientInfo() const -> ReplClientInfo;
 
+  auto GetClient() -> CoordinatorClient &;
+
+  void SetNewMainUUID(const utils::UUID &main_uuid);
+  auto GetMainUUID() -> const utils::UUID &;
+
  private:
   CoordinatorClient client_;
   replication_coordination_glue::ReplicationRole replication_role_;
   std::chrono::system_clock::time_point last_response_time_{};
+  // TODO this needs to be atomic? What if instance is alive and then we read it and it has changed
   bool is_alive_{false};
+  utils::UUID main_uuid_;  // for replica this is main uuid of current main, for main this is its main uuid
+  // which should be same as in CoordinatorData
 
   friend bool operator==(CoordinatorInstance const &first, CoordinatorInstance const &second) {
     return first.client_ == second.client_ && first.replication_role_ == second.replication_role_;

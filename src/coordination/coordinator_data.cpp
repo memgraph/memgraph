@@ -33,10 +33,23 @@ CoordinatorData::CoordinatorData() {
     return *instance;
   };
 
-  replica_succ_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
+  replica_succ_cb_ = [this, find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing replica successful callback", instance_name);
-    find_instance(coord_data, instance_name).OnSuccessPing();
+    auto &instance = find_instance(coord_data, instance_name);
+
+    if (!instance.IsAlive() || main_uuid_ != instance.GetMainUUID()) [[unlikely]] {
+      if (auto res = memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(instance.GetClient().RpcClient(),
+                                                                                  main_uuid_);
+          !res) {
+        spdlog::error(
+            fmt::format("Failed to swap uuid for replica instance {} which is alive", instance.InstanceName()));
+        return;
+      }
+      instance.SetNewMainUUID(main_uuid_);
+    }
+
+    instance.OnSuccessPing();
   };
 
   replica_fail_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
@@ -45,13 +58,15 @@ CoordinatorData::CoordinatorData() {
     find_instance(coord_data, instance_name).OnFailPing();
   };
 
-  main_succ_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
+  main_succ_cb_ = [this, find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing main successful callback", instance_name);
 
     auto &instance = find_instance(coord_data, instance_name);
 
-    if (instance.IsAlive() || !coord_data->ClusterHasAliveMain_()) {
+    if (instance.IsAlive() || main_uuid_ == instance.GetMainUUID()) {
+      spdlog::error(fmt::format("Main uuid is {} where my uuid is {}", std::string(main_uuid_),
+                                std::string(instance.GetMainUUID())));
       instance.OnSuccessPing();
       return;
     }
@@ -62,14 +77,25 @@ CoordinatorData::CoordinatorData() {
       spdlog::info("Instance {} demoted to replica", instance_name);
     } else {
       spdlog::error("Instance {} failed to become replica", instance_name);
+      return;
     }
+
+    if (auto res =
+            memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(instance.GetClient().RpcClient(), main_uuid_);
+        !res) {
+      spdlog::error(
+          fmt::format("Failed to swap uuid for old main instance {} which is alive", instance.InstanceName()));
+      return;
+    }
+    instance.SetNewMainUUID(main_uuid_);
   };
 
-  main_fail_cb_ = [find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
+  main_fail_cb_ = [this, find_instance](CoordinatorData *coord_data, std::string_view instance_name) -> void {
     auto lock = std::lock_guard{coord_data->coord_data_lock_};
     spdlog::trace("Instance {} performing main failure callback", instance_name);
-    find_instance(coord_data, instance_name).OnFailPing();
-    if (!coord_data->ClusterHasAliveMain_()) {
+    auto &instance = find_instance(coord_data, instance_name);
+    instance.OnFailPing();
+    if (!instance.IsAlive() && main_uuid_ == instance.GetMainUUID()) {
       spdlog::info("Cluster without main instance, trying automatic failover");
       coord_data->TryFailover();
     }
@@ -82,10 +108,17 @@ auto CoordinatorData::ClusterHasAliveMain_() const -> bool {
 }
 
 auto CoordinatorData::TryFailover() -> void {
-  auto replica_instances = registered_instances_ | ranges::views::filter(&CoordinatorInstance::IsReplica);
+  std::vector<CoordinatorInstance *> alive_registered_replica_instances{};
+  std::ranges::transform(registered_instances_ | ranges::views::filter(&CoordinatorInstance::IsReplica) |
+                             ranges::views::filter(&CoordinatorInstance::IsAlive),
+                         std::back_inserter(alive_registered_replica_instances),
+                         [](CoordinatorInstance &instance) { return &instance; });
 
-  auto chosen_replica_instance = std::ranges::find_if(replica_instances, &CoordinatorInstance::IsAlive);
-  if (chosen_replica_instance == replica_instances.end()) {
+  // DO more complex logic of choosing replica instance
+  CoordinatorInstance *chosen_replica_instance =
+      !alive_registered_replica_instances.empty() ? alive_registered_replica_instances[0] : nullptr;
+
+  if (nullptr == chosen_replica_instance) {
     spdlog::warn("Failover failed since all replicas are down!");
     return;
   }
@@ -93,44 +126,60 @@ auto CoordinatorData::TryFailover() -> void {
   chosen_replica_instance->PauseFrequentCheck();
   utils::OnScopeExit scope_exit{[&chosen_replica_instance] { chosen_replica_instance->ResumeFrequentCheck(); }};
 
-  std::vector<ReplClientInfo> repl_clients_info;
-  repl_clients_info.reserve(std::ranges::distance(replica_instances));
-
-  auto const not_chosen_replica_instance = [&chosen_replica_instance](CoordinatorInstance const &instance) {
-    return instance != *chosen_replica_instance;
-  };
-
-
-
   utils::UUID potential_new_main_uuid = utils::UUID{};
   spdlog::trace("Generated potential new main uuid");
-  // TODO (af): what if instance is down, we need to filter it out and remember for later to send new UUID
-  for (auto &other_replica_instance :
-       replica_instances | ranges::views::filter(not_chosen_replica_instance)) {
+
+  // go over instances to which you set uuid and swap it back only if failover failed
+  utils::OnScopeExit restart_uuid{[this, &alive_registered_replica_instances, old_main_uuid = main_uuid_] {
+    if (old_main_uuid != main_uuid_) {
+      return;
+    }
+    for (auto *instance : alive_registered_replica_instances) {
+      instance->SetNewMainUUID(main_uuid_);
+    }
+  }};
+
+  for (auto *instance : alive_registered_replica_instances) {
+    instance->SetNewMainUUID(potential_new_main_uuid);
+  }
+
+  auto const is_chosen_replica_instance = [chosen_replica_instance](CoordinatorInstance const *instance) {
+    return *instance == *chosen_replica_instance;
+  };
+
+  for (auto *other_replica_instance : alive_registered_replica_instances) {
+    if (is_chosen_replica_instance(other_replica_instance)) {
+      continue;
+    }
     if (auto res = memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(
-            other_replica_instance.client_.RpcClient(), potential_new_main_uuid);
+            other_replica_instance->GetClient().RpcClient(), potential_new_main_uuid);
         !res) {
-      spdlog::error(
-          fmt::format("Failed to swap uuid for instance {}, aborting failover", other_replica_instance.InstanceName()));
+      spdlog::error(fmt::format("Failed to swap uuid for instance {} which is alive, aborting failover",
+                                other_replica_instance->InstanceName()));
       return;
     }
   }
+
+  std::vector<ReplClientInfo> repl_clients_info;
+  repl_clients_info.reserve(registered_instances_.size() - 1);
+
+  auto const not_chosen_replica_instance = [chosen_replica_instance](CoordinatorInstance const &instance) {
+    return instance != *chosen_replica_instance;
+  };
 
   std::ranges::transform(registered_instances_ | ranges::views::filter(not_chosen_replica_instance),
                          std::back_inserter(repl_clients_info),
                          [](const CoordinatorInstance &instance) { return instance.ReplicationClientInfo(); });
 
-  if (!chosen_replica_instance->PromoteToMain(potential_new_main_uuid, std::move(repl_clients_info), main_succ_cb_, main_fail_cb_)) {
+  if (!chosen_replica_instance->PromoteToMain(potential_new_main_uuid, std::move(repl_clients_info), main_succ_cb_,
+                                              main_fail_cb_)) {
     spdlog::warn("Failover failed since promoting replica to main failed!");
     return;
   }
 
-  
- 
   spdlog::info("Failover successful! Instance {} promoted to main.", chosen_replica_instance->InstanceName());
 
   main_uuid_ = potential_new_main_uuid;
-
 }
 
 auto CoordinatorData::ShowInstances() const -> std::vector<CoordinatorInstanceStatus> {
@@ -182,16 +231,12 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
   auto const is_not_new_main = [&instance_name](CoordinatorInstance const &instance) {
     return instance.InstanceName() != instance_name;
   };
-  
 
   auto potential_new_main_uuid = utils::UUID{};
   spdlog::trace("Generated potential new main uuid");
-  auto const not_chosen_replica_instance = [&registered_replica](const CoordinatorInstance &instance) {
-    return instance != *registered_replica;
-  };
 
   for (auto &other_instance : registered_instances_ | ranges::views::filter(is_not_new_main)) {
-    if (auto res = memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(other_instance.client_.RpcClient(),
+    if (auto res = memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(other_instance.GetClient().RpcClient(),
                                                                                 potential_new_main_uuid);
         !res) {
       spdlog::error(
@@ -212,6 +257,10 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
 
   spdlog::info("Instance {} promoted to main", instance_name);
   main_uuid_ = potential_new_main_uuid;
+
+  for (auto &instance : registered_instances_) {
+    instance.SetNewMainUUID(main_uuid_);
+  }
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
 }
 

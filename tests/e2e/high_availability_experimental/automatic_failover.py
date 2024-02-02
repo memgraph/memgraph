@@ -13,6 +13,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 import interactive_mg_runner
 import pytest
@@ -131,6 +132,7 @@ def test_replication_works_on_failover():
     mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
 
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+
     expected_data_on_new_main = [
         ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
         ("instance_3", "127.0.0.1:10003", "sync", 0, 0, "ready"),
@@ -141,8 +143,8 @@ def test_replication_works_on_failover():
     execute_and_fetch_all(new_main_cursor, "CREATE ();")
 
     # 6
-    alive_replica_cursror = connect(host="localhost", port=7689).cursor()
-    res = execute_and_fetch_all(alive_replica_cursror, "MATCH (n) RETURN count(n) as count;")[0][0]
+    alive_replica_cursor = connect(host="localhost", port=7689).cursor()
+    res = execute_and_fetch_all(alive_replica_cursor, "MATCH (n) RETURN count(n) as count;")[0][0]
     assert res == 1, "Vertex should be replicated"
     interactive_mg_runner.stop_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 

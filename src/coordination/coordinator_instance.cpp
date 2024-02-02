@@ -49,8 +49,8 @@ auto CoordinatorInstance::IsMain() const -> bool {
   return replication_role_ == replication_coordination_glue::ReplicationRole::MAIN;
 }
 
-auto CoordinatorInstance::PromoteToMain(utils::UUID uuid, ReplicationClientsInfo repl_clients_info, HealthCheckCallback main_succ_cb,
-                                        HealthCheckCallback main_fail_cb) -> bool {
+auto CoordinatorInstance::PromoteToMain(utils::UUID uuid, ReplicationClientsInfo repl_clients_info,
+                                        HealthCheckCallback main_succ_cb, HealthCheckCallback main_fail_cb) -> bool {
   if (!client_.SendPromoteReplicaToMainRpc(uuid, std::move(repl_clients_info))) {
     return false;
   }
@@ -79,6 +79,10 @@ auto CoordinatorInstance::ResumeFrequentCheck() -> void { client_.ResumeFrequent
 auto CoordinatorInstance::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo {
   return client_.ReplicationClientInfo();
 }
+
+auto CoordinatorInstance::GetClient() -> CoordinatorClient & { return client_; }
+void CoordinatorInstance::SetNewMainUUID(const utils::UUID &main_uuid) { main_uuid_ = main_uuid; }
+auto CoordinatorInstance::GetMainUUID() -> const utils::UUID & { return main_uuid_; }
 
 }  // namespace memgraph::coordination
 #endif

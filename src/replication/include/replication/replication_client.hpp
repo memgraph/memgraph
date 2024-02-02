@@ -106,8 +106,8 @@ struct ReplicationClient {
   communication::ClientContext rpc_context_;
   rpc::Client rpc_client_;
   std::chrono::seconds replica_check_frequency_;
-  // True only when we are migrating from V1 to V2 in replication durability
-  // and we want to make sure replica is not more up-to-date than main
+  // True only when we are migrating from V1 or V2 to V3 in replication durability
+  // and we want to set replica to listen to main
   bool try_set_uuid{false};
 
   // TODO: Better, this was the easiest place to put this

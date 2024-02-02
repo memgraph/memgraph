@@ -72,23 +72,21 @@ auto CoordinatorClient::SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCal
 
 auto CoordinatorClient::ReplicationClientInfo() const -> ReplClientInfo { return config_.replication_client_info; }
 
-
 auto CoordinatorClient::SendPromoteReplicaToMainRpc(
     const utils::UUID &uuid, std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const
     -> bool {
   try {
     auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(uuid, std::move(replication_clients_info))};
     if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC failover response!");
+      spdlog::error("Failed to receive successful PromoteReplicaToMainRpc response!");
       return false;
     }
     return true;
   } catch (rpc::RpcFailedException const &) {
-    spdlog::error("RPC error occurred while sending failover RPC!");
+    spdlog::error("RPC error occurred while sending PromoteReplicaToMainRpc!");
   }
   return false;
 }
-
 
 auto CoordinatorClient::DemoteToReplica() const -> bool {
   auto const &instance_name = config_.instance_name;
@@ -106,11 +104,9 @@ auto CoordinatorClient::DemoteToReplica() const -> bool {
   return false;
 }
 
-
-
 auto CoordinatorClient::SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bool {
   try {
-    auto stream{rpc_client_.Stream<SwapMainUUIDRpc>(uuid)};
+    auto stream{rpc_client_.Stream<replication_coordination_glue::SwapMainUUIDRpc>(uuid)};
     if (!stream.AwaitResponse().success) {
       spdlog::error("Failed to receive successful RPC swapping of uuid response!");
       return false;
