@@ -60,7 +60,11 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--raft-server-port=10113",
         ],
         "log_file": "coordinator3.log",
-        "setup_queries": [],
+        "setup_queries": [
+            "ADD COORDINATOR coordinator1 ON '127.0.0.1:10111'",
+            "ADD COORDINATOR coordinator2 ON '127.0.0.1:10112'",
+            "ADD COORDINATOR coordinator3 ON '127.0.0.1:10113'",
+        ],
     },
 }
 

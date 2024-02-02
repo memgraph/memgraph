@@ -20,6 +20,7 @@ options { tokenVocab=MemgraphCypherLexer; }
 import Cypher ;
 
 memgraphCypherKeyword : cypherKeyword
+                      | ADD
                       | ACTIVE
                       | AFTER
                       | ALTER
@@ -190,6 +191,7 @@ replicationQuery : setReplicationRole
 coordinatorQuery : registerInstanceOnCoordinator
                  | setInstanceToMain
                  | showReplicationCluster
+                 | addCoordinatorInstance
                  ;
 
 triggerQuery : createTrigger
@@ -382,6 +384,7 @@ socketAddress : literal ;
 
 coordinatorSocketAddress : literal ;
 replicationSocketAddress : literal ;
+raftSocketAddress : literal ;
 
 registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
@@ -389,6 +392,8 @@ registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
 registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ON coordinatorSocketAddress ( AS ASYNC ) ? WITH replicationSocketAddress ;
 
 setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
+
+addCoordinatorInstance : ADD COORDINATOR instanceName ON raftSocketAddress ;
 
 dropReplica : DROP REPLICA instanceName ;
 

@@ -23,6 +23,7 @@ lexer grammar MemgraphCypherLexer ;
 
 import CypherLexer ;
 
+ADD                     : A D D ;
 ACTIVE                  : A C T I V E ;
 AFTER                   : A F T E R ;
 ALTER                   : A L T E R ;

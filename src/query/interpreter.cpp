@@ -1079,6 +1079,37 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                                 const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
   Callback callback;
   switch (coordinator_query->action_) {
+    case CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE: {
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryException("Trying to use enterprise feature without a valid license.");
+      }
+#ifdef MG_ENTERPRISE
+      if constexpr (!coordination::allow_ha) {
+        throw QueryRuntimeException(
+            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
+            "be able to use this functionality.");
+      }
+      if (!FLAGS_raft_server_id) {
+        throw QueryRuntimeException("Only coordinator can add coordinator instance!");
+      }
+
+      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+      // the argument to Callback.
+      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+      auto raft_socket_address_tv = coordinator_query->raft_socket_address_->Accept(evaluator);
+      callback.fn = [handler = CoordQueryHandler{dbms_handler}, raft_socket_address_tv,
+                     instance_name = coordinator_query->instance_name_]() mutable {
+        return std::vector<std::vector<TypedValue>>();
+      };
+
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::ADD_COORDINATOR_INSTANCE,
+                                  fmt::format("Coordinator has added instance {} on coordinator server {}.",
+                                              coordinator_query->instance_name_, raft_socket_address_tv.ValueString()));
+      return callback;
+#endif
+    }
     case CoordinatorQuery::Action::REGISTER_INSTANCE: {
       if (!license::global_license_checker.IsEnterpriseValidFast()) {
         throw QueryException("Trying to use enterprise feature without a valid license.");

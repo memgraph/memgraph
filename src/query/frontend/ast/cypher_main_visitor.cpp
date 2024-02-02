@@ -374,7 +374,6 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
   return replication_query;
 }
 
-// License check is done in the interpreter.
 antlrcpp::Any CypherMainVisitor::visitRegisterInstanceOnCoordinator(
     MemgraphCypher::RegisterInstanceOnCoordinatorContext *ctx) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
@@ -396,6 +395,20 @@ antlrcpp::Any CypherMainVisitor::visitRegisterInstanceOnCoordinator(
   } else {
     coordinator_query->sync_mode_ = memgraph::query::CoordinatorQuery::SyncMode::SYNC;
   }
+
+  return coordinator_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::AddCoordinatorInstanceContext *ctx) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+
+  if (!ctx->raftSocketAddress()->literal()->StringLiteral()) {
+    throw SemanticException("Raft socket address should be a string literal!");
+  }
+
+  coordinator_query->action_ = CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE;
+  coordinator_query->raft_socket_address_ = std::any_cast<Expression *>(ctx->raftSocketAddress()->accept(this));
+  coordinator_query->instance_name_ = std::any_cast<std::string>(ctx->instanceName()->symbolicName()->accept(this));
 
   return coordinator_query;
 }
