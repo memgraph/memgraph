@@ -52,7 +52,7 @@ jobs:
           --name $TEST_CONTAINER \
           --entrypoint /bin/bash \
           ${{ inputs.mgbuilder }} \
-          -c "./docker/ci.bash test ${{ inputs.test_name }}"
+          -c "./memgraph/docker/ci.bash test ${{ inputs.test_name }}"
 
       - name: Clean up
         if: ${{ always() }}

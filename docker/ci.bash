@@ -107,6 +107,7 @@ stress_test () {
 
 durability_test() {
   cd $ROOT_DIR/tests/stress
+  source ve3/bin/activate
   python3 durability --num-steps 5
 }
 
