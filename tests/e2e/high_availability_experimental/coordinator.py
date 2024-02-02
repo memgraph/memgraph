@@ -44,6 +44,7 @@ def test_coordinator_show_instances():
         return sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;")))
 
     expected_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
         ("instance_1", "", "127.0.0.1:10011", True, "replica"),
         ("instance_2", "", "127.0.0.1:10012", True, "replica"),
         ("instance_3", "", "127.0.0.1:10013", True, "main"),

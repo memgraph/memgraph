@@ -1195,7 +1195,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                                [](const auto &status) -> std::vector<TypedValue> {
                                  return {TypedValue{status.instance_name}, TypedValue{status.raft_socket_address},
                                          TypedValue{status.coord_socket_address}, TypedValue{status.is_alive},
-                                         TypedValue{status.replication_role}};
+                                         TypedValue{status.cluster_role}};
                                });
 
         return result;

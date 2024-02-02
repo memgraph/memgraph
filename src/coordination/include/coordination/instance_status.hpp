@@ -25,7 +25,7 @@ struct InstanceStatus {
   std::string instance_name;
   std::string raft_socket_address;
   std::string coord_socket_address;
-  std::string replication_role;
+  std::string cluster_role;
   bool is_alive;
 };
 
