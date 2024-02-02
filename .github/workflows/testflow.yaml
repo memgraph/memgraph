@@ -31,196 +31,179 @@ env:
 
 jobs:
   release_build:
-    name: "Release build"
-    runs-on: [self-hosted, Linux, X64, Diff]
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v4
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
+    uses: ./.github/workflows/reusable_build.yaml
+    with:
+      build_name: release
+      image_tag: ${{ env.TAG_RELEASE }}
+      secrets: inherit
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build mgbuilder image
-        run: |
-          ./docker/ci.bash build release
-          docker push $TAG
-          docker image rm $TAG
-        env:
-          TAG: ${{ env.TAG_RELEASE }}
-
-  community_build:
-    name: "Community build"
-    runs-on: [self-hosted, Linux, X64, Diff]
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v4
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build mgbuilder image
-        run: |
-          ./docker/ci.bash build community
-          docker push $TAG
-          docker image rm $TAG
-        env:
-          TAG: ${{ env.TAG_COMMUNITY }}
-
-  debug_build:
-    name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, Diff]
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v4
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build mgbuilder image
-        run: |
-          ./docker/ci.bash build debug
-          docker push $TAG
-          docker image rm $TAG
-        env:
-          TAG: ${{ env.TAG_DEBUG }}
-
-  experimental_ha_build:
-    name: "High availability build"
-    runs-on: [self-hosted, Linux, X64, Diff]
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v4
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build mgbuilder image
-        run: |
-          ./docker/ci.bash build experimental_ha
-          docker push $TAG
-          docker image rm $TAG
-        env:
-          TAG: ${{ env.TAG_EXP_HA }}
-
-  experimental_build_mt:
-    name: "MultiTenancy replication build"
-    runs-on: [self-hosted, Linux, X64, Diff]
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v4
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build mgbuilder image
-        run: |
-          ./docker/ci.bash build experimental_mt
-          docker push $TAG
-          docker image rm $TAG
-        env:
-          TAG: ${{ env.TAG_EXP_MT }}
-
-  test_release:
-    name: "Test release"
-    needs: [release_build]
-    runs-on: [self-hosted, Linux, X64, Diff]
-    steps:
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Pull mgbuilder image
-        run: docker pull $TAG_RELEASE
-
-  test_community:
-    name: "Test community"
-    needs: [community_build]
-    runs-on: [self-hosted, Linux, X64, Diff]
-    steps:
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Pull mgbuilder image
-        run: docker pull $TAG_COMMUNITY
-
-  test_debug:
-    name: "Test debug"
-    needs: [debug_build]
-    runs-on: [self-hosted, Linux, X64, Diff]
-    steps:
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Pull mgbuilder image
-        run: docker pull $TAG_DEBUG
-
-  test_exp_ha:
-    name: "Test exp ha"
-    needs: [experimental_ha_build]
-    runs-on: [self-hosted, Linux, X64, Diff]
-    steps:
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Pull mgbuilder image
-        run: docker pull $TAG_EXP_HA
-
-  test_exp_mt:
-    name: "Test exp mt"
-    needs: [experimental_build_mt]
-    runs-on: [self-hosted, Linux, X64, Diff]
-    steps:
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Pull mgbuilder image
-        run: docker pull $TAG_EXP_MT
+  #
+  # community_build:
+  #   name: "Community build"
+  #   runs-on: [self-hosted, Linux, X64, Diff]
+  #   steps:
+  #     - name: Set up repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         # Number of commits to fetch. `0` indicates all history for all
+  #         # branches and tags. (default: 1)
+  #         fetch-depth: 0
+  #
+  #     - name: Log in to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #
+  #     - name: Build mgbuilder image
+  #       run: |
+  #         ./docker/ci.bash build community
+  #         docker push $TAG
+  #         docker image rm $TAG
+  #       env:
+  #         TAG: ${{ env.TAG_COMMUNITY }}
+  #
+  # debug_build:
+  #   name: "Debug build"
+  #   runs-on: [self-hosted, Linux, X64, Diff]
+  #   steps:
+  #     - name: Set up repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         # Number of commits to fetch. `0` indicates all history for all
+  #         # branches and tags. (default: 1)
+  #         fetch-depth: 0
+  #
+  #     - name: Log in to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #
+  #     - name: Build mgbuilder image
+  #       run: |
+  #         ./docker/ci.bash build debug
+  #         docker push $TAG
+  #         docker image rm $TAG
+  #       env:
+  #         TAG: ${{ env.TAG_DEBUG }}
+  #
+  # experimental_ha_build:
+  #   name: "High availability build"
+  #   runs-on: [self-hosted, Linux, X64, Diff]
+  #   steps:
+  #     - name: Set up repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         # Number of commits to fetch. `0` indicates all history for all
+  #         # branches and tags. (default: 1)
+  #         fetch-depth: 0
+  #
+  #     - name: Log in to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #
+  #     - name: Build mgbuilder image
+  #       run: |
+  #         ./docker/ci.bash build experimental_ha
+  #         docker push $TAG
+  #         docker image rm $TAG
+  #       env:
+  #         TAG: ${{ env.TAG_EXP_HA }}
+  #
+  # experimental_build_mt:
+  #   name: "MultiTenancy replication build"
+  #   runs-on: [self-hosted, Linux, X64, Diff]
+  #   steps:
+  #     - name: Set up repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         # Number of commits to fetch. `0` indicates all history for all
+  #         # branches and tags. (default: 1)
+  #         fetch-depth: 0
+  #
+  #     - name: Log in to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #
+  #     - name: Build mgbuilder image
+  #       run: |
+  #         ./docker/ci.bash build experimental_mt
+  #         docker push $TAG
+  #         docker image rm $TAG
+  #       env:
+  #         TAG: ${{ env.TAG_EXP_MT }}
+  #
+  # test_release:
+  #   name: "Test release"
+  #   needs: [release_build]
+  #   runs-on: [self-hosted, Linux, X64, Diff]
+  #   steps:
+  #     - name: Log in to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #
+  #     - name: Pull mgbuilder image
+  #       run: docker pull $TAG_RELEASE
+  #
+  # test_community:
+  #   name: "Test community"
+  #   needs: [community_build]
+  #   runs-on: [self-hosted, Linux, X64, Diff]
+  #   steps:
+  #     - name: Log in to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #
+  #     - name: Pull mgbuilder image
+  #       run: docker pull $TAG_COMMUNITY
+  #
+  # test_debug:
+  #   name: "Test debug"
+  #   needs: [debug_build]
+  #   runs-on: [self-hosted, Linux, X64, Diff]
+  #   steps:
+  #     - name: Log in to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #
+  #     - name: Pull mgbuilder image
+  #       run: docker pull $TAG_DEBUG
+  #
+  # test_exp_ha:
+  #   name: "Test exp ha"
+  #   needs: [experimental_ha_build]
+  #   runs-on: [self-hosted, Linux, X64, Diff]
+  #   steps:
+  #     - name: Log in to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #
+  #     - name: Pull mgbuilder image
+  #       run: docker pull $TAG_EXP_HA
+  #
+  # test_exp_mt:
+  #   name: "Test exp mt"
+  #   needs: [experimental_build_mt]
+  #   runs-on: [self-hosted, Linux, X64, Diff]
+  #   steps:
+  #     - name: Log in to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #
+  #     - name: Pull mgbuilder image
+  #       run: docker pull $TAG_EXP_MT
