@@ -53,7 +53,7 @@
 #include "utils/tsc.hpp"
 
 #ifdef MG_ENTERPRISE
-#include "coordination/coordinator_instance_status.hpp"
+#include "coordination/replication_instance_status.hpp"
 #endif
 
 namespace memgraph::metrics {
@@ -114,7 +114,7 @@ class CoordinatorQueryHandler {
   virtual void SetInstanceToMain(const std::string &instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<coordination::CoordinatorInstanceStatus> ShowInstances() const = 0;
+  virtual std::vector<coordination::ReplicationInstanceStatus> ShowInstances() const = 0;
 };
 #endif
 

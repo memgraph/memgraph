@@ -9,12 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/register_main_replica_coordinator_status.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "dbms/coordinator_handler.hpp"
 
-#include "dbms/dbms_handler.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
 
 namespace memgraph::dbms {
 
@@ -31,7 +30,7 @@ auto CoordinatorHandler::SetInstanceToMain(std::string instance_name)
   return coordinator_state_.SetInstanceToMain(std::move(instance_name));
 }
 
-auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::CoordinatorInstanceStatus> {
+auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::ReplicationInstanceStatus> {
   return coordinator_state_.ShowInstances();
 }
 }  // namespace memgraph::dbms

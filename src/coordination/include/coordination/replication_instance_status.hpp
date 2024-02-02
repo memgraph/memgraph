@@ -19,7 +19,7 @@
 
 namespace memgraph::coordination {
 
-struct CoordinatorInstanceStatus {
+struct ReplicationInstanceStatus {
   std::string instance_name;
   std::string socket_address;
   std::string replication_role;

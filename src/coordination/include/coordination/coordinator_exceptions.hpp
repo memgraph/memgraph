@@ -28,5 +28,16 @@ class CoordinatorRegisterInstanceException final : public utils::BasicException 
   SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorRegisterInstanceException)
 };
 
+class RaftServerStartException final : public utils::BasicException {
+ public:
+  explicit RaftServerStartException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit RaftServerStartException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : RaftServerStartException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(RaftServerStartException)
+};
+
 }  // namespace memgraph::coordination
 #endif

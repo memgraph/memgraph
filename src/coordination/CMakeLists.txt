@@ -8,7 +8,8 @@ target_sources(mg-coordination
         include/coordination/coordinator_server.hpp
         include/coordination/coordinator_config.hpp
         include/coordination/coordinator_exceptions.hpp
-        include/coordination/coordinator_instance.hpp
+        include/coordination/replication_instance.hpp
+        include/coordination/replication_instance_status.hpp
         include/coordination/coordinator_slk.hpp
         include/coordination/coordinator_data.hpp
         include/coordination/constants.hpp
@@ -27,6 +28,7 @@ target_sources(mg-coordination
         coordinator_data.cpp
         coordinator_instance.cpp
         coordinator_handlers.cpp
+        replication_instance.cpp
 
         coordinator_log_store.cpp
         coordinator_state_manager.cpp

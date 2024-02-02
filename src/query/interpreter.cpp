@@ -526,7 +526,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  std::vector<coordination::CoordinatorInstanceStatus> ShowInstances() const override {
+  std::vector<coordination::ReplicationInstanceStatus> ShowInstances() const override {
     return coordinator_handler_.ShowInstances();
   }
 
