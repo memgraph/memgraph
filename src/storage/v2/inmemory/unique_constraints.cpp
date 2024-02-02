@@ -80,7 +80,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
       case Delta::Action::SET_PROPERTY: {
         auto pos = FindPropertyPosition(property_array, delta->property.key);
         if (pos) {
-          current_value_equal_to_value[*pos] = delta->property.value == value_array[*pos];
+          current_value_equal_to_value[*pos] = *delta->property.value == value_array[*pos];
         }
         break;
       }
@@ -96,14 +96,14 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
         break;
       }
       case Delta::Action::ADD_LABEL: {
-        if (delta->label == label) {
+        if (delta->label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
           break;
         }
       }
       case Delta::Action::REMOVE_LABEL: {
-        if (delta->label == label) {
+        if (delta->label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
           break;
@@ -190,13 +190,13 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
     }
     switch (delta->action) {
       case Delta::Action::ADD_LABEL:
-        if (delta->label == label) {
+        if (delta->label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
         }
         break;
       case Delta::Action::REMOVE_LABEL:
-        if (delta->label == label) {
+        if (delta->label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
         }
@@ -204,7 +204,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
       case Delta::Action::SET_PROPERTY: {
         auto pos = FindPropertyPosition(property_array, delta->property.key);
         if (pos) {
-          current_value_equal_to_value[*pos] = delta->property.value == values[*pos];
+          current_value_equal_to_value[*pos] = *delta->property.value == values[*pos];
         }
         break;
       }

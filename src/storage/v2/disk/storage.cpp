@@ -137,14 +137,14 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::REMOVE_LABEL: {
-        if (delta.label == label) {
+        if (delta.label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
         }
         break;
       }
       case Delta::Action::ADD_LABEL: {
-        if (delta.label == label) {
+        if (delta.label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
         }
@@ -177,7 +177,7 @@ PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Trans
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         if (delta.property.key == property) {
-          value = delta.property.value;
+          value = *delta.property.value;
         }
         break;
       }
@@ -1682,9 +1682,9 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         } break;
       }
     }
-  } else if (transaction_.deltas.use().empty() ||
+  } else if (transaction_.deltas.empty() ||
              (!edge_import_mode_active &&
-              std::all_of(transaction_.deltas.use().begin(), transaction_.deltas.use().end(), [](const Delta &delta) {
+              std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(), [](const Delta &delta) {
                 return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT;
               }))) {
   } else {
@@ -1812,7 +1812,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   uint64_t transaction_id = transaction_.transaction_id;
 
-  for (const auto &delta : transaction_.deltas.use()) {
+  for (const auto &delta : transaction_.deltas) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {

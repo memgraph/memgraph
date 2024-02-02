@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -154,8 +154,8 @@ class DeltaGenerator final {
 
     void Finalize(bool append_transaction_end = true) {
       auto commit_timestamp = gen_->timestamp_++;
-      if (transaction_.deltas.use().empty()) return;
-      for (const auto &delta : transaction_.deltas.use()) {
+      if (transaction_.deltas.empty()) return;
+      for (const auto &delta : transaction_.deltas) {
         auto owner = delta.prev.Get();
         while (owner.type == memgraph::storage::PreviousPtr::Type::DELTA) {
           owner = owner.delta->prev.Get();
@@ -171,7 +171,7 @@ class DeltaGenerator final {
       if (append_transaction_end) {
         gen_->wal_file_.AppendTransactionEnd(commit_timestamp);
         if (gen_->valid_) {
-          gen_->UpdateStats(commit_timestamp, transaction_.deltas.use().size() + 1);
+          gen_->UpdateStats(commit_timestamp, transaction_.deltas.size() + 1);
           for (auto &data : data_) {
             if (data.type == memgraph::storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY) {
               // We need to put the final property value into the SET_PROPERTY
