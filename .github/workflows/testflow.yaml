@@ -48,6 +48,7 @@ jobs:
     secrets: inherit
 
   MgbuilderRelease:
+    # if: false
     uses: ./.github/workflows/reusable_build.yaml
     with:
       build_name: release
@@ -84,7 +85,7 @@ jobs:
     uses: ./.github/workflows/reusable_test.yaml
     with:
       test_name: stress
-      build_name: release
+      mgbuilder: "memgraph/mgbuilder:${{ github.sha }}-release"
       threads: 24
     secrets: inherit
 
@@ -93,7 +94,7 @@ jobs:
     uses: ./.github/workflows/reusable_test.yaml
     with:
       test_name: stress_ssl
-      build_name: release
+      mgbuilder: "memgraph/mgbuilder:${{ github.sha }}-release"
       threads: 24
     secrets: inherit
 
@@ -102,7 +103,7 @@ jobs:
     uses: ./.github/workflows/reusable_test.yaml
     with:
       test_name: durability
-      build_name: release
+      mgbuilder: "memgraph/mgbuilder:${{ github.sha }}-release"
       threads: 24
     secrets: inherit
 
@@ -111,7 +112,7 @@ jobs:
     uses: ./.github/workflows/reusable_test.yaml
     with:
       test_name: unit
-      build_name: release
+      mgbuilder: "memgraph/mgbuilder:${{ github.sha }}-release"
       threads: 24
     secrets: inherit
 
@@ -120,6 +121,6 @@ jobs:
     uses: ./.github/workflows/reusable_test.yaml
     with:
       test_name: gql_behave
-      build_name: release
+      mgbuilder: "memgraph/mgbuilder:${{ github.sha }}-release"
       threads: 24
     secrets: inherit

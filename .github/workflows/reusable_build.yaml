@@ -20,7 +20,7 @@ on:
         type: number
 
 env:
-  TAG: "memgraph/mgbuilder:${{ github.run_id }}-${{ inputs.build_name }}"
+  TAG: "memgraph/mgbuilder:${{ github.sha }}-${{ inputs.build_name }}"
   OS: ${{ inputs.os }}
   TOOLCHAIN_VERSION: ${{ inputs.toolchain_version }}
   THREADS: ${{ inputs.threads }}
@@ -29,8 +29,9 @@ env:
 
 jobs:
   build:
-    name: "${{ github.run_id }}-${{ inputs.build_name }}"
+    name: "${{ github.sha }}-${{ inputs.build_name }}"
     runs-on: [self-hosted, Linux, X64, Diff]
+    timeout-minutes: 60
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -45,11 +46,16 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build "memgraph/mgbuilder:${{ github.run_id }}-${{ inputs.build_name }}"
+      - name: Build memgraph/mgbuilder:${{ github.sha }}-${{ inputs.build_name }}
         run: ./docker/ci.bash build ${{ inputs.build_name }}
 
       - name: Push mgbuilder image
         run: docker push $TAG
 
       - name: Clean up
-        run: docker image rm $TAG
+        if: ${{ always() }}
+        run: |
+          docker container prune -f
+          docker image prune -f
+          docker builder prune -f
+          docker image rm $TAG

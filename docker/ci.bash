@@ -3,7 +3,7 @@ set -eo pipefail
 
 DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 ROOT_DIR=$DIR/..
-BUILD_DIR=$ROOT_DIRDIR/build
+BUILD_DIR=$ROOT_DIR/build
 
 OS=${OS:-debian-10}
 TOOLCHAIN_VERSION=${TOOLCHAIN_VERSION:-4}
@@ -61,7 +61,7 @@ build() {
 
 }
 
-unit_tests() {
+unit_test() {
   $TOOLCHAIN_ACTIVATE
   cd $BUILD_DIR
   ctest -R memgraph__unit --output-on-failure -j$THREADS
