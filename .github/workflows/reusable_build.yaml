@@ -13,15 +13,15 @@ name: Build Memgraph
       threads:
         description: How many threads will be used to build memgraph?
         default: 24
-        type: int
+        type: number
       os:
         description: Base image with which os will be used?
-        defualt: debian-10
+        default: debian-10
         type: string
       toolchain_version:
         description: Which toolchain version will be used in the build?
         default: 4
-        type: int
+        type: number
 
 env:
   TAG: ${{ inputs.image_tag }}
