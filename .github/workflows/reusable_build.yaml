@@ -33,7 +33,7 @@ env:
 
 jobs:
   build:
-    name: "${{ inputs.build_name }} build"
+    name: "${{ inputs/image_tag }}"
     runs-on: [self-hosted, Linux, X64, Diff]
     steps:
       - name: Set up repository
@@ -52,7 +52,7 @@ jobs:
       - name: Build mgbuilder image
         run: ./docker/ci.bash build ${{ inputs.build_name }}
 
-      - name: Push memgraph/mgbuilder:${{ inputs.image_tag }}
+      - name: Push mgbuilder image
         run: docker push $TAG
 
       - name: Clean up

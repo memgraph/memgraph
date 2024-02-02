@@ -24,15 +24,54 @@ env:
   TOOLCHAIN_VERSION: "4"
 
 jobs:
-  build_image:
-    strategy:
-      fail-fast: false
-      matrix:
-        build_name: [community, debug, release, experimental_ha, experimental_mt]
+  ########################################################################################
+  ######################################## BUILDS ########################################
+  ########################################################################################
+  MgbuilderCommunity:
     uses: ./.github/workflows/reusable_build.yaml
     with:
-      build_name: ${{ matrix.build_name }}
-      image_tag: "memgraph/mgbuilder:${{ github.run_id }}-${{ matrix.build_name }}"
+      build_name: community
+      image_tag: "memgraph/mgbuilder:${{ github.run_id }}-community"
+      threads: 24
+      os: debian-10
+      toolchain_version: 4
+    secrets: inherit
+
+  MgbuilderDebug:
+    uses: ./.github/workflows/reusable_build.yaml
+    with:
+      build_name: debug
+      image_tag: "memgraph/mgbuilder:${{ github.run_id }}-debug"
+      threads: 24
+      os: debian-10
+      toolchain_version: 4
+    secrets: inherit
+
+  MgbuilderRelease:
+    uses: ./.github/workflows/reusable_build.yaml
+    with:
+      build_name: release
+      image_tag: "memgraph/mgbuilder:${{ github.run_id }}-release"
+      threads: 24
+      os: debian-10
+      toolchain_version: 4
+    secrets: inherit
+
+  MgbuilderExperimentalHA:
+    uses: ./.github/workflows/reusable_build.yaml
+    with:
+      build_name: experimental_ha
+      image_tag: "memgraph/mgbuilder:${{ github.run_id }}-experimental_ha"
+      threads: 24
+      os: debian-10
+      toolchain_version: 4
+    secrets: inherit
+
+  MgbuilderExperimentalMT:
+    uses: ./.github/workflows/reusable_build.yaml
+    with:
+      build_name: experimental_mt
+      image_tag: "memgraph/mgbuilder:${{ github.run_id }}-experimental_mt"
       threads: 24
       os: debian-10
       toolchain_version: 4
