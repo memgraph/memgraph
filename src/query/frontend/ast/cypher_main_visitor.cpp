@@ -414,9 +414,9 @@ antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::Add
 }
 
 // License check is done in the interpreter
-antlrcpp::Any CypherMainVisitor::visitShowReplicationCluster(MemgraphCypher::ShowReplicationClusterContext * /*ctx*/) {
+antlrcpp::Any CypherMainVisitor::visitShowInstances(MemgraphCypher::ShowInstancesContext * /*ctx*/) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
-  coordinator_query->action_ = CoordinatorQuery::Action::SHOW_REPLICATION_CLUSTER;
+  coordinator_query->action_ = CoordinatorQuery::Action::SHOW_INSTANCES;
   return coordinator_query;
 }
 

@@ -1018,7 +1018,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     case ReplicationQuery::Action::SHOW_REPLICAS: {
 #ifdef MG_ENTERPRISE
       if (FLAGS_raft_server_id) {
-        throw QueryRuntimeException("Coordinator cannot call SHOW REPLICAS! Use SHOW REPLICATION CLUSTER instead.");
+        throw QueryRuntimeException("Coordinator cannot call SHOW REPLICAS! Use SHOW INSTANCES instead.");
       }
 #endif
 
@@ -1171,7 +1171,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       return callback;
     }
-    case CoordinatorQuery::Action::SHOW_REPLICATION_CLUSTER: {
+    case CoordinatorQuery::Action::SHOW_INSTANCES: {
       if (!license::global_license_checker.IsEnterpriseValidFast()) {
         throw QueryException("Trying to use enterprise feature without a valid license.");
       }
@@ -1181,7 +1181,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
             "be able to use this functionality.");
       }
       if (!FLAGS_raft_server_id) {
-        throw QueryRuntimeException("Only coordinator can run SHOW REPLICATION CLUSTER.");
+        throw QueryRuntimeException("Only coordinator can run SHOW INSTANCES.");
       }
 
       callback.header = {"name", "raft_socket_address", "coordinator_socket_address", "alive", "role"};

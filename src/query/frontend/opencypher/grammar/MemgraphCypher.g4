@@ -65,6 +65,7 @@ memgraphCypherKeyword : cypherKeyword
                       | HEADER
                       | IDENTIFIED
                       | INSTANCE
+                      | INSTANCES
                       | NODE_LABELS
                       | NULLIF
                       | IMPORT
@@ -190,7 +191,7 @@ replicationQuery : setReplicationRole
 
 coordinatorQuery : registerInstanceOnCoordinator
                  | setInstanceToMain
-                 | showReplicationCluster
+                 | showInstances
                  | addCoordinatorInstance
                  ;
 
@@ -376,7 +377,7 @@ setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
-showReplicationCluster : SHOW REPLICATION CLUSTER ;
+showInstances : SHOW INSTANCES ;
 
 instanceName : symbolicName ;
 

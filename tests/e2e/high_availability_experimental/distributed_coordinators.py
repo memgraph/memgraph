@@ -79,7 +79,7 @@ def test_start_distributed_coordinators():
         ("coordinator2", "127.0.0.1:100112", "", True, "coordinator"),
         ("coordinator3", "127.0.0.1:100113", "", True, "coordinator"),
     ]
-    coord3_cluster_state = sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW REPLICATION CLUSTER")))
+    coord3_cluster_state = sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
     assert coord3_cluster_state == expected_cluster
 
 

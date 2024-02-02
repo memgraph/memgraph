@@ -256,7 +256,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return CoordinatorQuery*
    */
-  antlrcpp::Any visitShowReplicationCluster(MemgraphCypher::ShowReplicationClusterContext *ctx) override;
+  antlrcpp::Any visitShowInstances(MemgraphCypher::ShowInstancesContext *ctx) override;
 
   /**
    * @return LockPathQuery*

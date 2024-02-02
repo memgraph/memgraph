@@ -3071,7 +3071,7 @@ class CoordinatorQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { REGISTER_INSTANCE, SET_INSTANCE_TO_MAIN, SHOW_REPLICATION_CLUSTER, ADD_COORDINATOR_INSTANCE };
+  enum class Action { REGISTER_INSTANCE, SET_INSTANCE_TO_MAIN, SHOW_INSTANCES, ADD_COORDINATOR_INSTANCE };
 
   enum class SyncMode { SYNC, ASYNC };
 
