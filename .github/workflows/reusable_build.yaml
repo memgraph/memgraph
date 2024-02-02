@@ -3,21 +3,33 @@ name: Build Memgraph
   workflow_call:
     inputs:
       build_name:
-        description: build type
+        description: Which build type will be used (community, debug, release ...)?
         required: true
         type: string
       image_tag:
-        description: image tag
+        description: How will the resulting image be tagged?
         required: true
         type: string
-    # secrets:
-    #   DOCKERHUB_USERNAME:
-    #     required: true
-    #   DOCKERHUB_TOKEN:
-    #     required: true
+      threads:
+        description: How many threads will be used to build memgraph?
+        default: 24
+        type: int
+      os:
+        description: Base image with which os will be used?
+        defualt: debian-10
+        type: string
+      toolchain_version:
+        description: Which toolchain version will be used in the build?
+        default: 4
+        type: int
 
 env:
   TAG: ${{ inputs.image_tag }}
+  OS: ${{ inputs.os }}
+  TOOLCHAIN_VERSION: ${{ inputs.toolchain_version }}
+  THREADS: ${{ inputs.threads }}
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
 
 jobs:
   build:
@@ -40,7 +52,7 @@ jobs:
       - name: Build mgbuilder image
         run: ./docker/ci.bash build ${{ inputs.build_name }}
 
-      - name: Push memgraph/mgbuilder:$TAG
+      - name: Push memgraph/mgbuilder:${{ inputs.image_tag }}
         run: docker push $TAG
 
       - name: Clean up
