@@ -25,7 +25,7 @@
 namespace memgraph::coordination {
 
 CoordinatorState::CoordinatorState() {
-  MG_ASSERT(!(FLAGS_coordinator && FLAGS_coordinator_server_port),
+  MG_ASSERT(!(FLAGS_raft_server_id && FLAGS_coordinator_server_port),
             "Instance cannot be a coordinator and have registered coordinator server.");
 
   spdlog::info("Executing coordinator constructor");

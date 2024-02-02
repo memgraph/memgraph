@@ -31,8 +31,8 @@ target_sources(mg-coordination
         replication_instance.cpp
 
         coordinator_log_store.cpp
-        coordinator_state_manager.cpp
         coordinator_state_machine.cpp
+        coordinator_state_manager.cpp
 )
 target_include_directories(mg-coordination PUBLIC include)
 

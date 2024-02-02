@@ -66,7 +66,6 @@ startup_config_dict = {
         "Time in seconds after which inactive Bolt sessions will be closed.",
     ),
     "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
-    "coordinator": ("false", "false", "Controls whether the instance is a replication coordinator."),
     "coordinator_server_port": ("0", "0", "Port on which coordinator servers will be started."),
     "raft_server_port": ("0", "0", "Port on which raft servers will be started."),
     "raft_server_id": ("0", "0", "Unique ID of the raft server."),

@@ -930,7 +930,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator) {
+      if (FLAGS_raft_server_id) {
         throw QueryRuntimeException("Coordinator can't set roles!");
       }
       if (FLAGS_coordinator_server_port) {
@@ -960,7 +960,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator) {
+      if (FLAGS_raft_server_id) {
         throw QueryRuntimeException("Coordinator doesn't have a replication role!");
       }
 #endif
@@ -1017,7 +1017,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator) {
+      if (FLAGS_raft_server_id) {
         throw QueryRuntimeException("Coordinator cannot call SHOW REPLICAS! Use SHOW REPLICATION CLUSTER instead.");
       }
 #endif
@@ -1089,7 +1089,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
             "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
             "be able to use this functionality.");
       }
-      if (!FLAGS_coordinator) {
+      if (!FLAGS_raft_server_id) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1124,7 +1124,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
             "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
             "be able to use this functionality.");
       }
-      if (!FLAGS_coordinator) {
+      if (!FLAGS_raft_server_id) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1149,7 +1149,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
             "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
             "be able to use this functionality.");
       }
-      if (!FLAGS_coordinator) {
+      if (!FLAGS_raft_server_id) {
         throw QueryRuntimeException("Only coordinator can run SHOW REPLICATION CLUSTER.");
       }
 
@@ -4175,7 +4175,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     }
 
 #ifdef MG_ENTERPRISE
-    if (FLAGS_coordinator && !utils::Downcast<CoordinatorQuery>(parsed_query.query) &&
+    if (FLAGS_raft_server_id && !utils::Downcast<CoordinatorQuery>(parsed_query.query) &&
         !utils::Downcast<SettingQuery>(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");
     }

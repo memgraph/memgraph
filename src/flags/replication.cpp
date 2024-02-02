@@ -13,8 +13,6 @@
 
 #ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(coordinator, false, "Controls whether the instance is a replication coordinator.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint32(coordinator_server_port, 0, "Port on which coordinator servers will be started.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint32(raft_server_port, 0, "Port on which raft servers will be started.");

@@ -70,7 +70,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "setup_queries": [],
     },
     "coordinator": {
-        "args": ["--bolt-port", "7690", "--log-level=TRACE", "--coordinator"],
+        "args": ["--bolt-port", "7690", "--log-level=TRACE", "--raft-server-id=1", "--raft-server-port=10111"],
         "log_file": "coordinator.log",
         "setup_queries": [
             "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
