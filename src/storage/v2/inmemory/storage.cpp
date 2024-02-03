@@ -176,9 +176,9 @@ InMemoryStorage::~InMemoryStorage() {
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
 
-InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                                                    StorageMode storage_mode,
-                                                    memgraph::replication_coordination_glue::ReplicationRole replication_role)
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(
+    auto tag, InMemoryStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+    memgraph::replication_coordination_glue::ReplicationRole replication_role)
     : Accessor(tag, storage, isolation_level, storage_mode, replication_role),
       config_(storage->config_.salient.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
@@ -1693,6 +1693,7 @@ StorageInfo InMemoryStorage::GetInfo(bool force_directory,
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
+    info.text_indices = lbl.text.size();
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();

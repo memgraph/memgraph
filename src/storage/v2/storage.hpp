@@ -77,6 +77,7 @@ struct StorageInfo {
   uint64_t disk_usage;
   uint64_t label_indices;
   uint64_t label_property_indices;
+  uint64_t text_indices;
   uint64_t existence_constraints;
   uint64_t unique_constraints;
   StorageMode storage_mode;
@@ -94,6 +95,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["disk"] = info.disk_usage;
   res["label_indices"] = info.label_indices;
   res["label_prop_indices"] = info.label_property_indices;
+  res["text_indices"] = info.text_indices;
   res["existence_constraints"] = info.existence_constraints;
   res["unique_constraints"] = info.unique_constraints;
   res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
