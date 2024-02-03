@@ -326,3 +326,10 @@ set_property(TARGET mgcxx_text_search PROPERTY IMPORTED_LOCATION ${MGCXX_ROOT}/l
 # generated later during the build process.
 file(MAKE_DIRECTORY ${MGCXX_ROOT}/include)
 set_property(TARGET mgcxx_text_search PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${MGCXX_ROOT}/include)
+
+# Setup NuRaft
+import_external_library(nuraft STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
+find_package(OpenSSL REQUIRED)
+target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})

@@ -20,7 +20,7 @@
 namespace memgraph::coordination {
 
 namespace {
-auto CreateClientContext(const memgraph::coordination::CoordinatorClientConfig &config)
+auto CreateClientContext(memgraph::coordination::CoordinatorClientConfig const &config)
     -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
                       : communication::ClientContext{};
@@ -45,38 +45,33 @@ void CoordinatorClient::StartFrequentCheck() {
             "Health check frequency must be greater than 0");
 
   instance_checker_.Run(
-      "Coord checker", config_.health_check_frequency_sec, [this, instance_name = config_.instance_name] {
+      config_.instance_name, config_.health_check_frequency_sec, [this, instance_name = config_.instance_name] {
         try {
           spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
                         rpc_client_.Endpoint().SocketAddress());
-          auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
-          stream.AwaitResponse();
+          {  // NOTE: This is intentionally scoped so that stream lock could get released.
+            auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
+            stream.AwaitResponse();
+          }
           succ_cb_(coord_data_, instance_name);
-        } catch (const rpc::RpcFailedException &) {
+        } catch (rpc::RpcFailedException const &) {
           fail_cb_(coord_data_, instance_name);
         }
       });
 }
 
 void CoordinatorClient::StopFrequentCheck() { instance_checker_.Stop(); }
-
 void CoordinatorClient::PauseFrequentCheck() { instance_checker_.Pause(); }
 void CoordinatorClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
 
-auto CoordinatorClient::SetSuccCallback(HealthCheckCallback succ_cb) -> void { succ_cb_ = std::move(succ_cb); }
-auto CoordinatorClient::SetFailCallback(HealthCheckCallback fail_cb) -> void { fail_cb_ = std::move(fail_cb); }
-
-auto CoordinatorClient::ReplicationClientInfo() const -> const CoordinatorClientConfig::ReplicationClientInfo & {
-  return config_.replication_client_info;
+auto CoordinatorClient::SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCallback fail_cb) -> void {
+  succ_cb_ = std::move(succ_cb);
+  fail_cb_ = std::move(fail_cb);
 }
 
-auto CoordinatorClient::ResetReplicationClientInfo() -> void {
-  // TODO (antoniofilipovic) Sync with Andi on this one
-  // config_.replication_client_info.reset();
-}
+auto CoordinatorClient::ReplicationClientInfo() const -> ReplClientInfo { return config_.replication_client_info; }
 
-auto CoordinatorClient::SendPromoteReplicaToMainRpc(
-    std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const -> bool {
+auto CoordinatorClient::SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool {
   try {
     auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(std::move(replication_clients_info))};
     if (!stream.AwaitResponse().success) {
@@ -84,23 +79,24 @@ auto CoordinatorClient::SendPromoteReplicaToMainRpc(
       return false;
     }
     return true;
-  } catch (const rpc::RpcFailedException &) {
+  } catch (rpc::RpcFailedException const &) {
     spdlog::error("RPC error occurred while sending failover RPC!");
   }
   return false;
 }
 
-auto CoordinatorClient::SendSetToReplicaRpc(CoordinatorClient::ReplClientInfo replication_client_info) const -> bool {
+auto CoordinatorClient::DemoteToReplica() const -> bool {
+  auto const &instance_name = config_.instance_name;
   try {
-    auto stream{rpc_client_.Stream<SetMainToReplicaRpc>(std::move(replication_client_info))};
+    auto stream{rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info)};
     if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to set main to replica!");
+      spdlog::error("Failed to receive successful RPC response for setting instance {} to replica!", instance_name);
       return false;
     }
     spdlog::info("Sent request RPC from coordinator to instance to set it as replica!");
     return true;
-  } catch (const rpc::RpcFailedException &) {
-    spdlog::error("Failed to send failover RPC from coordinator to new main!");
+  } catch (rpc::RpcFailedException const &) {
+    spdlog::error("Failed to set instance {} to replica!", instance_name);
   }
   return false;
 }
