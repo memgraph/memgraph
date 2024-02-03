@@ -14,7 +14,7 @@ January 23, 2024
 Interacting with data (reads and writes) on disk in a concurrent, safe, and
 fast way is a challenging task. Implementing all low-level primitives to
 interact with various disk hardware efficiently consumes significant
-engineering resources. Whenever Memgraph has to store data on disk (or any
+engineering people. Whenever Memgraph has to store data on disk (or any
 other colder than RAM storage system), the problem is how to do that in the
 least amount of development time while satisfying all functional requirements
 (often performance).
