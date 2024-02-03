@@ -69,6 +69,11 @@ struct DatabaseState {
     std::string property;
   };
 
+  struct TextItem {
+    std::string index_name;
+    std::string label;
+  };
+
   struct LabelPropertiesItem {
     std::string label;
     std::set<std::string, std::less<>> properties;
@@ -78,6 +83,7 @@ struct DatabaseState {
   std::set<Edge> edges;
   std::set<LabelItem> label_indices;
   std::set<LabelPropertyItem> label_property_indices;
+  std::set<TextItem> text_indices;
   std::set<LabelPropertyItem> existence_constraints;
   std::set<LabelPropertiesItem> unique_constraints;
 };
@@ -183,6 +189,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   // Capture all indices
   std::set<DatabaseState::LabelItem> label_indices;
   std::set<DatabaseState::LabelPropertyItem> label_property_indices;
+  std::set<DatabaseState::TextItem> text_indices;
   {
     auto info = dba->ListAllIndices();
     for (const auto &item : info.label) {
@@ -190,6 +197,9 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
     for (const auto &item : info.label_property) {
       label_property_indices.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
+    }
+    for (const auto &item : info.text) {
+      text_indices.insert({item.first, dba->PropertyToName(item.second)});
     }
   }
 
@@ -210,7 +220,8 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
   }
 
-  return {vertices, edges, label_indices, label_property_indices, existence_constraints, unique_constraints};
+  return {vertices,          edges, label_indices, label_property_indices, text_indices, existence_constraints,
+          unique_constraints};
 }
 
 auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::DatabaseAccess db,
@@ -267,7 +278,7 @@ memgraph::storage::EdgeAccessor CreateEdge(memgraph::storage::Storage::Accessor 
 }
 
 template <class... TArgs>
-void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::Value>> &results, TArgs &&... args) {
+void VerifyQueries(const std::vector<std::vector<memgraph::communication::bolt::Value>> &results, TArgs &&...args) {
   std::vector<std::string> expected{std::forward<TArgs>(args)...};
   std::vector<std::string> got;
   got.reserve(results.size());
