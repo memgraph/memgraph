@@ -34,6 +34,7 @@
 #include "storage/v2/transaction.hpp"
 #include "utils/thread_pool.hpp"
 #ifdef MG_ENTERPRISE
+#include "coordination/coordinator_state.hpp"
 #include "dbms/database_handler.hpp"
 #endif
 #include "dbms/transaction.hpp"
@@ -272,6 +273,10 @@ class DbmsHandler {
   bool IsMain() const { return repl_state_.IsMain(); }
   bool IsReplica() const { return repl_state_.IsReplica(); }
 
+#ifdef MG_ENTERPRISE
+  coordination::CoordinatorState &CoordinatorState() { return coordinator_state_; }
+#endif
+
   /**
    * @brief Return the statistics all databases.
    *
@@ -436,7 +441,7 @@ class DbmsHandler {
         return false;
       };
 
-      if (client.mode_ == memgraph::replication::ReplicationMode::ASYNC) {
+      if (client.mode_ == memgraph::replication_coordination_glue::ReplicationMode::ASYNC) {
         client.thread_pool_.AddTask([task = utils::CopyMovableFunctionWrapper{std::move(task)}]() mutable { task(); });
         return true;
       }
@@ -672,6 +677,7 @@ class DbmsHandler {
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
   DatabaseHandler db_handler_;                         //!< multi-tenancy storage handler
   std::unique_ptr<kvstore::KVStore> durability_;       //!< list of active dbs (pointer so we can postpone its creation)
+  coordination::CoordinatorState coordinator_state_;  //!< Replication coordinator
 #endif
   // TODO: Make an api
  public:

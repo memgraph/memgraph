@@ -52,6 +52,10 @@
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 
+#ifdef MG_ENTERPRISE
+#include "coordination/coordinator_instance_status.hpp"
+#endif
+
 namespace memgraph::metrics {
 extern const Event FailedQuery;
 extern const Event FailedPrepare;
@@ -67,6 +71,55 @@ inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
 inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
+
+class CoordinatorQueryHandler {
+ public:
+  CoordinatorQueryHandler() = default;
+  virtual ~CoordinatorQueryHandler() = default;
+
+  CoordinatorQueryHandler(const CoordinatorQueryHandler &) = default;
+  CoordinatorQueryHandler &operator=(const CoordinatorQueryHandler &) = default;
+
+  CoordinatorQueryHandler(CoordinatorQueryHandler &&) = default;
+  CoordinatorQueryHandler &operator=(CoordinatorQueryHandler &&) = default;
+
+  struct Replica {
+    std::string name;
+    std::string socket_address;
+    ReplicationQuery::SyncMode sync_mode;
+    std::optional<double> timeout;
+    uint64_t current_timestamp_of_replica;
+    uint64_t current_number_of_timestamp_behind_master;
+    ReplicationQuery::ReplicaState state;
+  };
+
+#ifdef MG_ENTERPRISE
+  struct MainReplicaStatus {
+    std::string_view name;
+    std::string_view socket_address;
+    bool alive;
+    bool is_main;
+
+    MainReplicaStatus(std::string_view name, std::string_view socket_address, bool alive, bool is_main)
+        : name{name}, socket_address{socket_address}, alive{alive}, is_main{is_main} {}
+  };
+#endif
+
+#ifdef MG_ENTERPRISE
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void RegisterInstance(const std::string &coordinator_socket_address,
+                                const std::string &replication_socket_address,
+                                const std::chrono::seconds instance_check_frequency, const std::string &instance_name,
+                                CoordinatorQuery::SyncMode sync_mode) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void SetInstanceToMain(const std::string &instance_name) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<coordination::CoordinatorInstanceStatus> ShowInstances() const = 0;
+
+#endif
+};
 
 class AnalyzeGraphQueryHandler {
  public:

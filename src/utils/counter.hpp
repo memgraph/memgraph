@@ -12,8 +12,18 @@
 #pragma once
 
 #include <cstdint>
-namespace memgraph::replication {
 
-// TODO: figure out a way of ensuring that usage of this type is never uninitialed/defaulted incorrectly to MAIN
-enum class ReplicationRole : uint8_t { MAIN, REPLICA };
-}  // namespace memgraph::replication
+namespace memgraph::utils {
+
+/// A resetable counter, every Nth call returns true
+template <std::size_t N>
+auto ResettableCounter() {
+  return [counter = N]() mutable {
+    --counter;
+    if (counter != 0) return false;
+    counter = N;
+    return true;
+  };
+}
+
+}  // namespace memgraph::utils

@@ -15,27 +15,6 @@
 #include "slk/serialization.hpp"
 
 namespace memgraph::replication {
-
-struct FrequentHeartbeatReq {
-  static const utils::TypeInfo kType;                            // TODO: make constexpr?
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }  // WHAT?
-
-  static void Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
-  static void Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
-  FrequentHeartbeatReq() = default;
-};
-
-struct FrequentHeartbeatRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
-
-  static void Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
-  static void Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
-  FrequentHeartbeatRes() = default;
-};
-
-using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;
-
 struct SystemHeartbeatReq {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
@@ -58,16 +37,9 @@ struct SystemHeartbeatRes {
 };
 
 using SystemHeartbeatRpc = rpc::RequestResponse<SystemHeartbeatReq, SystemHeartbeatRes>;
-
-void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
-
 }  // namespace memgraph::replication
 
 namespace memgraph::slk {
-void Save(const memgraph::replication::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
-void Load(memgraph::replication::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
-void Save(const memgraph::replication::FrequentHeartbeatReq & /*self*/, memgraph::slk::Builder * /*builder*/);
-void Load(memgraph::replication::FrequentHeartbeatReq * /*self*/, memgraph::slk::Reader * /*reader*/);
 void Save(const memgraph::replication::SystemHeartbeatRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::SystemHeartbeatRes *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::SystemHeartbeatReq & /*self*/, memgraph::slk::Builder * /*builder*/);

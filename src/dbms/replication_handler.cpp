@@ -18,14 +18,14 @@
 #include "dbms/global.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/replication_client.hpp"
+#include "dbms/utils.hpp"
+#include "replication/messages.hpp"
 #include "replication/state.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/config.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "utils/on_scope_exit.hpp"
 
-using memgraph::replication::ReplicationClientConfig;
-using memgraph::replication::ReplicationState;
 using memgraph::replication::RoleMainData;
 using memgraph::replication::RoleReplicaData;
 
@@ -38,8 +38,8 @@ std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
     using enum RegisterReplicaError;
     case NAME_EXISTS:
       return "NAME_EXISTS";
-    case END_POINT_EXISTS:
-      return "END_POINT_EXISTS";
+    case ENDPOINT_EXISTS:
+      return "ENDPOINT_EXISTS";
     case CONNECTION_FAILED:
       return "CONNECTION_FAILED";
     case COULD_NOT_BE_PERSISTED:
@@ -51,34 +51,13 @@ std::string RegisterReplicaErrorToString(RegisterReplicaError error) {
 ReplicationHandler::ReplicationHandler(DbmsHandler &dbms_handler) : dbms_handler_(dbms_handler) {}
 
 bool ReplicationHandler::SetReplicationRoleMain() {
-  auto const main_handler = [](RoleMainData const &) {
+  auto const main_handler = [](RoleMainData &) {
     // If we are already MAIN, we don't want to change anything
     return false;
   };
+
   auto const replica_handler = [this](RoleReplicaData const &) {
-    // STEP 1) bring down all REPLICA servers
-    dbms_handler_.ForEach([](DatabaseAccess db_acc) {
-      auto *storage = db_acc->storage();
-      // Remember old epoch + storage timestamp association
-      storage->PrepareForNewEpoch();
-    });
-
-    // STEP 2) Change to MAIN
-    // TODO: restore replication servers if false?
-    if (!dbms_handler_.ReplicationState().SetReplicationRoleMain()) {
-      // TODO: Handle recovery on failure???
-      return false;
-    }
-
-    // STEP 3) We are now MAIN, update storage local epoch
-    const auto &epoch =
-        std::get<RoleMainData>(std::as_const(dbms_handler_.ReplicationState()).ReplicationData()).epoch_;
-    dbms_handler_.ForEach([&](DatabaseAccess db_acc) {
-      auto *storage = db_acc->storage();
-      storage->repl_storage_state_.epoch_ = epoch;
-    });
-
-    return true;
+    return memgraph::dbms::DoReplicaToMainPromotion(dbms_handler_);
   };
 
   // TODO: under lock
@@ -121,16 +100,16 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
     -> memgraph::utils::BasicResult<RegisterReplicaError> {
   MG_ASSERT(dbms_handler_.ReplicationState().IsMain(), "Only main instance can register a replica!");
 
-  auto instance_client = dbms_handler_.ReplicationState().RegisterReplica(config);
-  if (instance_client.HasError()) {
-    switch (instance_client.GetError()) {
+  auto maybe_client = dbms_handler_.ReplicationState().RegisterReplica(config);
+  if (maybe_client.HasError()) {
+    switch (maybe_client.GetError()) {
       case memgraph::replication::RegisterReplicaError::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");
         return {};
       case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
         return memgraph::dbms::RegisterReplicaError::NAME_EXISTS;
-      case memgraph::replication::RegisterReplicaError::END_POINT_EXISTS:
-        return memgraph::dbms::RegisterReplicaError::END_POINT_EXISTS;
+      case memgraph::replication::RegisterReplicaError::ENDPOINT_EXISTS:
+        return memgraph::dbms::RegisterReplicaError::ENDPOINT_EXISTS;
       case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
         return memgraph::dbms::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
       case memgraph::replication::RegisterReplicaError::SUCCESS:
@@ -144,35 +123,15 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
 
 #ifdef MG_ENTERPRISE
   // Update system before enabling individual storage <-> replica clients
-  dbms_handler_.SystemRestore(*instance_client.GetValue());
+  dbms_handler_.SystemRestore(*maybe_client.GetValue());
 #endif
 
-  bool all_clients_good = true;
-
-  // Add database specific clients (NOTE Currently all databases are connected to each replica)
-  dbms_handler_.ForEach([&](DatabaseAccess db_acc) {
-    auto *storage = db_acc->storage();
-    if (!allow_mt_repl && storage->name() != kDefaultDB) {
-      return;
-    }
-    // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
-    if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
-
-    all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
-        [storage, &instance_client, db_acc = std::move(db_acc)](auto &storage_clients) mutable {  // NOLINT
-          auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client.GetValue());
-          // All good, start replica client
-          client->Start(storage, std::move(db_acc));
-          // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
-          // MAYBE_BEHIND isn't a statement of the current state, this is the default value
-          // Failed to start due an error like branching of MAIN and REPLICA
-          if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
-            return false;
-          }
-          storage_clients.push_back(std::move(client));
-          return true;
-        });
-  });
+  const auto dbms_error = memgraph::dbms::HandleRegisterReplicaStatus(maybe_client);
+  if (dbms_error.has_value()) {
+    return *dbms_error;
+  }
+  auto &instance_client_ptr = maybe_client.GetValue();
+  const bool all_clients_good = memgraph::dbms::RegisterAllDatabasesClients(dbms_handler_, *instance_client_ptr);
 
   // NOTE Currently if any databases fails, we revert back
   if (!all_clients_good) {
@@ -182,7 +141,7 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
   }
 
   // No client error, start instance level client
-  StartReplicaClient(dbms_handler_, *instance_client.GetValue());
+  StartReplicaClient(dbms_handler_, *instance_client_ptr);
   return {};
 }
 
@@ -210,7 +169,7 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> UnregisterR
                     dbms_handler_.ReplicationState().ReplicationData());
 }
 
-auto ReplicationHandler::GetRole() const -> memgraph::replication::ReplicationRole {
+auto ReplicationHandler::GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole {
   return dbms_handler_.ReplicationState().GetRole();
 }
 

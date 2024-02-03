@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -156,13 +156,6 @@ DEFINE_string(pulsar_service_url, "", "Default URL used while connecting to Puls
 
 // Query flags.
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint64(replication_replica_check_frequency_sec, 1,
-              "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: "
-              "The MAIN instance allocates a new thread for each REPLICA.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(replication_restore_state_on_startup, false, "Restore replication state on startup, e.g. recover replica");
-
 DEFINE_VALIDATED_string(query_modules_directory, "",
                         "Directory where modules with custom query procedures are stored. "
                         "NOTE: Multiple comma-separated directories can be defined.",
@@ -202,3 +195,9 @@ DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passwords.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(auth_password_strength_regex, memgraph::glue::kDefaultPasswordRegex.data(),
+              "The regular expression that should be used to match the entire "
+              "entered password to ensure its strength.");

@@ -35,6 +35,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 
   auto hb_stream{client_.rpc_client_.Stream<replication::HeartbeatRpc>(
       storage->uuid(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()})};
+
   const auto replica = hb_stream.AwaitResponse();
 
 #ifdef MG_ENTERPRISE       // Multi-tenancy is only supported in enterprise
@@ -226,7 +227,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
     }
   };
 
-  if (client_.mode_ == memgraph::replication::ReplicationMode::ASYNC) {
+  if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
     client_.thread_pool_.AddTask([task = std::move(task)]() mutable { (void)task(); });
     return true;
   }

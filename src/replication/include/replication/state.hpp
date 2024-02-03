@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,9 +14,9 @@
 #include "kvstore/kvstore.hpp"
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
-#include "replication/mode.hpp"
 #include "replication/replication_client.hpp"
-#include "replication/role.hpp"
+#include "replication_coordination_glue/mode.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "replication_server.hpp"
 #include "status.hpp"
 #include "utils/result.hpp"
@@ -32,7 +32,8 @@ namespace memgraph::replication {
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 
-enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
+// TODO: (andi) Rename Error to Status
+enum class RegisterReplicaError : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
 struct RoleMainData {
   RoleMainData() = default;
@@ -72,12 +73,13 @@ struct ReplicationState {
   using FetchReplicationResult_t = utils::BasicResult<FetchReplicationError, ReplicationData_t>;
   auto FetchReplicationData() -> FetchReplicationResult_t;
 
-  auto GetRole() const -> ReplicationRole {
-    return std::holds_alternative<RoleReplicaData>(replication_data_) ? ReplicationRole::REPLICA
-                                                                      : ReplicationRole::MAIN;
+  auto GetRole() const -> replication_coordination_glue::ReplicationRole {
+    return std::holds_alternative<RoleReplicaData>(replication_data_)
+               ? replication_coordination_glue::ReplicationRole::REPLICA
+               : replication_coordination_glue::ReplicationRole::MAIN;
   }
-  bool IsMain() const { return GetRole() == ReplicationRole::MAIN; }
-  bool IsReplica() const { return GetRole() == ReplicationRole::REPLICA; }
+  bool IsMain() const { return GetRole() == replication_coordination_glue::ReplicationRole::MAIN; }
+  bool IsReplica() const { return GetRole() == replication_coordination_glue::ReplicationRole::REPLICA; }
 
   bool HasDurability() const { return nullptr != durability_; }
 
@@ -92,7 +94,6 @@ struct ReplicationState {
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain();
-
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
 
  private:

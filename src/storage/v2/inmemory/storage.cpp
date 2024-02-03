@@ -154,6 +154,8 @@ InMemoryStorage::InMemoryStorage(Config config)
 }
 
 InMemoryStorage::~InMemoryStorage() {
+  stop_source.request_stop();
+
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
   }
@@ -176,7 +178,7 @@ InMemoryStorage::~InMemoryStorage() {
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                                                     StorageMode storage_mode,
-                                                    memgraph::replication::ReplicationRole replication_role)
+                                                    memgraph::replication_coordination_glue::ReplicationRole replication_role)
     : Accessor(tag, storage, isolation_level, storage_mode, replication_role),
       config_(storage->config_.salient.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
@@ -1278,8 +1280,9 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
       mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
-Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                               memgraph::replication::ReplicationRole replication_role) {
+Transaction InMemoryStorage::CreateTransaction(
+    IsolationLevel isolation_level, StorageMode storage_mode,
+    memgraph::replication_coordination_glue::ReplicationRole replication_role) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -1294,7 +1297,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // of any query on replica to the last commited transaction
     // which is timestamp_ as only commit of transaction with writes
     // can change the value of it.
-    if (replication_role == memgraph::replication::ReplicationRole::MAIN) {
+    if (replication_role == memgraph::replication_coordination_glue::ReplicationRole::MAIN) {
       start_timestamp = timestamp_++;
     } else {
       start_timestamp = timestamp_;
@@ -1575,9 +1578,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   if (run_index_cleanup) {
     // This operation is very expensive as it traverses through all of the items
     // in every index every time.
-    indices_.RemoveObsoleteEntries(oldest_active_start_timestamp);
-    auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp);
+    auto token = stop_source.get_token();
+    if (!token.stop_requested()) {
+      indices_.RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
+      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token));
+    }
   }
 
   {
@@ -1678,7 +1684,8 @@ StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
   return info;
 }
 
-StorageInfo InMemoryStorage::GetInfo(bool force_directory, memgraph::replication::ReplicationRole replication_role) {
+StorageInfo InMemoryStorage::GetInfo(bool force_directory,
+                                     memgraph::replication_coordination_glue::ReplicationRole replication_role) {
   StorageInfo info = GetBaseInfo(force_directory);
   {
     auto access = Access(replication_role);  // TODO: override isolation level?
@@ -1999,15 +2006,15 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
-    memgraph::replication::ReplicationRole replication_role) {
-  if (replication_role == memgraph::replication::ReplicationRole::REPLICA) {
+    memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+  if (replication_role == memgraph::replication_coordination_glue::ReplicationRole::REPLICA) {
     return InMemoryStorage::CreateSnapshotError::DisabledForReplica;
   }
   auto const &epoch = repl_storage_state_.epoch_;
   auto snapshot_creator = [this, &epoch]() {
     utils::Timer timer;
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_,
-                                         memgraph::replication::ReplicationRole::MAIN);
+                                         memgraph::replication_coordination_glue::ReplicationRole::MAIN);
     durability::CreateSnapshot(this, &transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
                                &edges_, uuid_, epoch, repl_storage_state_.history, &file_retainer_);
     // Finalize snapshot transaction.
@@ -2095,14 +2102,16 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(memgraph::replication::ReplicationRole replication_role,
-                                                           std::optional<IsolationLevel> override_isolation_level) {
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(
+    memgraph::replication_coordination_glue::ReplicationRole replication_role,
+    std::optional<IsolationLevel> override_isolation_level) {
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
                                                                 override_isolation_level.value_or(isolation_level_),
                                                                 storage_mode_, replication_role});
 }
 std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
-    memgraph::replication::ReplicationRole replication_role, std::optional<IsolationLevel> override_isolation_level) {
+    memgraph::replication_coordination_glue::ReplicationRole replication_role,
+    std::optional<IsolationLevel> override_isolation_level) {
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
                                                                 override_isolation_level.value_or(isolation_level_),
                                                                 storage_mode_, replication_role});
@@ -2125,8 +2134,11 @@ void InMemoryStorage::CreateSnapshotHandler(
 
   // Run the snapshot thread (if enabled)
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
-                         [this]() { this->create_snapshot_handler(); });
+    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this, token = stop_source.get_token()]() {
+      if (!token.stop_requested()) {
+        this->create_snapshot_handler();
+      }
+    });
   }
 }
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {

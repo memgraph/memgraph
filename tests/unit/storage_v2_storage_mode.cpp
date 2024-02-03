@@ -44,8 +44,8 @@ TEST_P(StorageModeTest, Mode) {
           .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
 
   static_cast<memgraph::storage::InMemoryStorage *>(storage.get())->SetStorageMode(storage_mode);
-  auto creator = storage->Access(memgraph::replication::ReplicationRole::MAIN);
-  auto other_analytics_mode_reader = storage->Access(memgraph::replication::ReplicationRole::MAIN);
+  auto creator = storage->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  auto other_analytics_mode_reader = storage->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
 
   ASSERT_EQ(CountVertices(*creator, memgraph::storage::View::OLD), 0);
   ASSERT_EQ(CountVertices(*other_analytics_mode_reader, memgraph::storage::View::OLD), 0);

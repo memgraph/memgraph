@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -219,10 +219,12 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
 
 bool ReplicationState::SetReplicationRoleMain() {
   auto new_epoch = utils::GenerateUUID();
+
   if (!TryPersistRoleMain(new_epoch)) {
     return false;
   }
   replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}};
+
   return true;
 }
 
@@ -237,6 +239,7 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
 utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::RegisterReplica(
     const ReplicationClientConfig &config) {
   auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaError::NOT_MAIN; };
+
   ReplicationClient *client{nullptr};
   auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaError {
     // name check
@@ -257,7 +260,7 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
     };
     if (endpoint_check(mainData.registered_replicas_)) {
-      return RegisterReplicaError::END_POINT_EXISTS;
+      return RegisterReplicaError::ENDPOINT_EXISTS;
     }
 
     // Durability
@@ -276,4 +279,5 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
   }
   return res;
 }
+
 }  // namespace memgraph::replication

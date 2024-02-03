@@ -16,7 +16,6 @@
 #include "dbms/constants.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
-#include "flags/run_time_configurable.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
@@ -358,11 +357,10 @@ int main(int argc, char **argv) {
       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
 
   auto auth_glue =
-      [flag = FLAGS_auth_user_or_role_name_regex](
-          memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-          std::unique_ptr<memgraph::query::AuthQueryHandler> &ah, std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+      [](memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+         std::unique_ptr<memgraph::query::AuthQueryHandler> &ah, std::unique_ptr<memgraph::query::AuthChecker> &ac) {
         // Glue high level auth implementations to the query side
-        ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, flag);
+        ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth);
         ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
         // Handle users passed via arguments
         auto *maybe_username = std::getenv(kMgUser);
@@ -378,9 +376,10 @@ int main(int argc, char **argv) {
         }
       };
 
-  // WIP
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory /
-                                                                                                     "auth"};
+  memgraph::auth::Auth::Config auth_config{FLAGS_auth_user_or_role_name_regex, FLAGS_auth_password_strength_regex,
+                                           FLAGS_auth_password_permit_null};
+  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{
+      data_directory / "auth", auth_config};
   std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   auth_glue(&auth_, auth_handler, auth_checker);

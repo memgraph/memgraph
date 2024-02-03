@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,18 +24,5 @@ void Load(storage::Gid *gid, slk::Reader *reader);
 
 void Save(const storage::PropertyValue &value, slk::Builder *builder);
 void Load(storage::PropertyValue *value, slk::Reader *reader);
-
-template <utils::Enum T>
-void Save(const T &enum_value, slk::Builder *builder) {
-  slk::Save(utils::UnderlyingCast(enum_value), builder);
-}
-
-template <utils::Enum T>
-void Load(T *enum_value, slk::Reader *reader) {
-  using UnderlyingType = std::underlying_type_t<T>;
-  UnderlyingType value;
-  slk::Load(&value, reader);
-  *enum_value = static_cast<T>(value);
-}
 
 }  // namespace memgraph::slk

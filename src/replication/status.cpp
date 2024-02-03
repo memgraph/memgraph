@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,12 +29,14 @@ constexpr auto *kVersion = "durability_version";
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
-    j = nlohmann::json{{kVersion, p.version}, {kReplicationRole, ReplicationRole::MAIN}, {kEpoch, main.epoch.id()}};
+    j = nlohmann::json{{kVersion, p.version},
+                       {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
+                       {kEpoch, main.epoch.id()}};
   };
   auto processREPLICA = [&](ReplicaRole const &replica) {
     j = nlohmann::json{
         {kVersion, p.version},
-        {kReplicationRole, ReplicationRole::REPLICA},
+        {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA},
         {kIpAddress, replica.config.ip_address},
         {kPort, replica.config.port}
         // TODO: SSL
@@ -47,17 +49,17 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
   // This value did not exist in V1, hence default DurabilityVersion::V1
   DurabilityVersion version = j.value(kVersion, DurabilityVersion::V1);
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  ReplicationRole role;
+  replication_coordination_glue::ReplicationRole role;
   j.at(kReplicationRole).get_to(role);
   switch (role) {
-    case ReplicationRole::MAIN: {
+    case replication_coordination_glue::ReplicationRole::MAIN: {
       auto json_epoch = j.value(kEpoch, std::string{});
       auto epoch = ReplicationEpoch{};
       if (!json_epoch.empty()) epoch.SetEpoch(json_epoch);
       p = ReplicationRoleEntry{.version = version, .role = MainRole{.epoch = std::move(epoch)}};
       break;
     }
-    case ReplicationRole::REPLICA: {
+    case memgraph::replication_coordination_glue::ReplicationRole::REPLICA: {
       std::string ip_address;
       // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
       uint16_t port;
@@ -95,7 +97,7 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   auto seconds = j.at(kCheckFrequency).get<std::chrono::seconds::rep>();
   auto config = ReplicationClientConfig{
       .name = j.at(kReplicaName).get<std::string>(),
-      .mode = j.at(kSyncMode).get<ReplicationMode>(),
+      .mode = j.at(kSyncMode).get<replication_coordination_glue::ReplicationMode>(),
       .ip_address = j.at(kIpAddress).get<std::string>(),
       .port = j.at(kPort).get<uint16_t>(),
       .replica_check_frequency = std::chrono::seconds{seconds},

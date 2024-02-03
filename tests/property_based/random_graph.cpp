@@ -23,7 +23,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 /**
  * It is possible to run test with custom seed with:
  * RC_PARAMS="seed=1" ./random_graph

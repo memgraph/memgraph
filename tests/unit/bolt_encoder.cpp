@@ -182,7 +182,7 @@ void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::S
   output.clear();
 
   // create vertex
-  auto dba = db->Access(memgraph::replication::ReplicationRole::MAIN);
+  auto dba = db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
   auto va1 = dba->CreateVertex();
   auto va2 = dba->CreateVertex();
   auto l1 = dba->NameToLabel("label1");
