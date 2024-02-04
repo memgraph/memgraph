@@ -9,6 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <string>
+#include <string_view>
+
+#include <fmt/format.h>
+
 #include <mgp.hpp>
 
 namespace TextSearch {
@@ -24,19 +29,27 @@ void TextSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
   auto arguments = mgp::List(args);
-  auto label = arguments[0].ValueString();
-  auto search_query = arguments[1].ValueString();
 
-  // 1. See if the given label is text-indexed
-  if (!mgp::graph_has_text_index(memgraph_graph, label.data())) {
-    record_factory.SetErrorMessage("The given text index doesn’t exist in Memgraph");
-  }
+  try {
+    auto label = arguments[0].ValueString().data();
+    auto search_query = arguments[1].ValueString().data();
 
-  // 2. Run a text search of that index and return the search results
-  for (const auto &node :
-       mgp::List(mgp::graph_search_text_index(memgraph_graph, memory, label.data(), search_query.data()))) {
-    auto record = record_factory.NewRecord();
-    record.Insert(TextSearch::kReturnNode.data(), node);
+    // 1. See if the given label is text-indexed
+    if (!mgp::graph_has_text_index(memgraph_graph, label)) {
+      record_factory.SetErrorMessage(fmt::format("Text index \"{}\" doesn’t exist.", label));
+      return;
+    }
+
+    // 2. Run a text search of that index and return the search results
+    const auto results = mgp::graph_search_text_index(memgraph_graph, memory, label, search_query);
+    if (!results) return;
+
+    for (const auto &node : mgp::List(results)) {
+      auto record = record_factory.NewRecord();
+      record.Insert(TextSearch::kReturnNode.data(), node);
+    }
+  } catch (const std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
   }
 }
 
