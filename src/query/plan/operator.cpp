@@ -252,9 +252,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   MultiPropsInitChecked(&new_node, properties);
 
   if (flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic cleanup call
-    new_node.impl_.storage_->indices_.text_index_->AddNode(new_node.impl_.vertex_, new_node.impl_.storage_,
-                                                           new_node.impl_.transaction_->start_timestamp);
+    context.db_accessor->TextIndexAddVertex(&new_node);
   }
 
   (*frame)[node_info.symbol] = new_node;
@@ -2827,9 +2825,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       }
       if (flags::run_time::GetTextSearchEnabled()) {
         auto new_node = lhs.ValueVertex();
-        // TODO antepusic cleanup call
-        new_node.impl_.storage_->indices_.text_index_->UpdateNode(new_node.impl_.vertex_, new_node.impl_.storage_,
-                                                                  new_node.impl_.transaction_->start_timestamp);
+        context.db_accessor->TextIndexUpdateVertex(&new_node);
       }
       break;
     }
@@ -2989,9 +2985,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       update_props(new_properties);
       if (flags::run_time::GetTextSearchEnabled()) {
         auto new_node = rhs.ValueVertex();
-        // TODO antepusic cleanup call
-        new_node.impl_.storage_->indices_.text_index_->UpdateNode(new_node.impl_.vertex_, new_node.impl_.storage_,
-                                                                  new_node.impl_.transaction_->start_timestamp);
+        context->db_accessor->TextIndexUpdateVertex(&new_node);
       }
       break;
     }
@@ -3140,9 +3134,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   if (flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic cleanup call
-    vertex.impl_.storage_->indices_.text_index_->UpdateNode(vertex.impl_.vertex_, vertex.impl_.storage_,
-                                                            vertex.impl_.transaction_->start_timestamp);
+    context.db_accessor->TextIndexUpdateVertex(&vertex);
   }
 
   return true;
@@ -3217,10 +3209,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 #endif
       remove_prop(&lhs.ValueVertex());
       if (flags::run_time::GetTextSearchEnabled()) {
-        // TODO antepusic cleanup call
-        auto &updated_node = lhs.ValueVertex();
-        updated_node.impl_.storage_->indices_.text_index_->UpdateNode(
-            updated_node.impl_.vertex_, updated_node.impl_.storage_, updated_node.impl_.transaction_->start_timestamp);
+        auto &updated_vertex = lhs.ValueVertex();
+        context.db_accessor->TextIndexUpdateVertex(&updated_vertex);
       }
       break;
     case TypedValue::Type::Edge:
@@ -3313,9 +3303,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   }
 
   if (flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic cleanup call
-    vertex.impl_.storage_->indices_.text_index_->UpdateNode(vertex.impl_.vertex_, vertex.impl_.storage_,
-                                                            vertex.impl_.transaction_->start_timestamp, self_.labels_);
+    context.db_accessor->TextIndexUpdateVertex(&vertex);
   }
 
   return true;

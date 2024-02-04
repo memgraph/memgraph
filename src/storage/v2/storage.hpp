@@ -231,7 +231,15 @@ class Storage {
       return storage_->indices_.text_index_->IndexExists(index_name);
     }
 
-    std::vector<Gid> SearchTextIndex(std::string index_name, std::string search_query) const {
+    void TextIndexAddVertex(VertexAccessor *vertex) {
+      storage_->indices_.text_index_->AddNode(vertex->vertex_, storage_, storage_->timestamp_);
+    }
+
+    void TextIndexUpdateVertex(VertexAccessor *vertex) {
+      storage_->indices_.text_index_->UpdateNode(vertex->vertex_, storage_, storage_->timestamp_);
+    }
+
+    std::vector<Gid> TextIndexSearch(std::string index_name, std::string search_query) const {
       return storage_->indices_.text_index_->Search(index_name, search_query);
     }
 
@@ -281,13 +289,11 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateTextIndex(std::string index_name, LabelId label,
                                                                                   query::DbAccessor *db) {
-      // TODO antepusic cleanup call
       storage_->indices_.text_index_->CreateIndex(index_name, label, db);
       return {};
     }
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropTextIndex(std::string index_name) {
-      // TODO antepusic cleanup call
       storage_->indices_.text_index_->DropIndex(index_name);
       return {};
     }

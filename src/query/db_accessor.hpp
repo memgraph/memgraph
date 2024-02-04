@@ -572,8 +572,12 @@ class DbAccessor final {
 
   bool TextIndexExists(std::string index_name) const { return accessor_->TextIndexExists(index_name); }
 
-  std::vector<storage::Gid> SearchTextIndex(std::string index_name, std::string search_query) const {
-    return accessor_->SearchTextIndex(index_name, search_query);
+  void TextIndexAddVertex(VertexAccessor *vertex) { accessor_->TextIndexAddVertex(&vertex->impl_); }
+
+  void TextIndexUpdateVertex(VertexAccessor *vertex) { accessor_->TextIndexUpdateVertex(&vertex->impl_); }
+
+  std::vector<storage::Gid> TextIndexSearch(std::string index_name, std::string search_query) const {
+    return accessor_->TextIndexSearch(index_name, search_query);
   }
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
