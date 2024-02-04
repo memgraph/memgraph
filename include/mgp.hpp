@@ -4306,12 +4306,12 @@ inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &param
 }
 }  // namespace detail
 
-inline bool CreateLabelIndex(mgp_graph *memgaph_graph, const std::string_view label) {
-  return create_label_index(memgaph_graph, label.data());
+inline bool CreateLabelIndex(mgp_graph *memgraph_graph, const std::string_view label) {
+  return create_label_index(memgraph_graph, label.data());
 }
 
-inline bool DropLabelIndex(mgp_graph *memgaph_graph, const std::string_view label) {
-  return drop_label_index(memgaph_graph, label.data());
+inline bool DropLabelIndex(mgp_graph *memgraph_graph, const std::string_view label) {
+  return drop_label_index(memgraph_graph, label.data());
 }
 
 inline List ListAllLabelIndices(mgp_graph *memgraph_graph) {
@@ -4322,14 +4322,14 @@ inline List ListAllLabelIndices(mgp_graph *memgraph_graph) {
   return List(label_indices);
 }
 
-inline bool CreateLabelPropertyIndex(mgp_graph *memgaph_graph, const std::string_view label,
+inline bool CreateLabelPropertyIndex(mgp_graph *memgraph_graph, const std::string_view label,
                                      const std::string_view property) {
-  return create_label_property_index(memgaph_graph, label.data(), property.data());
+  return create_label_property_index(memgraph_graph, label.data(), property.data());
 }
 
-inline bool DropLabelPropertyIndex(mgp_graph *memgaph_graph, const std::string_view label,
+inline bool DropLabelPropertyIndex(mgp_graph *memgraph_graph, const std::string_view label,
                                    const std::string_view property) {
-  return drop_label_property_index(memgaph_graph, label.data(), property.data());
+  return drop_label_property_index(memgraph_graph, label.data(), property.data());
 }
 
 inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
