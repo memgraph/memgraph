@@ -330,9 +330,9 @@ inline bool graph_has_text_index(mgp_graph *graph, const char *index_name) {
   return MgInvoke<int>(mgp_graph_has_text_index, graph, index_name);
 }
 
-inline mgp_list *graph_search_text_index(mgp_graph *graph, mgp_memory *memory, const char *index_name,
-                                         const char *search_query) {
-  return MgInvoke<mgp_list *>(mgp_graph_search_text_index, graph, memory, index_name, search_query);
+inline mgp_map *graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                        mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_text_index, graph, index_name, search_query, memory);
 }
 
 inline mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memory) {

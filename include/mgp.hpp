@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -4338,6 +4338,17 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
     throw ValueException("Couldn't list all label+property indices");
   }
   return List(label_property_indices);
+}
+
+inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query) {
+  auto results_or_error =
+      Map(mgp::MemHandlerCallback(graph_search_text_index, memgraph_graph, index_name.data(), search_query.data()));
+  auto maybe_error = results_or_error["error_msg"].ValueString();
+  if (!maybe_error.empty()) {
+    throw std::runtime_error{maybe_error.data()};
+  }
+
+  return results_or_error["search_results"].ValueList();
 }
 
 inline bool CreateExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label,

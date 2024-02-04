@@ -20,7 +20,7 @@ namespace memgraph::storage {
 void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std::uint64_t transaction_start_timestamp,
                         const std::vector<mgcxx::text_search::Context *> &applicable_text_indices, bool skip_commit) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   // NOTE: Text indexes are presently all-property indices. If we allow text indexes restricted to specific properties,
@@ -73,7 +73,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
 void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std::uint64_t transaction_start_timestamp,
                         bool skip_commit) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
@@ -84,7 +84,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
 void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
                            const std::uint64_t transaction_start_timestamp) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
@@ -97,7 +97,7 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
                            const std::uint64_t transaction_start_timestamp,
                            const std::vector<LabelId> &removed_labels) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   auto indexes_to_remove_node_from = GetApplicableTextIndices(removed_labels);
@@ -112,7 +112,7 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
 void TextIndex::RemoveNode(Vertex *vertex_after_update,
                            const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   auto search_node_to_be_deleted =
@@ -129,7 +129,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update,
 
 void TextIndex::RemoveNode(Vertex *vertex_after_update) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
@@ -140,7 +140,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update) {
 void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, Storage *storage,
                                  const std::uint64_t transaction_start_timestamp) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   if (!label_to_index_.contains(added_label)) {
@@ -153,7 +153,7 @@ void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_updat
 void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
                                     const std::uint64_t transaction_start_timestamp) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   if (!label_to_index_.contains(removed_label)) {
@@ -165,7 +165,7 @@ void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_
 void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage,
                                     std::uint64_t transaction_start_timestamp) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   UpdateNode(vertex_after_update, storage, transaction_start_timestamp);
@@ -173,7 +173,7 @@ void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storag
 
 std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(const std::vector<LabelId> &labels) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   std::vector<mgcxx::text_search::Context *> applicable_text_indices;
@@ -187,7 +187,7 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(c
 
 std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(Vertex *vertex) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   std::vector<mgcxx::text_search::Context *> applicable_text_indices;
@@ -201,7 +201,7 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(V
 
 bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::query::DbAccessor *db) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   nlohmann::json mappings = {};
@@ -222,13 +222,14 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
   bool has_schema = false;
   std::vector<std::pair<PropertyId, std::string>> indexed_properties{};
   auto &index_context = index_.at(index_name).context_;
-  for (const auto &v : db->Vertices(View::OLD)) {
-    if (!v.HasLabel(View::OLD, label).GetValue()) {
+  for (const auto &v : db->Vertices(View::NEW)) {
+    if (!v.HasLabel(View::NEW, label).GetValue()) {
       continue;
     }
 
     if (!has_schema) [[unlikely]] {
-      for (const auto &[prop_id, prop_val] : v.Properties(View::OLD).GetValue()) {
+      auto properties = v.Properties(View::NEW).GetValue();
+      for (const auto &[prop_id, prop_val] : properties) {
         if (prop_val.IsBool() || prop_val.IsInt() || prop_val.IsDouble() || prop_val.IsString()) {
           indexed_properties.emplace_back(std::pair<PropertyId, std::string>{prop_id, db->PropertyToName(prop_id)});
         }
@@ -239,7 +240,7 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
     nlohmann::json document = {};
     nlohmann::json properties = {};
     for (const auto &[prop_id, prop_name] : indexed_properties) {
-      const auto &prop_value = v.GetProperty(View::OLD, prop_id).GetValue();
+      const auto prop_value = v.GetProperty(View::NEW, prop_id).GetValue();
       switch (prop_value.type()) {
         case PropertyValue::Type::Bool:
           properties[prop_name] = prop_value.ValueBool();
@@ -290,7 +291,7 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
 
 bool TextIndex::DropIndex(std::string index_name) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   try {
@@ -307,7 +308,11 @@ bool TextIndex::IndexExists(std::string index_name) const { return index_.contai
 
 std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_query) {
   if (!flags::run_time::GetTextSearchEnabled()) {
-    // TODO antepusic throw exception
+    throw query::QueryException("To use text indices, enable the text search feature.");
+  }
+
+  if (!index_.contains(index_name)) {
+    throw query::QueryException(fmt::format("Text index \"{}\" doesn’t exist.", index_name));
   }
 
   auto input = mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"data", "metadata"}};
@@ -317,10 +322,7 @@ std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_qu
   }
 
   std::vector<Gid> found_nodes;
-
   mgcxx::text_search::SearchOutput search_results;
-
-  // if (!index_.contains(index_name)) throw InvalidArgumentException("InvalidArgumentException");
 
   try {
     search_results = mgcxx::text_search::search(index_.at(index_name).context_, input);

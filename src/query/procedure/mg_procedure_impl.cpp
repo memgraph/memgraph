@@ -3368,10 +3368,16 @@ mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memo
   return nullptr;
 }
 
-void WrapIntoVertexList(std::vector<memgraph::storage::Gid> vertex_ids, mgp_graph *graph, mgp_memory *memory,
-                        mgp_list **result) {
-  if (const auto err = mgp_list_make_empty(vertex_ids.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
-    throw std::logic_error("Retrieving text search results failed during creation of a mgp_vertex");
+void WrapTextSearch(std::vector<memgraph::storage::Gid> vertex_ids, std::string error_msg, mgp_graph *graph,
+                    mgp_memory *memory, mgp_map **result) {
+  if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a mgp_map");
+  }
+
+  mgp_list *search_results{};
+  if (const auto err = mgp_list_make_empty(vertex_ids.size(), memory, &search_results);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a mgp_list");
   }
 
   for (const auto &vertex_id : vertex_ids) {
@@ -3380,30 +3386,56 @@ void WrapIntoVertexList(std::vector<memgraph::storage::Gid> vertex_ids, mgp_grap
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text search results failed during creation of a vertex mgp_value");
     }
-    if (const auto err_list = mgp_list_append(*result, vertex); err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (const auto err = mgp_list_append(search_results, vertex); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error(
           "Retrieving text search results failed during insertion of the mgp_value into the result list");
     }
   }
+
+  mgp_value *search_results_value;
+  if (const auto err = mgp_value_make_list(search_results, &search_results_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a map mgp_value");
+  }
+  mgp_value *error_msg_value;
+  if (const auto err = mgp_value_make_string(error_msg.data(), memory, &error_msg_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a map mgp_value");
+  }
+
+  if (const auto err = mgp_map_insert(*result, "search_results", search_results_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during insertion into mgp_map");
+  }
+  if (const auto err = mgp_map_insert(*result, "error_msg", error_msg_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during insertion into mgp_map");
+  }
 }
 
-mgp_error mgp_graph_search_text_index(mgp_graph *graph, mgp_memory *memory, const char *index_name,
-                                      const char *search_query, mgp_list **result) {
+mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                      mgp_memory *memory, mgp_map **result) {
   return WrapExceptions([graph, memory, index_name, search_query, result]() {
-    std::visit(memgraph::utils::Overloaded{
-                   [&](memgraph::query::DbAccessor *impl) {
-                     if (!memgraph::flags::run_time::GetTextSearchEnabled()) {
-                       // TODO antepusic throw exception
-                     }
-                     WrapIntoVertexList(impl->SearchTextIndex(index_name, search_query), graph, memory, result);
-                   },
-                   [&](memgraph::query::SubgraphDbAccessor *impl) {
-                     if (!memgraph::flags::run_time::GetTextSearchEnabled()) {
-                       // TODO antepusic throw exception
-                     }
-                     WrapIntoVertexList(impl->GetAccessor()->SearchTextIndex(index_name, search_query), graph, memory,
-                                        result);
-                   }},
+    std::visit(memgraph::utils::Overloaded{[&](memgraph::query::DbAccessor *impl) {
+                                             std::vector<memgraph::storage::Gid> search_results;
+                                             std::string error_msg;
+                                             try {
+                                               search_results = impl->TextIndexSearch(index_name, search_query);
+                                             } catch (memgraph::query::QueryException &e) {
+                                               error_msg = e.what();
+                                             }
+                                             WrapTextSearch(search_results, error_msg, graph, memory, result);
+                                           },
+                                           [&](memgraph::query::SubgraphDbAccessor *impl) {
+                                             std::vector<memgraph::storage::Gid> search_results;
+                                             std::string error_msg;
+                                             try {
+                                               search_results =
+                                                   impl->GetAccessor()->TextIndexSearch(index_name, search_query);
+                                             } catch (memgraph::query::QueryException &e) {
+                                               error_msg = e.what();
+                                             }
+                                             WrapTextSearch(search_results, error_msg, graph, memory, result);
+                                           }},
                graph->impl);
   });
 }

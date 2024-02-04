@@ -18,7 +18,7 @@
 
 namespace TextSearch {
 constexpr std::string_view kProcedureSearch = "search";
-constexpr std::string_view kParameterLabel = "label";
+constexpr std::string_view kParameterIndexName = "index_name";
 constexpr std::string_view kParameterSearchString = "search_query";
 constexpr std::string_view kReturnNode = "node";
 
@@ -31,22 +31,19 @@ void TextSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
   auto arguments = mgp::List(args);
 
   try {
-    auto label = arguments[0].ValueString().data();
+    auto index_name = arguments[0].ValueString().data();
     auto search_query = arguments[1].ValueString().data();
 
-    // 1. See if the given label is text-indexed
-    if (!mgp::graph_has_text_index(memgraph_graph, label)) {
-      record_factory.SetErrorMessage(fmt::format("Text index \"{}\" doesn’t exist.", label));
+    // 1. See if the given index_name is text-indexed
+    if (!mgp::graph_has_text_index(memgraph_graph, index_name)) {
+      record_factory.SetErrorMessage(fmt::format("Text index \"{}\" doesn’t exist.", index_name));
       return;
     }
 
     // 2. Run a text search of that index and return the search results
-    const auto results = mgp::graph_search_text_index(memgraph_graph, memory, label, search_query);
-    if (!results) return;
-
-    for (const auto &node : mgp::List(results)) {
+    for (const auto &node : mgp::SearchTextIndex(memgraph_graph, index_name, search_query)) {
       auto record = record_factory.NewRecord();
-      record.Insert(TextSearch::kReturnNode.data(), node);
+      record.Insert(TextSearch::kReturnNode.data(), node.ValueNode());
     }
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -59,7 +56,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
 
     AddProcedure(TextSearch::Search, TextSearch::kProcedureSearch, mgp::ProcedureType::Read,
                  {
-                     mgp::Parameter(TextSearch::kParameterLabel, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
                      mgp::Parameter(TextSearch::kParameterSearchString, mgp::Type::String),
                  },
                  {mgp::Return(TextSearch::kReturnNode, mgp::Type::Node)}, module, memory);
