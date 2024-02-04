@@ -957,7 +957,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               }
               // Setting the correct value
               vertex->properties.SetProperty(current->property.key, current->property.value);
-              // TODO antepusic: update text index here or at the end of Abort()?
               break;
             }
             case Delta::Action::ADD_IN_EDGE: {
