@@ -3334,18 +3334,11 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
 
 mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int *result) {
   return WrapExceptions([graph, index_name, result]() {
-    std::visit(memgraph::utils::Overloaded{[&](memgraph::query::DbAccessor *impl) {
-                                             if (!memgraph::flags::run_time::GetTextSearchEnabled()) {
-                                               // TODO antepusic throw exception
-                                             }
-                                             *result = impl->TextIndexExists(index_name);
-                                           },
-                                           [&](memgraph::query::SubgraphDbAccessor *impl) {
-                                             if (!memgraph::flags::run_time::GetTextSearchEnabled()) {
-                                               // TODO antepusic throw exception
-                                             }
-                                             *result = impl->GetAccessor()->TextIndexExists(index_name);
-                                           }},
+    std::visit(memgraph::utils::Overloaded{
+                   [&](memgraph::query::DbAccessor *impl) { *result = impl->TextIndexExists(index_name); },
+                   [&](memgraph::query::SubgraphDbAccessor *impl) {
+                     *result = impl->GetAccessor()->TextIndexExists(index_name);
+                   }},
                graph->impl);
   });
 }
