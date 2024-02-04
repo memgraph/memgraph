@@ -236,11 +236,11 @@ DbmsHandler::DbmsHandler(storage::Config config, memgraph::system::System &syste
 
 struct DropDatabase : memgraph::system::ISystemAction {
   explicit DropDatabase(utils::UUID uuid) : uuid_{uuid} {}
-  void do_durability() override { /* Done during DBMS execution */
+  void DoDurability() override { /* Done during DBMS execution */
   }
 
-  bool do_replication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
-                      memgraph::system::Transaction const &txn) const override {
+  bool DoReplication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
+                     memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const storage::replication::DropDatabaseRes &response) {
       return response.result != storage::replication::DropDatabaseRes::Result::FAILURE;
     };
@@ -248,7 +248,7 @@ struct DropDatabase : memgraph::system::ISystemAction {
     return client.SteamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
         check_response, epoch.id(), txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
   }
-  void post_replication(replication::RoleMainData &mainData) const override {}
+  void PostReplication(replication::RoleMainData &mainData) const override {}
 
  private:
   utils::UUID uuid_;
@@ -292,7 +292,7 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
   // Success
   // Save delta
   if (transaction) {
-    transaction->add_action<DropDatabase>(uuid);
+    transaction->AddAction<DropDatabase>(uuid);
   }
 
   return {};
@@ -319,12 +319,12 @@ struct CreateDatabase : memgraph::system::ISystemAction {
   explicit CreateDatabase(storage::SalientConfig config, DatabaseAccess db_acc)
       : config_{std::move(config)}, db_acc(db_acc) {}
 
-  void do_durability() override {
+  void DoDurability() override {
     // Done during dbms execution
   }
 
-  bool do_replication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
-                      memgraph::system::Transaction const &txn) const override {
+  bool DoReplication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
+                     memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const storage::replication::CreateDatabaseRes &response) {
       return response.result != storage::replication::CreateDatabaseRes::Result::FAILURE;
     };
@@ -333,7 +333,7 @@ struct CreateDatabase : memgraph::system::ISystemAction {
         check_response, epoch.id(), txn.last_committed_system_timestamp(), txn.timestamp(), config_);
   }
 
-  void post_replication(replication::RoleMainData &mainData) const override {
+  void PostReplication(replication::RoleMainData &mainData) const override {
     // Sync database with REPLICAs
     // NOTE: The function bellow is used to create ReplicationStorageClient, so it must be called on a new storage
     // We don't need to have it here, since the function won't fail even if the replication client fails to
@@ -353,7 +353,7 @@ DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system
                             // Save delta
     UpdateDurability(storage_config);
     if (txn) {
-      txn->add_action<CreateDatabase>(storage_config.salient, new_db.GetValue());
+      txn->AddAction<CreateDatabase>(storage_config.salient, new_db.GetValue());
     }
   }
   return new_db;

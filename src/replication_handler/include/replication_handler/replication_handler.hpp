@@ -49,7 +49,7 @@ void SystemRestore(replication::ReplicationClient &client, system::System *syste
     DbInfo db_info = std::invoke([&] {
       auto guard = std::invoke([&]() -> std::optional<memgraph::system::TransactionGuard> {
         if constexpr (REQUIRE_LOCK) {
-          return system->transaction_guard();
+          return system->GenTransactionGuard();
         }
         return std::nullopt;
       });

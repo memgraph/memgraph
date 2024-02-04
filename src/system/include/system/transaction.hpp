@@ -31,7 +31,7 @@ struct Transaction;
 
 template <typename T>
 concept ReplicationPolicy = requires(T handler, ISystemAction const &action, Transaction const &txn) {
-  { handler.apply_action(action, txn) } -> std::same_as<AllSyncReplicaStatus>;
+  { handler.ApplyAction(action, txn) } -> std::same_as<AllSyncReplicaStatus>;
 };
 
 struct System;
@@ -39,13 +39,13 @@ struct System;
 struct Transaction {
   template <std::derived_from<ISystemAction> TAction, typename... Args>
   requires std::constructible_from<TAction, Args...>
-  void add_action(Args &&...args) { actions_.emplace_back(std::make_unique<TAction>(std::forward<Args>(args)...)); }
+  void AddAction(Args &&...args) { actions_.emplace_back(std::make_unique<TAction>(std::forward<Args>(args)...)); }
 
   template <ReplicationPolicy Handler>
-  auto commit(Handler handler) -> AllSyncReplicaStatus {
+  auto Commit(Handler handler) -> AllSyncReplicaStatus {
     if (!lock_.owns_lock() || actions_.empty()) {
       // If no actions, we do not increment the last commited ts, since there is no delta to send to the REPLICA
-      abort();
+      Abort();
       return AllSyncReplicaStatus::AllCommitsConfirmed;  // TODO: some kind of error
     }
 
@@ -55,10 +55,10 @@ struct Transaction {
       auto &action = actions_.front();
 
       /// durability
-      action->do_durability();
+      action->DoDurability();
 
       /// replication prep
-      auto action_sync_status = handler.apply_action(*action, *this);
+      auto action_sync_status = handler.ApplyAction(*action, *this);
       if (action_sync_status != AllSyncReplicaStatus::AllCommitsConfirmed) {
         sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
       }
@@ -66,13 +66,13 @@ struct Transaction {
       actions_.pop_front();
     }
 
-    state_->FinializeTransaction(timestamp_);
+    state_->FinalizeTransaction(timestamp_);
     lock_.unlock();
 
     return sync_status;
   }
 
-  void abort() {
+  void Abort() {
     if (lock_.owns_lock()) {
       lock_.unlock();
     }
@@ -94,18 +94,18 @@ struct Transaction {
 };
 
 struct DoReplication {
-  explicit DoReplication(replication::RoleMainData &mainData) : main_data_{mainData} {}
-  auto apply_action(ISystemAction const &action, Transaction const &txn) -> AllSyncReplicaStatus {
+  explicit DoReplication(replication::RoleMainData &main_data) : main_data_{main_data} {}
+  auto ApplyAction(ISystemAction const &action, Transaction const &system_tx) -> AllSyncReplicaStatus {
     auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
 
     for (auto &client : main_data_.registered_replicas_) {
-      bool completed = action.do_replication(client, main_data_.epoch_, txn);
+      bool completed = action.DoReplication(client, main_data_.epoch_, system_tx);
       if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
         sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
       }
     }
 
-    action.post_replication(main_data_);
+    action.PostReplication(main_data_);
     return sync_status;
   }
 
@@ -115,7 +115,7 @@ struct DoReplication {
 static_assert(ReplicationPolicy<DoReplication>);
 
 struct DoNothing {
-  auto apply_action(ISystemAction const & /*action*/, Transaction const & /*txn*/) -> AllSyncReplicaStatus {
+  auto ApplyAction(ISystemAction const & /*action*/, Transaction const & /*system_tx*/) -> AllSyncReplicaStatus {
     return AllSyncReplicaStatus::AllCommitsConfirmed;
   }
 };

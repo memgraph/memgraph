@@ -26,7 +26,7 @@ constexpr std::string_view kLastCommitedSystemTsKey = "last_committed_system_ts"
 struct State {
   explicit State(std::optional<std::filesystem::path> storage, bool recovery_on_startup);
 
-  void FinializeTransaction(std::uint64_t timestamp) {
+  void FinalizeTransaction(std::uint64_t timestamp) {
     if (durability_) {
       durability_->Put(kLastCommitedSystemTsKey, std::to_string(timestamp));
     }
@@ -37,10 +37,9 @@ struct State {
 
  private:
   friend struct ReplicaHandlerAccessToState;
-
   friend struct Transaction;
-  std::optional<kvstore::KVStore> durability_;
 
+  std::optional<kvstore::KVStore> durability_;
   std::atomic_uint64_t last_committed_system_timestamp_{};
 };
 

@@ -19,15 +19,15 @@ constexpr std::string_view kSystemDir = ".system";
 constexpr std::string_view kVersion = "version";  // Key for version durability
 constexpr std::string_view kVersionV1 = "V1";     // Value for version 1
 
-auto intitialiseSystemDurability(std::optional<std::filesystem::path> storage, bool recovery_on_startup)
+auto InitializeSystemDurability(std::optional<std::filesystem::path> storage, bool recovery_on_startup)
     -> std::optional<memgraph::kvstore::KVStore> {
   if (!storage) return std::nullopt;
 
   auto const &path = *storage;
   memgraph::utils::EnsureDir(path);
-  auto systemDir = path / kSystemDir;
-  memgraph::utils::EnsureDir(systemDir);
-  auto durability = memgraph::kvstore::KVStore{std::move(systemDir)};
+  auto system_dir = path / kSystemDir;
+  memgraph::utils::EnsureDir(system_dir);
+  auto durability = memgraph::kvstore::KVStore{std::move(system_dir)};
 
   auto version = durability.Get(kVersion);
   // TODO: migration schemes here in the future
@@ -44,7 +44,7 @@ auto intitialiseSystemDurability(std::optional<std::filesystem::path> storage, b
   return durability;
 }
 
-auto loadLastCommittedSystemTimestamp(std::optional<kvstore::KVStore> const &store) -> uint64_t {
+auto LoadLastCommittedSystemTimestamp(std::optional<kvstore::KVStore> const &store) -> uint64_t {
   auto lcst = store ? store->Get(kLastCommitedSystemTsKey) : std::nullopt;
   return lcst ? std::stoul(*lcst) : 0U;
 }
@@ -52,6 +52,6 @@ auto loadLastCommittedSystemTimestamp(std::optional<kvstore::KVStore> const &sto
 }  // namespace
 
 State::State(std::optional<std::filesystem::path> storage, bool recovery_on_startup)
-    : durability_{intitialiseSystemDurability(std::move(storage), recovery_on_startup)},
-      last_committed_system_timestamp_{loadLastCommittedSystemTimestamp(durability_)} {}
+    : durability_{InitializeSystemDurability(std::move(storage), recovery_on_startup)},
+      last_committed_system_timestamp_{LoadLastCommittedSystemTimestamp(durability_)} {}
 }  // namespace memgraph::system

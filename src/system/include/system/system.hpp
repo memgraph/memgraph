@@ -28,7 +28,7 @@ struct System {
   System(std::optional<std::filesystem::path> storage = std::nullopt, bool recovery_on_startup = false)
       : state_(std::move(storage), recovery_on_startup), timestamp_{state_.LastCommittedSystemTimestamp()} {}
 
-  auto try_create_transaction(std::chrono::microseconds try_time = std::chrono::milliseconds{100})
+  auto TryCreateTransaction(std::chrono::microseconds try_time = std::chrono::milliseconds{100})
       -> std::optional<Transaction> {
     auto system_unique = std::unique_lock{mtx_, std::defer_lock};
     if (!system_unique.try_lock_for(try_time)) {
@@ -38,7 +38,7 @@ struct System {
   }
 
   // TODO: this and LastCommittedSystemTimestamp maybe not needed
-  auto transaction_guard() -> TransactionGuard { return TransactionGuard{std::unique_lock{mtx_}}; }
+  auto GenTransactionGuard() -> TransactionGuard { return TransactionGuard{std::unique_lock{mtx_}}; }
   auto LastCommittedSystemTimestamp() -> uint64_t { return state_.LastCommittedSystemTimestamp(); }
 
   auto CreateSystemStateAccess() -> ReplicaHandlerAccessToState { return ReplicaHandlerAccessToState{state_}; }

@@ -54,11 +54,11 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
   explicit UpdateAuthData(User user) : user_{std::move(user)}, role_{std::nullopt} {}
   explicit UpdateAuthData(Role role) : user_{std::nullopt}, role_{std::move(role)} {}
 
-  void do_durability() override { /* Done during Auth execution */
+  void DoDurability() override { /* Done during Auth execution */
   }
 
-  bool do_replication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
-                      memgraph::system::Transaction const &txn) const override {
+  bool DoReplication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
+                     memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const replication::UpdateAuthDataRes &response) { return response.success; };
     if (user_) {
       return client.SteamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
@@ -73,7 +73,7 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
     return {};
   }
 
-  void post_replication(replication::RoleMainData &mainData) const override {}
+  void PostReplication(replication::RoleMainData &mainData) const override {}
 
  private:
   std::optional<User> user_;
@@ -85,11 +85,11 @@ struct DropAuthData : memgraph::system::ISystemAction {
 
   explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
 
-  void do_durability() override { /* Done during Auth execution */
+  void DoDurability() override { /* Done during Auth execution */
   }
 
-  bool do_replication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
-                      memgraph::system::Transaction const &txn) const override {
+  bool DoReplication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
+                     memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const replication::DropAuthDataRes &response) { return response.success; };
 
     memgraph::replication::DropAuthDataReq::DataType type{};
@@ -104,7 +104,7 @@ struct DropAuthData : memgraph::system::ISystemAction {
     return client.SteamAndFinalizeDelta<replication::DropAuthDataRpc>(
         check_response, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(), type, name_);
   }
-  void post_replication(replication::RoleMainData &mainData) const override {}
+  void PostReplication(replication::RoleMainData &mainData) const override {}
 
  private:
   AuthDataType type_;
@@ -336,7 +336,7 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   // All changes to the user end up calling this function, so no need to add a delta anywhere else
   if (system_tx) {
 #ifdef MG_ENTERPRISE
-    system_tx->add_action<UpdateAuthData>(user);
+    system_tx->AddAction<UpdateAuthData>(user);
 #endif
   }
 }
@@ -396,7 +396,7 @@ bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *sys
   // Handling drop user delta
   if (system_tx) {
 #ifdef MG_ENTERPRISE
-    system_tx->add_action<DropAuthData>(DropAuthData::AuthDataType::USER, username);
+    system_tx->AddAction<DropAuthData>(DropAuthData::AuthDataType::USER, username);
 #endif
   }
   return true;
@@ -452,7 +452,7 @@ void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
   // All changes to the role end up calling this function, so no need to add a delta anywhere else
   if (system_tx) {
 #ifdef MG_ENTERPRISE
-    system_tx->add_action<UpdateAuthData>(role);
+    system_tx->AddAction<UpdateAuthData>(role);
 #endif
   }
 }
@@ -484,7 +484,7 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
   // Handling drop role delta
   if (system_tx) {
 #ifdef MG_ENTERPRISE
-    system_tx->add_action<DropAuthData>(DropAuthData::AuthDataType::ROLE, rolename);
+    system_tx->AddAction<DropAuthData>(DropAuthData::AuthDataType::ROLE, rolename);
 #endif
   }
   return true;

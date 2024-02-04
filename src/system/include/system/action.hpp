@@ -19,18 +19,19 @@ namespace memgraph::system {
 
 struct Transaction;
 
-/// The system action interface that subsystems will implement. This OO-style seperation is needed so that one common
+/// The system action interface that subsystems will implement. This OO-style separation is needed so that one common
 /// mechanism can be used for all subsystem replication within a system transaction, without the need for System to
 /// know about all the subsystems.
 struct ISystemAction {
   /// Durability step which is defered until commit time
-  virtual void do_durability() = 0;
+  virtual void DoDurability() = 0;
 
   /// Prepare the RPC payload that will be sent to all replicas clients
-  virtual bool do_replication(memgraph::replication::ReplicationClient &client,
-                              memgraph::replication::ReplicationEpoch const &epoch, Transaction const &txn) const = 0;
+  virtual bool DoReplication(memgraph::replication::ReplicationClient &client,
+                             memgraph::replication::ReplicationEpoch const &epoch,
+                             Transaction const &system_tx) const = 0;
 
-  virtual void post_replication(memgraph::replication::RoleMainData &mainData) const = 0;
+  virtual void PostReplication(memgraph::replication::RoleMainData &main_data) const = 0;
 
   virtual ~ISystemAction() = default;
 };

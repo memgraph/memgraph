@@ -4137,8 +4137,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       if (!system_queries) return std::nullopt;
 
       // TODO: Ordering between system and data queries
-      auto system_txn =
-          interpreter_context_->system_->try_create_transaction(std::chrono::milliseconds(kSystemTxTryMS));
+      auto system_txn = interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
       if (!system_txn) {
         throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
       }
@@ -4484,14 +4483,14 @@ void Interpreter::Commit() {
     // Only enterprise can do system replication
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast()) {
-        return system_transaction_->commit(memgraph::system::DoReplication{mainData});
+        return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
       }
 #endif
-      return system_transaction_->commit(memgraph::system::DoNothing{});
+      return system_transaction_->Commit(memgraph::system::DoNothing{});
     };
 
     auto const replica_commit = [&](replication::RoleReplicaData &) {
-      return system_transaction_->commit(memgraph::system::DoNothing{});
+      return system_transaction_->Commit(memgraph::system::DoNothing{});
     };
 
     auto const commit_method = utils::Overloaded{main_commit, replica_commit};
