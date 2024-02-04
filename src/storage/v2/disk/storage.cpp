@@ -29,6 +29,7 @@
 #include <rocksdb/utilities/transaction.h>
 #include <rocksdb/utilities/transaction_db.h>
 
+#include "flags/run_time_configurable.hpp"
 #include "kvstore/kvstore.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
@@ -1763,6 +1764,9 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     return StorageManipulationError{SerializationError{}};
   }
   spdlog::trace("rocksdb: Commit successful");
+  if (flags::run_time::GetTextSearchEnabled()) {
+    disk_storage->indices_.text_index_->Commit();
+  }
 
   is_transaction_active_ = false;
 
@@ -1881,6 +1885,9 @@ void DiskStorage::DiskAccessor::Abort() {
   // query_plan_accumulate_aggregate.cpp
   transaction_.disk_transaction_->Rollback();
   transaction_.disk_transaction_->ClearSnapshot();
+  if (flags::run_time::GetTextSearchEnabled()) {
+    storage_->indices_.text_index_->Rollback();
+  }
   delete transaction_.disk_transaction_;
   transaction_.disk_transaction_ = nullptr;
   is_transaction_active_ = false;

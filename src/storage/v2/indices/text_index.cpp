@@ -70,15 +70,15 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
   }
 }
 
-void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std::uint64_t transaction_start_timestamp,
-                        bool skip_commit) {
+void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
+                        const std::uint64_t transaction_start_timestamp) {
   if (!flags::run_time::GetTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
   if (applicable_text_indices.empty()) return;
-  AddNode(vertex_after_update, storage, transaction_start_timestamp, applicable_text_indices, skip_commit);
+  AddNode(vertex_after_update, storage, transaction_start_timestamp, applicable_text_indices);
 }
 
 void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
@@ -120,7 +120,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update,
 
   for (auto *index_context : applicable_text_indices) {
     try {
-      mgcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, KDoSkipCommit);
+      mgcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, kDoSkipCommit);
     } catch (const std::exception &e) {
       throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
     }
@@ -275,17 +275,20 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
           index_context,
           mgcxx::text_search::DocumentInput{
               .data = document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
-          KDoSkipCommit);
+          kDoSkipCommit);
     } catch (const std::exception &e) {
       throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
     }
   }
 
-  // try {
-  //   mgcxx::text_search::commit(index_context);
-  // } catch (const std::exception &e) {
-  //   throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
-  // }
+  // As CREATE TEXT INDEX (...) queries don’t accumulate deltas, db_transactional_accessor_->Commit() does not reach
+  // the code area where changes to indices are committed. To get around that without needing to commit text indices
+  // after every such query, we commit here.
+  try {
+    mgcxx::text_search::commit(index_context);
+  } catch (const std::exception &e) {
+    throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
+  }
   return true;
 }
 
@@ -340,6 +343,18 @@ std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_qu
     found_nodes.push_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()));
   }
   return found_nodes;
+}
+
+void TextIndex::Commit() {
+  for (auto &[_, index_data] : index_) {
+    mgcxx::text_search::commit(index_data.context_);
+  }
+}
+
+void TextIndex::Rollback() {
+  for (auto &[_, index_data] : index_) {
+    mgcxx::text_search::rollback(index_data.context_);
+  }
 }
 
 std::vector<std::pair<std::string, LabelId>> TextIndex::ListIndices() const {
