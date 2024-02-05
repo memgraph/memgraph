@@ -55,11 +55,13 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
     }
   }
   auto replication_data = std::move(fetched_replication_data).GetValue();
+#ifdef MG_ENTERPRISE
   if (FLAGS_coordinator_server_port) {
     if (std::holds_alternative<RoleReplicaData>(replication_data)) {
       std::get<RoleReplicaData>(replication_data).uuid_ = std::nullopt;
     }
   }
+#endif
   replication_data_ = std::move(replication_data);
 }
 
@@ -162,6 +164,8 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
               return {std::move(res)};
             },
             [&](durability::ReplicaRole &&r) -> FetchReplicationResult_t {
+              // False positive report for the std::make_unique
+              // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
               return {RoleReplicaData{r.config, std::make_unique<ReplicationServer>(r.config), r.main_uuid}};
             },
         },
@@ -256,6 +260,8 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   if (!TryPersistRoleReplica(config, main_uuid)) {
     return false;
   }
+  // False positive report for the std::make_unique
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   replication_data_ = RoleReplicaData{config, std::make_unique<ReplicationServer>(config), std::nullopt};
   return true;
 }

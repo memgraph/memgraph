@@ -29,6 +29,7 @@
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "replication/replication_client.hpp"
+#include "replication_coordination_glue/handler.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/transaction.hpp"
 #include "system/system.hpp"
