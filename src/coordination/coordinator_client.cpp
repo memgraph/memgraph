@@ -72,9 +72,8 @@ auto CoordinatorClient::SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCal
 
 auto CoordinatorClient::ReplicationClientInfo() const -> ReplClientInfo { return config_.replication_client_info; }
 
-auto CoordinatorClient::SendPromoteReplicaToMainRpc(
-    const utils::UUID &uuid, std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info) const
-    -> bool {
+auto CoordinatorClient::SendPromoteReplicaToMainRpc(const utils::UUID &uuid,
+                                                    ReplicationClientsInfo replication_clients_info) const -> bool {
   try {
     auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(uuid, std::move(replication_clients_info))};
     if (!stream.AwaitResponse().success) {

@@ -134,7 +134,7 @@ void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_ha
 
   replication_coordination_glue::SwapMainUUIDReq req;
   slk::Load(&req, req_reader);
-  spdlog::error(fmt::format("Set replica data UUID  to main uuid {}", std::string(req.uuid)));
+  spdlog::info(fmt::format("Set replica data UUID  to main uuid {}", std::string(req.uuid)));
   dbms_handler->ReplicationState().TryPersistRoleReplica(role_replica_data.config, req.uuid);
   role_replica_data.uuid_ = req.uuid;
 

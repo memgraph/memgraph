@@ -16,6 +16,7 @@
 #include "coordination/coordinator_client.hpp"
 #include "coordination/coordinator_cluster_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "replication_coordination_glue/handler.hpp"
 #include "replication_coordination_glue/role.hpp"
 
 namespace memgraph::coordination {
@@ -55,8 +56,10 @@ class CoordinatorInstance {
 
   auto GetClient() -> CoordinatorClient &;
 
-  void SetNewMainUUID(const utils::UUID &main_uuid);
-  auto GetMainUUID() -> const utils::UUID &;
+  void SetNewMainUUID(const std::optional<utils::UUID> &main_uuid = std::nullopt);
+  auto GetMainUUID() -> const std::optional<utils::UUID> &;
+
+  auto SendSwapAndUpdateUUID(const utils::UUID &main_uuid) -> bool;
 
  private:
   CoordinatorClient client_;
@@ -64,8 +67,12 @@ class CoordinatorInstance {
   std::chrono::system_clock::time_point last_response_time_{};
   // TODO this needs to be atomic? What if instance is alive and then we read it and it has changed
   bool is_alive_{false};
-  utils::UUID main_uuid_;  // for replica this is main uuid of current main, for main this is its main uuid
-  // which should be same as in CoordinatorData
+  // for replica this is main uuid of current main
+  // for "main" main this same as in CoordinatorData
+  // it is set to nullopt when replica is down
+  // TLDR; when replica is down and comes back up we reset uuid of main replica is listening to
+  // so we need to send swap uuid again
+  std::optional<utils::UUID> main_uuid_;
 
   friend bool operator==(CoordinatorInstance const &first, CoordinatorInstance const &second) {
     return first.client_ == second.client_ && first.replication_role_ == second.replication_role_;

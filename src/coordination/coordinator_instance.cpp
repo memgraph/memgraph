@@ -81,8 +81,16 @@ auto CoordinatorInstance::ReplicationClientInfo() const -> CoordinatorClientConf
 }
 
 auto CoordinatorInstance::GetClient() -> CoordinatorClient & { return client_; }
-void CoordinatorInstance::SetNewMainUUID(const utils::UUID &main_uuid) { main_uuid_ = main_uuid; }
-auto CoordinatorInstance::GetMainUUID() -> const utils::UUID & { return main_uuid_; }
+void CoordinatorInstance::SetNewMainUUID(const std::optional<utils::UUID> &main_uuid) { main_uuid_ = main_uuid; }
+auto CoordinatorInstance::GetMainUUID() -> const std::optional<utils::UUID> & { return main_uuid_; }
+
+auto CoordinatorInstance::SendSwapAndUpdateUUID(const utils::UUID &main_uuid) -> bool {
+  if (!replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), main_uuid)) {
+    return false;
+  }
+  SetNewMainUUID(main_uuid_);
+  return true;
+}
 
 }  // namespace memgraph::coordination
 #endif

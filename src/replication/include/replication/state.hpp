@@ -100,7 +100,8 @@ struct ReplicationState {
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain(const utils::UUID &main_uuid);
-  bool SetReplicationRoleReplica(const ReplicationServerConfig &config, const std::optional<utils::UUID> &main_uuid);
+  bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
+                                 const std::optional<utils::UUID> &main_uuid = std::nullopt);
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;

@@ -52,7 +52,7 @@ void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &r
 
   replication_coordination_glue::SwapMainUUIDReq req;
   slk::Load(&req, req_reader);
-  spdlog::info(fmt::format("Set replica data UUID"));
+  spdlog::info(fmt::format("Set replica data UUID  to main uuid {}", std::string(req.uuid)));
   std::get<memgraph::replication::RoleReplicaData>(replication_handler.GetReplState().ReplicationData()).uuid_ = req.uuid;
 
   slk::Save(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
