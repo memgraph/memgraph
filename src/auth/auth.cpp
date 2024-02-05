@@ -35,9 +35,6 @@ DEFINE_VALIDATED_string(auth_module_executable, "", "Absolute path to the auth m
                           }
                           return true;
                         });
-DEFINE_bool(auth_module_create_missing_user, true, "Set to false to disable creation of missing users.");
-DEFINE_bool(auth_module_create_missing_role, true, "Set to false to disable creation of missing roles.");
-DEFINE_bool(auth_module_manage_roles, true, "Set to false to disable management of roles through the auth module.");
 DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
                        "Timeout (in milliseconds) used when waiting for a "
                        "response from the auth module.",
@@ -201,6 +198,9 @@ Auth::Auth(std::string storage_directory, Config config)
 
 std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
   if (module_.IsUsed()) {
+    /*
+     * MODULE AUTH STORAGE
+     */
     const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
     if (license_check_result.HasError()) {
       spdlog::warn(license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
@@ -225,81 +225,41 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
     auto is_authenticated = ret_authenticated.get<bool>();
     const auto &rolename = ret_role.get<std::string>();
 
+    // Check if role is present
+    auto role = GetRole(rolename);
+    if (!role) {
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the role '{}' doesn't exist.",
+                                          username, rolename, "https://memgr.ph/auth"));
+      return std::nullopt;
+    }
+
     // Authenticate the user.
     if (!is_authenticated) return std::nullopt;
 
-    /**
-     * TODO
-     * The auth module should not update auth data.
-     * There is now way to replicate it and we should not be storing sensitive data if we don't have to.
-     */
-
-    // Find or create the user and return it.
-    auto user = GetUser(username);
-    if (!user) {
-      if (FLAGS_auth_module_create_missing_user) {
-        user = AddUser(username, password);
-        if (!user) {
-          spdlog::warn(utils::MessageWithLink(
-              "Couldn't create the missing user '{}' using the auth module because the user already exists as a role.",
-              username, "https://memgr.ph/auth"));
-          return std::nullopt;
-        }
-      } else {
-        spdlog::warn(utils::MessageWithLink(
-            "Couldn't authenticate user '{}' using the auth module because the user doesn't exist.", username,
-            "https://memgr.ph/auth"));
-        return std::nullopt;
-      }
-    } else {
-      UpdatePassword(*user, password);
-    }
-    if (FLAGS_auth_module_manage_roles) {
-      if (!rolename.empty()) {
-        auto role = GetRole(rolename);
-        if (!role) {
-          if (FLAGS_auth_module_create_missing_role) {
-            role = AddRole(rolename);
-            if (!role) {
-              spdlog::warn(
-                  utils::MessageWithLink("Couldn't authenticate user '{}' using the auth module because the user's "
-                                         "role '{}' already exists as a user.",
-                                         username, rolename, "https://memgr.ph/auth"));
-              return std::nullopt;
-            }
-            SaveRole(*role);
-          } else {
-            spdlog::warn(utils::MessageWithLink(
-                "Couldn't authenticate user '{}' using the auth module because the user's role '{}' doesn't exist.",
-                username, rolename, "https://memgr.ph/auth"));
-            return std::nullopt;
-          }
-        }
-        user->SetRole(*role);
-      } else {
-        user->ClearRole();
-      }
-    }
-    SaveUser(*user);
-    return user;
-  } else {
-    auto user = GetUser(username);
-    if (!user) {
-      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the user doesn't exist.", username,
-                                          "https://memgr.ph/auth"));
-      return std::nullopt;
-    }
-    if (!user->CheckPassword(password)) {
-      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the password is not correct.",
-                                          username, "https://memgr.ph/auth"));
-      return std::nullopt;
-    }
-    if (user->UpgradeHash(password)) {
-      SaveUser(*user);
-    }
-
-    return user;
+    // TODO Return permissions, not a temp user
+    User tmp{username, std::nullopt, role->permissions(), role->fine_grained_access_handler()};
+    return tmp;
   }
+
+  /*
+   * LOCAL AUTH STORAGE
+   */
+  auto user = GetUser(username);
+  if (!user) {
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the user doesn't exist.", username,
+                                        "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
+  if (!user->CheckPassword(password)) {
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the password is not correct.",
+                                        username, "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
+  if (user->UpgradeHash(password)) {
+    SaveUser(*user);
+  }
+
+  return user;
 }
 
 std::optional<User> Auth::GetUser(const std::string &username_orig) const {

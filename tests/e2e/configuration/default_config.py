@@ -14,14 +14,7 @@
 # If you wish to modify these, update the startup_config_dict and workloads.yaml !
 
 startup_config_dict = {
-    "auth_module_create_missing_role": ("true", "true", "Set to false to disable creation of missing roles."),
-    "auth_module_create_missing_user": ("true", "true", "Set to false to disable creation of missing users."),
     "auth_module_executable": ("", "", "Absolute path to the auth module executable that should be used."),
-    "auth_module_manage_roles": (
-        "true",
-        "true",
-        "Set to false to disable management of roles through the auth module.",
-    ),
     "auth_module_timeout_ms": (
         "10000",
         "10000",
