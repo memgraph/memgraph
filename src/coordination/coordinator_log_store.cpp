@@ -279,14 +279,14 @@ ulong CoordinatorLogStore::last_durable_index() {
 void CoordinatorLogStore::DiskEmulLoop() {
   // This thread mimics async disk writes.
 
-  size_t next_sleep_us = 100 * 1000;
+  // uint32_t next_sleep_us = 100 * 1000;
   while (!disk_emul_thread_stop_signal_) {
     // disk_emul_ea_.wait_us(next_sleep_us);
     // disk_emul_ea_.reset();
     if (disk_emul_thread_stop_signal_) break;
 
     uint64_t cur_time = timer_helper::get_timeofday_us();
-    next_sleep_us = 100 * 1000;
+    // next_sleep_us = 100 * 1000;
 
     bool call_notification = false;
     {
@@ -306,7 +306,7 @@ void CoordinatorLogStore::DiskEmulLoop() {
 
       entry = disk_emul_logs_being_written_.begin();
       if (entry != disk_emul_logs_being_written_.end()) {
-        next_sleep_us = entry->first - cur_time;
+        // next_sleep_us = entry->first - cur_time;
       }
     }
 
