@@ -48,35 +48,35 @@ struct PromoteReplicaToMainRes {
 
 using PromoteReplicaToMainRpc = rpc::RequestResponse<PromoteReplicaToMainReq, PromoteReplicaToMainRes>;
 
-struct SetMainToReplicaReq {
+struct DemoteMainToReplicaReq {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(SetMainToReplicaReq *self, memgraph::slk::Reader *reader);
-  static void Save(const SetMainToReplicaReq &self, memgraph::slk::Builder *builder);
+  static void Load(DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader);
+  static void Save(const DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder);
 
-  explicit SetMainToReplicaReq(CoordinatorClientConfig::ReplicationClientInfo replication_client_info)
+  explicit DemoteMainToReplicaReq(CoordinatorClientConfig::ReplicationClientInfo replication_client_info)
       : replication_client_info(std::move(replication_client_info)) {}
 
-  SetMainToReplicaReq() = default;
+  DemoteMainToReplicaReq() = default;
 
   CoordinatorClientConfig::ReplicationClientInfo replication_client_info;
 };
 
-struct SetMainToReplicaRes {
+struct DemoteMainToReplicaRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(SetMainToReplicaRes *self, memgraph::slk::Reader *reader);
-  static void Save(const SetMainToReplicaRes &self, memgraph::slk::Builder *builder);
+  static void Load(DemoteMainToReplicaRes *self, memgraph::slk::Reader *reader);
+  static void Save(const DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder);
 
-  explicit SetMainToReplicaRes(bool success) : success(success) {}
-  SetMainToReplicaRes() = default;
+  explicit DemoteMainToReplicaRes(bool success) : success(success) {}
+  DemoteMainToReplicaRes() = default;
 
   bool success;
 };
 
-using SetMainToReplicaRpc = rpc::RequestResponse<SetMainToReplicaReq, SetMainToReplicaRes>;
+using DemoteMainToReplicaRpc = rpc::RequestResponse<DemoteMainToReplicaReq, DemoteMainToReplicaRes>;
 
 }  // namespace memgraph::coordination
 
@@ -91,13 +91,13 @@ void Save(const memgraph::coordination::PromoteReplicaToMainReq &self, memgraph:
 
 void Load(memgraph::coordination::PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::coordination::SetMainToReplicaRes &self, memgraph::slk::Builder *builder);
+void Save(const memgraph::coordination::DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder);
 
-void Load(memgraph::coordination::SetMainToReplicaRes *self, memgraph::slk::Reader *reader);
+void Load(memgraph::coordination::DemoteMainToReplicaRes *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::coordination::SetMainToReplicaReq &self, memgraph::slk::Builder *builder);
+void Save(const memgraph::coordination::DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder);
 
-void Load(memgraph::coordination::SetMainToReplicaReq *self, memgraph::slk::Reader *reader);
+void Load(memgraph::coordination::DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

@@ -15,6 +15,7 @@
 
 #include <json/json.hpp>
 #include <utility>
+#include "crypto.hpp"
 #include "dbms/constants.hpp"
 #include "utils/logging.hpp"
 
@@ -332,9 +333,9 @@ class User final {
   User();
 
   explicit User(const std::string &username);
-  User(const std::string &username, std::string password_hash, const Permissions &permissions);
+  User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions);
 #ifdef MG_ENTERPRISE
-  User(const std::string &username, std::string password_hash, const Permissions &permissions,
+  User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {});
 #endif
   User(const User &) = default;
@@ -346,8 +347,18 @@ class User final {
   /// @throw AuthException if unable to verify the password.
   bool CheckPassword(const std::string &password);
 
+  bool UpgradeHash(const std::string password) {
+    if (!password_hash_) return false;
+    if (password_hash_->IsSalted()) return false;
+
+    auto const algo = password_hash_->HashAlgo();
+    UpdatePassword(password, algo);
+    return true;
+  }
+
   /// @throw AuthException if unable to set the password.
-  void UpdatePassword(const std::optional<std::string> &password = std::nullopt);
+  void UpdatePassword(const std::optional<std::string> &password = {},
+                      std::optional<PasswordHashAlgorithm> algo_override = std::nullopt);
 
   void SetRole(const Role &role);
 
@@ -382,7 +393,7 @@ class User final {
 
  private:
   std::string username_;
-  std::string password_hash_;
+  std::optional<HashedPassword> password_hash_;
   Permissions permissions_;
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
