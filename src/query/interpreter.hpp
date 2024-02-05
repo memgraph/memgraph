@@ -115,6 +115,10 @@ class CoordinatorQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual auto AddCoordinatorInstance(uint32_t raft_server_id, std::string const &coordinator_socket_address)
+      -> void = 0;
 };
 #endif
 

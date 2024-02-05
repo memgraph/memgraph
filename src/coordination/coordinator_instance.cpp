@@ -70,7 +70,6 @@ CoordinatorInstance::CoordinatorInstance()
   spdlog::info("Raft server started on {}", raft_endpoint);
 }
 
-<<<<<<< HEAD
 auto CoordinatorInstance::InstanceName() const -> std::string {
   return "coordinator_" + std::to_string(raft_server_id_);
 }
@@ -95,16 +94,5 @@ auto CoordinatorInstance::GetAllCoordinators() const -> std::vector<ptr<srv_conf
   return all_srv_configs;
 }
 
-||||||| parent of 40524ffbb (Add self to SHOW INSTANCES)
-=======
-auto CoordinatorInstance::InstanceName() const -> std::string {
-  return "coordinator_" + std::to_string(raft_server_id_);
-}
-
-auto CoordinatorInstance::RaftSocketAddress() const -> std::string {
-  return raft_address_ + ":" + std::to_string(raft_port_);
-}
-
->>>>>>> 40524ffbb (Add self to SHOW INSTANCES)
 }  // namespace memgraph::coordination
 #endif

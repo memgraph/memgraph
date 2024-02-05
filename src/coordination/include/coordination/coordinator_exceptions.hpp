@@ -39,5 +39,16 @@ class RaftServerStartException final : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(RaftServerStartException)
 };
 
+class RaftAddServerException final : public utils::BasicException {
+ public:
+  explicit RaftAddServerException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit RaftAddServerException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : RaftAddServerException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(RaftAddServerException)
+};
+
 }  // namespace memgraph::coordination
 #endif

@@ -79,5 +79,13 @@ auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
             "Cannot get coordinator server since variant holds wrong alternative");
   return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
 }
+
+auto CoordinatorState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)
+    -> void {
+  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+            "Coordinator cannot register replica since variant holds wrong alternative");
+  return std::get<CoordinatorData>(data_).AddCoordinatorInstance(raft_server_id, raft_port, raft_address);
+}
+
 }  // namespace memgraph::coordination
 #endif

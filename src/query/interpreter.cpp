@@ -508,6 +508,17 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
+  auto AddCoordinatorInstance(uint32_t raft_server_id, std::string const &raft_socket_address) -> void override {
+    auto const maybe_ip_and_port = io::network::Endpoint::ParseSocketOrIpAddress(raft_socket_address);
+    if (maybe_ip_and_port) {
+      auto const [ip, port] = *maybe_ip_and_port;
+      spdlog::info("Adding instance {} with raft socket address {}:{}.", raft_server_id, port, ip);
+      coordinator_handler_.AddCoordinatorInstance(raft_server_id, port, ip);
+    } else {
+      spdlog::error("Invalid raft socket address {}.", raft_socket_address);
+    }
+  }
+
   void SetInstanceToMain(const std::string &instance_name) override {
     auto status = coordinator_handler_.SetInstanceToMain(instance_name);
     switch (status) {
@@ -1101,6 +1112,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       auto raft_socket_address_tv = coordinator_query->raft_socket_address_->Accept(evaluator);
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, raft_socket_address_tv,
                      instance_name = coordinator_query->instance_name_]() mutable {
+      auto raft_server_id_tv = coordinator_query->raft_server_id_->Accept(evaluator);
+      callback.fn = [handler = CoordQueryHandler{dbms_handler}, raft_socket_address_tv, raft_server_id_tv]() mutable {
+        handler.AddCoordinatorInstance(raft_server_id_tv.ValueInt(), std::string(raft_socket_address_tv.ValueString()));
         return std::vector<std::vector<TypedValue>>();
       };
 

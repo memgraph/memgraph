@@ -394,7 +394,9 @@ registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ON coordinatorSoc
 
 setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 
-addCoordinatorInstance : ADD COORDINATOR instanceName ON raftSocketAddress ;
+raftServerId : literal ;
+
+addCoordinatorInstance : ADD COORDINATOR raftServerId ON raftSocketAddress ;
 
 dropReplica : DROP REPLICA instanceName ;
 

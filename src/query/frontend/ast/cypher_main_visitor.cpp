@@ -406,9 +406,13 @@ antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::Add
     throw SemanticException("Raft socket address should be a string literal!");
   }
 
+  if (!ctx->raftServerId()->literal()->numberLiteral()) {
+    throw SemanticException("Raft server id should be a number literal!");
+  }
+
   coordinator_query->action_ = CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE;
   coordinator_query->raft_socket_address_ = std::any_cast<Expression *>(ctx->raftSocketAddress()->accept(this));
-  coordinator_query->instance_name_ = std::any_cast<std::string>(ctx->instanceName()->symbolicName()->accept(this));
+  coordinator_query->raft_server_id_ = std::any_cast<Expression *>(ctx->raftServerId()->accept(this));
 
   return coordinator_query;
 }

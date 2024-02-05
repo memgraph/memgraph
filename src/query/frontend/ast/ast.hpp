@@ -3084,6 +3084,7 @@ class CoordinatorQuery : public memgraph::query::Query {
   memgraph::query::Expression *replication_socket_address_{nullptr};
   memgraph::query::Expression *coordinator_socket_address_{nullptr};
   memgraph::query::Expression *raft_socket_address_{nullptr};
+  memgraph::query::Expression *raft_server_id_{nullptr};
   memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
 
   CoordinatorQuery *Clone(AstStorage *storage) const override {
@@ -3096,6 +3097,7 @@ class CoordinatorQuery : public memgraph::query::Query {
     object->coordinator_socket_address_ =
         coordinator_socket_address_ ? coordinator_socket_address_->Clone(storage) : nullptr;
     object->raft_socket_address_ = raft_socket_address_ ? raft_socket_address_->Clone(storage) : nullptr;
+    object->raft_server_id_ = raft_server_id_ ? raft_server_id_->Clone(storage) : nullptr;
 
     return object;
   }
