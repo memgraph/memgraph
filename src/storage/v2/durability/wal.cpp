@@ -802,7 +802,6 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto &property_value = delta.vertex_edge_set_property.value;
 
           vertex->properties.SetProperty(property_id, property_value);
-          // TODO antepusic: update text index here or at the end of LoadWal()?
 
           break;
         }

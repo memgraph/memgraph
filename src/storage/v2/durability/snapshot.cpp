@@ -13,6 +13,7 @@
 
 #include <thread>
 
+#include "flags/run_time_configurable.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -799,7 +800,6 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
           SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for vertex {}.",
                        name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
           props.SetProperty(get_property_from_id(*key), *value);
-          // TODO antepusic: update text index here or at the end of LoadSnapshot()?
         }
       }
 
@@ -989,6 +989,24 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of label+property indices are recovered.");
+    }
+
+    // Recover text indices.
+    if (flags::run_time::GetTextSearchEnabled()) {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
+      spdlog::info("Recovering metadata of {} text indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto index_name = snapshot.ReadString();
+        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read text index label!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.text, {index_name.value(), get_label_from_id(*label)},
+                                    "The text index already exists!");
+        SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
       spdlog::info("Metadata of label+property indices are recovered.");
     }
@@ -2104,6 +2122,16 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.SetPosition(size_pos);
         snapshot.WriteUint(i);  // Write real size
         snapshot.SetPosition(last_pos);
+      }
+    }
+
+    // Write text indices.
+    if (flags::run_time::GetTextSearchEnabled()) {
+      auto text = storage->indices_.text_index_->ListIndices();
+      snapshot.WriteUint(text.size());
+      for (const auto &item : text) {
+        snapshot.WriteString(item.first);
+        write_mapping(item.second);
       }
     }
   }

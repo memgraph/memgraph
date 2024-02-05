@@ -12,6 +12,7 @@
 #pragma once
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "text_search.hpp"
@@ -74,6 +75,9 @@ class TextIndex {
                            const std::uint64_t transaction_start_timestamp);
 
   bool CreateIndex(std::string index_name, LabelId label, memgraph::query::DbAccessor *db);
+
+  bool RecoverIndex(std::string index_name, LabelId label, memgraph::utils::SkipList<Vertex>::Accessor vertices,
+                    NameIdMapper *name_id_mapper);
 
   bool DropIndex(std::string index_name);
 

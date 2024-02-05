@@ -292,6 +292,105 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
   return true;
 }
 
+bool TextIndex::RecoverIndex(std::string index_name, LabelId label,
+                             memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper) {
+  if (!flags::run_time::GetTextSearchEnabled()) {
+    throw query::QueryException("To use text indices, enable the text search feature.");
+  }
+
+  nlohmann::json mappings = {};
+  mappings["properties"] = {};
+  mappings["properties"]["metadata"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
+  mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
+
+  try {
+    index_.emplace(index_name,
+                   TextIndexData{.context_ = mgcxx::text_search::create_index(
+                                     index_name, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
+                                 .scope_ = label});
+  } catch (const std::exception &e) {
+    throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
+  }
+  label_to_index_.emplace(label, index_name);
+
+  bool has_schema = false;
+  std::vector<std::pair<PropertyId, std::string>> indexed_properties{};
+  auto &index_context = index_.at(index_name).context_;
+  for (const auto &v : vertices) {
+    if (std::find(v.labels.begin(), v.labels.end(), label) == v.labels.end()) {
+      continue;
+    }
+
+    auto vertex_properties = v.properties.Properties();
+
+    if (!has_schema) [[unlikely]] {
+      for (const auto &[prop_id, prop_val] : vertex_properties) {
+        if (prop_val.IsBool() || prop_val.IsInt() || prop_val.IsDouble() || prop_val.IsString()) {
+          indexed_properties.emplace_back(
+              std::pair<PropertyId, std::string>{prop_id, name_id_mapper->IdToName(prop_id.AsUint())});
+        }
+      }
+      has_schema = true;
+    }
+
+    nlohmann::json document = {};
+    nlohmann::json properties = {};
+    for (const auto &[prop_id, prop_name] : indexed_properties) {
+      if (!vertex_properties.contains(prop_id)) {
+        continue;
+      }
+      const auto prop_value = vertex_properties.at(prop_id);
+      switch (prop_value.type()) {
+        case PropertyValue::Type::Bool:
+          properties[prop_name] = prop_value.ValueBool();
+          break;
+        case PropertyValue::Type::Int:
+          properties[prop_name] = prop_value.ValueInt();
+          break;
+        case PropertyValue::Type::Double:
+          properties[prop_name] = prop_value.ValueDouble();
+          break;
+        case PropertyValue::Type::String:
+          properties[prop_name] = prop_value.ValueString();
+          break;
+        case PropertyValue::Type::Null:
+        case PropertyValue::Type::List:
+        case PropertyValue::Type::Map:
+        case PropertyValue::Type::TemporalData:
+        default:
+          continue;
+      }
+    }
+
+    document["data"] = properties;
+    document["metadata"] = {};
+    document["metadata"]["gid"] = v.gid.AsInt();
+    document["metadata"]["txid"] = -1;
+    document["metadata"]["deleted"] = false;
+    document["metadata"]["is_node"] = true;
+
+    try {
+      mgcxx::text_search::add_document(
+          index_context,
+          mgcxx::text_search::DocumentInput{
+              .data = document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
+          kDoSkipCommit);
+    } catch (const std::exception &e) {
+      throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
+    }
+  }
+
+  // As CREATE TEXT INDEX (...) queries don’t accumulate deltas, db_transactional_accessor_->Commit() does not reach
+  // the code area where changes to indices are committed. To get around that without needing to commit text indices
+  // after every such query, we commit here.
+  try {
+    mgcxx::text_search::commit(index_context);
+  } catch (const std::exception &e) {
+    throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
+  }
+  return true;
+}
+
 bool TextIndex::DropIndex(std::string index_name) {
   if (!flags::run_time::GetTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
