@@ -319,8 +319,7 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
 SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
                      memgraph::communication::v2::ServerEndpoint endpoint,
                      memgraph::communication::v2::InputStream *input_stream,
-                     memgraph::communication::v2::OutputStream *output_stream,
-                     memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
+                     memgraph::communication::v2::OutputStream *output_stream, memgraph::auth::SynchedAuth *auth
 #ifdef MG_ENTERPRISE
                      ,
                      memgraph::audit::Log *audit_log

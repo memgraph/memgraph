@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -66,9 +66,7 @@ bool IsUserAuthorizedEdgeType(const memgraph::auth::User &user, const memgraph::
 #endif
 namespace memgraph::glue {
 
-AuthChecker::AuthChecker(
-    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
-    : auth_(auth) {}
+AuthChecker::AuthChecker(memgraph::auth::SynchedAuth *auth) : auth_(auth) {}
 
 bool AuthChecker::IsUserAuthorized(const std::optional<std::string> &username,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,

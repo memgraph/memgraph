@@ -207,6 +207,8 @@ bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 
 class Role final {
  public:
+  Role() = default;
+
   explicit Role(const std::string &rolename);
   Role(const std::string &rolename, const Permissions &permissions);
 #ifdef MG_ENTERPRISE
@@ -369,6 +371,10 @@ class User final {
 #ifdef MG_ENTERPRISE
   FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions() const;
   FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions() const;
+  FineGrainedAccessPermissions GetUserFineGrainedAccessLabelPermissions() const;
+  FineGrainedAccessPermissions GetUserFineGrainedAccessEdgeTypePermissions() const;
+  FineGrainedAccessPermissions GetRoleFineGrainedAccessLabelPermissions() const;
+  FineGrainedAccessPermissions GetRoleFineGrainedAccessEdgeTypePermissions() const;
   const FineGrainedAccessHandler &fine_grained_access_handler() const;
   FineGrainedAccessHandler &fine_grained_access_handler();
 #endif
