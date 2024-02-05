@@ -993,24 +993,6 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
       spdlog::info("Metadata of label+property indices are recovered.");
     }
 
-    // Recover text indices.
-    if (flags::run_time::GetTextSearchEnabled()) {
-      auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
-      spdlog::info("Recovering metadata of {} text indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
-        auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
-        auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Couldn't read text index label!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.text, {index_name.value(), get_label_from_id(*label)},
-                                    "The text index already exists!");
-        SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
-                     name_id_mapper->IdToName(snapshot_id_map.at(*label)));
-      }
-      spdlog::info("Metadata of label+property indices are recovered.");
-    }
-
     spdlog::info("Metadata of indices are recovered.");
   }
 
@@ -1646,6 +1628,24 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
       }
       spdlog::info("Metadata of label+property indices are recovered.");
+    }
+
+    // Recover text indices.
+    if (flags::run_time::GetTextSearchEnabled()) {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
+      spdlog::info("Recovering metadata of {} text indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto index_name = snapshot.ReadString();
+        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read text index label!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.text, {index_name.value(), get_label_from_id(*label)},
+                                    "The text index already exists!");
+        SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)));
+      }
+      spdlog::info("Metadata of text indices are recovered.");
     }
 
     spdlog::info("Metadata of indices are recovered.");

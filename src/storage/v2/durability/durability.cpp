@@ -208,6 +208,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
                    name_id_mapper->IdToName(item.second.AsUint()));
     }
   }
+  spdlog::info("Text indices are recreated.");
 
   spdlog::info("Indices are recreated.");
 
