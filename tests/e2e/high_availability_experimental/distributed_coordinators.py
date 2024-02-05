@@ -68,7 +68,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
-def test_start_distributed_coordinators():
+def test_coordinators_communication():
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
@@ -96,6 +96,48 @@ def test_start_distributed_coordinators():
     def check_coordinator2():
         return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
 
+    mg_sleep_and_assert(expected_cluster, check_coordinator2)
+
+
+def test_coordinators_communication_with_restarts():
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    expected_cluster = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
+    ]
+
+    coordinator1_cursor = connect(host="localhost", port=7687).cursor()
+
+    def check_coordinator1():
+        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+
+    mg_sleep_and_assert(expected_cluster, check_coordinator1)
+
+    coordinator2_cursor = connect(host="localhost", port=7688).cursor()
+
+    def check_coordinator2():
+        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+
+    mg_sleep_and_assert(expected_cluster, check_coordinator2)
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator1")
+    coordinator1_cursor = connect(host="localhost", port=7687).cursor()
+
+    mg_sleep_and_assert(expected_cluster, check_coordinator1)
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator1")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator2")
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator2")
+    coordinator1_cursor = connect(host="localhost", port=7687).cursor()
+    coordinator2_cursor = connect(host="localhost", port=7688).cursor()
+
+    mg_sleep_and_assert(expected_cluster, check_coordinator1)
     mg_sleep_and_assert(expected_cluster, check_coordinator2)
 
 

@@ -1094,7 +1094,6 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       if (!license::global_license_checker.IsEnterpriseValidFast()) {
         throw QueryException("Trying to use enterprise feature without a valid license.");
       }
-#ifdef MG_ENTERPRISE
       if constexpr (!coordination::allow_ha) {
         throw QueryRuntimeException(
             "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
@@ -1110,10 +1109,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
       auto raft_socket_address_tv = coordinator_query->raft_socket_address_->Accept(evaluator);
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, raft_socket_address_tv,
-                     instance_name = coordinator_query->instance_name_]() mutable {
       auto raft_server_id_tv = coordinator_query->raft_server_id_->Accept(evaluator);
-      callback.fn = [handler = CoordQueryHandler{dbms_handler}, raft_socket_address_tv, raft_server_id_tv]() mutable {
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, raft_socket_address_tv,
+                     raft_server_id_tv]() mutable {
         handler.AddCoordinatorInstance(raft_server_id_tv.ValueInt(), std::string(raft_socket_address_tv.ValueString()));
         return std::vector<std::vector<TypedValue>>();
       };
@@ -1122,7 +1120,6 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                                   fmt::format("Coordinator has added instance {} on coordinator server {}.",
                                               coordinator_query->instance_name_, raft_socket_address_tv.ValueString()));
       return callback;
-#endif
     }
     case CoordinatorQuery::Action::REGISTER_INSTANCE: {
       if (!license::global_license_checker.IsEnterpriseValidFast()) {

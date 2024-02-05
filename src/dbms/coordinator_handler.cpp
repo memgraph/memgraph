@@ -36,7 +36,7 @@ auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::Inst
 
 auto CoordinatorHandler::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)
     -> void {
-  dbms_handler_.CoordinatorState().AddCoordinatorInstance(raft_server_id, raft_port, std::move(raft_address));
+  coordinator_state_.AddCoordinatorInstance(raft_server_id, raft_port, std::move(raft_address));
 }
 
 }  // namespace memgraph::dbms
