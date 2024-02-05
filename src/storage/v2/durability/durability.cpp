@@ -202,9 +202,6 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text.size());
     auto *mem_text_index = static_cast<TextIndex *>(indices->text_index_.get());
     for (const auto &item : indices_metadata.text) {
-      const auto index_name = item.first;
-      const auto label_id = item.second;
-
       if (!mem_text_index->RecoverIndex(item.first, item.second, vertices->access(), name_id_mapper))
         throw RecoveryFailure("The text index must be created here!");
       spdlog::info("Text index {} on :{} is recreated from metadata", item.first,
