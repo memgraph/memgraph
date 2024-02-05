@@ -26,7 +26,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
   // NOTE: Text indexes are presently all-property indices. If we allow text indexes restricted to specific properties,
   // an indexable document should be created for each applicable index.
   nlohmann::json document = {};
-  nlohmann::json properties = {};
+  nlohmann::json properties = nlohmann::json::value_t::object;
   for (const auto &[prop_id, prop_value] : vertex_after_update->properties.Properties()) {
     switch (prop_value.type()) {
       case PropertyValue::Type::Bool:
@@ -238,7 +238,7 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
     }
 
     nlohmann::json document = {};
-    nlohmann::json properties = {};
+    nlohmann::json properties = nlohmann::json::value_t::object;
     for (const auto &[prop_id, prop_name] : indexed_properties) {
       const auto prop_value = v.GetProperty(View::NEW, prop_id).GetValue();
       switch (prop_value.type()) {
@@ -334,7 +334,7 @@ bool TextIndex::RecoverIndex(std::string index_name, LabelId label,
     }
 
     nlohmann::json document = {};
-    nlohmann::json properties = {};
+    nlohmann::json properties = nlohmann::json::value_t::object;
     for (const auto &[prop_id, prop_name] : indexed_properties) {
       if (!vertex_properties.contains(prop_id)) {
         continue;
