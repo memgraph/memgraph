@@ -73,13 +73,30 @@ def test_start_distributed_coordinators():
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     coordinator3_cursor = connect(host="localhost", port=7689).cursor()
-    # expected_cluster = [
-    #     ("coordinator1", "127.0.0.1:100111", "", True, "coordinator"),
-    #     ("coordinator2", "127.0.0.1:100112", "", True, "coordinator"),
-    #     ("coordinator3", "127.0.0.1:100113", "", True, "coordinator"),
-    # ]
-    # coord3_cluster_state = sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
-    # assert coord3_cluster_state == expected_cluster
+
+    def check_coordinator3():
+        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+
+    expected_cluster = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
+    ]
+    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+
+    coordinator1_cursor = connect(host="localhost", port=7687).cursor()
+
+    def check_coordinator1():
+        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+
+    mg_sleep_and_assert(expected_cluster, check_coordinator1)
+
+    coordinator2_cursor = connect(host="localhost", port=7688).cursor()
+
+    def check_coordinator2():
+        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+
+    mg_sleep_and_assert(expected_cluster, check_coordinator2)
 
 
 if __name__ == "__main__":
