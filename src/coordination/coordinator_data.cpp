@@ -183,7 +183,7 @@ auto CoordinatorData::RegisterInstance(CoordinatorClientConfig config) -> Regist
   if (std::ranges::any_of(registered_instances_, [&config](CoordinatorInstance const &instance) {
         return instance.SocketAddress() == config.SocketAddress();
       })) {
-    return RegisterInstanceCoordinatorStatus::END_POINT_EXISTS;
+    return RegisterInstanceCoordinatorStatus::ENDPOINT_EXISTS;
   }
 
   try {

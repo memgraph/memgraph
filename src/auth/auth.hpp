@@ -18,9 +18,14 @@
 #include "auth/module.hpp"
 #include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
+#include "system/action.hpp"
 #include "utils/settings.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::auth {
+
+class Auth;
+using SynchedAuth = memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>;
 
 static const constexpr char *const kAllDatabases = "*";
 
@@ -69,6 +74,13 @@ class Auth final {
   }
 
   /**
+   * @brief
+   *
+   * @return Config
+   */
+  Config GetConfig() const { return config_; }
+
+  /**
    * Authenticates a user using his username and password.
    *
    * @param username
@@ -96,7 +108,7 @@ class Auth final {
    *
    * @throw AuthException if unable to save the user.
    */
-  void SaveUser(const User &user);
+  void SaveUser(const User &user, system::Transaction *system_tx = nullptr);
 
   /**
    * Creates a user if the user doesn't exist.
@@ -107,7 +119,8 @@ class Auth final {
    * @return a user when the user is created, nullopt if the user exists
    * @throw AuthException if unable to save the user.
    */
-  std::optional<User> AddUser(const std::string &username, const std::optional<std::string> &password = std::nullopt);
+  std::optional<User> AddUser(const std::string &username, const std::optional<std::string> &password = std::nullopt,
+                              system::Transaction *system_tx = nullptr);
 
   /**
    * Removes a user from the storage.
@@ -118,7 +131,7 @@ class Auth final {
    *         doesn't exist
    * @throw AuthException if unable to remove the user.
    */
-  bool RemoveUser(const std::string &username);
+  bool RemoveUser(const std::string &username, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief
@@ -135,6 +148,13 @@ class Auth final {
    * @throw AuthException if unable to load user data.
    */
   std::vector<User> AllUsers() const;
+
+  /**
+   * @brief
+   *
+   * @return std::vector<std::string>
+   */
+  std::vector<std::string> AllUsernames() const;
 
   /**
    * Returns whether there are users in the storage.
@@ -160,7 +180,7 @@ class Auth final {
    *
    * @throw AuthException if unable to save the role.
    */
-  void SaveRole(const Role &role);
+  void SaveRole(const Role &role, system::Transaction *system_tx = nullptr);
 
   /**
    * Creates a role if the role doesn't exist.
@@ -170,7 +190,7 @@ class Auth final {
    * @return a role when the role is created, nullopt if the role exists
    * @throw AuthException if unable to save the role.
    */
-  std::optional<Role> AddRole(const std::string &rolename);
+  std::optional<Role> AddRole(const std::string &rolename, system::Transaction *system_tx = nullptr);
 
   /**
    * Removes a role from the storage.
@@ -181,7 +201,7 @@ class Auth final {
    *         doesn't exist
    * @throw AuthException if unable to remove the role.
    */
-  bool RemoveRole(const std::string &rolename);
+  bool RemoveRole(const std::string &rolename, system::Transaction *system_tx = nullptr);
 
   /**
    * Gets all roles from the storage.
@@ -190,6 +210,13 @@ class Auth final {
    * @throw AuthException if unable to load role data.
    */
   std::vector<Role> AllRoles() const;
+
+  /**
+   * @brief
+   *
+   * @return std::vector<std::string>
+   */
+  std::vector<std::string> AllRolenames() const;
 
   /**
    * Gets all users for a role from the storage.
@@ -210,7 +237,7 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool RevokeDatabaseFromUser(const std::string &db, const std::string &name);
+  bool RevokeDatabaseFromUser(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Grant access to individual database for a user.
@@ -220,7 +247,7 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool GrantDatabaseToUser(const std::string &db, const std::string &name);
+  bool GrantDatabaseToUser(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Delete a database from all users.
@@ -228,7 +255,7 @@ class Auth final {
    * @param db name of the database to delete
    * @throw AuthException if unable to read data
    */
-  void DeleteDatabase(const std::string &db);
+  void DeleteDatabase(const std::string &db, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Set main database for an individual user.
@@ -238,7 +265,7 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool SetMainDatabase(std::string_view db, const std::string &name);
+  bool SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx = nullptr);
 #endif
 
  private:
