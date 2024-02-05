@@ -23,7 +23,7 @@ class AuthenticationInterface {
 
   virtual bool HasUserPermission(const std::string &username, auth::Permission permission) const = 0;
 
-  virtual bool HasAnyUsers() const = 0;
+  virtual bool AccessControlled() const = 0;
 };
 
 class SafeAuth : public AuthenticationInterface {
@@ -34,7 +34,7 @@ class SafeAuth : public AuthenticationInterface {
 
   bool HasUserPermission(const std::string &username, auth::Permission permission) const override;
 
-  bool HasAnyUsers() const override;
+  bool AccessControlled() const override;
 
  private:
   auth::SynchedAuth *auth_;

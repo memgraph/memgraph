@@ -164,6 +164,13 @@ class Auth final {
   bool HasUsers() const;
 
   /**
+   * Returns whether the access is controlled by authentication/authorization.
+   *
+   * @return `true` if auth needs to run
+   */
+  bool AccessControlled() const;
+
+  /**
    * Gets a role from the storage.
    *
    * @param rolename

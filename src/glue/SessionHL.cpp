@@ -132,7 +132,7 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
   interpreter_.ResetUser();
   {
     auto locked_auth = auth_->Lock();
-    if (locked_auth->HasUsers()) {
+    if (locked_auth->AccessControlled()) {
       user_ = locked_auth->Authenticate(username, password);
       if (user_.has_value()) {
         interpreter_.SetUser(user_->username());

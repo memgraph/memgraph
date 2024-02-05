@@ -395,6 +395,8 @@ std::vector<std::string> Auth::AllUsernames() const {
 
 bool Auth::HasUsers() const { return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix); }
 
+bool Auth::AccessControlled() const { return HasUsers() || module_.IsUsed(); }
+
 std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
   auto rolename = utils::ToLowerCase(rolename_orig);
   auto existing_role = storage_.Get(kRolePrefix + rolename);

@@ -74,7 +74,7 @@ bool AuthChecker::IsUserAuthorized(const std::optional<std::string> &username,
   std::optional<memgraph::auth::User> maybe_user;
   {
     auto locked_auth = auth_->ReadLock();
-    if (!locked_auth->HasUsers()) {
+    if (!locked_auth->AccessControlled()) {
       return true;
     }
     if (username.has_value()) {
