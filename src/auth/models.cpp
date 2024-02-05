@@ -611,27 +611,49 @@ Permissions User::GetPermissions() const {
 
 #ifdef MG_ENTERPRISE
 FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions() const {
+  return Merge(GetUserFineGrainedAccessLabelPermissions(), GetRoleFineGrainedAccessLabelPermissions());
+}
+
+FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions() const {
+  return Merge(GetUserFineGrainedAccessEdgeTypePermissions(), GetRoleFineGrainedAccessEdgeTypePermissions());
+}
+
+FineGrainedAccessPermissions User::GetUserFineGrainedAccessEdgeTypePermissions() const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
 
-  if (role_) {
-    return Merge(role()->fine_grained_access_handler().label_permissions(),
-                 fine_grained_access_handler_.label_permissions());
+  return fine_grained_access_handler_.edge_type_permissions();
+}
+
+FineGrainedAccessPermissions User::GetUserFineGrainedAccessLabelPermissions() const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return FineGrainedAccessPermissions{};
   }
 
   return fine_grained_access_handler_.label_permissions();
 }
 
-FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions() const {
+FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions() const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
+
   if (role_) {
-    return Merge(role()->fine_grained_access_handler().edge_type_permissions(),
-                 fine_grained_access_handler_.edge_type_permissions());
+    return role()->fine_grained_access_handler().edge_type_permissions();
   }
-  return fine_grained_access_handler_.edge_type_permissions();
+  return FineGrainedAccessPermissions{};
+}
+
+FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions() const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return FineGrainedAccessPermissions{};
+  }
+
+  if (role_) {
+    return role()->fine_grained_access_handler().label_permissions();
+  }
+  return FineGrainedAccessPermissions{};
 }
 #endif
 

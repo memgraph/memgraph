@@ -13,6 +13,7 @@ target_sources(mg-coordination
         include/coordination/coordinator_data.hpp
         include/coordination/constants.hpp
         include/coordination/coordinator_cluster_config.hpp
+        include/coordination/coordinator_handlers.hpp
 
         PRIVATE
         coordinator_client.cpp
@@ -21,9 +22,10 @@ target_sources(mg-coordination
         coordinator_server.cpp
         coordinator_data.cpp
         coordinator_instance.cpp
+        coordinator_handlers.cpp
 )
 target_include_directories(mg-coordination PUBLIC include)
 
 target_link_libraries(mg-coordination
-    PUBLIC mg::utils mg::rpc mg::slk mg::io mg::repl_coord_glue lib::rangev3 nuraft
+    PUBLIC mg::utils mg::rpc mg::slk mg::io mg::repl_coord_glue lib::rangev3 nuraft mg-replication_handler
 )

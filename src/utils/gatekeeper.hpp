@@ -161,10 +161,22 @@ struct Gatekeeper {
 
     ~Accessor() { reset(); }
 
-    auto get() -> T * { return std::addressof(*owner_->value_); }
-    auto get() const -> const T * { return std::addressof(*owner_->value_); }
-    T *operator->() { return std::addressof(*owner_->value_); }
-    const T *operator->() const { return std::addressof(*owner_->value_); }
+    auto get() -> T * {
+      if (owner_ == nullptr) return nullptr;
+      return std::addressof(*owner_->value_);
+    }
+    auto get() const -> const T * {
+      if (owner_ == nullptr) return nullptr;
+      return std::addressof(*owner_->value_);
+    }
+    T *operator->() {
+      if (owner_ == nullptr) return nullptr;
+      return std::addressof(*owner_->value_);
+    }
+    const T *operator->() const {
+      if (owner_ == nullptr) return nullptr;
+      return std::addressof(*owner_->value_);
+    }
 
     template <typename Func>
     [[nodiscard]] auto try_exclusively(Func &&func) -> EvalResult<std::invoke_result_t<Func, T &>> {
