@@ -39,8 +39,11 @@ enum class RegisterReplicaError : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD_
 
 struct RoleMainData {
   RoleMainData() = default;
-  explicit RoleMainData(ReplicationEpoch e, utils::UUID uuid) : epoch_(std::move(e)), uuid_{uuid} {}
-  explicit RoleMainData(ReplicationEpoch e) : epoch_(std::move(e)) {}
+  explicit RoleMainData(ReplicationEpoch e, std::optional<utils::UUID> uuid = std::nullopt) : epoch_(std::move(e)) {
+    if (uuid) {
+      uuid_ = *uuid;
+    }
+  }
   ~RoleMainData() = default;
 
   RoleMainData(RoleMainData const &) = delete;

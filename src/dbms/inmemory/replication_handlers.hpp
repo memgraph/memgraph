@@ -53,9 +53,6 @@ class InMemoryReplicationHandlers {
 
   static uint64_t ReadAndApplyDelta(storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder,
                                     uint64_t version);
-
-  static void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
-                           std::string_view rpc_req);
 };
 
 }  // namespace memgraph::dbms

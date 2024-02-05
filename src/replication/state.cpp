@@ -56,10 +56,8 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   }
   auto replication_data = std::move(fetched_replication_data).GetValue();
 #ifdef MG_ENTERPRISE
-  if (FLAGS_coordinator_server_port) {
-    if (std::holds_alternative<RoleReplicaData>(replication_data)) {
-      std::get<RoleReplicaData>(replication_data).uuid_ = std::nullopt;
-    }
+  if (FLAGS_coordinator_server_port && std::holds_alternative<RoleReplicaData>(replication_data)) {
+    std::get<RoleReplicaData>(replication_data).uuid_.reset();
   }
 #endif
   replication_data_ = std::move(replication_data);

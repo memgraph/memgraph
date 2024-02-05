@@ -76,6 +76,12 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
     return std::nullopt;
   }
 }
+
+void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
+                  std::string_view rpc_req) {
+  spdlog::error("Received {} with main_id: {} != current_main_uuid: {}", rpc_req, std::string(main_req_id),
+                current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : "");
+}
 }  // namespace
 
 void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
@@ -115,12 +121,6 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
         spdlog::debug("Received SwapMainUUIDHandler");
         InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, req_reader, res_builder);
       });
-}
-
-void InMemoryReplicationHandlers::LogWrongMain(const std::optional<utils::UUID> &current_main_uuid,
-                                               const utils::UUID &main_req_id, std::string_view rpc_req) {
-  spdlog::error(fmt::format("Received {} with main_id: {} != current_main_uuid: {}", rpc_req, std::string(main_req_id),
-                            current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : ""));
 }
 
 void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler,

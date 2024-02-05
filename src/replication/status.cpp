@@ -30,37 +30,24 @@ constexpr auto *kMainUUID = "main_uuid";
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
+    auto common = nlohmann::json{{kVersion, p.version},
+                                 {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
+                                 {kEpoch, main.epoch.id()}};
     if (p.version != DurabilityVersion::V1 && p.version != DurabilityVersion::V2) {
       MG_ASSERT(main.main_uuid.has_value(), "Main should have id ready on version >= V3");
-      j = nlohmann::json{{kVersion, p.version},
-                         {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
-                         {kEpoch, main.epoch.id()},
-                         {kMainUUID, nlohmann::json(*main.main_uuid)}};
-      return;
+      common[kMainUUID] = main.main_uuid.value();
     }
-    j = nlohmann::json{{kVersion, p.version},
-                       {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
-                       {kEpoch, main.epoch.id()}};
+    j = std::move(common);
   };
   auto processREPLICA = [&](ReplicaRole const &replica) {
+    auto common = nlohmann::json{{kVersion, p.version},
+                                 {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA},
+                                 {kIpAddress, replica.config.ip_address},
+                                 {kPort, replica.config.port}};
     if (replica.main_uuid.has_value()) {
-      j = nlohmann::json{
-          {kVersion, p.version},
-          {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA},
-          {kIpAddress, replica.config.ip_address},
-          {kPort, replica.config.port},
-          {kMainUUID, replica.main_uuid.value()}
-          // TODO: SSL
-      };
-    } else {
-      j = nlohmann::json{
-          {kVersion, p.version},
-          {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA},
-          {kIpAddress, replica.config.ip_address},
-          {kPort, replica.config.port}
-          // TODO: SSL
-      };
+      common[kMainUUID] = replica.main_uuid.value();
     }
+    j = std::move(common);
   };
   std::visit(utils::Overloaded{processMAIN, processREPLICA}, p.role);
 }
@@ -76,14 +63,12 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       auto json_epoch = j.value(kEpoch, std::string{});
       auto epoch = ReplicationEpoch{};
       if (!json_epoch.empty()) epoch.SetEpoch(json_epoch);
-      std::optional<utils::UUID> main_uuid;
-      try {
-        main_uuid.emplace(j.at(kMainUUID));
-      } catch (std::exception &e) {
-        MG_ASSERT(version == DurabilityVersion::V2 || version == DurabilityVersion::V1,
-                  "Main should have id on version V3 and later.");
+      auto main_role = MainRole{.epoch = std::move(epoch)};
+
+      if (j.contains(kMainUUID)) {
+        main_role.main_uuid = j.at(kMainUUID);
       }
-      p = ReplicationRoleEntry{.version = version, .role = MainRole{.epoch = std::move(epoch), .main_uuid = main_uuid}};
+      p = ReplicationRoleEntry{.version = version, .role = std::move(main_role)};
       break;
     }
     case memgraph::replication_coordination_glue::ReplicationRole::REPLICA: {
@@ -93,19 +78,12 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       j.at(kIpAddress).get_to(ip_address);
       j.at(kPort).get_to(port);
       auto config = ReplicationServerConfig{.ip_address = std::move(ip_address), .port = port};
-      std::optional<utils::UUID> stored_uuid;
-      try {
-        stored_uuid.emplace(j.at(kMainUUID));
-      } catch (std::exception &e) {
-        // when replica is not registered to certain main yet
-        // or when replica was version V1 or version V2
+      auto replica_role = ReplicaRole{.config = std::move(config)};
+      if (j.contains(kMainUUID)) {
+        replica_role.main_uuid = j.at(kMainUUID);
       }
-      if (stored_uuid.has_value()) {
-        p = ReplicationRoleEntry{.version = version,
-                                 .role = ReplicaRole{.config = std::move(config), .main_uuid = *stored_uuid}};
-      } else {
-        p = ReplicationRoleEntry{.version = version, .role = ReplicaRole{.config = std::move(config)}};
-      }
+
+      p = ReplicationRoleEntry{.version = version, .role = std::move(replica_role)};
 
       break;
     }
