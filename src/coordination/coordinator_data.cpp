@@ -149,14 +149,10 @@ auto CoordinatorData::TryFailover() -> void {
     instance->SetNewMainUUID(potential_new_main_uuid);
   }
 
-  auto const is_chosen_replica_instance = [chosen_replica_instance](CoordinatorInstance const *instance) {
-    return *instance == *chosen_replica_instance;
-  };
-
-  for (auto *other_replica_instance : alive_registered_replica_instances) {
-    if (is_chosen_replica_instance(other_replica_instance)) {
-      continue;
-    }
+  for (auto *other_replica_instance :
+       alive_registered_replica_instances | ranges::views::filter([chosen_replica_instance](auto *instance) {
+         return *instance != *chosen_replica_instance;
+       })) {
     if (auto res = memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(
             other_replica_instance->GetClient().RpcClient(), potential_new_main_uuid);
         !res) {
@@ -169,11 +165,9 @@ auto CoordinatorData::TryFailover() -> void {
   std::vector<ReplClientInfo> repl_clients_info;
   repl_clients_info.reserve(registered_instances_.size() - 1);
 
-  auto const not_chosen_replica_instance = [chosen_replica_instance](CoordinatorInstance const &instance) {
-    return instance != *chosen_replica_instance;
-  };
-
-  std::ranges::transform(registered_instances_ | ranges::views::filter(not_chosen_replica_instance),
+  std::ranges::transform(registered_instances_ | ranges::views::filter([chosen_replica_instance](const auto &instance) {
+                           return *chosen_replica_instance != instance;
+                         }),
                          std::back_inserter(repl_clients_info),
                          [](const CoordinatorInstance &instance) { return instance.ReplicationClientInfo(); });
 
