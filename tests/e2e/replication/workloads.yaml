@@ -11,7 +11,7 @@ template_validation_queries: &template_validation_queries
 template_simple_cluster: &template_simple_cluster
   cluster:
     replica_1:
-      args: [ "--bolt-port", "7688", "--log-level=TRACE" ]
+      args: [ "--bolt-port", "7688", "--log-level=TRACE"]
       log_file: "replication-e2e-replica1.log"
       setup_queries: [ "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;" ]
     replica_2:
@@ -25,6 +25,7 @@ template_simple_cluster: &template_simple_cluster
         "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001'",
         "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002'",
       ]
+
 template_cluster: &template_cluster
   cluster:
     replica_1:
@@ -50,7 +51,6 @@ template_cluster: &template_cluster
         "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002'",
         "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003'"
       ]
-      <<: *template_validation_queries
 
 workloads:
   - name: "Constraints"

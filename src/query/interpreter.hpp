@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include <gflags/gflags.h>
 
 #include "dbms/database.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -51,6 +52,10 @@
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 
+#ifdef MG_ENTERPRISE
+#include "coordination/coordinator_instance_status.hpp"
+#endif
+
 namespace memgraph::metrics {
 extern const Event FailedQuery;
 extern const Event FailedPrepare;
@@ -67,16 +72,17 @@ inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
-class ReplicationQueryHandler {
+#ifdef MG_ENTERPRISE
+class CoordinatorQueryHandler {
  public:
-  ReplicationQueryHandler() = default;
-  virtual ~ReplicationQueryHandler() = default;
+  CoordinatorQueryHandler() = default;
+  virtual ~CoordinatorQueryHandler() = default;
 
-  ReplicationQueryHandler(const ReplicationQueryHandler &) = default;
-  ReplicationQueryHandler &operator=(const ReplicationQueryHandler &) = default;
+  CoordinatorQueryHandler(const CoordinatorQueryHandler &) = default;
+  CoordinatorQueryHandler &operator=(const CoordinatorQueryHandler &) = default;
 
-  ReplicationQueryHandler(ReplicationQueryHandler &&) = default;
-  ReplicationQueryHandler &operator=(ReplicationQueryHandler &&) = default;
+  CoordinatorQueryHandler(CoordinatorQueryHandler &&) = default;
+  CoordinatorQueryHandler &operator=(CoordinatorQueryHandler &&) = default;
 
   struct Replica {
     std::string name;
@@ -88,23 +94,29 @@ class ReplicationQueryHandler {
     ReplicationQuery::ReplicaState state;
   };
 
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) = 0;
+  struct MainReplicaStatus {
+    std::string_view name;
+    std::string_view socket_address;
+    bool alive;
+    bool is_main;
+
+    MainReplicaStatus(std::string_view name, std::string_view socket_address, bool alive, bool is_main)
+        : name{name}, socket_address{socket_address}, alive{alive}, is_main{is_main} {}
+  };
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual ReplicationQuery::ReplicationRole ShowReplicationRole() const = 0;
+  virtual void RegisterInstance(const std::string &coordinator_socket_address,
+                                const std::string &replication_socket_address,
+                                const std::chrono::seconds instance_check_frequency, const std::string &instance_name,
+                                CoordinatorQuery::SyncMode sync_mode) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterReplica(const std::string &name, const std::string &socket_address,
-                               ReplicationQuery::SyncMode sync_mode,
-                               const std::chrono::seconds replica_check_frequency) = 0;
+  virtual void SetInstanceToMain(const std::string &instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DropReplica(std::string_view replica_name) = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<Replica> ShowReplicas() const = 0;
+  virtual std::vector<coordination::CoordinatorInstanceStatus> ShowInstances() const = 0;
 };
+#endif
 
 class AnalyzeGraphQueryHandler {
  public:
@@ -281,7 +293,18 @@ class Interpreter final {
 
   void SetUser(std::string_view username);
 
+  std::optional<memgraph::system::Transaction> system_transaction_{};
+
  private:
+  void ResetInterpreter() {
+    query_executions_.clear();
+    system_transaction_.reset();
+    transaction_queries_->clear();
+    if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
+      current_db_.db_acc_.reset();
+    }
+  }
+
   struct QueryExecution {
     std::variant<utils::MonotonicBufferResource, utils::PoolResource> execution_memory;
     utils::ResourceWithOutOfMemoryException execution_memory_with_exception;
@@ -340,6 +363,7 @@ class Interpreter final {
   // TODO Figure out how this would work for multi-database
   // Exists only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
+
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;
 
@@ -435,8 +459,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         // NOTE: we cannot clear query_execution inside the Abort and Commit
         // methods as we will delete summary contained in them which we need
         // after our query finished executing.
-        query_executions_.clear();
-        transaction_queries_->clear();
+        ResetInterpreter();
       } else {
         // We can only clear this execution as some of the queries
         // in the transaction can be in unfinished state

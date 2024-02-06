@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,7 +10,20 @@
 // licenses/APL.txt.
 
 #pragma once
+
 #include <cstdint>
-namespace memgraph::replication {
-enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
+
+namespace memgraph::utils {
+
+/// A resetable counter, every Nth call returns true
+template <std::size_t N>
+auto ResettableCounter() {
+  return [counter = N]() mutable {
+    --counter;
+    if (counter != 0) return false;
+    counter = N;
+    return true;
+  };
 }
+
+}  // namespace memgraph::utils

@@ -18,7 +18,7 @@
 #include "query/plan/operator.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 template <typename StorageType>
 class QueryPlan : public testing::Test {

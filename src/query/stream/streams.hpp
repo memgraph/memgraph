@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -109,6 +109,11 @@ class Streams final {
   ///
   /// @throws StreamsException if the stream doesn't exist or if the persisted metadata can't be deleted.
   void Drop(const std::string &stream_name);
+
+  /// Deletes all existing streams and all the data that was persisted.
+  ///
+  /// @throws StreamsException if the persisted metadata can't be deleted.
+  void DropAll();
 
   /// Start consuming from a stream.
   ///

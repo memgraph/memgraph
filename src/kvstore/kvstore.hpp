@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -61,7 +61,7 @@ class KVStore final {
    * @return true if the value has been successfully stored.
    *         In case of any error false is going to be returned.
    */
-  bool Put(const std::string &key, const std::string &value);
+  bool Put(std::string_view key, std::string_view value);
 
   /**
    * Store values under the given keys.
@@ -81,7 +81,7 @@ class KVStore final {
    * @return Value for the given key. std::nullopt in case of any error
    *         OR the value doesn't exist.
    */
-  std::optional<std::string> Get(const std::string &key) const noexcept;
+  std::optional<std::string> Get(std::string_view key) const noexcept;
 
   /**
    * Deletes the key and corresponding value from storage.

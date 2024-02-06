@@ -48,7 +48,7 @@
 #include "utils/timer.hpp"
 #include "utils/uuid.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::Contains;
 using testing::UnorderedElementsAre;
 
@@ -837,8 +837,8 @@ INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, DurabilityTest, ::testing::Value
 TEST_P(DurabilityTest, SnapshotOnExit) {
   // Create snapshot.
   {
-    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient = {.items = {.properties_on_edges = GetParam()}}};
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -853,8 +853,10 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
@@ -874,10 +876,12 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
   // Create snapshot.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
+
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_interval = std::chrono::milliseconds(2000)}};
+                       .snapshot_interval = std::chrono::milliseconds(2000)},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -890,8 +894,10 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
@@ -916,13 +922,16 @@ TEST_P(DurabilityTest, SnapshotFallback) {
     auto const snapshot_interval = std::chrono::milliseconds(3000);
 
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-            .snapshot_interval = snapshot_interval,
-            .snapshot_retention_count = 10,  // We don't anticipate that we make this many
-        }};
+
+        .durability =
+            {
+                .storage_directory = storage_directory,
+                .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
+                .snapshot_interval = snapshot_interval,
+                .snapshot_retention_count = 10,  // We don't anticipate that we make this many
+            },
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
 
@@ -960,8 +969,10 @@ TEST_P(DurabilityTest, SnapshotFallback) {
   }
 
   // Recover snapshot.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
@@ -980,8 +991,10 @@ TEST_P(DurabilityTest, SnapshotFallback) {
 TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   // Create unrelated snapshot.
   {
-    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
 
@@ -1009,10 +1022,12 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   // Create snapshot.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
+
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_interval = std::chrono::milliseconds(2000)}};
+                       .snapshot_interval = std::chrono::milliseconds(2000)},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
 
@@ -1053,8 +1068,10 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   ASSERT_DEATH(
       ([&]() {
         memgraph::storage::Config config{
-            .items = {.properties_on_edges = GetParam()},
-            .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+
+            .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+            .salient = {.items = {.properties_on_edges = GetParam()}},
+        };
         memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
         memgraph::dbms::Database db{config, repl_state};
       }())  // iile
@@ -1066,8 +1083,10 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
 TEST_P(DurabilityTest, SnapshotRetention) {
   // Create unrelated snapshot.
   {
-    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
@@ -1085,11 +1104,13 @@ TEST_P(DurabilityTest, SnapshotRetention) {
   // Create snapshot.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
+
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                        .snapshot_interval = std::chrono::milliseconds(2000),
-                       .snapshot_retention_count = 3}};
+                       .snapshot_retention_count = 3},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     // Restore unrelated snapshots after the database has been started.
@@ -1123,8 +1144,10 @@ TEST_P(DurabilityTest, SnapshotRetention) {
   }
 
   // Recover snapshot.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
@@ -1143,8 +1166,10 @@ TEST_P(DurabilityTest, SnapshotRetention) {
 TEST_P(DurabilityTest, SnapshotMixedUUID) {
   // Create snapshot.
   {
-    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -1161,8 +1186,10 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
   // Recover snapshot.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+
+        .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
@@ -1170,8 +1197,10 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
 
   // Create another snapshot.
   {
-    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -1192,8 +1221,10 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
@@ -1212,8 +1243,10 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
 TEST_P(DurabilityTest, SnapshotBackup) {
   // Create snapshot.
   {
-    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
@@ -1231,10 +1264,12 @@ TEST_P(DurabilityTest, SnapshotBackup) {
   // Start storage without recovery.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
+
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_interval = std::chrono::minutes(20)}};
+                       .snapshot_interval = std::chrono::minutes(20)},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
   }
@@ -1249,8 +1284,10 @@ TEST_P(DurabilityTest, SnapshotBackup) {
 TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnEdges) {
   // Create snapshot.
   {
-    memgraph::storage::Config config{.items = {.properties_on_edges = false},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = false}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), false);
@@ -1265,8 +1302,10 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::storage::Config config{.items = {.properties_on_edges = true},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = true}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, false);
@@ -1285,8 +1324,10 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
 TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnEdges) {
   // Create snapshot.
   {
-    memgraph::storage::Config config{.items = {.properties_on_edges = true},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = true}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), true);
@@ -1304,8 +1345,10 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
   ASSERT_DEATH(
       ([&]() {
         memgraph::storage::Config config{
-            .items = {.properties_on_edges = false},
-            .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+
+            .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+            .salient = {.items = {.properties_on_edges = false}},
+        };
         memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
         memgraph::dbms::Database db{config, repl_state};
       }())  // iile
@@ -1317,8 +1360,10 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesRecoveryWithoutPropertiesOnE
 TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutPropertiesOnEdges) {
   // Create snapshot.
   {
-    memgraph::storage::Config config{.items = {.properties_on_edges = true},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = true}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), true);
@@ -1360,8 +1405,10 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::storage::Config config{.items = {.properties_on_edges = false},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = false}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, false);
@@ -1381,12 +1428,14 @@ TEST_P(DurabilityTest, WalBasic) {
   // Create WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -1399,8 +1448,10 @@ TEST_P(DurabilityTest, WalBasic) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
@@ -1420,13 +1471,15 @@ TEST_P(DurabilityTest, WalBackup) {
   // Create WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_size_kibibytes = 1,
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_size_kibibytes = 1,
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
@@ -1445,11 +1498,13 @@ TEST_P(DurabilityTest, WalBackup) {
   // Start storage without recovery.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20)}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20)},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
   }
@@ -1465,12 +1520,14 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
   // Create WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -1484,8 +1541,10 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
   // Recover WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+
+        .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
@@ -1494,13 +1553,15 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
   // Recover WALs and create more WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .recover_on_startup = true,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateExtendedDataset(db.storage());
@@ -1512,8 +1573,10 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
@@ -1536,12 +1599,14 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
   // Create WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
@@ -1575,8 +1640,10 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
@@ -1676,12 +1743,14 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
   // Create WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -1689,7 +1758,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     auto indices = [&] {
       auto acc = db.Access();
       auto res = acc->ListAllIndices();
-      acc->Commit();
+      (void)acc->Commit();
       return res;
     }();  // iile
     for (const auto &index : indices.label) {
@@ -1705,7 +1774,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     auto constraints = [&] {
       auto acc = db.Access();
       auto res = acc->ListAllConstraints();
-      acc->Commit();
+      (void)acc->Commit();
       return res;
     }();  // iile
     for (const auto &constraint : constraints.existence) {
@@ -1732,8 +1801,10 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
@@ -1770,14 +1841,17 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
   // Create WAL.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_size_kibibytes = 100000,
-            .wal_file_flush_every_n_tx = kFlushWalEvery,
-        }};
+
+        .durability =
+            {
+                .storage_directory = storage_directory,
+                .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                .snapshot_interval = std::chrono::minutes(20),
+                .wal_file_size_kibibytes = 100000,
+                .wal_file_flush_every_n_tx = kFlushWalEvery,
+            },
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc1 = db.Access();
@@ -1869,8 +1943,10 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
   }
 
   // Recover WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
@@ -1903,12 +1979,14 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
   // Create WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -1932,8 +2010,10 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS, GetParam());
@@ -1955,12 +2035,14 @@ TEST_P(DurabilityTest, WalDeathResilience) {
     // Create WALs.
     {
       memgraph::storage::Config config{
-          .items = {.properties_on_edges = GetParam()},
-          .durability = {
-              .storage_directory = storage_directory,
-              .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-              .snapshot_interval = std::chrono::minutes(20),
-              .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+          .durability = {.storage_directory = storage_directory,
+                         .snapshot_wal_mode =
+                             memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                         .snapshot_interval = std::chrono::minutes(20),
+                         .wal_file_flush_every_n_tx = kFlushWalEvery},
+          .salient = {.items = {.properties_on_edges = GetParam()}},
+      };
       memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
       memgraph::dbms::Database db{config, repl_state};
       // Create one million vertices.
@@ -1992,14 +2074,17 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   uint64_t count = 0;
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .recover_on_startup = true,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_flush_every_n_tx = kFlushWalEvery,
-        }};
+
+        .durability =
+            {
+                .storage_directory = storage_directory,
+                .recover_on_startup = true,
+                .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                .snapshot_interval = std::chrono::minutes(20),
+                .wal_file_flush_every_n_tx = kFlushWalEvery,
+            },
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     {
@@ -2026,8 +2111,10 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
@@ -2055,13 +2142,15 @@ TEST_P(DurabilityTest, WalMissingSecond) {
   // Create unrelated WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_size_kibibytes = 1,
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_size_kibibytes = 1,
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
@@ -2081,13 +2170,15 @@ TEST_P(DurabilityTest, WalMissingSecond) {
   // Create WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_size_kibibytes = 1,
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_size_kibibytes = 1,
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     const uint64_t kNumVertices = 1000;
@@ -2136,8 +2227,10 @@ TEST_P(DurabilityTest, WalMissingSecond) {
   ASSERT_DEATH(
       ([&]() {
         memgraph::storage::Config config{
-            .items = {.properties_on_edges = GetParam()},
-            .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+
+            .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+            .salient = {.items = {.properties_on_edges = GetParam()}},
+        };
         memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
         memgraph::dbms::Database db{config, repl_state};
       }())  // iile
@@ -2150,13 +2243,15 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
   // Create unrelated WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_size_kibibytes = 1,
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_size_kibibytes = 1,
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
@@ -2176,13 +2271,15 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
   // Create WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_size_kibibytes = 1,
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_size_kibibytes = 1,
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     const uint64_t kNumVertices = 1000;
@@ -2230,8 +2327,10 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
   ASSERT_DEATH(
       ([&]() {
         memgraph::storage::Config config{
-            .items = {.properties_on_edges = GetParam()},
-            .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+
+            .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+            .salient = {.items = {.properties_on_edges = GetParam()}},
+        };
         memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
         memgraph::dbms::Database db{config, repl_state};
       }())  // iile
@@ -2244,13 +2343,15 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
   // Create WALs
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_size_kibibytes = 1,
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_size_kibibytes = 1,
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -2271,8 +2372,10 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
   }
 
   // Recover WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   // The extended dataset shouldn't be recovered because its WAL transaction was
@@ -2294,13 +2397,15 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
   // Create WALs
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_size_kibibytes = 1,
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_size_kibibytes = 1,
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
@@ -2344,8 +2449,10 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   {
@@ -2373,12 +2480,14 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
   // Create snapshot and WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::milliseconds(2000),
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::milliseconds(2000),
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -2392,8 +2501,10 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
@@ -2412,8 +2523,10 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
 TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   // Create snapshot.
   {
-    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -2427,8 +2540,10 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   // Recover snapshot.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+
+        .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
@@ -2437,13 +2552,15 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   // Recover snapshot and create WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .recover_on_startup = true,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateExtendedDataset(db.storage());
@@ -2455,8 +2572,10 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
@@ -2475,8 +2594,10 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
 TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   // Create snapshot.
   {
-    memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -2490,8 +2611,10 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   // Recover snapshot.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+
+        .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
@@ -2500,13 +2623,15 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   // Recover snapshot and create WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .recover_on_startup = true,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateExtendedDataset(db.storage());
@@ -2521,13 +2646,15 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   memgraph::storage::Gid vertex_gid;
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .recover_on_startup = true,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
@@ -2547,8 +2674,10 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(),
@@ -2585,13 +2714,15 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
   // Create unrelated WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::minutes(20),
-            .wal_file_size_kibibytes = 1,
-            .wal_file_flush_every_n_tx = kFlushWalEvery}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::minutes(20),
+                       .wal_file_size_kibibytes = 1,
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
@@ -2613,13 +2744,15 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
   // Create snapshot and WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::seconds(2),
-            .wal_file_size_kibibytes = 1,
-            .wal_file_flush_every_n_tx = 1}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::seconds(2),
+                       .wal_file_size_kibibytes = 1,
+                       .wal_file_flush_every_n_tx = 1},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     // Restore unrelated snapshots after the database has been started.
@@ -2648,8 +2781,10 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
     // Recover and verify data.
     {
       memgraph::storage::Config config{
-          .items = {.properties_on_edges = GetParam()},
-          .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+
+          .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+          .salient = {.items = {.properties_on_edges = GetParam()}},
+      };
       memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
       memgraph::dbms::Database db{config, repl_state};
       auto acc = db.Access();
@@ -2668,8 +2803,10 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
   ASSERT_DEATH(
       ([&]() {
         memgraph::storage::Config config{
-            .items = {.properties_on_edges = GetParam()},
-            .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+
+            .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+            .salient = {.items = {.properties_on_edges = GetParam()}},
+        };
         memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
         memgraph::dbms::Database db{config, repl_state};
       }())  // iile
@@ -2682,11 +2819,13 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
   // Create unrelated snapshot and WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::seconds(2)}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::seconds(2)},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     auto acc = db.Access();
@@ -2705,11 +2844,13 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
   // Create snapshot and WALs.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {
-            .storage_directory = storage_directory,
-            .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-            .snapshot_interval = std::chrono::seconds(2)}};
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = std::chrono::seconds(2)},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -2732,8 +2873,10 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot and WALs.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
@@ -2753,8 +2896,10 @@ TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
   // Create snapshot.
   {
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
-        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true, .items_per_batch = 13}};
+
+        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true, .items_per_batch = 13},
+        .salient = {.items = {.properties_on_edges = GetParam()}},
+    };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -2769,12 +2914,14 @@ TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory,
-                                                  .recover_on_startup = true,
-                                                  .snapshot_on_exit = false,
-                                                  .items_per_batch = 13,
-                                                  .allow_parallel_index_creation = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .snapshot_on_exit = false,
+                     .items_per_batch = 13,
+                     .allow_parallel_index_creation = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam());
@@ -2789,12 +2936,14 @@ TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
-  memgraph::storage::Config config{.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory,
-                                                  .recover_on_startup = true,
-                                                  .snapshot_on_exit = false,
-                                                  .items_per_batch = 13,
-                                                  .allow_parallel_schema_creation = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .snapshot_on_exit = false,
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
+      .salient = {.items = {.properties_on_edges = GetParam()}},
+  };
   // Create snapshot.
   {
     config.durability.recover_on_startup = false;

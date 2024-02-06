@@ -20,7 +20,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 class ClearingOldDiskDataTest : public ::testing::Test {
  public:

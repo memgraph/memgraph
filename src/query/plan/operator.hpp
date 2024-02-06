@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -953,11 +953,11 @@ struct ExpansionLambda {
   /// Currently expanded node symbol.
   Symbol inner_node_symbol;
   /// Expression used in lambda during expansion.
-  Expression *expression;
+  Expression *expression = nullptr;
   /// Currently expanded accumulated path symbol.
-  std::optional<Symbol> accumulated_path_symbol;
+  std::optional<Symbol> accumulated_path_symbol = std::nullopt;
   /// Currently expanded accumulated weight symbol.
-  std::optional<Symbol> accumulated_weight_symbol;
+  std::optional<Symbol> accumulated_weight_symbol = std::nullopt;
 
   ExpansionLambda Clone(AstStorage *storage) const {
     ExpansionLambda object;

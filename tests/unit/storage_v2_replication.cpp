@@ -22,26 +22,26 @@
 #include <storage/v2/inmemory/storage.hpp>
 #include <storage/v2/property_value.hpp>
 #include <storage/v2/replication/enums.hpp>
+#include "auth/auth.hpp"
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "dbms/replication_handler.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/config.hpp"
 #include "replication/state.hpp"
+#include "replication_handler/replication_handler.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/synchronized.hpp"
 
 using testing::UnorderedElementsAre;
 
-using memgraph::dbms::RegisterReplicaError;
-using memgraph::dbms::ReplicationHandler;
-using memgraph::dbms::UnregisterReplicaResult;
+using memgraph::query::RegisterReplicaError;
+using memgraph::query::UnregisterReplicaResult;
 using memgraph::replication::ReplicationClientConfig;
-using memgraph::replication::ReplicationMode;
-using memgraph::replication::ReplicationRole;
+using memgraph::replication::ReplicationHandler;
 using memgraph::replication::ReplicationServerConfig;
+using memgraph::replication_coordination_glue::ReplicationMode;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Config;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::Gid;
@@ -64,26 +64,35 @@ class ReplicationTest : public ::testing::Test {
   void TearDown() override { Clear(); }
 
   Config main_conf = [&] {
-    Config config{.items = {.properties_on_edges = true},
-                  .durability = {
-                      .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                  }};
+    Config config{
+        .durability =
+            {
+                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            },
+        .salient.items = {.properties_on_edges = true},
+    };
     UpdatePaths(config, storage_directory);
     return config;
   }();
   Config repl_conf = [&] {
-    Config config{.items = {.properties_on_edges = true},
-                  .durability = {
-                      .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                  }};
+    Config config{
+        .durability =
+            {
+                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            },
+        .salient.items = {.properties_on_edges = true},
+    };
     UpdatePaths(config, repl_storage_directory);
     return config;
   }();
   Config repl2_conf = [&] {
-    Config config{.items = {.properties_on_edges = true},
-                  .durability = {
-                      .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                  }};
+    Config config{
+        .durability =
+            {
+                .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+            },
+        .salient.items = {.properties_on_edges = true},
+    };
     UpdatePaths(config, repl2_storage_directory);
     return config;
   }();
@@ -102,20 +111,28 @@ class ReplicationTest : public ::testing::Test {
 
 struct MinMemgraph {
   MinMemgraph(const memgraph::storage::Config &conf)
-      : dbms{conf
+      : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
+        repl_state{ReplicationStateRootPath(conf)},
+        dbms{conf, system_, repl_state
 #ifdef MG_ENTERPRISE
              ,
-             reinterpret_cast<
-                 memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *>(0),
-             true, false
+             auth, true
 #endif
         },
-        repl_state{dbms.ReplicationState()},
-        db{*dbms.Get().get()},
-        repl_handler(dbms) {
+        db_acc{dbms.Get()},
+        db{*db_acc.get()},
+        repl_handler(repl_state, dbms
+#ifdef MG_ENTERPRISE
+                     ,
+                     &system_, auth
+#endif
+        ) {
   }
+  memgraph::auth::SynchedAuth auth;
+  memgraph::system::System system_;
+  memgraph::replication::ReplicationState repl_state;
   memgraph::dbms::DbmsHandler dbms;
-  memgraph::replication::ReplicationState &repl_state;
+  memgraph::dbms::DatabaseAccess db_acc;
   memgraph::dbms::Database &db;
   ReplicationHandler repl_handler;
 };
@@ -130,7 +147,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
       .port = ports[0],
   });
 
-  const auto &reg = main.repl_handler.RegisterReplica(ReplicationClientConfig{
+  const auto &reg = main.repl_handler.TryRegisterReplica(ReplicationClientConfig{
       .name = "REPLICA",
       .mode = ReplicationMode::SYNC,
       .ip_address = local_host,
@@ -152,7 +169,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(v.AddLabel(main.db.storage()->NameToLabel(vertex_label)).HasValue());
     ASSERT_TRUE(v.SetProperty(main.db.storage()->NameToProperty(vertex_property), PropertyValue(vertex_property_value))
                     .HasValue());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   {
@@ -178,7 +195,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(v->RemoveLabel(main.db.storage()->NameToLabel(vertex_label)).HasValue());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   {
@@ -197,7 +214,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
     ASSERT_TRUE(acc->DeleteVertex(&*v).HasValue());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   {
@@ -224,7 +241,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_TRUE(edge.SetProperty(main.db.storage()->NameToProperty(edge_property), PropertyValue(edge_property_value))
                     .HasValue());
     edge_gid.emplace(edge.Gid());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   const auto find_edge = [&](const auto &edges, const Gid edge_gid) -> std::optional<EdgeAccessor> {
@@ -261,7 +278,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto edge = find_edge(out_edges->edges, *edge_gid);
     ASSERT_TRUE(edge);
     ASSERT_TRUE(acc->DeleteEdge(&*edge).HasValue());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   {
@@ -287,25 +304,25 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(main.db.storage()->NameToLabel(label)).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label), l_stats);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_FALSE(
         unique_acc->CreateIndex(main.db.storage()->NameToLabel(label), main.db.storage()->NameToProperty(property))
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->SetIndexStats(main.db.storage()->NameToLabel(label), main.db.storage()->NameToProperty(property),
                               lp_stats);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
@@ -313,7 +330,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
                      ->CreateExistenceConstraint(main.db.storage()->NameToLabel(label),
                                                  main.db.storage()->NameToProperty(property))
                      .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
@@ -322,7 +339,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
                                               {main.db.storage()->NameToProperty(property),
                                                main.db.storage()->NameToProperty(property_extra)})
                      .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
 
   {
@@ -360,24 +377,24 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->DeleteLabelIndexStats(main.db.storage()->NameToLabel(label));
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_FALSE(unique_acc->DropIndex(main.db.storage()->NameToLabel(label)).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     unique_acc->DeleteLabelPropertyIndexStats(main.db.storage()->NameToLabel(label));
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
     ASSERT_FALSE(
         unique_acc->DropIndex(main.db.storage()->NameToLabel(label), main.db.storage()->NameToProperty(property))
             .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
@@ -385,7 +402,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
                      ->DropExistenceConstraint(main.db.storage()->NameToLabel(label),
                                                main.db.storage()->NameToProperty(property))
                      .HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto unique_acc = main.db.UniqueAccess();
@@ -393,7 +410,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
                   main.db.storage()->NameToLabel(label),
                   {main.db.storage()->NameToProperty(property), main.db.storage()->NameToProperty(property_extra)}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->Commit({}, main.db_acc).HasError());
   }
 
   {
@@ -428,7 +445,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   });
 
   ASSERT_FALSE(main.repl_handler
-                   .RegisterReplica(ReplicationClientConfig{
+                   .TryRegisterReplica(ReplicationClientConfig{
                        .name = replicas[0],
                        .mode = ReplicationMode::SYNC,
                        .ip_address = local_host,
@@ -436,7 +453,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
                    })
                    .HasError());
   ASSERT_FALSE(main.repl_handler
-                   .RegisterReplica(ReplicationClientConfig{
+                   .TryRegisterReplica(ReplicationClientConfig{
                        .name = replicas[1],
                        .mode = ReplicationMode::SYNC,
                        .ip_address = local_host,
@@ -455,7 +472,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
     ASSERT_TRUE(v.SetProperty(main.db.storage()->NameToProperty(vertex_property), PropertyValue(vertex_property_value))
                     .HasValue());
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   const auto check_replica = [&](memgraph::dbms::Database &replica_database) {
@@ -477,7 +494,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
     auto acc = main.db.Access();
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   // REPLICA1 should contain the new vertex
@@ -515,7 +532,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       // Create the vertex before registering a replica
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
-      ASSERT_FALSE(acc->Commit().HasError());
+      ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
     }
   }
 
@@ -531,13 +548,13 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       auto acc = main.db.Access();
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
-      ASSERT_FALSE(acc->Commit().HasError());
+      ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
     }
     {
       auto acc = main.db.Access();
       auto v = acc->CreateVertex();
       vertex_gids.emplace_back(v.Gid());
-      ASSERT_FALSE(acc->Commit().HasError());
+      ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
     }
   }
 
@@ -560,7 +577,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       ASSERT_TRUE(
           v->SetProperty(main.db.storage()->NameToProperty(property_name), PropertyValue(property_value)).HasValue());
     }
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   static constexpr const auto *vertex_label = "vertex_label";
@@ -573,7 +590,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
         .port = ports[0],
     });
     ASSERT_FALSE(main.repl_handler
-                     .RegisterReplica(ReplicationClientConfig{
+                     .TryRegisterReplica(ReplicationClientConfig{
                          .name = replicas[0],
                          .mode = ReplicationMode::SYNC,
                          .ip_address = local_host,
@@ -594,7 +611,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
         ASSERT_TRUE(v);
         ASSERT_TRUE(v->AddLabel(main.db.storage()->NameToLabel(vertex_label)).HasValue());
       }
-      ASSERT_FALSE(acc->Commit().HasError());
+      ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
     }
     {
       auto acc = replica.db.Access();
@@ -649,7 +666,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   });
 
   ASSERT_FALSE(main.repl_handler
-                   .RegisterReplica(ReplicationClientConfig{
+                   .TryRegisterReplica(ReplicationClientConfig{
                        .name = "REPLICA_ASYNC",
                        .mode = ReplicationMode::ASYNC,
                        .ip_address = local_host,
@@ -663,7 +680,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     auto acc = main.db.Access();
     auto v = acc->CreateVertex();
     created_vertices.push_back(v.Gid());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
 
     if (i == 0) {
       ASSERT_EQ(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
@@ -701,7 +718,7 @@ TEST_F(ReplicationTest, EpochTest) {
   });
 
   ASSERT_FALSE(main.repl_handler
-                   .RegisterReplica(ReplicationClientConfig{
+                   .TryRegisterReplica(ReplicationClientConfig{
                        .name = replicas[0],
                        .mode = ReplicationMode::SYNC,
                        .ip_address = local_host,
@@ -710,7 +727,7 @@ TEST_F(ReplicationTest, EpochTest) {
                    .HasError());
 
   ASSERT_FALSE(main.repl_handler
-                   .RegisterReplica(ReplicationClientConfig{
+                   .TryRegisterReplica(ReplicationClientConfig{
                        .name = replicas[1],
                        .mode = ReplicationMode::SYNC,
                        .ip_address = local_host,
@@ -723,13 +740,13 @@ TEST_F(ReplicationTest, EpochTest) {
     auto acc = main.db.Access();
     const auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto acc = replica1.db.Access();
     const auto v = acc->FindVertex(*vertex_gid, View::OLD);
     ASSERT_TRUE(v);
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto acc = replica2.db.Access();
@@ -744,7 +761,7 @@ TEST_F(ReplicationTest, EpochTest) {
   ASSERT_TRUE(replica1.repl_handler.SetReplicationRoleMain());
 
   ASSERT_FALSE(replica1.repl_handler
-                   .RegisterReplica(ReplicationClientConfig{
+                   .TryRegisterReplica(ReplicationClientConfig{
                        .name = replicas[1],
                        .mode = ReplicationMode::SYNC,
                        .ip_address = local_host,
@@ -756,13 +773,13 @@ TEST_F(ReplicationTest, EpochTest) {
   {
     auto acc = main.db.Access();
     acc->CreateVertex();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
   {
     auto acc = replica1.db.Access();
     auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, replica1.db_acc).HasError());
   }
   // Replica1 should forward it's vertex to Replica2
   {
@@ -777,7 +794,7 @@ TEST_F(ReplicationTest, EpochTest) {
       .port = ports[0],
   });
   ASSERT_TRUE(main.repl_handler
-                  .RegisterReplica(ReplicationClientConfig{
+                  .TryRegisterReplica(ReplicationClientConfig{
                       .name = replicas[0],
                       .mode = ReplicationMode::SYNC,
                       .ip_address = local_host,
@@ -790,7 +807,7 @@ TEST_F(ReplicationTest, EpochTest) {
     auto acc = main.db.Access();
     const auto v = acc->CreateVertex();
     vertex_gid.emplace(v.Gid());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
   // Replica1 is not compatible with the main so it shouldn't contain
   // it's newest vertex
@@ -820,7 +837,7 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   });
 
   ASSERT_FALSE(main.repl_handler
-                   .RegisterReplica(ReplicationClientConfig{
+                   .TryRegisterReplica(ReplicationClientConfig{
                        .name = replicas[0],
                        .mode = ReplicationMode::SYNC,
                        .ip_address = local_host,
@@ -830,7 +847,7 @@ TEST_F(ReplicationTest, ReplicationInformation) {
                    .HasError());
 
   ASSERT_FALSE(main.repl_handler
-                   .RegisterReplica(ReplicationClientConfig{
+                   .TryRegisterReplica(ReplicationClientConfig{
                        .name = replicas[1],
                        .mode = ReplicationMode::ASYNC,
                        .ip_address = local_host,
@@ -876,7 +893,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
       .port = replica2_port,
   });
   ASSERT_FALSE(main.repl_handler
-                   .RegisterReplica(ReplicationClientConfig{
+                   .TryRegisterReplica(ReplicationClientConfig{
                        .name = replicas[0],
                        .mode = ReplicationMode::SYNC,
                        .ip_address = local_host,
@@ -885,7 +902,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
                    .HasError());
 
   ASSERT_TRUE(main.repl_handler
-                  .RegisterReplica(ReplicationClientConfig{
+                  .TryRegisterReplica(ReplicationClientConfig{
                       .name = replicas[0],
                       .mode = ReplicationMode::ASYNC,
                       .ip_address = local_host,
@@ -911,7 +928,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
   });
 
   ASSERT_FALSE(main.repl_handler
-                   .RegisterReplica(ReplicationClientConfig{
+                   .TryRegisterReplica(ReplicationClientConfig{
                        .name = replicas[0],
                        .mode = ReplicationMode::SYNC,
                        .ip_address = local_host,
@@ -920,13 +937,13 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
                    .HasError());
 
   ASSERT_TRUE(main.repl_handler
-                  .RegisterReplica(ReplicationClientConfig{
+                  .TryRegisterReplica(ReplicationClientConfig{
                       .name = replicas[1],
                       .mode = ReplicationMode::ASYNC,
                       .ip_address = local_host,
                       .port = common_port,
                   })
-                  .GetError() == RegisterReplicaError::END_POINT_EXISTS);
+                  .GetError() == RegisterReplicaError::ENDPOINT_EXISTS);
 }
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
@@ -959,14 +976,14 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
       .port = ports[1],
   });
 
-  auto res = main->repl_handler.RegisterReplica(ReplicationClientConfig{
+  auto res = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
       .name = replicas[0],
       .mode = ReplicationMode::SYNC,
       .ip_address = local_host,
       .port = ports[0],
   });
   ASSERT_FALSE(res.HasError()) << (int)res.GetError();
-  res = main->repl_handler.RegisterReplica(ReplicationClientConfig{
+  res = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
       .name = replicas[1],
       .mode = ReplicationMode::SYNC,
       .ip_address = local_host,
@@ -1016,14 +1033,14 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
       .ip_address = local_host,
       .port = ports[1],
   });
-  auto res = main->repl_handler.RegisterReplica(ReplicationClientConfig{
+  auto res = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
       .name = replicas[0],
       .mode = ReplicationMode::SYNC,
       .ip_address = local_host,
       .port = ports[0],
   });
   ASSERT_FALSE(res.HasError());
-  res = main->repl_handler.RegisterReplica(ReplicationClientConfig{
+  res = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
       .name = replicas[1],
       .mode = ReplicationMode::SYNC,
       .ip_address = local_host,
@@ -1066,7 +1083,7 @@ TEST_F(ReplicationTest, AddingInvalidReplica) {
   MinMemgraph main(main_conf);
 
   ASSERT_TRUE(main.repl_handler
-                  .RegisterReplica(ReplicationClientConfig{
+                  .TryRegisterReplica(ReplicationClientConfig{
                       .name = "REPLICA",
                       .mode = ReplicationMode::SYNC,
                       .ip_address = local_host,

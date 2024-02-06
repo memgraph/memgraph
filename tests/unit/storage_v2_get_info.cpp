@@ -22,7 +22,7 @@
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 constexpr auto testSuite = "storage_v2_get_info";
 const std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / testSuite};
 

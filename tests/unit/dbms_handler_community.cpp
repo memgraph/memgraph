@@ -28,7 +28,9 @@
 // Global
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_handler_community"};
 static memgraph::storage::Config storage_conf;
-std::unique_ptr<memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>> auth;
+std::unique_ptr<memgraph::auth::SynchedAuth> auth;
+std::unique_ptr<memgraph::system::System> system_state;
+std::unique_ptr<memgraph::replication::ReplicationState> repl_state;
 
 // Let this be global so we can test it different states throughout
 
@@ -49,14 +51,17 @@ class TestEnvironment : public ::testing::Environment {
         std::filesystem::remove_all(storage_directory);
       }
     }
-    auth =
-        std::make_unique<memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>>(
-            storage_directory / "auth");
-    ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf);
+    auth = std::make_unique<memgraph::auth::SynchedAuth>(storage_directory / "auth",
+                                                         memgraph::auth::Auth::Config{/* default */});
+    system_state = std::make_unique<memgraph::system::System>();
+    repl_state = std::make_unique<memgraph::replication::ReplicationState>(ReplicationStateRootPath(storage_conf));
+    ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, *system_state.get(), *repl_state.get());
   }
 
   void TearDown() override {
     ptr_.reset();
+    repl_state.reset();
+    system_state.reset();
     auth.reset();
     std::filesystem::remove_all(storage_directory);
   }
@@ -90,9 +95,9 @@ TEST(DBMS_Handler, Get) {
   ASSERT_TRUE(default_db->streams() != nullptr);
   ASSERT_TRUE(default_db->trigger_store() != nullptr);
   ASSERT_TRUE(default_db->thread_pool() != nullptr);
-  ASSERT_EQ(default_db->storage()->id(), memgraph::dbms::kDefaultDB);
+  ASSERT_EQ(default_db->storage()->name(), memgraph::dbms::kDefaultDB);
   auto conf = storage_conf;
-  conf.name = memgraph::dbms::kDefaultDB;
+  conf.salient.name = memgraph::dbms::kDefaultDB;
   ASSERT_EQ(default_db->storage()->config_, conf);
 }
 

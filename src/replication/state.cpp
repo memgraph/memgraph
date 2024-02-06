@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,6 +34,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   repl_dir /= kReplicationDirectory;
   utils::EnsureDirOrDie(repl_dir);
   durability_ = std::make_unique<kvstore::KVStore>(std::move(repl_dir));
+  spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
 
   auto replicationData = FetchReplicationData();
   if (replicationData.HasError()) {
@@ -54,7 +55,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
 }
 
 bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config) {
-  if (!ShouldPersist()) return true;
+  if (!HasDurability()) return true;
 
   auto data = durability::ReplicationRoleEntry{.role = durability::ReplicaRole{
                                                    .config = config,
@@ -78,7 +79,7 @@ bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &conf
 }
 
 bool ReplicationState::TryPersistRoleMain(std::string new_epoch) {
-  if (!ShouldPersist()) return true;
+  if (!HasDurability()) return true;
 
   auto data =
       durability::ReplicationRoleEntry{.role = durability::MainRole{.epoch = ReplicationEpoch{std::move(new_epoch)}}};
@@ -92,7 +93,7 @@ bool ReplicationState::TryPersistRoleMain(std::string new_epoch) {
 }
 
 bool ReplicationState::TryPersistUnregisterReplica(std::string_view name) {
-  if (!ShouldPersist()) return true;
+  if (!HasDurability()) return true;
 
   auto key = BuildReplicaKey(name);
 
@@ -104,7 +105,7 @@ bool ReplicationState::TryPersistUnregisterReplica(std::string_view name) {
 // TODO: FetchEpochData (agnostic of FetchReplicationData, but should be done before)
 
 auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
-  if (!ShouldPersist()) return FetchReplicationError::NOTHING_FETCHED;
+  if (!HasDurability()) return FetchReplicationError::NOTHING_FETCHED;
   const auto replication_data = durability_->Get(durability::kReplicationRoleName);
   if (!replication_data.has_value()) {
     return FetchReplicationError::NOTHING_FETCHED;
@@ -199,7 +200,7 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
 }
 
 bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig &config) {
-  if (!ShouldPersist()) return true;
+  if (!HasDurability()) return true;
 
   // If any replicas are persisted then Role must be persisted
   if (role_persisted != RolePersisted::YES) {
@@ -218,10 +219,12 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
 
 bool ReplicationState::SetReplicationRoleMain() {
   auto new_epoch = utils::GenerateUUID();
+
   if (!TryPersistRoleMain(new_epoch)) {
     return false;
   }
   replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}};
+
   return true;
 }
 
@@ -236,6 +239,7 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
 utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::RegisterReplica(
     const ReplicationClientConfig &config) {
   auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaError::NOT_MAIN; };
+
   ReplicationClient *client{nullptr};
   auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaError {
     // name check
@@ -256,7 +260,7 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
     };
     if (endpoint_check(mainData.registered_replicas_)) {
-      return RegisterReplicaError::END_POINT_EXISTS;
+      return RegisterReplicaError::ENDPOINT_EXISTS;
     }
 
     // Durability
@@ -275,4 +279,5 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
   }
   return res;
 }
+
 }  // namespace memgraph::replication

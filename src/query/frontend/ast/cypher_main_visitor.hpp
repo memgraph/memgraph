@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -237,6 +237,26 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ReplicationQuery*
    */
   antlrcpp::Any visitShowReplicas(MemgraphCypher::ShowReplicasContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitCoordinatorQuery(MemgraphCypher::CoordinatorQueryContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitRegisterInstanceOnCoordinator(MemgraphCypher::RegisterInstanceOnCoordinatorContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitSetInstanceToMain(MemgraphCypher::SetInstanceToMainContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitShowReplicationCluster(MemgraphCypher::ShowReplicationClusterContext *ctx) override;
 
   /**
    * @return LockPathQuery*
@@ -1011,6 +1031,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return MultiDatabaseQuery*
    */
   antlrcpp::Any visitDropDatabase(MemgraphCypher::DropDatabaseContext *ctx) override;
+
+  /**
+   * @return MultiDatabaseQuery*
+   */
+  antlrcpp::Any visitShowDatabase(MemgraphCypher::ShowDatabaseContext *ctx) override;
 
   /**
    * @return ShowDatabasesQuery*

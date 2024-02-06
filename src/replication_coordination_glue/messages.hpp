@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,11 +14,11 @@
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 
-namespace memgraph::replication {
+namespace memgraph::replication_coordination_glue {
 
 struct FrequentHeartbeatReq {
-  static const utils::TypeInfo kType;                            // TODO: make constexpr?
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }  // WHAT?
+  static const utils::TypeInfo kType;  // TODO: make constexpr?
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
   static void Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
@@ -32,13 +32,18 @@ struct FrequentHeartbeatRes {
   static void Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
   FrequentHeartbeatRes() = default;
-  explicit FrequentHeartbeatRes(bool success) : success(success) {}
-
-  bool success;
 };
 
 using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;
 
 void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::replication_coordination_glue
+
+namespace memgraph::slk {
+void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication_coordination_glue::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatReq & /*self*/,
+          memgraph::slk::Builder * /*builder*/);
+void Load(memgraph::replication_coordination_glue::FrequentHeartbeatReq * /*self*/, memgraph::slk::Reader * /*reader*/);
+}  // namespace memgraph::slk

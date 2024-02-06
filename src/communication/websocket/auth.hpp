@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,8 +14,6 @@
 #include <string>
 
 #include "auth/auth.hpp"
-#include "utils/spin_lock.hpp"
-#include "utils/synchronized.hpp"
 
 namespace memgraph::communication::websocket {
 
@@ -30,7 +28,7 @@ class AuthenticationInterface {
 
 class SafeAuth : public AuthenticationInterface {
  public:
-  explicit SafeAuth(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth) : auth_{auth} {}
+  explicit SafeAuth(auth::SynchedAuth *auth) : auth_{auth} {}
 
   bool Authenticate(const std::string &username, const std::string &password) const override;
 
@@ -39,6 +37,6 @@ class SafeAuth : public AuthenticationInterface {
   bool HasAnyUsers() const override;
 
  private:
-  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
+  auth::SynchedAuth *auth_;
 };
 }  // namespace memgraph::communication::websocket

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -504,7 +504,7 @@ void OutputFile::Close() noexcept {
 void OutputFile::FlushBuffer(bool force_flush) {
   MG_ASSERT(IsOpen(), "Flushing an unopend file.");
 
-  if (!force_flush && buffer_position_.load() < kFileBufferSize) return;
+  if (!force_flush && buffer_position_ < kFileBufferSize) return;
 
   std::unique_lock flush_guard(flush_lock_);
   FlushBufferInternal();

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,8 +21,9 @@ struct InterpreterFaker {
   }
 
   auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
-    ResultStreamFaker stream(interpreter.current_db_.db_acc_->get()->storage());
     const auto [header, _1, qid, _2] = interpreter.Prepare(query, params, {});
+    auto &db = interpreter.current_db_.db_acc_;
+    ResultStreamFaker stream(db ? db->get()->storage() : nullptr);
     stream.Header(header);
     return std::make_pair(std::move(stream), qid);
   }

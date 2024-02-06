@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 #include "auth/auth.hpp"
 #include "auth/crypto.hpp"
 #include "auth/models.hpp"
+#include "glue/auth_global.hpp"
 #include "license/license.hpp"
 #include "utils/cast.hpp"
 #include "utils/file.hpp"
@@ -26,90 +27,70 @@
 using namespace memgraph::auth;
 namespace fs = std::filesystem;
 
-DECLARE_bool(auth_password_permit_null);
-DECLARE_string(auth_password_strength_regex);
 DECLARE_string(password_encryption_algorithm);
 
 class AuthWithStorage : public ::testing::Test {
  protected:
   void SetUp() override {
     memgraph::utils::EnsureDir(test_folder_);
-    FLAGS_auth_password_permit_null = true;
-    FLAGS_auth_password_strength_regex = ".+";
-
     memgraph::license::global_license_checker.EnableTesting();
+    auth.emplace(test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))), auth_config);
   }
 
   void TearDown() override { fs::remove_all(test_folder_); }
 
   fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
-
-  Auth auth{test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid())))};
+  Auth::Config auth_config{};
+  std::optional<Auth> auth{};
 };
 
 TEST_F(AuthWithStorage, AddRole) {
-  ASSERT_TRUE(auth.AddRole("admin"));
-  ASSERT_TRUE(auth.AddRole("user"));
-  ASSERT_FALSE(auth.AddRole("admin"));
+  ASSERT_TRUE(auth->AddRole("admin"));
+  ASSERT_TRUE(auth->AddRole("user"));
+  ASSERT_FALSE(auth->AddRole("admin"));
 }
 
 TEST_F(AuthWithStorage, RemoveRole) {
-  ASSERT_TRUE(auth.AddRole("admin"));
-  ASSERT_TRUE(auth.RemoveRole("admin"));
-  class AuthWithStorage : public ::testing::Test {
-   protected:
-    void SetUp() override {
-      memgraph::utils::EnsureDir(test_folder_);
-      FLAGS_auth_password_permit_null = true;
-      FLAGS_auth_password_strength_regex = ".+";
-
-      memgraph::license::global_license_checker.EnableTesting();
-    }
-
-    void TearDown() override { fs::remove_all(test_folder_); }
-
-    fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
-
-    Auth auth{test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid())))};
-  };
-  ASSERT_FALSE(auth.HasUsers());
-  ASSERT_FALSE(auth.RemoveUser("test2"));
-  ASSERT_FALSE(auth.RemoveUser("test"));
-  ASSERT_FALSE(auth.HasUsers());
+  ASSERT_TRUE(auth->AddRole("admin"));
+  ASSERT_TRUE(auth->RemoveRole("admin"));
+  ASSERT_FALSE(auth->HasUsers());
+  ASSERT_FALSE(auth->RemoveUser("test2"));
+  ASSERT_FALSE(auth->RemoveUser("test"));
+  ASSERT_FALSE(auth->HasUsers());
 }
 
 TEST_F(AuthWithStorage, Authenticate) {
-  ASSERT_FALSE(auth.HasUsers());
+  ASSERT_FALSE(auth->HasUsers());
 
-  auto user = auth.AddUser("test");
+  auto user = auth->AddUser("test");
   ASSERT_NE(user, std::nullopt);
-  ASSERT_TRUE(auth.HasUsers());
+  ASSERT_TRUE(auth->HasUsers());
 
-  ASSERT_TRUE(auth.Authenticate("test", "123"));
+  ASSERT_TRUE(auth->Authenticate("test", "123"));
 
   user->UpdatePassword("123");
-  auth.SaveUser(*user);
+  auth->SaveUser(*user);
 
-  ASSERT_NE(auth.Authenticate("test", "123"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "123"), std::nullopt);
 
-  ASSERT_EQ(auth.Authenticate("test", "456"), std::nullopt);
-  ASSERT_NE(auth.Authenticate("test", "123"), std::nullopt);
+  ASSERT_EQ(auth->Authenticate("test", "456"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "123"), std::nullopt);
 
   user->UpdatePassword();
-  auth.SaveUser(*user);
+  auth->SaveUser(*user);
 
-  ASSERT_NE(auth.Authenticate("test", "123"), std::nullopt);
-  ASSERT_NE(auth.Authenticate("test", "456"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "123"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "456"), std::nullopt);
 
-  ASSERT_EQ(auth.Authenticate("nonexistant", "123"), std::nullopt);
+  ASSERT_EQ(auth->Authenticate("nonexistant", "123"), std::nullopt);
 }
 
 TEST_F(AuthWithStorage, UserRolePermissions) {
-  ASSERT_FALSE(auth.HasUsers());
-  ASSERT_TRUE(auth.AddUser("test"));
-  ASSERT_TRUE(auth.HasUsers());
+  ASSERT_FALSE(auth->HasUsers());
+  ASSERT_TRUE(auth->AddUser("test"));
+  ASSERT_TRUE(auth->HasUsers());
 
-  auto user = auth.GetUser("test");
+  auto user = auth->GetUser("test");
   ASSERT_NE(user, std::nullopt);
 
   // Test initial user permissions.
@@ -130,8 +111,8 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
   ASSERT_EQ(user->permissions(), user->GetPermissions());
 
   // Create role.
-  ASSERT_TRUE(auth.AddRole("admin"));
-  auto role = auth.GetRole("admin");
+  ASSERT_TRUE(auth->AddRole("admin"));
+  auto role = auth->GetRole("admin");
   ASSERT_NE(role, std::nullopt);
 
   // Assign permissions to role and role to user.
@@ -163,11 +144,11 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
 
 #ifdef MG_ENTERPRISE
 TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
-  ASSERT_FALSE(auth.HasUsers());
-  ASSERT_TRUE(auth.AddUser("test"));
-  ASSERT_TRUE(auth.HasUsers());
+  ASSERT_FALSE(auth->HasUsers());
+  ASSERT_TRUE(auth->AddUser("test"));
+  ASSERT_TRUE(auth->HasUsers());
 
-  auto user = auth.GetUser("test");
+  auto user = auth->GetUser("test");
   ASSERT_NE(user, std::nullopt);
 
   // Test initial user fine grained access permissions.
@@ -204,8 +185,8 @@ TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
             user->GetFineGrainedAccessEdgeTypePermissions());
 
   // Create role.
-  ASSERT_TRUE(auth.AddRole("admin"));
-  auto role = auth.GetRole("admin");
+  ASSERT_TRUE(auth->AddRole("admin"));
+  auto role = auth->GetRole("admin");
   ASSERT_NE(role, std::nullopt);
 
   // Grant label and edge type to role and role to user.
@@ -236,44 +217,44 @@ TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
 
 TEST_F(AuthWithStorage, RoleManipulations) {
   {
-    auto user1 = auth.AddUser("user1");
+    auto user1 = auth->AddUser("user1");
     ASSERT_TRUE(user1);
-    auto role1 = auth.AddRole("role1");
+    auto role1 = auth->AddRole("role1");
     ASSERT_TRUE(role1);
     user1->SetRole(*role1);
-    auth.SaveUser(*user1);
+    auth->SaveUser(*user1);
 
-    auto user2 = auth.AddUser("user2");
+    auto user2 = auth->AddUser("user2");
     ASSERT_TRUE(user2);
-    auto role2 = auth.AddRole("role2");
+    auto role2 = auth->AddRole("role2");
     ASSERT_TRUE(role2);
     user2->SetRole(*role2);
-    auth.SaveUser(*user2);
+    auth->SaveUser(*user2);
   }
 
   {
-    auto user1 = auth.GetUser("user1");
+    auto user1 = auth->GetUser("user1");
     ASSERT_TRUE(user1);
     const auto *role1 = user1->role();
     ASSERT_NE(role1, nullptr);
     ASSERT_EQ(role1->rolename(), "role1");
 
-    auto user2 = auth.GetUser("user2");
+    auto user2 = auth->GetUser("user2");
     ASSERT_TRUE(user2);
     const auto *role2 = user2->role();
     ASSERT_NE(role2, nullptr);
     ASSERT_EQ(role2->rolename(), "role2");
   }
 
-  ASSERT_TRUE(auth.RemoveRole("role1"));
+  ASSERT_TRUE(auth->RemoveRole("role1"));
 
   {
-    auto user1 = auth.GetUser("user1");
+    auto user1 = auth->GetUser("user1");
     ASSERT_TRUE(user1);
     const auto *role = user1->role();
     ASSERT_EQ(role, nullptr);
 
-    auto user2 = auth.GetUser("user2");
+    auto user2 = auth->GetUser("user2");
     ASSERT_TRUE(user2);
     const auto *role2 = user2->role();
     ASSERT_NE(role2, nullptr);
@@ -281,17 +262,17 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   }
 
   {
-    auto role1 = auth.AddRole("role1");
+    auto role1 = auth->AddRole("role1");
     ASSERT_TRUE(role1);
   }
 
   {
-    auto user1 = auth.GetUser("user1");
+    auto user1 = auth->GetUser("user1");
     ASSERT_TRUE(user1);
     const auto *role1 = user1->role();
     ASSERT_EQ(role1, nullptr);
 
-    auto user2 = auth.GetUser("user2");
+    auto user2 = auth->GetUser("user2");
     ASSERT_TRUE(user2);
     const auto *role2 = user2->role();
     ASSERT_NE(role2, nullptr);
@@ -299,7 +280,7 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   }
 
   {
-    auto users = auth.AllUsers();
+    auto users = auth->AllUsers();
     std::sort(users.begin(), users.end(), [](const User &a, const User &b) { return a.username() < b.username(); });
     ASSERT_EQ(users.size(), 2);
     ASSERT_EQ(users[0].username(), "user1");
@@ -307,7 +288,7 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   }
 
   {
-    auto roles = auth.AllRoles();
+    auto roles = auth->AllRoles();
     std::sort(roles.begin(), roles.end(), [](const Role &a, const Role &b) { return a.rolename() < b.rolename(); });
     ASSERT_EQ(roles.size(), 2);
     ASSERT_EQ(roles[0].rolename(), "role1");
@@ -315,7 +296,7 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   }
 
   {
-    auto users = auth.AllUsersForRole("role2");
+    auto users = auth->AllUsersForRole("role2");
     ASSERT_EQ(users.size(), 1);
     ASSERT_EQ(users[0].username(), "user2");
   }
@@ -323,16 +304,16 @@ TEST_F(AuthWithStorage, RoleManipulations) {
 
 TEST_F(AuthWithStorage, UserRoleLinkUnlink) {
   {
-    auto user = auth.AddUser("user");
+    auto user = auth->AddUser("user");
     ASSERT_TRUE(user);
-    auto role = auth.AddRole("role");
+    auto role = auth->AddRole("role");
     ASSERT_TRUE(role);
     user->SetRole(*role);
-    auth.SaveUser(*user);
+    auth->SaveUser(*user);
   }
 
   {
-    auto user = auth.GetUser("user");
+    auto user = auth->GetUser("user");
     ASSERT_TRUE(user);
     const auto *role = user->role();
     ASSERT_NE(role, nullptr);
@@ -340,14 +321,14 @@ TEST_F(AuthWithStorage, UserRoleLinkUnlink) {
   }
 
   {
-    auto user = auth.GetUser("user");
+    auto user = auth->GetUser("user");
     ASSERT_TRUE(user);
     user->ClearRole();
-    auth.SaveUser(*user);
+    auth->SaveUser(*user);
   }
 
   {
-    auto user = auth.GetUser("user");
+    auto user = auth->GetUser("user");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->role(), nullptr);
   }
@@ -355,19 +336,19 @@ TEST_F(AuthWithStorage, UserRoleLinkUnlink) {
 
 TEST_F(AuthWithStorage, UserPasswordCreation) {
   {
-    auto user = auth.AddUser("test");
+    auto user = auth->AddUser("test");
     ASSERT_TRUE(user);
-    ASSERT_TRUE(auth.Authenticate("test", "123"));
-    ASSERT_TRUE(auth.Authenticate("test", "456"));
-    ASSERT_TRUE(auth.RemoveUser(user->username()));
+    ASSERT_TRUE(auth->Authenticate("test", "123"));
+    ASSERT_TRUE(auth->Authenticate("test", "456"));
+    ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
 
   {
-    auto user = auth.AddUser("test", "123");
+    auto user = auth->AddUser("test", "123");
     ASSERT_TRUE(user);
-    ASSERT_TRUE(auth.Authenticate("test", "123"));
-    ASSERT_FALSE(auth.Authenticate("test", "456"));
-    ASSERT_TRUE(auth.RemoveUser(user->username()));
+    ASSERT_TRUE(auth->Authenticate("test", "123"));
+    ASSERT_FALSE(auth->Authenticate("test", "456"));
+    ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
 }
 
@@ -382,36 +363,53 @@ TEST_F(AuthWithStorage, PasswordStrength) {
   const std::string kAlmostStrongPassword = "ThisPasswordMeetsAllButOneCriterion1234";
   const std::string kStrongPassword = "ThisIsAVeryStrongPassword123$";
 
-  auto user = auth.AddUser("user");
-  ASSERT_TRUE(user);
+  {
+    auth.reset();
+    auth.emplace(test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
+                 Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kWeakRegex, true});
+    auto user = auth->AddUser("user1");
+    ASSERT_TRUE(user);
+    ASSERT_NO_THROW(auth->UpdatePassword(*user, std::nullopt));
+    ASSERT_NO_THROW(auth->UpdatePassword(*user, kWeakPassword));
+    ASSERT_NO_THROW(auth->UpdatePassword(*user, kAlmostStrongPassword));
+    ASSERT_NO_THROW(auth->UpdatePassword(*user, kStrongPassword));
+  }
 
-  FLAGS_auth_password_permit_null = true;
-  FLAGS_auth_password_strength_regex = kWeakRegex;
-  ASSERT_NO_THROW(user->UpdatePassword());
-  ASSERT_NO_THROW(user->UpdatePassword(kWeakPassword));
-  ASSERT_NO_THROW(user->UpdatePassword(kAlmostStrongPassword));
-  ASSERT_NO_THROW(user->UpdatePassword(kStrongPassword));
+  {
+    auth.reset();
+    auth.emplace(test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
+                 Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kWeakRegex, false});
+    ASSERT_THROW(auth->AddUser("user2", std::nullopt), AuthException);
+    auto user = auth->AddUser("user2", kWeakPassword);
+    ASSERT_TRUE(user);
+    ASSERT_NO_THROW(auth->UpdatePassword(*user, kWeakPassword));
+    ASSERT_NO_THROW(auth->UpdatePassword(*user, kAlmostStrongPassword));
+    ASSERT_NO_THROW(auth->UpdatePassword(*user, kStrongPassword));
+  }
 
-  FLAGS_auth_password_permit_null = false;
-  FLAGS_auth_password_strength_regex = kWeakRegex;
-  ASSERT_THROW(user->UpdatePassword(), AuthException);
-  ASSERT_NO_THROW(user->UpdatePassword(kWeakPassword));
-  ASSERT_NO_THROW(user->UpdatePassword(kAlmostStrongPassword));
-  ASSERT_NO_THROW(user->UpdatePassword(kStrongPassword));
+  {
+    auth.reset();
+    auth.emplace(test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
+                 Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kStrongRegex, true});
+    auto user = auth->AddUser("user3");
+    ASSERT_TRUE(user);
+    ASSERT_NO_THROW(auth->UpdatePassword(*user, std::nullopt));
+    ASSERT_THROW(auth->UpdatePassword(*user, kWeakPassword), AuthException);
+    ASSERT_THROW(auth->UpdatePassword(*user, kAlmostStrongPassword), AuthException);
+    ASSERT_NO_THROW(auth->UpdatePassword(*user, kStrongPassword));
+  }
 
-  FLAGS_auth_password_permit_null = true;
-  FLAGS_auth_password_strength_regex = kStrongRegex;
-  ASSERT_NO_THROW(user->UpdatePassword());
-  ASSERT_THROW(user->UpdatePassword(kWeakPassword), AuthException);
-  ASSERT_THROW(user->UpdatePassword(kAlmostStrongPassword), AuthException);
-  ASSERT_NO_THROW(user->UpdatePassword(kStrongPassword));
-
-  FLAGS_auth_password_permit_null = false;
-  FLAGS_auth_password_strength_regex = kStrongRegex;
-  ASSERT_THROW(user->UpdatePassword(), AuthException);
-  ASSERT_THROW(user->UpdatePassword(kWeakPassword), AuthException);
-  ASSERT_THROW(user->UpdatePassword(kAlmostStrongPassword), AuthException);
-  ASSERT_NO_THROW(user->UpdatePassword(kStrongPassword));
+  {
+    auth.reset();
+    auth.emplace(test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
+                 Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kStrongRegex, false});
+    ASSERT_THROW(auth->AddUser("user4", std::nullopt);, AuthException);
+    ASSERT_THROW(auth->AddUser("user4", kWeakPassword);, AuthException);
+    ASSERT_THROW(auth->AddUser("user4", kAlmostStrongPassword);, AuthException);
+    auto user = auth->AddUser("user4", kStrongPassword);
+    ASSERT_TRUE(user);
+    ASSERT_NO_THROW(auth->UpdatePassword(*user, kStrongPassword));
+  }
 }
 
 TEST(AuthWithoutStorage, Permissions) {
@@ -668,6 +666,17 @@ TEST(AuthWithoutStorage, UserSerializeDeserialize) {
   ASSERT_EQ(user, output);
 }
 
+TEST(AuthWithoutStorage, UserSerializeDeserializeWithOutPassword) {
+  auto user = User("test");
+  user.permissions().Grant(Permission::MATCH);
+  user.permissions().Deny(Permission::MERGE);
+
+  auto data = user.Serialize();
+
+  auto output = User::Deserialize(data);
+  ASSERT_EQ(user, output);
+}
+
 TEST(AuthWithoutStorage, RoleSerializeDeserialize) {
   auto role = Role("test");
   role.permissions().Grant(Permission::MATCH);
@@ -680,30 +689,30 @@ TEST(AuthWithoutStorage, RoleSerializeDeserialize) {
 }
 
 TEST_F(AuthWithStorage, UserWithRoleSerializeDeserialize) {
-  auto role = auth.AddRole("role");
+  auto role = auth->AddRole("role");
   ASSERT_TRUE(role);
   role->permissions().Grant(Permission::MATCH);
   role->permissions().Deny(Permission::MERGE);
-  auth.SaveRole(*role);
+  auth->SaveRole(*role);
 
-  auto user = auth.AddUser("user");
+  auto user = auth->AddUser("user");
   ASSERT_TRUE(user);
   user->permissions().Grant(Permission::MATCH);
   user->permissions().Deny(Permission::MERGE);
   user->UpdatePassword("world");
   user->SetRole(*role);
-  auth.SaveUser(*user);
+  auth->SaveUser(*user);
 
-  auto new_user = auth.GetUser("user");
+  auto new_user = auth->GetUser("user");
   ASSERT_TRUE(new_user);
   ASSERT_EQ(*user, *new_user);
 }
 
 TEST_F(AuthWithStorage, UserRoleUniqueName) {
-  ASSERT_TRUE(auth.AddUser("user"));
-  ASSERT_TRUE(auth.AddRole("role"));
-  ASSERT_FALSE(auth.AddRole("user"));
-  ASSERT_FALSE(auth.AddUser("role"));
+  ASSERT_TRUE(auth->AddUser("user"));
+  ASSERT_TRUE(auth->AddRole("role"));
+  ASSERT_FALSE(auth->AddRole("user"));
+  ASSERT_FALSE(auth->AddUser("role"));
 }
 
 TEST(AuthWithoutStorage, CaseInsensitivity) {
@@ -718,8 +727,9 @@ TEST(AuthWithoutStorage, CaseInsensitivity) {
   {
     auto perms = Permissions();
     auto fine_grained_access_handler = FineGrainedAccessHandler();
-    auto user1 = User("test", "pw", perms, fine_grained_access_handler);
-    auto user2 = User("Test", "pw", perms, fine_grained_access_handler);
+    auto passwordHash = HashPassword("pw");
+    auto user1 = User("test", passwordHash, perms, fine_grained_access_handler);
+    auto user2 = User("Test", passwordHash, perms, fine_grained_access_handler);
     ASSERT_EQ(user1, user2);
     ASSERT_EQ(user1.username(), user2.username());
     ASSERT_EQ(user1.username(), "test");
@@ -748,58 +758,58 @@ TEST(AuthWithoutStorage, CaseInsensitivity) {
 TEST_F(AuthWithStorage, CaseInsensitivity) {
   // AddUser
   {
-    auto user = auth.AddUser("Alice", "alice");
+    auto user = auth->AddUser("Alice", "alice");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->username(), "alice");
-    ASSERT_FALSE(auth.AddUser("alice"));
-    ASSERT_FALSE(auth.AddUser("alicE"));
+    ASSERT_FALSE(auth->AddUser("alice"));
+    ASSERT_FALSE(auth->AddUser("alicE"));
   }
   {
-    auto user = auth.AddUser("BoB", "bob");
+    auto user = auth->AddUser("BoB", "bob");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->username(), "bob");
-    ASSERT_FALSE(auth.AddUser("bob"));
-    ASSERT_FALSE(auth.AddUser("bOb"));
+    ASSERT_FALSE(auth->AddUser("bob"));
+    ASSERT_FALSE(auth->AddUser("bOb"));
   }
 
   // Authenticate
   {
-    auto user = auth.Authenticate("alice", "alice");
+    auto user = auth->Authenticate("alice", "alice");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->username(), "alice");
   }
   {
-    auto user = auth.Authenticate("alICe", "alice");
+    auto user = auth->Authenticate("alICe", "alice");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->username(), "alice");
   }
 
   // GetUser
   {
-    auto user = auth.GetUser("alice");
+    auto user = auth->GetUser("alice");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->username(), "alice");
   }
   {
-    auto user = auth.GetUser("aLicE");
+    auto user = auth->GetUser("aLicE");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->username(), "alice");
   }
-  ASSERT_FALSE(auth.GetUser("carol"));
+  ASSERT_FALSE(auth->GetUser("carol"));
 
   // RemoveUser
   {
-    auto user = auth.AddUser("caRol", "carol");
+    auto user = auth->AddUser("caRol", "carol");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->username(), "carol");
-    ASSERT_TRUE(auth.RemoveUser("cAROl"));
-    ASSERT_FALSE(auth.RemoveUser("carol"));
-    ASSERT_FALSE(auth.GetUser("CAROL"));
+    ASSERT_TRUE(auth->RemoveUser("cAROl"));
+    ASSERT_FALSE(auth->RemoveUser("carol"));
+    ASSERT_FALSE(auth->GetUser("CAROL"));
   }
 
   // AllUsers
   {
-    auto users = auth.AllUsers();
+    auto users = auth->AllUsers();
     ASSERT_EQ(users.size(), 2);
     std::sort(users.begin(), users.end(), [](const auto &a, const auto &b) { return a.username() < b.username(); });
     ASSERT_EQ(users[0].username(), "alice");
@@ -808,48 +818,48 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
 
   // AddRole
   {
-    auto role = auth.AddRole("Moderator");
+    auto role = auth->AddRole("Moderator");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "moderator");
-    ASSERT_FALSE(auth.AddRole("moderator"));
-    ASSERT_FALSE(auth.AddRole("MODERATOR"));
+    ASSERT_FALSE(auth->AddRole("moderator"));
+    ASSERT_FALSE(auth->AddRole("MODERATOR"));
   }
   {
-    auto role = auth.AddRole("adMIN");
+    auto role = auth->AddRole("adMIN");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "admin");
-    ASSERT_FALSE(auth.AddRole("Admin"));
-    ASSERT_FALSE(auth.AddRole("ADMIn"));
+    ASSERT_FALSE(auth->AddRole("Admin"));
+    ASSERT_FALSE(auth->AddRole("ADMIn"));
   }
-  ASSERT_FALSE(auth.AddRole("ALICE"));
-  ASSERT_FALSE(auth.AddUser("ModeRAtor"));
+  ASSERT_FALSE(auth->AddRole("ALICE"));
+  ASSERT_FALSE(auth->AddUser("ModeRAtor"));
 
   // GetRole
   {
-    auto role = auth.GetRole("moderator");
+    auto role = auth->GetRole("moderator");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "moderator");
   }
   {
-    auto role = auth.GetRole("MoDERATOR");
+    auto role = auth->GetRole("MoDERATOR");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "moderator");
   }
-  ASSERT_FALSE(auth.GetRole("root"));
+  ASSERT_FALSE(auth->GetRole("root"));
 
   // RemoveRole
   {
-    auto role = auth.AddRole("RooT");
+    auto role = auth->AddRole("RooT");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "root");
-    ASSERT_TRUE(auth.RemoveRole("rOOt"));
-    ASSERT_FALSE(auth.RemoveRole("RoOt"));
-    ASSERT_FALSE(auth.GetRole("RoOt"));
+    ASSERT_TRUE(auth->RemoveRole("rOOt"));
+    ASSERT_FALSE(auth->RemoveRole("RoOt"));
+    ASSERT_FALSE(auth->GetRole("RoOt"));
   }
 
   // AllRoles
   {
-    auto roles = auth.AllRoles();
+    auto roles = auth->AllRoles();
     ASSERT_EQ(roles.size(), 2);
     std::sort(roles.begin(), roles.end(), [](const auto &a, const auto &b) { return a.rolename() < b.rolename(); });
     ASSERT_EQ(roles[0].rolename(), "admin");
@@ -858,14 +868,14 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
 
   // SaveRole
   {
-    auto role = auth.GetRole("MODErator");
+    auto role = auth->GetRole("MODErator");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "moderator");
     role->permissions().Grant(memgraph::auth::Permission::MATCH);
-    auth.SaveRole(*role);
+    auth->SaveRole(*role);
   }
   {
-    auto role = auth.GetRole("modeRATOR");
+    auto role = auth->GetRole("modeRATOR");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "moderator");
     ASSERT_EQ(role->permissions().Has(memgraph::auth::Permission::MATCH), memgraph::auth::PermissionLevel::GRANT);
@@ -873,17 +883,17 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
 
   // SaveUser
   {
-    auto user = auth.GetUser("aLice");
+    auto user = auth->GetUser("aLice");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->username(), "alice");
-    auto role = auth.GetRole("moderAtor");
+    auto role = auth->GetRole("moderAtor");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "moderator");
     user->SetRole(*role);
-    auth.SaveUser(*user);
+    auth->SaveUser(*user);
   }
   {
-    auto user = auth.GetUser("aLIce");
+    auto user = auth->GetUser("aLIce");
     ASSERT_TRUE(user);
     ASSERT_EQ(user->username(), "alice");
     const auto *role = user->role();
@@ -893,27 +903,27 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
 
   // AllUsersForRole
   {
-    auto carol = auth.AddUser("caROl");
+    auto carol = auth->AddUser("caROl");
     ASSERT_TRUE(carol);
     ASSERT_EQ(carol->username(), "carol");
-    auto dave = auth.AddUser("daVe");
+    auto dave = auth->AddUser("daVe");
     ASSERT_TRUE(dave);
     ASSERT_EQ(dave->username(), "dave");
-    auto admin = auth.GetRole("aDMin");
+    auto admin = auth->GetRole("aDMin");
     ASSERT_TRUE(admin);
     ASSERT_EQ(admin->rolename(), "admin");
     carol->SetRole(*admin);
-    auth.SaveUser(*carol);
+    auth->SaveUser(*carol);
     dave->SetRole(*admin);
-    auth.SaveUser(*dave);
+    auth->SaveUser(*dave);
   }
   {
-    auto users = auth.AllUsersForRole("modeRAtoR");
+    auto users = auth->AllUsersForRole("modeRAtoR");
     ASSERT_EQ(users.size(), 1);
     ASSERT_EQ(users[0].username(), "alice");
   }
   {
-    auto users = auth.AllUsersForRole("AdmiN");
+    auto users = auth->AllUsersForRole("AdmiN");
     ASSERT_EQ(users.size(), 2);
     std::sort(users.begin(), users.end(), [](const auto &a, const auto &b) { return a.username() < b.username(); });
     ASSERT_EQ(users[0].username(), "carol");
@@ -922,53 +932,49 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
 }
 
 TEST(AuthWithoutStorage, Crypto) {
-  auto hash = EncryptPassword("hello");
-  ASSERT_TRUE(VerifyPassword("hello", hash));
-  ASSERT_FALSE(VerifyPassword("hello1", hash));
+  auto hash = HashPassword("hello");
+  ASSERT_TRUE(hash.VerifyPassword("hello"));
+  ASSERT_FALSE(hash.VerifyPassword("hello1"));
 }
 
 class AuthWithVariousEncryptionAlgorithms : public ::testing::Test {
  protected:
-  void SetUp() override { FLAGS_password_encryption_algorithm = "bcrypt"; }
+  void SetUp() override { SetHashAlgorithm("bcrypt"); }
 };
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordDefault) {
-  auto hash = EncryptPassword("hello");
-  ASSERT_TRUE(VerifyPassword("hello", hash));
-  ASSERT_FALSE(VerifyPassword("hello1", hash));
+  auto hash = HashPassword("hello");
+  ASSERT_TRUE(hash.VerifyPassword("hello"));
+  ASSERT_FALSE(hash.VerifyPassword("hello1"));
 }
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256) {
-  FLAGS_password_encryption_algorithm = "sha256";
-  auto hash = EncryptPassword("hello");
-  ASSERT_TRUE(VerifyPassword("hello", hash));
-  ASSERT_FALSE(VerifyPassword("hello1", hash));
+  SetHashAlgorithm("sha256");
+  auto hash = HashPassword("hello");
+  ASSERT_TRUE(hash.VerifyPassword("hello"));
+  ASSERT_FALSE(hash.VerifyPassword("hello1"));
 }
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256_1024) {
-  FLAGS_password_encryption_algorithm = "sha256-multiple";
-  auto hash = EncryptPassword("hello");
-  ASSERT_TRUE(VerifyPassword("hello", hash));
-  ASSERT_FALSE(VerifyPassword("hello1", hash));
+  SetHashAlgorithm("sha256-multiple");
+  auto hash = HashPassword("hello");
+  ASSERT_TRUE(hash.VerifyPassword("hello"));
+  ASSERT_FALSE(hash.VerifyPassword("hello1"));
 }
 
-TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordThrow) {
-  FLAGS_password_encryption_algorithm = "abcd";
-  ASSERT_THROW(EncryptPassword("hello"), AuthException);
+TEST_F(AuthWithVariousEncryptionAlgorithms, SetEncryptionAlgorithmNonsenseThrow) {
+  ASSERT_THROW(SetHashAlgorithm("abcd"), AuthException);
 }
 
-TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordEmptyEncryptionThrow) {
-  FLAGS_password_encryption_algorithm = "";
-  ASSERT_THROW(EncryptPassword("hello"), AuthException);
+TEST_F(AuthWithVariousEncryptionAlgorithms, SetEncryptionAlgorithmEmptyThrow) {
+  ASSERT_THROW(SetHashAlgorithm(""), AuthException);
 }
 
 class AuthWithStorageWithVariousEncryptionAlgorithms : public ::testing::Test {
  protected:
   void SetUp() override {
     memgraph::utils::EnsureDir(test_folder_);
-    FLAGS_auth_password_permit_null = true;
-    FLAGS_auth_password_strength_regex = ".+";
-    FLAGS_password_encryption_algorithm = "bcrypt";
+    SetHashAlgorithm("bcrypt");
 
     memgraph::license::global_license_checker.EnableTesting();
   }
@@ -976,8 +982,8 @@ class AuthWithStorageWithVariousEncryptionAlgorithms : public ::testing::Test {
   void TearDown() override { fs::remove_all(test_folder_); }
 
   fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
-
-  Auth auth{test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid())))};
+  Auth::Config auth_config{};
+  Auth auth{test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))), auth_config};
 };
 
 TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserDefault) {
@@ -987,25 +993,26 @@ TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserDefault) {
 }
 
 TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256) {
-  FLAGS_password_encryption_algorithm = "sha256";
+  SetHashAlgorithm("sha256");
   auto user = auth.AddUser("Alice", "alice");
   ASSERT_TRUE(user);
   ASSERT_EQ(user->username(), "alice");
 }
 
 TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256_1024) {
-  FLAGS_password_encryption_algorithm = "sha256-multiple";
+  SetHashAlgorithm("sha256-multiple");
   auto user = auth.AddUser("Alice", "alice");
   ASSERT_TRUE(user);
   ASSERT_EQ(user->username(), "alice");
 }
 
-TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserThrow) {
-  FLAGS_password_encryption_algorithm = "abcd";
-  ASSERT_THROW(auth.AddUser("Alice", "alice"), AuthException);
-}
-
-TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserEmptyPasswordEncryptionThrow) {
-  FLAGS_password_encryption_algorithm = "";
-  ASSERT_THROW(auth.AddUser("Alice", "alice"), AuthException);
+TEST(Serialize, HashedPassword) {
+  for (auto algo :
+       {PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE}) {
+    auto sut = HashPassword("password", algo);
+    nlohmann::json j = sut;
+    auto ret = j.get<HashedPassword>();
+    ASSERT_EQ(sut, ret);
+    ASSERT_TRUE(ret.VerifyPassword("password"));
+  }
 }

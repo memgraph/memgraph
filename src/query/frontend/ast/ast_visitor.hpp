@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -109,6 +109,7 @@ class MultiDatabaseQuery;
 class ShowDatabasesQuery;
 class EdgeImportModeQuery;
 class PatternComprehension;
+class CoordinatorQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -148,6 +149,6 @@ class QueryVisitor
                             LockPathQuery, FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery,
                             StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery, TransactionQueueQuery,
                             StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery, ShowDatabasesQuery,
-                            EdgeImportModeQuery> {};
+                            EdgeImportModeQuery, CoordinatorQuery> {};
 
 }  // namespace memgraph::query

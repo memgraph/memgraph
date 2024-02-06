@@ -48,10 +48,12 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DENY
                       | DROP
+                      | DO
                       | DUMP
                       | EDGE
                       | EDGE_TYPES
                       | EXECUTE
+                      | FAILOVER
                       | FOR
                       | FOREACH
                       | FREE
@@ -61,6 +63,7 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANT
                       | HEADER
                       | IDENTIFIED
+                      | INSTANCE
                       | NODE_LABELS
                       | NULLIF
                       | IMPORT
@@ -152,6 +155,7 @@ query : cypherQuery
       | multiDatabaseQuery
       | showDatabases
       | edgeImportModeQuery
+      | coordinatorQuery
       ;
 
 cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -182,6 +186,11 @@ replicationQuery : setReplicationRole
                  | registerReplica
                  | dropReplica
                  | showReplicas
+                 ;
+
+coordinatorQuery : registerInstanceOnCoordinator
+                 | setInstanceToMain
+                 | showReplicationCluster
                  ;
 
 triggerQuery : createTrigger
@@ -324,6 +333,7 @@ privilege : CREATE
           | STORAGE_MODE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
+          | COORDINATOR
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -365,14 +375,23 @@ setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
-replicaName : symbolicName ;
+showReplicationCluster : SHOW REPLICATION CLUSTER ;
+
+instanceName : symbolicName ;
 
 socketAddress : literal ;
 
-registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
+coordinatorSocketAddress : literal ;
+replicationSocketAddress : literal ;
+
+registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
 
-dropReplica : DROP REPLICA replicaName ;
+registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ON coordinatorSocketAddress ( AS ASYNC ) ? WITH replicationSocketAddress ;
+
+setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
+
+dropReplica : DROP REPLICA instanceName ;
 
 showReplicas : SHOW REPLICAS ;
 
@@ -481,6 +500,7 @@ transactionId : literal ;
 multiDatabaseQuery : createDatabase
                    | useDatabase
                    | dropDatabase
+                   | showDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
@@ -488,6 +508,8 @@ createDatabase : CREATE DATABASE databaseName ;
 useDatabase : USE DATABASE databaseName ;
 
 dropDatabase : DROP DATABASE databaseName ;
+
+showDatabase : SHOW DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 

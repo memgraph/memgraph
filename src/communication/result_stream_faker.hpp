@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,7 +44,7 @@ class ResultStreamFaker {
     std::vector<memgraph::communication::bolt::Value> bvalues;
     bvalues.reserve(values.size());
     for (const auto &value : values) {
-      auto maybe_value = memgraph::glue::ToBoltValue(value, *store_, memgraph::storage::View::NEW);
+      auto maybe_value = memgraph::glue::ToBoltValue(value, store_, memgraph::storage::View::NEW);
       MG_ASSERT(maybe_value.HasValue());
       bvalues.push_back(std::move(*maybe_value));
     }
@@ -56,7 +56,7 @@ class ResultStreamFaker {
   void Summary(const std::map<std::string, memgraph::query::TypedValue> &summary) {
     std::map<std::string, memgraph::communication::bolt::Value> bsummary;
     for (const auto &item : summary) {
-      auto maybe_value = memgraph::glue::ToBoltValue(item.second, *store_, memgraph::storage::View::NEW);
+      auto maybe_value = memgraph::glue::ToBoltValue(item.second, store_, memgraph::storage::View::NEW);
       MG_ASSERT(maybe_value.HasValue());
       bsummary.insert({item.first, std::move(*maybe_value)});
     }

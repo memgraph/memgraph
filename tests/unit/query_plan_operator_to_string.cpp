@@ -37,7 +37,7 @@ class OperatorToStringTest : public ::testing::Test {
   OperatorToStringTest()
       : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
         db(new StorageType(config)),
-        dba_storage(db->Access(memgraph::replication::ReplicationRole::MAIN)),
+        dba_storage(db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)),
         dba(dba_storage.get()) {}
 
   ~OperatorToStringTest() override {

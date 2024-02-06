@@ -201,7 +201,7 @@ WalDeltaData ReadWalDeltaData(BaseDecoder *decoder);
 WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder);
 
 /// Function used to encode a `Delta` that originated from a `Vertex`.
-void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Config::Items items, const Delta &delta,
+void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConfig::Items items, const Delta &delta,
                  const Vertex &vertex, uint64_t timestamp);
 
 /// Function used to encode a `Delta` that originated from an `Edge`.
@@ -225,15 +225,17 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
                      std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     Config::Items items);
+                     SalientConfig::Items items);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {
  public:
   WalFile(const std::filesystem::path &wal_directory, std::string_view uuid, std::string_view epoch_id,
-          Config::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num, utils::FileRetainer *file_retainer);
-  WalFile(std::filesystem::path current_wal_path, Config::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
-          uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count, utils::FileRetainer *file_retainer);
+          SalientConfig::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
+          utils::FileRetainer *file_retainer);
+  WalFile(std::filesystem::path current_wal_path, SalientConfig::Items items, NameIdMapper *name_id_mapper,
+          uint64_t seq_num, uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
+          utils::FileRetainer *file_retainer);
 
   WalFile(const WalFile &) = delete;
   WalFile(WalFile &&) = delete;
@@ -282,7 +284,7 @@ class WalFile {
  private:
   void UpdateStats(uint64_t timestamp);
 
-  Config::Items items_;
+  SalientConfig::Items items_;
   NameIdMapper *name_id_mapper_;
   Encoder wal_;
   std::filesystem::path path_;

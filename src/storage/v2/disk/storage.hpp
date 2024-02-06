@@ -151,8 +151,8 @@ class DiskStorage final : public Storage {
     ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {},
-                                                              bool is_main = true) override;
+    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
+                                                              DatabaseAccessProtector db_acc = {}) override;
 
     void UpdateObjectsCountOnAbort();
 
@@ -186,11 +186,11 @@ class DiskStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Accessor> Access(memgraph::replication::ReplicationRole replication_role,
+  std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                    std::optional<IsolationLevel> override_isolation_level) override;
 
   using Storage::UniqueAccess;
-  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication::ReplicationRole replication_role,
+  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                          std::optional<IsolationLevel> override_isolation_level) override;
 
   /// Flushing methods
@@ -295,7 +295,7 @@ class DiskStorage final : public Storage {
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                memgraph::replication::ReplicationRole replication_role) override;
+                                memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
   void SetEdgeImportMode(EdgeImportMode edge_import_status);
 
@@ -318,7 +318,8 @@ class DiskStorage final : public Storage {
                                                                                           PropertyId property);
 
   StorageInfo GetBaseInfo(bool force_directory) override;
-  StorageInfo GetInfo(bool force_directory, memgraph::replication::ReplicationRole replication_role) override;
+  StorageInfo GetInfo(bool force_directory,
+                      memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
 

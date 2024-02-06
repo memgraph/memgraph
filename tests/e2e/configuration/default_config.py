@@ -66,6 +66,8 @@ startup_config_dict = {
         "Time in seconds after which inactive Bolt sessions will be closed.",
     ),
     "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
+    "coordinator": ("false", "false", "Controls whether the instance is a replication coordinator."),
+    "coordinator_server_port": ("0", "0", "Port on which coordinator servers will be started."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_recovery_on_startup": (
         "false",
@@ -174,11 +176,6 @@ startup_config_dict = {
         "Default storage mode Memgraph uses. Allowed values: IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL, ON_DISK_TRANSACTIONAL",
     ),
     "storage_wal_file_size_kib": ("20480", "20480", "Minimum file size of each WAL file."),
-    "storage_delete_on_drop": (
-        "true",
-        "true",
-        "If set to true the query 'DROP DATABASE x' will delete the underlying storage as well.",
-    ),
     "stream_transaction_conflict_retries": (
         "30",
         "30",

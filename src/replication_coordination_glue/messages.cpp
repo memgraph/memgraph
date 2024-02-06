@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,31 +9,29 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "replication/messages.hpp"
+#include "replication_coordination_glue/messages.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 
 namespace memgraph::slk {
 // Serialize code for FrequentHeartbeatRes
-void Save(const memgraph::replication::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
-}
-void Load(memgraph::replication::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
-}
+void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {}
+void Load(memgraph::replication_coordination_glue::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {}
 
 // Serialize code for FrequentHeartbeatReq
-void Save(const memgraph::replication::FrequentHeartbeatReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
+void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatReq & /*self*/,
+          memgraph::slk::Builder * /*builder*/) {
   /* Nothing to serialize */
 }
-void Load(memgraph::replication::FrequentHeartbeatReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
+void Load(memgraph::replication_coordination_glue::FrequentHeartbeatReq * /*self*/,
+          memgraph::slk::Reader * /*reader*/) {
   /* Nothing to serialize */
 }
 
 }  // namespace memgraph::slk
 
-namespace memgraph::replication {
+namespace memgraph::replication_coordination_glue {
 
 constexpr utils::TypeInfo FrequentHeartbeatReq::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_REQ, "FrequentHeartbeatReq",
                                                       nullptr};
@@ -58,8 +56,8 @@ void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder
   FrequentHeartbeatReq req;
   FrequentHeartbeatReq::Load(&req, req_reader);
   memgraph::slk::Load(&req, req_reader);
-  FrequentHeartbeatRes res{true};
+  FrequentHeartbeatRes res{};
   memgraph::slk::Save(res, res_builder);
 }
 
-}  // namespace memgraph::replication
+}  // namespace memgraph::replication_coordination_glue

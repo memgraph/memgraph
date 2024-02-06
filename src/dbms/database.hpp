@@ -81,7 +81,14 @@ class Database {
    *
    * @return const std::string&
    */
-  const std::string &id() const { return storage_->id(); }
+  const std::string &name() const { return storage_->name(); }
+
+  /**
+   * @brief Unique storage identified (uuid)
+   *
+   * @return const utils::UUID&
+   */
+  const utils::UUID &uuid() const { return storage_->uuid(); }
 
   /**
    * @brief Returns the storage configuration
@@ -103,7 +110,7 @@ class Database {
    * @param force_directory Use the configured directory, do not try to decipher the multi-db version
    * @return DatabaseInfo
    */
-  DatabaseInfo GetInfo(bool force_directory, replication::ReplicationRole replication_role) const {
+  DatabaseInfo GetInfo(bool force_directory, replication_coordination_glue::ReplicationRole replication_role) const {
     DatabaseInfo info;
     info.storage_info = storage_->GetInfo(force_directory, replication_role);
     info.triggers = trigger_store_.GetTriggerInfo().size();

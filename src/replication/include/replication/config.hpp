@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
-#include "replication/mode.hpp"
+#include "replication_coordination_glue/mode.hpp"
 
 namespace memgraph::replication {
 
@@ -24,7 +24,7 @@ inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 
 struct ReplicationClientConfig {
   std::string name;
-  ReplicationMode mode{};
+  replication_coordination_glue::ReplicationMode mode{};
   std::string ip_address;
   uint16_t port{};
 
@@ -40,7 +40,7 @@ struct ReplicationClientConfig {
     friend bool operator==(const SSL &, const SSL &) = default;
   };
 
-  std::optional<SSL> ssl;
+  std::optional<SSL> ssl{};
 
   friend bool operator==(ReplicationClientConfig const &, ReplicationClientConfig const &) = default;
 };

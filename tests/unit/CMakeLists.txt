@@ -350,7 +350,7 @@ add_unit_test(storage_v2_wal_file.cpp)
 target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 storage_test_utils fmt)
 
 add_unit_test(storage_v2_replication.cpp)
-target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 mg-dbms fmt)
+target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 mg-dbms fmt mg-repl_coord_glue)
 
 add_unit_test(storage_v2_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
@@ -368,7 +368,7 @@ add_unit_test(storage_v2_storage_mode.cpp)
 target_link_libraries(${test_prefix}storage_v2_storage_mode mg-storage-v2 storage_test_utils mg-query mg-glue)
 
 add_unit_test(replication_persistence_helper.cpp)
-target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
+target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2 mg-repl_coord_glue)
 
 add_unit_test(auth_checker.cpp)
 target_link_libraries(${test_prefix}auth_checker mg-glue mg-auth)
@@ -389,7 +389,7 @@ endif()
 # Test mg-slk
 if(MG_ENTERPRISE)
   add_unit_test(slk_advanced.cpp)
-  target_link_libraries(${test_prefix}slk_advanced mg-storage-v2)
+  target_link_libraries(${test_prefix}slk_advanced mg-storage-v2 mg-replication mg-coordination mg-repl_coord_glue)
 endif()
 
 add_unit_test(slk_core.cpp)
@@ -415,6 +415,9 @@ if(MG_ENTERPRISE)
 
   add_unit_test_with_custom_main(dbms_handler.cpp)
   target_link_libraries(${test_prefix}dbms_handler mg-query mg-auth mg-glue mg-dbms)
+
+  add_unit_test(multi_tenancy.cpp)
+  target_link_libraries(${test_prefix}multi_tenancy mg-query mg-auth mg-glue mg-dbms)
 else()
   add_unit_test_with_custom_main(dbms_handler_community.cpp)
   target_link_libraries(${test_prefix}dbms_handler_community mg-query mg-auth mg-glue mg-dbms)

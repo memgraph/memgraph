@@ -25,6 +25,7 @@
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
 #include "replication/state.hpp"
+#include "storage/v2/database_access.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
@@ -39,7 +40,7 @@ class ReplicationStorageClient;
 
 struct ReplicationStorageState {
   // Only MAIN can send
-  void InitializeTransaction(uint64_t seq_num, Storage *storage);
+  void InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc);
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
   void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
@@ -47,7 +48,7 @@ struct ReplicationStorageState {
                        const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp);
   void AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
                        uint64_t final_commit_timestamp);
-  bool FinalizeTransaction(uint64_t timestamp, Storage *storage);
+  bool FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc);
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;

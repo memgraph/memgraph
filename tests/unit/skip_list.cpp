@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,20 @@
 #include "utils/math.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/timer.hpp"
+
+#include <iterator>
+
+template <typename It, typename ConstIt>
+concept CompatibleIterators = std::forward_iterator<It> && std::forward_iterator<ConstIt> &&
+    requires(It it, ConstIt cit) {
+  { it == cit } -> std::same_as<bool>;
+  { it != cit } -> std::same_as<bool>;
+  { cit == it } -> std::same_as<bool>;
+  { cit != it } -> std::same_as<bool>;
+};
+
+using sut_t = memgraph::utils::SkipList<int64_t>::Accessor;
+static_assert(CompatibleIterators<sut_t::iterator, sut_t::const_iterator>);
 
 TEST(SkipList, Int) {
   memgraph::utils::SkipList<int64_t> list;
