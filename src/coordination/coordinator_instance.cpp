@@ -220,13 +220,33 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
     return RegisterInstanceCoordinatorStatus::ENDPOINT_EXISTS;
   }
 
+  if (!self_.RequestLeadership()) {
+    return RegisterInstanceCoordinatorStatus::NOT_LEADER;
+  }
+
+  // auto const res = self_.AppendRegisterReplicationInstance(config.instance_name);
+
+  // if (res->get_accepted()) {
+  // spdlog::info("Request for registering instance {} accepted", config.instance_name);
   try {
     repl_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_);
-    return RegisterInstanceCoordinatorStatus::SUCCESS;
-
   } catch (CoordinatorRegisterInstanceException const &) {
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
   }
+  // } else {
+  //   spdlog::error(
+  //       "Failed to accept request for registering instance {}. Most likely the reason is that the instance is not the
+  //       " "leader.", config.instance_name);
+  //   return RegisterInstanceCoordinatorStatus::RAFT_COULD_NOT_ACCEPT;
+  // }
+
+  // if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+  //   spdlog::error("Failed to register instance {} with error code {}", config.instance_name, res->get_result_code());
+  //   return RegisterInstanceCoordinatorStatus::RAFT_COULD_NOT_APPEND;
+  // }
+
+  spdlog::info("Instance {} registered", config.instance_name);
+  return RegisterInstanceCoordinatorStatus::SUCCESS;
 }
 
 auto CoordinatorInstance::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)
