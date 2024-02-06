@@ -38,7 +38,7 @@ CoordinatorData::CoordinatorData() {
     spdlog::trace("Instance {} performing replica successful callback", instance_name);
     auto &instance = find_instance(coord_data, instance_name);
 
-    if (!instance.IsAlive() || !instance.GetMainUUID().has_value() || main_uuid_ != instance.GetMainUUID().value()) {
+    if (!instance.GetMainUUID().has_value() || main_uuid_ != instance.GetMainUUID().value()) {
       if (!instance.SendSwapAndUpdateUUID(main_uuid_)) {
         spdlog::error(
             fmt::format("Failed to swap uuid for replica instance {} which is alive", instance.InstanceName()));
@@ -58,6 +58,9 @@ CoordinatorData::CoordinatorData() {
     // There is slight delay, if we choose to use isAlive, instance can be down and back up in less than
     // our isAlive time difference, which would lead to instance setting UUID to nullopt and stopping accepting any
     // incoming RPCs from valid main
+    // TODO(antoniofilipovic) this needs here more complex logic
+    // We need to get id of main replica is listening to on successful ping
+    // and swap it to correct uuid if it failed
     instance.SetNewMainUUID();
   };
 
@@ -74,7 +77,7 @@ CoordinatorData::CoordinatorData() {
       return;
     }
 
-    // TODO(antoniofilipovic) make demoteToReplica idempotent since main can be demoted to replica but
+    // TODO(antoniof) make demoteToReplica idempotent since main can be demoted to replica but
     // swapUUID can fail
     bool const demoted = instance.DemoteToReplica(coord_data->replica_succ_cb_, coord_data->replica_fail_cb_);
     if (demoted) {
@@ -113,7 +116,7 @@ auto CoordinatorData::TryFailover() -> void {
                          std::back_inserter(alive_registered_replica_instances),
                          [](CoordinatorInstance &instance) { return &instance; });
 
-  // DO more complex logic of choosing replica instance
+  // TODO(antoniof) more complex logic of choosing replica instance
   CoordinatorInstance *chosen_replica_instance =
       !alive_registered_replica_instances.empty() ? alive_registered_replica_instances[0] : nullptr;
 
@@ -128,18 +131,13 @@ auto CoordinatorData::TryFailover() -> void {
   utils::UUID potential_new_main_uuid = utils::UUID{};
   spdlog::trace("Generated potential new main uuid");
 
-  utils::OnScopeExit restart_uuid{[this, &alive_registered_replica_instances] {
-    for (auto *instance : alive_registered_replica_instances) {
-      instance->SetNewMainUUID(main_uuid_);
-    }
-  }};
-
   auto not_chosen_instance = [chosen_replica_instance](auto *instance) {
     return *instance != *chosen_replica_instance;
   };
+  // If for some replicas swap fails, for others on successful ping we will revert back on next change
+  // or we will do failover first again and then it will be consistent again
   for (auto *other_replica_instance : alive_registered_replica_instances | ranges::views::filter(not_chosen_instance)) {
-    if (!replication_coordination_glue::SendSwapMainUUIDRpc(other_replica_instance->GetClient().RpcClient(),
-                                                            potential_new_main_uuid)) {
+    if (!other_replica_instance->SendSwapAndUpdateUUID(potential_new_main_uuid)) {
       spdlog::error(fmt::format("Failed to swap uuid for instance {} which is alive, aborting failover",
                                 other_replica_instance->InstanceName()));
       return;
@@ -160,10 +158,10 @@ auto CoordinatorData::TryFailover() -> void {
     spdlog::warn("Failover failed since promoting replica to main failed!");
     return;
   }
+  chosen_replica_instance->SetNewMainUUID(potential_new_main_uuid);
+  main_uuid_ = potential_new_main_uuid;
 
   spdlog::info("Failover successful! Instance {} promoted to main.", chosen_replica_instance->InstanceName());
-
-  main_uuid_ = potential_new_main_uuid;
 }
 
 auto CoordinatorData::ShowInstances() const -> std::vector<CoordinatorInstanceStatus> {

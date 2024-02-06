@@ -375,7 +375,17 @@ def test_replica_instance_restarts_replication_works():
 
     mg_sleep_and_assert(expected_data_up, show_repl_cluster)
 
+    expected_data_on_main_show_replicas = [
+        ("instance_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+    ]
+    instance3_cursor = connect(host="localhost", port=7687).cursor()
     instance1_cursor = connect(host="localhost", port=7688).cursor()
+
+    def retrieve_data_show_repl_role_instance1():
+        return sorted(list(execute_and_fetch_all(instance3_cursor, "SHOW REPLICAS;")))
+
+    mg_sleep_and_assert(expected_data_on_main_show_replicas, retrieve_data_show_repl_role_instance1)
 
     def retrieve_data_show_repl_role_instance1():
         return sorted(list(execute_and_fetch_all(instance1_cursor, "SHOW REPLICATION ROLE;")))
@@ -383,9 +393,6 @@ def test_replica_instance_restarts_replication_works():
     expected_data_replica = [("replica",)]
     mg_sleep_and_assert(expected_data_replica, retrieve_data_show_repl_role_instance1)
 
-    # Needs timeout of at least 1 second for frequency check to send SwapUUID
-    time.sleep(5)
-    instance3_cursor = connect(host="localhost", port=7687).cursor()
     execute_and_fetch_all(instance3_cursor, "CREATE ();")
 
     def retrieve_data_replica():
