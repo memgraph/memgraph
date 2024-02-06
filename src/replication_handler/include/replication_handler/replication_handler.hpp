@@ -25,7 +25,7 @@ inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
 void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandler &dbms_handler, utils::UUID main_uuid,
                         system::System *system, auth::SynchedAuth &auth);
 #else
-void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandler &dbms_handler);
+void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandler &dbms_handler, utils::UUID main_uuid);
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -217,7 +217,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
     StartReplicaClient(*instance_client_ptr, dbms_handler_, main_uuid, system_, auth_);
 #else
-    StartReplicaClient(*instance_client_ptr, dbms_handler_);
+    StartReplicaClient(*instance_client_ptr, dbms_handler_, main_uuid);
 #endif
     return {};
   }

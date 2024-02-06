@@ -79,7 +79,7 @@ void RecoverReplication(memgraph::replication::ReplicationState &repl_state,
           replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, mainData.uuid_)) {
         client.try_set_uuid = false;
       }
-      memgraph::replication::StartReplicaClient(client, dbms_handler, mainData.uuid_, );
+      memgraph::replication::StartReplicaClient(client, dbms_handler, mainData.uuid_);
     }
 
     // Warning
