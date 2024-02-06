@@ -269,7 +269,7 @@ class DbmsHandler {
   bool IsReplica() const { return repl_state_.IsReplica(); }
 
 #ifdef MG_ENTERPRISE
-  //coordination::CoordinatorState &CoordinatorState() { return coordinator_state_; }
+  // coordination::CoordinatorState &CoordinatorState() { return coordinator_state_; }
 #endif
 
   /**
@@ -410,9 +410,6 @@ class DbmsHandler {
     MG_ASSERT(acc, "Failed to get default database!");
     return acc->get()->config();
 #endif
-  }
-  bool TrySwapReplicaMainUUID(replication::ReplicationClient &client, const utils::UUID &main_uuid) {
-    return memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, main_uuid);
   }
 
  private:

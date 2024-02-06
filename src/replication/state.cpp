@@ -206,9 +206,7 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
       [[fallthrough]];
     }
     case durability::DurabilityVersion::V2: {
-      if (std::holds_alternative<durability::ReplicaRole>(data.role)) {
-        throw std::runtime_error("Migration for replica from older version to new version is not possible");
-      } else {
+      if (std::holds_alternative<durability::MainRole>(data.role)) {
         auto &main = std::get<durability::MainRole>(data.role);
         main.main_uuid = utils::UUID{};
       }

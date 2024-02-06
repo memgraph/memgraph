@@ -41,9 +41,8 @@ void CoordinatorHandlers::Register(memgraph::coordination::CoordinatorServer &se
       });
 }
 
-void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
-                                              slk::Builder *res_builder) {
-
+void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,
+                                              slk::Reader *req_reader, slk::Builder *res_builder) {
   if (!replication_handler.IsReplica()) {
     spdlog::error("Setting main uuid must be performed on replica.");
     slk::Save(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
@@ -53,7 +52,8 @@ void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &r
   replication_coordination_glue::SwapMainUUIDReq req;
   slk::Load(&req, req_reader);
   spdlog::info(fmt::format("Set replica data UUID  to main uuid {}", std::string(req.uuid)));
-  std::get<memgraph::replication::RoleReplicaData>(replication_handler.GetReplState().ReplicationData()).uuid_ = req.uuid;
+  std::get<memgraph::replication::RoleReplicaData>(replication_handler.GetReplState().ReplicationData()).uuid_ =
+      req.uuid;
 
   slk::Save(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
 }
@@ -113,7 +113,7 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
 
   // registering replicas
   for (auto const &config : req.replication_clients_info | ranges::views::transform(converter)) {
-    auto instance_client = replication_handler.RegisterReplica(config);
+    auto instance_client = replication_handler.RegisterReplica(config, false);
     if (instance_client.HasError()) {
       using enum memgraph::replication::RegisterReplicaError;
       switch (instance_client.GetError()) {
@@ -129,6 +129,10 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
           return;
         // We don't handle disk issues
         case memgraph::query::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+          spdlog::error("Registered replica could not be persisted!");
+          slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
+          return;
+        case memgraph::query::RegisterReplicaError::ERROR_ACCEPTING_MAIN:
           spdlog::error("Registered replica could not be persisted!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
