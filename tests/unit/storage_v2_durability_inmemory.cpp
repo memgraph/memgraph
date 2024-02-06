@@ -3013,7 +3013,7 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
     // Create snapshot.
     {
       memgraph::storage::Config config{
-          .items = {.properties_on_edges = GetParam()},
+          .salient.items = {.properties_on_edges = GetParam()},
           .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
       memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
       memgraph::dbms::Database db{config, repl_state};
@@ -3030,7 +3030,7 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
 
     // Recover snapshot.
     memgraph::storage::Config config{
-        .items = {.properties_on_edges = GetParam()},
+        .salient.items = {.properties_on_edges = GetParam()},
         .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};

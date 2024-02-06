@@ -1467,8 +1467,8 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                     const BatchInfo &batch) {
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
             LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
           },
           edge_batches);
@@ -1508,7 +1508,7 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
 
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path, vertices, edges, edge_count, items = config.items, snapshot_has_edges, &get_edge_type_from_id,
+        [path, vertices, edges, edge_count, items = config.salient.items, snapshot_has_edges, &get_edge_type_from_id,
          &highest_edge_gid, &recovery_info](const size_t batch_index, const BatchInfo &batch) {
           const auto result = LoadPartialConnectivity(path, *vertices, *edges, batch.offset, batch.count, items,
                                                       snapshot_has_edges, get_edge_type_from_id);

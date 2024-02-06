@@ -284,6 +284,7 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
           data.operation_label_properties.label = label;
           data.operation_label_properties.properties = properties;
+          break;
         case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
           MG_ASSERT(false, "Invalid function call!");
