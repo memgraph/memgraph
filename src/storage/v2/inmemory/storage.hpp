@@ -302,6 +302,9 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
+    /// Duiring commit, in some cases you do not need to hand over deltas to GC
+    /// in those cases this method is a light weight way to unlink and discard our deltas
+    void FastDiscardOfDeltas(uint64_t oldest_active_timestamp, std::unique_lock<std::mutex> gc_guard);
     SalientConfig::Items config_;
   };
 
@@ -429,16 +432,15 @@ class InMemoryStorage final : public Storage {
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
-  using BondPmrLd = Bond<utils::pmr::list<Delta>>;
   struct GCDeltas {
-    GCDeltas(uint64_t mark_timestamp, BondPmrLd deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
+    GCDeltas(uint64_t mark_timestamp, std::deque<Delta> deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
         : mark_timestamp_{mark_timestamp}, deltas_{std::move(deltas)}, commit_timestamp_{std::move(commit_timestamp)} {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
 
     uint64_t mark_timestamp_{};                                  //!< a timestamp no active transaction currently has
-    BondPmrLd deltas_;                                           //!< the deltas that need cleaning
+    std::deque<Delta> deltas_;                                   //!< the deltas that need cleaning
     std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
   };
 

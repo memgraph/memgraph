@@ -270,6 +270,8 @@ pushd jemalloc
 MALLOC_CONF="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000" \
 ./configure \
   --disable-cxx \
+  --with-lg-page=12 \
+  --with-lg-hugepage=21 \
   --enable-shared=no --prefix=$working_dir \
   --with-malloc-conf="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
 

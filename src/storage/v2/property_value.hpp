@@ -57,38 +57,24 @@ class PropertyValue {
   PropertyValue() : type_(Type::Null) {}
 
   // constructors for primitive types
-  explicit PropertyValue(const bool value) : type_(Type::Bool) { bool_v = value; }
-  explicit PropertyValue(const int value) : type_(Type::Int) { int_v = value; }
-  explicit PropertyValue(const int64_t value) : type_(Type::Int) { int_v = value; }
-  explicit PropertyValue(const double value) : type_(Type::Double) { double_v = value; }
-  explicit PropertyValue(const TemporalData value) : type_{Type::TemporalData} { temporal_data_v = value; }
+  explicit PropertyValue(const bool value) : bool_v{.val_ = value} {}
+  explicit PropertyValue(const int value) : int_v{.val_ = value} {}
+  explicit PropertyValue(const int64_t value) : int_v{.val_ = value} {}
+  explicit PropertyValue(const double value) : double_v{.val_ = value} {}
+  explicit PropertyValue(const TemporalData value) : temporal_data_v{.val_ = value} {}
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
-  explicit PropertyValue(const std::string &value) : type_(Type::String) { new (&string_v) std::string(value); }
+  explicit PropertyValue(std::string value) : string_v{.val_ = std::move(value)} {}
   /// @throw std::bad_alloc
   /// @throw std::length_error if length of value exceeds
   ///        std::string::max_length().
-  explicit PropertyValue(const char *value) : type_(Type::String) { new (&string_v) std::string(value); }
+  explicit PropertyValue(std::string_view value) : string_v{.val_ = std::string(value)} {}
+  explicit PropertyValue(char const *value) : string_v{.val_ = std::string(value)} {}
   /// @throw std::bad_alloc
-  explicit PropertyValue(const std::vector<PropertyValue> &value) : type_(Type::List) {
-    new (&list_v) std::vector<PropertyValue>(value);
-  }
+  explicit PropertyValue(std::vector<PropertyValue> value) : list_v{.val_ = std::move(value)} {}
   /// @throw std::bad_alloc
-  explicit PropertyValue(const std::map<std::string, PropertyValue> &value) : type_(Type::Map) {
-    new (&map_v) std::map<std::string, PropertyValue>(value);
-  }
-
-  // move constructors for non-primitive types
-  explicit PropertyValue(std::string &&value) noexcept : type_(Type::String) {
-    new (&string_v) std::string(std::move(value));
-  }
-  explicit PropertyValue(std::vector<PropertyValue> &&value) noexcept : type_(Type::List) {
-    new (&list_v) std::vector<PropertyValue>(std::move(value));
-  }
-  explicit PropertyValue(std::map<std::string, PropertyValue> &&value) noexcept : type_(Type::Map) {
-    new (&map_v) std::map<std::string, PropertyValue>(std::move(value));
-  }
+  explicit PropertyValue(std::map<std::string, PropertyValue> value) : map_v{.val_ = std::move(value)} {}
 
   // copy constructor
   /// @throw std::bad_alloc
@@ -126,21 +112,21 @@ class PropertyValue {
     if (type_ != Type::Bool) [[unlikely]] {
       throw PropertyValueException("The value isn't a bool!");
     }
-    return bool_v;
+    return bool_v.val_;
   }
   /// @throw PropertyValueException if value isn't of correct type.
   int64_t ValueInt() const {
     if (type_ != Type::Int) [[unlikely]] {
       throw PropertyValueException("The value isn't an int!");
     }
-    return int_v;
+    return int_v.val_;
   }
   /// @throw PropertyValueException if value isn't of correct type.
   double ValueDouble() const {
     if (type_ != Type::Double) [[unlikely]] {
       throw PropertyValueException("The value isn't a double!");
     }
-    return double_v;
+    return double_v.val_;
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
@@ -149,7 +135,7 @@ class PropertyValue {
       throw PropertyValueException("The value isn't a temporal data!");
     }
 
-    return temporal_data_v;
+    return temporal_data_v.val_;
   }
 
   // const value getters for non-primitive types
@@ -158,7 +144,7 @@ class PropertyValue {
     if (type_ != Type::String) [[unlikely]] {
       throw PropertyValueException("The value isn't a string!");
     }
-    return string_v;
+    return string_v.val_;
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
@@ -166,7 +152,7 @@ class PropertyValue {
     if (type_ != Type::List) [[unlikely]] {
       throw PropertyValueException("The value isn't a list!");
     }
-    return list_v;
+    return list_v.val_;
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
@@ -174,7 +160,7 @@ class PropertyValue {
     if (type_ != Type::Map) [[unlikely]] {
       throw PropertyValueException("The value isn't a map!");
     }
-    return map_v;
+    return map_v.val_;
   }
 
   // reference value getters for non-primitive types
@@ -183,7 +169,7 @@ class PropertyValue {
     if (type_ != Type::String) [[unlikely]] {
       throw PropertyValueException("The value isn't a string!");
     }
-    return string_v;
+    return string_v.val_;
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
@@ -191,7 +177,7 @@ class PropertyValue {
     if (type_ != Type::List) [[unlikely]] {
       throw PropertyValueException("The value isn't a list!");
     }
-    return list_v;
+    return list_v.val_;
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
@@ -199,23 +185,45 @@ class PropertyValue {
     if (type_ != Type::Map) [[unlikely]] {
       throw PropertyValueException("The value isn't a map!");
     }
-    return map_v;
+    return map_v.val_;
   }
 
  private:
   void DestroyValue() noexcept;
 
+  // NOTE: this may look strange but it is for better data layout
+  //       https://eel.is/c++draft/class.union#general-note-1
   union {
-    bool bool_v;
-    int64_t int_v;
-    double double_v;
-    std::string string_v;
-    std::vector<PropertyValue> list_v;
-    std::map<std::string, PropertyValue> map_v;
-    TemporalData temporal_data_v;
+    Type type_;
+    struct {
+      Type type_ = Type::Bool;
+      bool val_;
+    } bool_v;
+    struct {
+      Type type_ = Type::Int;
+      int64_t val_;
+    } int_v;
+    struct {
+      Type type_ = Type::Double;
+      double val_;
+    } double_v;
+    struct {
+      Type type_ = Type::String;
+      std::string val_;
+    } string_v;
+    struct {
+      Type type_ = Type::List;
+      std::vector<PropertyValue> val_;
+    } list_v;
+    struct {
+      Type type_ = Type::Map;
+      std::map<std::string, PropertyValue> val_;
+    } map_v;
+    struct {
+      Type type_ = Type::TemporalData;
+      TemporalData val_;
+    } temporal_data_v;
   };
-
-  Type type_;
 };
 
 // stream output
@@ -340,25 +348,25 @@ inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.ty
     case Type::Null:
       return;
     case Type::Bool:
-      this->bool_v = other.bool_v;
+      this->bool_v.val_ = other.bool_v.val_;
       return;
     case Type::Int:
-      this->int_v = other.int_v;
+      this->int_v.val_ = other.int_v.val_;
       return;
     case Type::Double:
-      this->double_v = other.double_v;
+      this->double_v.val_ = other.double_v.val_;
       return;
     case Type::String:
-      new (&string_v) std::string(other.string_v);
+      new (&string_v.val_) std::string(other.string_v.val_);
       return;
     case Type::List:
-      new (&list_v) std::vector<PropertyValue>(other.list_v);
+      new (&list_v.val_) std::vector<PropertyValue>(other.list_v.val_);
       return;
     case Type::Map:
-      new (&map_v) std::map<std::string, PropertyValue>(other.map_v);
+      new (&map_v.val_) std::map<std::string, PropertyValue>(other.map_v.val_);
       return;
     case Type::TemporalData:
-      this->temporal_data_v = other.temporal_data_v;
+      this->temporal_data_v.val_ = other.temporal_data_v.val_;
       return;
   }
 }
@@ -368,28 +376,28 @@ inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(std:
     case Type::Null:
       break;
     case Type::Bool:
-      bool_v = other.bool_v;
+      bool_v.val_ = other.bool_v.val_;
       break;
     case Type::Int:
-      int_v = other.int_v;
+      int_v.val_ = other.int_v.val_;
       break;
     case Type::Double:
-      double_v = other.double_v;
+      double_v.val_ = other.double_v.val_;
       break;
     case Type::String:
-      std::construct_at(&string_v, std::move(other.string_v));
-      std::destroy_at(&other.string_v);
+      std::construct_at(&string_v.val_, std::move(other.string_v.val_));
+      std::destroy_at(&other.string_v.val_);
       break;
     case Type::List:
-      std::construct_at(&list_v, std::move(other.list_v));
-      std::destroy_at(&other.list_v);
+      std::construct_at(&list_v.val_, std::move(other.list_v.val_));
+      std::destroy_at(&other.list_v.val_);
       break;
     case Type::Map:
-      std::construct_at(&map_v, std::move(other.map_v));
-      std::destroy_at(&other.map_v);
+      std::construct_at(&map_v.val_, std::move(other.map_v.val_));
+      std::destroy_at(&other.map_v.val_);
       break;
     case Type::TemporalData:
-      temporal_data_v = other.temporal_data_v;
+      temporal_data_v.val_ = other.temporal_data_v.val_;
       break;
   }
 }
@@ -404,25 +412,25 @@ inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
     case Type::Null:
       break;
     case Type::Bool:
-      this->bool_v = other.bool_v;
+      this->bool_v.val_ = other.bool_v.val_;
       break;
     case Type::Int:
-      this->int_v = other.int_v;
+      this->int_v.val_ = other.int_v.val_;
       break;
     case Type::Double:
-      this->double_v = other.double_v;
+      this->double_v.val_ = other.double_v.val_;
       break;
     case Type::String:
-      new (&string_v) std::string(other.string_v);
+      new (&string_v.val_) std::string(other.string_v.val_);
       break;
     case Type::List:
-      new (&list_v) std::vector<PropertyValue>(other.list_v);
+      new (&list_v.val_) std::vector<PropertyValue>(other.list_v.val_);
       break;
     case Type::Map:
-      new (&map_v) std::map<std::string, PropertyValue>(other.map_v);
+      new (&map_v.val_) std::map<std::string, PropertyValue>(other.map_v.val_);
       break;
     case Type::TemporalData:
-      this->temporal_data_v = other.temporal_data_v;
+      this->temporal_data_v.val_ = other.temporal_data_v.val_;
       break;
   }
 
@@ -438,28 +446,28 @@ inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
       case Type::Null:
         break;
       case Type::Bool:
-        bool_v = other.bool_v;
+        bool_v.val_ = other.bool_v.val_;
         break;
       case Type::Int:
-        int_v = other.int_v;
+        int_v.val_ = other.int_v.val_;
         break;
       case Type::Double:
-        double_v = other.double_v;
+        double_v.val_ = other.double_v.val_;
         break;
       case Type::String:
-        string_v = std::move(other.string_v);
-        std::destroy_at(&other.string_v);
+        string_v.val_ = std::move(other.string_v.val_);
+        std::destroy_at(&other.string_v.val_);
         break;
       case Type::List:
-        list_v = std::move(other.list_v);
-        std::destroy_at(&other.list_v);
+        list_v.val_ = std::move(other.list_v.val_);
+        std::destroy_at(&other.list_v.val_);
         break;
       case Type::Map:
-        map_v = std::move(other.map_v);
-        std::destroy_at(&other.map_v);
+        map_v.val_ = std::move(other.map_v.val_);
+        std::destroy_at(&other.map_v.val_);
         break;
       case Type::TemporalData:
-        temporal_data_v = other.temporal_data_v;
+        temporal_data_v.val_ = other.temporal_data_v.val_;
         break;
     }
     other.type_ = Type::Null;
@@ -482,13 +490,13 @@ inline void PropertyValue::DestroyValue() noexcept {
 
     // destructor for non primitive types since we used placement new
     case Type::String:
-      std::destroy_at(&string_v);
+      std::destroy_at(&string_v.val_);
       return;
     case Type::List:
-      std::destroy_at(&list_v);
+      std::destroy_at(&list_v.val_);
       return;
     case Type::Map:
-      std::destroy_at(&map_v);
+      std::destroy_at(&map_v.val_);
       return;
   }
 }
