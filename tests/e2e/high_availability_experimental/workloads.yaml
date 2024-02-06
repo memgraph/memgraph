@@ -28,9 +28,9 @@ workloads:
     args: ["high_availability_experimental/coordinator.py"]
     <<: *ha_cluster
 
-  - name: "Automatic failover"
+  - name: "Single coordinator"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["high_availability_experimental/automatic_failover.py"]
+    args: ["high_availability_experimental/single_coordinator.py"]
 
   - name: "Disabled manual setting of replication cluster"
     binary: "tests/e2e/pytest_runner.sh"

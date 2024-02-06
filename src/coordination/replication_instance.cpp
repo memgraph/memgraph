@@ -25,7 +25,6 @@ ReplicationInstance::ReplicationInstance(CoordinatorData *data, CoordinatorClien
   if (!client_.DemoteToReplica()) {
     throw CoordinatorRegisterInstanceException("Failed to demote instance {} to replica", client_.InstanceName());
   }
-  client_.StartFrequentCheck();
 }
 
 auto ReplicationInstance::OnSuccessPing() -> void {
@@ -75,6 +74,7 @@ auto ReplicationInstance::DemoteToReplica(HealthCheckCallback replica_succ_cb, H
   return true;
 }
 
+auto ReplicationInstance::StartFrequentCheck() -> void { client_.StartFrequentCheck(); }
 auto ReplicationInstance::PauseFrequentCheck() -> void { client_.PauseFrequentCheck(); }
 auto ReplicationInstance::ResumeFrequentCheck() -> void { client_.ResumeFrequentCheck(); }
 

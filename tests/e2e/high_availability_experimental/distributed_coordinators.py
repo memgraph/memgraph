@@ -29,10 +29,49 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 TEMP_DIR = tempfile.TemporaryDirectory().name
 
 MEMGRAPH_INSTANCES_DESCRIPTION = {
-    "coordinator1": {
+    "instance_1": {
         "args": [
             "--bolt-port",
             "7687",
+            "--log-level",
+            "TRACE",
+            "--coordinator-server-port",
+            "10011",
+        ],
+        "log_file": "instance_1.log",
+        "data_directory": f"{TEMP_DIR}/instance_1",
+        "setup_queries": [],
+    },
+    "instance_2": {
+        "args": [
+            "--bolt-port",
+            "7688",
+            "--log-level",
+            "TRACE",
+            "--coordinator-server-port",
+            "10012",
+        ],
+        "log_file": "instance_2.log",
+        "data_directory": f"{TEMP_DIR}/instance_2",
+        "setup_queries": [],
+    },
+    "instance_3": {
+        "args": [
+            "--bolt-port",
+            "7689",
+            "--log-level",
+            "TRACE",
+            "--coordinator-server-port",
+            "10013",
+        ],
+        "log_file": "instance_3.log",
+        "data_directory": f"{TEMP_DIR}/instance_3",
+        "setup_queries": [],
+    },
+    "coordinator_1": {
+        "args": [
+            "--bolt-port",
+            "7690",
             "--log-level=TRACE",
             "--raft-server-id=1",
             "--raft-server-port=10111",
@@ -40,10 +79,10 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "log_file": "coordinator1.log",
         "setup_queries": [],
     },
-    "coordinator2": {
+    "coordinator_2": {
         "args": [
             "--bolt-port",
-            "7688",
+            "7691",
             "--log-level=TRACE",
             "--raft-server-id=2",
             "--raft-server-port=10112",
@@ -51,10 +90,10 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "log_file": "coordinator2.log",
         "setup_queries": [],
     },
-    "coordinator3": {
+    "coordinator_3": {
         "args": [
             "--bolt-port",
-            "7689",
+            "7692",
             "--log-level=TRACE",
             "--raft-server-id=3",
             "--raft-server-port=10113",
@@ -63,6 +102,10 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "setup_queries": [
             "ADD COORDINATOR 1 ON '127.0.0.1:10111'",
             "ADD COORDINATOR 2 ON '127.0.0.1:10112'",
+            "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
+            "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
+            "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
+            "SET INSTANCE instance_3 TO MAIN",
         ],
     },
 }
@@ -72,73 +115,83 @@ def test_coordinators_communication():
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    coordinator3_cursor = connect(host="localhost", port=7689).cursor()
+    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
     def check_coordinator3():
         return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
 
-    expected_cluster = [
+    expected_cluster_coord3 = [
         ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
         ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
     ]
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
 
-    coordinator1_cursor = connect(host="localhost", port=7687).cursor()
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
 
     def check_coordinator1():
         return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
 
-    mg_sleep_and_assert(expected_cluster, check_coordinator1)
+    # TODO: (andi) This should be solved eventually
+    expected_cluster_not_shared = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
+    ]
 
-    coordinator2_cursor = connect(host="localhost", port=7688).cursor()
+    mg_sleep_and_assert(expected_cluster_not_shared, check_coordinator1)
+
+    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
     def check_coordinator2():
         return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
 
-    mg_sleep_and_assert(expected_cluster, check_coordinator2)
+    mg_sleep_and_assert(expected_cluster_not_shared, check_coordinator2)
 
 
 def test_coordinators_communication_with_restarts():
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    expected_cluster = [
+    expected_cluster_not_shared = [
         ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
         ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
     ]
 
-    coordinator1_cursor = connect(host="localhost", port=7687).cursor()
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
 
     def check_coordinator1():
         return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
 
-    mg_sleep_and_assert(expected_cluster, check_coordinator1)
+    mg_sleep_and_assert(expected_cluster_not_shared, check_coordinator1)
 
-    coordinator2_cursor = connect(host="localhost", port=7688).cursor()
+    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
     def check_coordinator2():
         return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
 
-    mg_sleep_and_assert(expected_cluster, check_coordinator2)
+    mg_sleep_and_assert(expected_cluster_not_shared, check_coordinator2)
 
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator1")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator1")
-    coordinator1_cursor = connect(host="localhost", port=7687).cursor()
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
 
-    mg_sleep_and_assert(expected_cluster, check_coordinator1)
+    mg_sleep_and_assert(expected_cluster_not_shared, check_coordinator1)
 
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator1")
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator2")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
 
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator1")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator2")
-    coordinator1_cursor = connect(host="localhost", port=7687).cursor()
-    coordinator2_cursor = connect(host="localhost", port=7688).cursor()
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
-    mg_sleep_and_assert(expected_cluster, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster, check_coordinator2)
+    mg_sleep_and_assert(expected_cluster_not_shared, check_coordinator1)
+    mg_sleep_and_assert(expected_cluster_not_shared, check_coordinator2)
 
 
 if __name__ == "__main__":

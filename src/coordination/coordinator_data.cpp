@@ -252,20 +252,28 @@ auto CoordinatorData::SetInstanceToMain(std::string instance_name) -> SetInstanc
 
 auto CoordinatorData::RegisterInstance(CoordinatorClientConfig config) -> RegisterInstanceCoordinatorStatus {
   auto lock = std::lock_guard{coord_data_lock_};
-  if (std::ranges::any_of(repl_instances_, [&config](ReplicationInstance const &instance) {
-        return instance.InstanceName() == config.instance_name;
-      })) {
+
+  auto const name_matches = [&config](ReplicationInstance const &instance) {
+    return instance.InstanceName() == config.instance_name;
+  };
+
+  if (std::ranges::any_of(repl_instances_, name_matches)) {
     return RegisterInstanceCoordinatorStatus::NAME_EXISTS;
   }
 
-  if (std::ranges::any_of(repl_instances_, [&config](ReplicationInstance const &instance) {
-        return instance.SocketAddress() == config.SocketAddress();
-      })) {
+  auto const socket_address_matches = [&config](ReplicationInstance const &instance) {
+    return instance.SocketAddress() == config.SocketAddress();
+  };
+
+  if (std::ranges::any_of(repl_instances_, socket_address_matches)) {
     return RegisterInstanceCoordinatorStatus::ENDPOINT_EXISTS;
   }
 
   try {
-    repl_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_);
+    auto *repl_instance = &repl_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_);
+    if (self_.IsLeader()) {
+      repl_instance->StartFrequentCheck();
+    }
     return RegisterInstanceCoordinatorStatus::SUCCESS;
 
   } catch (CoordinatorRegisterInstanceException const &) {

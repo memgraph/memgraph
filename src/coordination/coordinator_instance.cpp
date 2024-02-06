@@ -35,6 +35,8 @@ CoordinatorInstance::CoordinatorInstance()
   state_machine_ = cs_new<CoordinatorStateMachine>();
   logger_ = nullptr;
 
+  // TODO: (andi) Maybe params file
+
   // ASIO options
   asio_service::options asio_opts;
   asio_opts.thread_pool_size_ = 1;  // TODO: (andi) Improve this
@@ -93,6 +95,8 @@ auto CoordinatorInstance::GetAllCoordinators() const -> std::vector<ptr<srv_conf
   raft_server_->get_srv_config_all(all_srv_configs);
   return all_srv_configs;
 }
+
+auto CoordinatorInstance::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 }  // namespace memgraph::coordination
 #endif

@@ -38,8 +38,11 @@ class CoordinatorInstance {
 
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
+
   auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
   auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
+
+  auto IsLeader() const -> bool;
 
  private:
   ptr<state_machine> state_machine_;
