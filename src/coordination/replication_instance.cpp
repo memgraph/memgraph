@@ -17,9 +17,9 @@
 
 namespace memgraph::coordination {
 
-ReplicationInstance::ReplicationInstance(CoordinatorData *data, CoordinatorClientConfig config,
+ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorClientConfig config,
                                          HealthCheckCallback succ_cb, HealthCheckCallback fail_cb)
-    : client_(data, std::move(config), std::move(succ_cb), std::move(fail_cb)),
+    : client_(peer, std::move(config), std::move(succ_cb), std::move(fail_cb)),
       replication_role_(replication_coordination_glue::ReplicationRole::REPLICA),
       is_alive_(true) {
   if (!client_.DemoteToReplica()) {

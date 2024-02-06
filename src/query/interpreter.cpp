@@ -458,9 +458,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       : coordinator_handler_(coordinator_state) {}
 
   /// @throw QueryRuntimeException if an error ocurred.
-  void RegisterInstance(const std::string &coordinator_socket_address, const std::string &replication_socket_address,
-                        const std::chrono::seconds instance_check_frequency, const std::string &instance_name,
-                        CoordinatorQuery::SyncMode sync_mode) override {
+  void RegisterReplicationInstance(const std::string &coordinator_socket_address,
+                                   const std::string &replication_socket_address,
+                                   const std::chrono::seconds instance_check_frequency,
+                                   const std::string &instance_name, CoordinatorQuery::SyncMode sync_mode) override {
     const auto maybe_replication_ip_port =
         io::network::Endpoint::ParseSocketOrAddress(replication_socket_address, std::nullopt);
     if (!maybe_replication_ip_port) {
@@ -489,7 +490,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                               .replication_client_info = repl_config,
                                               .ssl = std::nullopt};
 
-    auto status = coordinator_handler_.RegisterInstance(coordinator_client_config);
+    auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config);
     switch (status) {
       using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:
@@ -519,8 +520,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void SetInstanceToMain(const std::string &instance_name) override {
-    auto status = coordinator_handler_.SetInstanceToMain(instance_name);
+  void SetReplicationInstanceToMain(const std::string &instance_name) override {
+    auto status = coordinator_handler_.SetReplicationInstanceToMain(instance_name);
     switch (status) {
       using enum memgraph::coordination::SetInstanceToMainCoordinatorStatus;
       case NO_INSTANCE_WITH_NAME:
@@ -1145,9 +1146,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                      replication_socket_address_tv, main_check_frequency = config.replication_replica_check_frequency,
                      instance_name = coordinator_query->instance_name_,
                      sync_mode = coordinator_query->sync_mode_]() mutable {
-        handler.RegisterInstance(std::string(coordinator_socket_address_tv.ValueString()),
-                                 std::string(replication_socket_address_tv.ValueString()), main_check_frequency,
-                                 instance_name, sync_mode);
+        handler.RegisterReplicationInstance(std::string(coordinator_socket_address_tv.ValueString()),
+                                            std::string(replication_socket_address_tv.ValueString()),
+                                            main_check_frequency, instance_name, sync_mode);
         return std::vector<std::vector<TypedValue>>();
       };
 
@@ -1176,7 +1177,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      instance_name = coordinator_query->instance_name_]() mutable {
-        handler.SetInstanceToMain(instance_name);
+        handler.SetReplicationInstanceToMain(instance_name);
         return std::vector<std::vector<TypedValue>>();
       };
 
