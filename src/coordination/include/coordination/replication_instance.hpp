@@ -51,6 +51,7 @@ class ReplicationInstance {
                      HealthCheckCallback main_fail_cb) -> bool;
   auto DemoteToReplica(HealthCheckCallback replica_succ_cb, HealthCheckCallback replica_fail_cb) -> bool;
 
+  auto StartFrequentCheck() -> void;
   auto PauseFrequentCheck() -> void;
   auto ResumeFrequentCheck() -> void;
 
