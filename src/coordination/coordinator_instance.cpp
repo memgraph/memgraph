@@ -26,7 +26,9 @@ namespace memgraph::coordination {
 using nuraft::ptr;
 using nuraft::srv_config;
 
-CoordinatorInstance::CoordinatorInstance() {
+CoordinatorInstance::CoordinatorInstance()
+    : self_([this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StartFrequentCheck); },
+            [this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StopFrequentCheck); }) {
   auto find_instance = [](CoordinatorInstance *coord_instance,
                           std::string_view instance_name) -> ReplicationInstance & {
     auto instance = std::ranges::find_if(
@@ -219,10 +221,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
   }
 
   try {
-    auto *repl_instance = &repl_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_);
-    if (self_.IsLeader()) {
-      repl_instance->StartFrequentCheck();
-    }
+    repl_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_);
     return RegisterInstanceCoordinatorStatus::SUCCESS;
 
   } catch (CoordinatorRegisterInstanceException const &) {

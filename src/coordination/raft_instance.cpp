@@ -31,8 +31,12 @@ using nuraft::raft_server;
 using nuraft::srv_config;
 using raft_result = cmd_result<ptr<buffer>>;
 
-RaftInstance::RaftInstance()
-    : raft_server_id_(FLAGS_raft_server_id), raft_port_(FLAGS_raft_server_port), raft_address_("127.0.0.1") {
+RaftInstance::RaftInstance(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb)
+    : raft_server_id_(FLAGS_raft_server_id),
+      raft_port_(FLAGS_raft_server_port),
+      raft_address_("127.0.0.1"),
+      become_leader_cb_(std::move(become_leader_cb)),
+      become_follower_cb_(std::move(become_follower_cb)) {
   auto raft_endpoint = raft_address_ + ":" + std::to_string(raft_port_);
   state_manager_ = cs_new<CoordinatorStateManager>(raft_server_id_, raft_endpoint);
   state_machine_ = cs_new<CoordinatorStateMachine>();
@@ -55,11 +59,13 @@ RaftInstance::RaftInstance()
   params.return_method_ = raft_params::blocking;
 
   raft_server::init_options init_opts;
-  init_opts.raft_callback_ = [](cb_func::Type event_type, cb_func::Param *param) -> nuraft::CbReturnCode {
+  init_opts.raft_callback_ = [this](cb_func::Type event_type, cb_func::Param *param) -> nuraft::CbReturnCode {
     if (event_type == cb_func::BecomeLeader) {
       spdlog::info("Node {} became leader", param->leaderId);
+      become_leader_cb_();
     } else if (event_type == cb_func::BecomeFollower) {
       spdlog::info("Node {} became follower", param->myId);
+      become_follower_cb_();
     }
     return CbReturnCode::Ok;
   };
