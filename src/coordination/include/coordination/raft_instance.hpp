@@ -19,6 +19,9 @@
 
 namespace memgraph::coordination {
 
+using BecomeLeaderCb = std::function<void()>;
+using BecomeFollowerCb = std::function<void()>;
+
 using nuraft::logger;
 using nuraft::ptr;
 using nuraft::raft_launcher;
@@ -29,7 +32,8 @@ using nuraft::state_mgr;
 
 class RaftInstance {
  public:
-  RaftInstance();
+  RaftInstance(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb);
+
   RaftInstance(RaftInstance const &other) = delete;
   RaftInstance &operator=(RaftInstance const &other) = delete;
   RaftInstance(RaftInstance &&other) noexcept = delete;
@@ -55,6 +59,9 @@ class RaftInstance {
   uint32_t raft_server_id_;
   uint32_t raft_port_;
   std::string raft_address_;
+
+  BecomeLeaderCb become_leader_cb_;
+  BecomeFollowerCb become_follower_cb_;
 };
 
 }  // namespace memgraph::coordination

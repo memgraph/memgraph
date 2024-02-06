@@ -111,6 +111,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
+# TODO: (andi) Test that the order of setting up coordinators and instances does not matter
+# TODO: (andi) Currently, these tests are flaky, depend whether Raft server was created in time.
 def test_coordinators_communication():
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)

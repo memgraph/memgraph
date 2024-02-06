@@ -24,6 +24,7 @@
 #include <list>
 
 namespace memgraph::coordination {
+
 class CoordinatorInstance {
  public:
   CoordinatorInstance();

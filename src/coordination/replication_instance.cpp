@@ -75,6 +75,7 @@ auto ReplicationInstance::DemoteToReplica(HealthCheckCallback replica_succ_cb, H
 }
 
 auto ReplicationInstance::StartFrequentCheck() -> void { client_.StartFrequentCheck(); }
+auto ReplicationInstance::StopFrequentCheck() -> void { client_.StopFrequentCheck(); }
 auto ReplicationInstance::PauseFrequentCheck() -> void { client_.PauseFrequentCheck(); }
 auto ReplicationInstance::ResumeFrequentCheck() -> void { client_.ResumeFrequentCheck(); }
 
