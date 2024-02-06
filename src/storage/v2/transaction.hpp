@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,6 @@
 
 #include <atomic>
 #include <limits>
-#include <list>
 #include <memory>
 
 #include "utils/memory.hpp"
@@ -39,7 +38,6 @@ namespace memgraph::storage {
 
 const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
-using PmrListDelta = utils::pmr::list<Delta>;
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
@@ -47,7 +45,6 @@ struct Transaction {
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
-        deltas(0),
         md_deltas(utils::NewDeleteResource()),
         must_abort(false),
         isolation_level(isolation_level),
@@ -91,7 +88,7 @@ struct Transaction {
   std::unique_ptr<std::atomic<uint64_t>> commit_timestamp{};
   uint64_t command_id{};
 
-  Bond<PmrListDelta> deltas;
+  std::deque<Delta> deltas;
   utils::pmr::list<MetadataDelta> md_deltas;
   bool must_abort{};
   IsolationLevel isolation_level{};
