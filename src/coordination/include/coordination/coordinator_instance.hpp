@@ -13,48 +13,41 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <flags/replication.hpp>
+#include "coordination/coordinator_server.hpp"
+#include "coordination/instance_status.hpp"
+#include "coordination/raft_instance.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
+#include "coordination/replication_instance.hpp"
+#include "utils/rw_lock.hpp"
+#include "utils/thread_pool.hpp"
 
-#include <libnuraft/nuraft.hxx>
+#include <list>
 
 namespace memgraph::coordination {
-
-using nuraft::logger;
-using nuraft::ptr;
-using nuraft::raft_launcher;
-using nuraft::raft_server;
-using nuraft::srv_config;
-using nuraft::state_machine;
-using nuraft::state_mgr;
-
 class CoordinatorInstance {
  public:
   CoordinatorInstance();
-  CoordinatorInstance(CoordinatorInstance const &other) = delete;
-  CoordinatorInstance &operator=(CoordinatorInstance const &other) = delete;
-  CoordinatorInstance(CoordinatorInstance &&other) noexcept = delete;
-  CoordinatorInstance &operator=(CoordinatorInstance &&other) noexcept = delete;
-  ~CoordinatorInstance() = default;
 
-  auto InstanceName() const -> std::string;
-  auto RaftSocketAddress() const -> std::string;
+  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorClientConfig config) -> RegisterInstanceCoordinatorStatus;
+
+  [[nodiscard]] auto SetReplicationInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus;
+
+  auto ShowInstances() const -> std::vector<InstanceStatus>;
+
+  auto TryFailover() -> void;
 
   auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
-  auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
-
-  auto IsLeader() const -> bool;
 
  private:
-  ptr<state_machine> state_machine_;
-  ptr<state_mgr> state_manager_;
-  ptr<raft_server> raft_server_;
-  ptr<logger> logger_;
-  raft_launcher launcher_;
+  auto ClusterHasAliveMain_() const -> bool;
 
-  // TODO: (andi) I think variables below can be abstracted
-  uint32_t raft_server_id_;
-  uint32_t raft_port_;
-  std::string raft_address_;
+  HealthCheckCallback main_succ_cb_, main_fail_cb_, replica_succ_cb_, replica_fail_cb_;
+
+  // NOTE: Must be std::list because we rely on pointer stability
+  std::list<ReplicationInstance> repl_instances_;
+  mutable utils::RWLock coord_instance_lock_{utils::RWLock::Priority::READ};
+
+  RaftInstance self_;
 };
 
 }  // namespace memgraph::coordination

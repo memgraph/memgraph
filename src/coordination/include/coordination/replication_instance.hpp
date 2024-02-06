@@ -23,11 +23,11 @@
 
 namespace memgraph::coordination {
 
-class CoordinatorData;
+class CoordinatorInstance;
 
 class ReplicationInstance {
  public:
-  ReplicationInstance(CoordinatorData *data, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
+  ReplicationInstance(CoordinatorInstance *peer, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
                       HealthCheckCallback fail_cb);
 
   ReplicationInstance(ReplicationInstance const &other) = delete;
