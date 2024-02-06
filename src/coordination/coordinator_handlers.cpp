@@ -75,7 +75,7 @@ void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHan
       .ip_address = req.replication_client_info.replication_ip_address,
       .port = req.replication_client_info.replication_port};
 
-  if (!replication_handler.SetReplicationRoleReplica(clients_config)) {
+  if (!replication_handler.SetReplicationRoleReplica(clients_config, std::nullopt)) {
     spdlog::error("Demoting main to replica failed!");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;
@@ -133,7 +133,7 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
         case memgraph::query::RegisterReplicaError::ERROR_ACCEPTING_MAIN:
-          spdlog::error("Registered replica could not be persisted!");
+          spdlog::error("Replica didn't accept change of main!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
         case memgraph::query::RegisterReplicaError::CONNECTION_FAILED:

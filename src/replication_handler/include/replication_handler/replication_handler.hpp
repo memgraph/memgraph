@@ -110,7 +110,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 
   // as MAIN, become REPLICA
   bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
-                                 const std::optional<utils::UUID> &main_uuid = std::nullopt) override;
+                                 const std::optional<utils::UUID> &main_uuid) override;
 
   // as MAIN, define and connect to REPLICAs
   auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)

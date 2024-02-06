@@ -253,6 +253,8 @@ bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
 
 bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                  const std::optional<utils::UUID> &main_uuid) {
+  // False positive report for the std::make_unique
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   if (!TryPersistRoleReplica(config, main_uuid)) {
     return false;
   }

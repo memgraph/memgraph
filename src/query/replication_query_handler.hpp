@@ -13,6 +13,7 @@
 
 #include "replication_coordination_glue/role.hpp"
 #include "utils/result.hpp"
+#include "utils/uuid.hpp"
 
 // BEGIN fwd declares
 namespace memgraph::replication {
@@ -46,7 +47,7 @@ struct ReplicationQueryHandler {
 
   // as MAIN, become REPLICA
   virtual bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
-                                         const std::optional<utils::UUID> &main_uuid = std::nullopt) = 0;
+                                         const std::optional<utils::UUID> &main_uuid) = 0;
 
   // as MAIN, define and connect to REPLICAs
   virtual auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
