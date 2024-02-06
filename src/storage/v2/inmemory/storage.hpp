@@ -402,6 +402,9 @@ class InMemoryStorage final : public Storage {
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  uint64_t final_commit_timestamp);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
+                                 uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.

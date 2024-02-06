@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,6 +48,16 @@ void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperati
       client->IfStreamingTransaction([&](auto &stream) {
         stream.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
       });
+    }
+  });
+}
+
+void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
+                                              uint64_t final_commit_timestamp) {
+  replication_clients_.WithLock([&](auto &clients) {
+    for (auto &client : clients) {
+      client->IfStreamingTransaction(
+          [&](auto &stream) { stream.AppendOperation(operation, edge_type, final_commit_timestamp); });
     }
   });
 }

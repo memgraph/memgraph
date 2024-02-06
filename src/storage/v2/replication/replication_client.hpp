@@ -64,6 +64,9 @@ class ReplicaStream {
                        const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
   /// @throw rpc::RpcFailedException
+  void AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp);
+
+  /// @throw rpc::RpcFailedException
   replication::AppendDeltasRes Finalize();
 
   bool IsDefunct() const { return stream_.IsDefunct(); }

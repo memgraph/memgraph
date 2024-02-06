@@ -679,13 +679,6 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   switch (operation) {
-    case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
-    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
-      MG_ASSERT(properties.empty(), "Invalid function call!");
-      encoder->WriteMarker(OperationToMarker(operation));
-      encoder->WriteString(name_id_mapper->IdToName(edge_type.AsUint()));
-      break;
-    }
     case StorageMetadataOperation::LABEL_INDEX_CREATE:
     case StorageMetadataOperation::LABEL_INDEX_DROP:
     case StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
@@ -733,6 +726,37 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
       }
       break;
     }
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
+      MG_ASSERT(false, "Invalid function  call!");
+    }
+  }
+}
+
+void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
+                     EdgeTypeId edge_type, uint64_t timestamp) {
+  encoder->WriteMarker(Marker::SECTION_DELTA);
+  encoder->WriteUint(timestamp);
+  switch (operation) {
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
+      encoder->WriteMarker(OperationToMarker(operation));
+      encoder->WriteString(name_id_mapper->IdToName(edge_type.AsUint()));
+      break;
+    }
+    case StorageMetadataOperation::LABEL_INDEX_CREATE:
+    case StorageMetadataOperation::LABEL_INDEX_DROP:
+    case StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
+    case StorageMetadataOperation::LABEL_INDEX_STATS_SET:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
+    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
+      MG_ASSERT(false, "Invalid function call!");
   }
 }
 
@@ -915,6 +939,18 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label.label));
           RemoveRecoveredIndexConstraint(&indices_constraints->indices.label, label_id,
                                          "The label index doesn't exist!");
+          break;
+        }
+        case WalDeltaData::Type::EDGE_INDEX_CREATE: {
+          auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.operation_edge_type.edge_type));
+          AddRecoveredIndexConstraint(&indices_constraints->indices.edge, edge_type_id,
+                                      "The edge-type index already exists!");
+          break;
+        }
+        case WalDeltaData::Type::EDGE_INDEX_DROP: {
+          auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.operation_edge_type.edge_type));
+          RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge, edge_type_id,
+                                         "The edge-type index doesn't exist!");
           break;
         }
         case WalDeltaData::Type::LABEL_INDEX_STATS_SET: {
@@ -1115,6 +1151,11 @@ void WalFile::AppendOperation(StorageMetadataOperation operation, LabelId label,
                               const LabelIndexStats &stats, const LabelPropertyIndexStats &property_stats,
                               uint64_t timestamp) {
   EncodeOperation(&wal_, name_id_mapper_, operation, label, properties, stats, property_stats, timestamp);
+  UpdateStats(timestamp);
+}
+
+void WalFile::AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp) {
+  EncodeOperation(&wal_, name_id_mapper_, operation, edge_type, timestamp);
   UpdateStats(timestamp);
 }
 

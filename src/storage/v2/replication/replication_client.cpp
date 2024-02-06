@@ -321,6 +321,12 @@ void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operati
                   timestamp);
 }
 
+void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
+                                    uint64_t timestamp) {
+  replication::Encoder encoder(stream_.GetBuilder());
+  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, edge_type, timestamp);
+}
+
 replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
 
 }  // namespace memgraph::storage

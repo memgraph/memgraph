@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,6 +45,8 @@ struct ReplicationStorageState {
   void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                        const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                        const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp);
+  void AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
+                       uint64_t final_commit_timestamp);
   bool FinalizeTransaction(uint64_t timestamp, Storage *storage);
 
   // Getters

@@ -161,6 +161,8 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR:
+    case WalDeltaData::Type::EDGE_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
@@ -214,6 +216,10 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
                      LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                      const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
+/// Function used to encode non-transactional operation.
+void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
+                     EdgeTypeId edge_type, uint64_t timestamp);
+
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
@@ -243,6 +249,8 @@ class WalFile {
 
   void AppendOperation(StorageMetadataOperation operation, LabelId label, const std::set<PropertyId> &properties,
                        const LabelIndexStats &stats, const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
+
+  void AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp);
 
   void Sync();
 

@@ -1977,6 +1977,10 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_CREATE, md_delta.label,
                                   final_commit_timestamp);
       } break;
+      case MetadataDelta::Action::EDGE_INDEX_CREATE: {
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE, md_delta.edge_type,
+                                  final_commit_timestamp);
+      } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
         const auto &info = md_delta.label_property;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE, info.label,
@@ -1984,6 +1988,10 @@ bool InMemoryStorage::AppendToWalDataDefinition(const Transaction &transaction, 
       } break;
       case MetadataDelta::Action::LABEL_INDEX_DROP: {
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_DROP, md_delta.label,
+                                  final_commit_timestamp);
+      } break;
+      case MetadataDelta::Action::EDGE_INDEX_DROP: {
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP, md_delta.edge_type,
                                   final_commit_timestamp);
       } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
@@ -2049,6 +2057,12 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 uint64_t final_commit_timestamp) {
   wal_file_->AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
   repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+}
+
+void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
+                                                uint64_t final_commit_timestamp) {
+  wal_file_->AppendOperation(operation, edge_type, final_commit_timestamp);
+  repl_storage_state_.AppendOperation(operation, edge_type, final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
