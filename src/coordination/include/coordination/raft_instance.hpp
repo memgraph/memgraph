@@ -22,6 +22,7 @@ namespace memgraph::coordination {
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
 
+using nuraft::buffer;
 using nuraft::logger;
 using nuraft::ptr;
 using nuraft::raft_launcher;
@@ -29,6 +30,7 @@ using nuraft::raft_server;
 using nuraft::srv_config;
 using nuraft::state_machine;
 using nuraft::state_mgr;
+using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
 class RaftInstance {
  public:
@@ -46,7 +48,10 @@ class RaftInstance {
   auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
   auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
+  auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
+
+  auto AppendRegisterReplicationInstance(std::string const &instance) -> ptr<raft_result>;
 
  private:
   ptr<state_machine> state_machine_;

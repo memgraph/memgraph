@@ -500,6 +500,14 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't register replica instance since instance with such endpoint already exists!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("REGISTER INSTANCE query can only be run on a coordinator!");
+      case NOT_LEADER:
+        throw QueryRuntimeException("Couldn't register replica instance since coordinator is not a leader!");
+      case RAFT_COULD_NOT_ACCEPT:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance since raft server couldn't accept the log! Most likely the raft "
+            "instance is not a leader!");
+      case RAFT_COULD_NOT_APPEND:
+        throw QueryRuntimeException("Couldn't register replica instance since raft server couldn't append the log!");
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "

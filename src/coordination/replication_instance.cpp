@@ -25,6 +25,8 @@ ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorC
   if (!client_.DemoteToReplica()) {
     throw CoordinatorRegisterInstanceException("Failed to demote instance {} to replica", client_.InstanceName());
   }
+
+  client_.StartFrequentCheck();
 }
 
 auto ReplicationInstance::OnSuccessPing() -> void {

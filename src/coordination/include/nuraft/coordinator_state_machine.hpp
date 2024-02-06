@@ -36,6 +36,19 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
   ~CoordinatorStateMachine() override {}
 
+  static auto EncodeRegisterReplicationInstance(const std::string &name) -> ptr<buffer> {
+    std::string str_log = name + "_replica";
+    ptr<buffer> log = buffer::alloc(str_log.size());
+    buffer_serializer bs(log);
+    bs.put_str(str_log);
+    return log;
+  }
+
+  static auto DecodeRegisterReplicationInstance(buffer &data) -> std::string {
+    buffer_serializer bs(data);
+    return bs.get_str();
+  }
+
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
   auto commit(ulong log_idx, buffer &data) -> ptr<buffer> override;

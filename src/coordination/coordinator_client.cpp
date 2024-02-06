@@ -42,6 +42,10 @@ auto CoordinatorClient::InstanceName() const -> std::string { return config_.ins
 auto CoordinatorClient::SocketAddress() const -> std::string { return rpc_client_.Endpoint().SocketAddress(); }
 
 void CoordinatorClient::StartFrequentCheck() {
+  if (instance_checker_.IsRunning()) {
+    return;
+  }
+
   MG_ASSERT(config_.health_check_frequency_sec > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
