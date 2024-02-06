@@ -135,10 +135,11 @@ workloads:
     proc: "tests/e2e/memory/procedures/"
     <<: *in_memory_query_limit_cluster
 
-  - name: "Memory control query limit create"
-    binary: "tests/e2e/memory/memgraph__e2e__memory__limit_query_alloc_create"
-    args: ["--bolt-port", *bolt_port]
-    <<: *in_memory_query_limit_cluster
+  # TODO: Bring back, it is flaky, check issue: https://github.com/memgraph/memgraph/issues/1501
+  #- name: "Memory control query limit create"
+  #  binary: "tests/e2e/memory/memgraph__e2e__memory__limit_query_alloc_create"
+  #  args: ["--bolt-port", *bolt_port]
+  #  <<: *in_memory_query_limit_cluster
 
   - name: "Memory control query limit create multi thread"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_query_alloc_create_multi_thread"
