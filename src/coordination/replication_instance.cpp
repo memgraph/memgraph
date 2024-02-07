@@ -20,8 +20,7 @@ namespace memgraph::coordination {
 ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorClientConfig config,
                                          HealthCheckCallback succ_cb, HealthCheckCallback fail_cb)
     : client_(peer, std::move(config), std::move(succ_cb), std::move(fail_cb)),
-      replication_role_(replication_coordination_glue::ReplicationRole::REPLICA),
-      is_alive_(true) {
+      replication_role_(replication_coordination_glue::ReplicationRole::REPLICA) {
   if (!client_.DemoteToReplica()) {
     throw CoordinatorRegisterInstanceException("Failed to demote instance {} to replica", client_.InstanceName());
   }
