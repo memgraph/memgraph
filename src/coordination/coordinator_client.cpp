@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "utils/uuid.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_client.hpp"
@@ -71,16 +72,17 @@ auto CoordinatorClient::SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCal
 
 auto CoordinatorClient::ReplicationClientInfo() const -> ReplClientInfo { return config_.replication_client_info; }
 
-auto CoordinatorClient::SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool {
+auto CoordinatorClient::SendPromoteReplicaToMainRpc(const utils::UUID &uuid,
+                                                    ReplicationClientsInfo replication_clients_info) const -> bool {
   try {
-    auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(std::move(replication_clients_info))};
+    auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(uuid, std::move(replication_clients_info))};
     if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC failover response!");
+      spdlog::error("Failed to receive successful PromoteReplicaToMainRpc response!");
       return false;
     }
     return true;
   } catch (rpc::RpcFailedException const &) {
-    spdlog::error("RPC error occurred while sending failover RPC!");
+    spdlog::error("RPC error occurred while sending PromoteReplicaToMainRpc!");
   }
   return false;
 }
@@ -97,6 +99,20 @@ auto CoordinatorClient::DemoteToReplica() const -> bool {
     return true;
   } catch (rpc::RpcFailedException const &) {
     spdlog::error("Failed to set instance {} to replica!", instance_name);
+  }
+  return false;
+}
+
+auto CoordinatorClient::SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bool {
+  try {
+    auto stream{rpc_client_.Stream<replication_coordination_glue::SwapMainUUIDRpc>(uuid)};
+    if (!stream.AwaitResponse().success) {
+      spdlog::error("Failed to receive successful RPC swapping of uuid response!");
+      return false;
+    }
+    return true;
+  } catch (const rpc::RpcFailedException &) {
+    spdlog::error("RPC error occurred while sending swapping uuid RPC!");
   }
   return false;
 }

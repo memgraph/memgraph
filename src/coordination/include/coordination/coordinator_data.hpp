@@ -11,16 +11,17 @@
 
 #pragma once
 
+#include "utils/uuid.hpp"
 #ifdef MG_ENTERPRISE
 
+#include <list>
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_server.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
+#include "replication_coordination_glue/handler.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/thread_pool.hpp"
-
-#include <list>
 
 namespace memgraph::coordination {
 class CoordinatorData {
@@ -36,12 +37,11 @@ class CoordinatorData {
   auto ShowInstances() const -> std::vector<CoordinatorInstanceStatus>;
 
  private:
-  auto ClusterHasAliveMain_() const -> bool;
-
   mutable utils::RWLock coord_data_lock_{utils::RWLock::Priority::READ};
   HealthCheckCallback main_succ_cb_, main_fail_cb_, replica_succ_cb_, replica_fail_cb_;
   // NOTE: Must be std::list because we rely on pointer stability
   std::list<CoordinatorInstance> registered_instances_;
+  utils::UUID main_uuid_;
 };
 
 struct CoordinatorMainReplicaData {

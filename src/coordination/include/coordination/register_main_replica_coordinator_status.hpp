@@ -30,6 +30,7 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   NOT_COORDINATOR,
   SUCCESS,
   COULD_NOT_PROMOTE_TO_MAIN,
+  SWAP_UUID_FAILED
 };
 
 }  // namespace memgraph::coordination

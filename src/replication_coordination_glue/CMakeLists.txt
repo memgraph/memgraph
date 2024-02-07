@@ -6,6 +6,7 @@ target_sources(mg-repl_coord_glue
         messages.hpp
         mode.hpp
         role.hpp
+        handler.hpp
 
         PRIVATE
         messages.cpp

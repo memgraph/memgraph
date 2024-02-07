@@ -26,21 +26,28 @@ constexpr auto *kSSLCertFile = "replica_ssl_cert_file";
 constexpr auto *kReplicationRole = "replication_role";
 constexpr auto *kEpoch = "epoch";
 constexpr auto *kVersion = "durability_version";
+constexpr auto *kMainUUID = "main_uuid";
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
-    j = nlohmann::json{{kVersion, p.version},
-                       {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
-                       {kEpoch, main.epoch.id()}};
+    auto common = nlohmann::json{{kVersion, p.version},
+                                 {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
+                                 {kEpoch, main.epoch.id()}};
+    if (p.version != DurabilityVersion::V1 && p.version != DurabilityVersion::V2) {
+      MG_ASSERT(main.main_uuid.has_value(), "Main should have id ready on version >= V3");
+      common[kMainUUID] = main.main_uuid.value();
+    }
+    j = std::move(common);
   };
   auto processREPLICA = [&](ReplicaRole const &replica) {
-    j = nlohmann::json{
-        {kVersion, p.version},
-        {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA},
-        {kIpAddress, replica.config.ip_address},
-        {kPort, replica.config.port}
-        // TODO: SSL
-    };
+    auto common = nlohmann::json{{kVersion, p.version},
+                                 {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA},
+                                 {kIpAddress, replica.config.ip_address},
+                                 {kPort, replica.config.port}};
+    if (replica.main_uuid.has_value()) {
+      common[kMainUUID] = replica.main_uuid.value();
+    }
+    j = std::move(common);
   };
   std::visit(utils::Overloaded{processMAIN, processREPLICA}, p.role);
 }
@@ -56,7 +63,12 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       auto json_epoch = j.value(kEpoch, std::string{});
       auto epoch = ReplicationEpoch{};
       if (!json_epoch.empty()) epoch.SetEpoch(json_epoch);
-      p = ReplicationRoleEntry{.version = version, .role = MainRole{.epoch = std::move(epoch)}};
+      auto main_role = MainRole{.epoch = std::move(epoch)};
+
+      if (j.contains(kMainUUID)) {
+        main_role.main_uuid = j.at(kMainUUID);
+      }
+      p = ReplicationRoleEntry{.version = version, .role = std::move(main_role)};
       break;
     }
     case memgraph::replication_coordination_glue::ReplicationRole::REPLICA: {
@@ -66,7 +78,13 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       j.at(kIpAddress).get_to(ip_address);
       j.at(kPort).get_to(port);
       auto config = ReplicationServerConfig{.ip_address = std::move(ip_address), .port = port};
-      p = ReplicationRoleEntry{.version = version, .role = ReplicaRole{.config = std::move(config)}};
+      auto replica_role = ReplicaRole{.config = std::move(config)};
+      if (j.contains(kMainUUID)) {
+        replica_role.main_uuid = j.at(kMainUUID);
+      }
+
+      p = ReplicationRoleEntry{.version = version, .role = std::move(replica_role)};
+
       break;
     }
   }

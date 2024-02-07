@@ -27,6 +27,8 @@ struct SystemHeartbeatReq {
   static void Load(SystemHeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const SystemHeartbeatReq &self, memgraph::slk::Builder *builder);
   SystemHeartbeatReq() = default;
+  explicit SystemHeartbeatReq(const utils::UUID &main_uuid) : main_uuid(main_uuid) {}
+  utils::UUID main_uuid;
 };
 
 struct SystemHeartbeatRes {
@@ -50,14 +52,17 @@ struct SystemRecoveryReq {
   static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
   static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
   SystemRecoveryReq() = default;
-  SystemRecoveryReq(uint64_t forced_group_timestamp, std::vector<storage::SalientConfig> database_configs,
-                    auth::Auth::Config auth_config, std::vector<auth::User> users, std::vector<auth::Role> roles)
-      : forced_group_timestamp{forced_group_timestamp},
+  SystemRecoveryReq(const utils::UUID &main_uuid, uint64_t forced_group_timestamp,
+                    std::vector<storage::SalientConfig> database_configs, auth::Auth::Config auth_config,
+                    std::vector<auth::User> users, std::vector<auth::Role> roles)
+      : main_uuid(main_uuid),
+        forced_group_timestamp{forced_group_timestamp},
         database_configs(std::move(database_configs)),
         auth_config(std::move(auth_config)),
         users{std::move(users)},
         roles{std::move(roles)} {}
 
+  utils::UUID main_uuid;
   uint64_t forced_group_timestamp;
   std::vector<storage::SalientConfig> database_configs;
   auth::Auth::Config auth_config;

@@ -89,6 +89,7 @@ void Load(auth::Auth::Config *self, memgraph::slk::Reader *reader) {
 
 // Serialize code for UpdateAuthDataReq
 void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.epoch_id, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
@@ -96,6 +97,7 @@ void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::B
   memgraph::slk::Save(self.role, builder);
 }
 void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->epoch_id, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
@@ -113,6 +115,7 @@ void Load(memgraph::replication::UpdateAuthDataRes *self, memgraph::slk::Reader 
 
 // Serialize code for DropAuthDataReq
 void Save(const memgraph::replication::DropAuthDataReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.epoch_id, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
@@ -120,6 +123,7 @@ void Save(const memgraph::replication::DropAuthDataReq &self, memgraph::slk::Bui
   memgraph::slk::Save(self.name, builder);
 }
 void Load(memgraph::replication::DropAuthDataReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->epoch_id, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
