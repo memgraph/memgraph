@@ -19,7 +19,7 @@ namespace memgraph::coordination {
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS,
-  END_POINT_EXISTS,
+  ENDPOINT_EXISTS,
   NOT_COORDINATOR,
   RPC_FAILED,
   SUCCESS
@@ -30,6 +30,7 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   NOT_COORDINATOR,
   SUCCESS,
   COULD_NOT_PROMOTE_TO_MAIN,
+  SWAP_UUID_FAILED
 };
 
 }  // namespace memgraph::coordination

@@ -37,6 +37,7 @@ KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>(
 }
 
 KVStore::~KVStore() {
+  if (pimpl_ == nullptr) return;
   spdlog::debug("Destroying KVStore at {}", pimpl_->storage.string());
   const auto sync = pimpl_->db->SyncWAL();
   if (!sync.ok()) spdlog::error("KVStore sync failed!");

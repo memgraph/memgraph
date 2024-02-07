@@ -15,11 +15,9 @@
 
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_instance_status.hpp"
+#include "coordination/coordinator_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
-#include "utils/result.hpp"
 
-#include <cstdint>
-#include <optional>
 #include <vector>
 
 namespace memgraph::dbms {
@@ -28,7 +26,7 @@ class DbmsHandler;
 
 class CoordinatorHandler {
  public:
-  explicit CoordinatorHandler(DbmsHandler &dbms_handler);
+  explicit CoordinatorHandler(coordination::CoordinatorState &coordinator_state);
 
   auto RegisterInstance(coordination::CoordinatorClientConfig config)
       -> coordination::RegisterInstanceCoordinatorStatus;
@@ -38,7 +36,7 @@ class CoordinatorHandler {
   auto ShowInstances() const -> std::vector<coordination::CoordinatorInstanceStatus>;
 
  private:
-  DbmsHandler &dbms_handler_;
+  coordination::CoordinatorState &coordinator_state_;
 };
 
 }  // namespace memgraph::dbms

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -580,7 +580,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
     case Delta::Action::REMOVE_LABEL: {
       encoder->WriteMarker(VertexActionToMarker(delta.action));
       encoder->WriteUint(vertex.gid.AsUint());
-      encoder->WriteString(name_id_mapper->IdToName(delta.label.AsUint()));
+      encoder->WriteString(name_id_mapper->IdToName(delta.label.value.AsUint()));
       break;
     }
     case Delta::Action::ADD_OUT_EDGE:

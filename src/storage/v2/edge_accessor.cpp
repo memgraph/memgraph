@@ -237,7 +237,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         if (delta.property.key == property) {
-          *value = delta.property.value;
+          *value = *delta.property.value;
         }
         break;
       }
@@ -281,15 +281,15 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
       case Delta::Action::SET_PROPERTY: {
         auto it = properties.find(delta.property.key);
         if (it != properties.end()) {
-          if (delta.property.value.IsNull()) {
+          if (delta.property.value->IsNull()) {
             // remove the property
             properties.erase(it);
           } else {
             // set the value
-            it->second = delta.property.value;
+            it->second = *delta.property.value;
           }
-        } else if (!delta.property.value.IsNull()) {
-          properties.emplace(delta.property.key, delta.property.value);
+        } else if (!delta.property.value->IsNull()) {
+          properties.emplace(delta.property.key, *delta.property.value);
         }
         break;
       }
