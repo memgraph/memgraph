@@ -23,7 +23,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Delta;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::EdgeRef;
@@ -76,47 +76,84 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
     return std::nullopt;
   }
 }
+
+void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
+                  std::string_view rpc_req) {
+  spdlog::error("Received {} with main_id: {} != current_main_uuid: {}", rpc_req, std::string(main_req_id),
+                current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : "");
+}
 }  // namespace
 
-void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::ReplicationServer &server) {
-  server.rpc_server_.Register<storage::replication::HeartbeatRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received HeartbeatRpc");
-    InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, req_reader, res_builder);
-  });
-  server.rpc_server_.Register<storage::replication::AppendDeltasRpc>(
-      [dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received AppendDeltasRpc");
-        InMemoryReplicationHandlers::AppendDeltasHandler(dbms_handler, req_reader, res_builder);
+void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
+  auto &server = *data.server;
+  server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received HeartbeatRpc");
+        InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
-  server.rpc_server_.Register<storage::replication::SnapshotRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received SnapshotRpc");
-    InMemoryReplicationHandlers::SnapshotHandler(dbms_handler, req_reader, res_builder);
-  });
-  server.rpc_server_.Register<storage::replication::WalFilesRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received WalFilesRpc");
-    InMemoryReplicationHandlers::WalFilesHandler(dbms_handler, req_reader, res_builder);
-  });
-  server.rpc_server_.Register<storage::replication::CurrentWalRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received CurrentWalRpc");
-    InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, req_reader, res_builder);
-  });
-  server.rpc_server_.Register<storage::replication::TimestampRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received TimestampRpc");
-    InMemoryReplicationHandlers::TimestampHandler(dbms_handler, req_reader, res_builder);
-  });
+  server.rpc_server_.Register<storage::replication::AppendDeltasRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received AppendDeltasRpc");
+        InMemoryReplicationHandlers::AppendDeltasHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<storage::replication::SnapshotRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received SnapshotRpc");
+        InMemoryReplicationHandlers::SnapshotHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<storage::replication::WalFilesRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received WalFilesRpc");
+        InMemoryReplicationHandlers::WalFilesHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<storage::replication::CurrentWalRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received CurrentWalRpc");
+        InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<storage::replication::TimestampRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received TimestampRpc");
+        InMemoryReplicationHandlers::TimestampHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received SwapMainUUIDHandler");
+        InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, req_reader, res_builder);
+      });
 }
 
-void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                   slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler,
+                                                      replication::RoleReplicaData &role_replica_data,
+                                                      slk::Reader *req_reader, slk::Builder *res_builder) {
+  if (!dbms_handler->IsReplica()) {
+    spdlog::error("Setting main uuid must be performed on replica.");
+    slk::Save(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
+    return;
+  }
+
+  replication_coordination_glue::SwapMainUUIDReq req;
+  slk::Load(&req, req_reader);
+  spdlog::info(fmt::format("Set replica data UUID  to main uuid {}", std::string(req.uuid)));
+  dbms_handler->ReplicationState().TryPersistRoleReplica(role_replica_data.config, req.uuid);
+  role_replica_data.uuid_ = req.uuid;
+
+  slk::Save(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
+}
+
+void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handler,
+                                                   const std::optional<utils::UUID> &current_main_uuid,
+                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
-  if (!db_acc) {
+
+  if (!current_main_uuid.has_value() || req.main_uuid != *current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
     storage::replication::HeartbeatRes res{false, 0, ""};
     slk::Save(res, res_builder);
     return;
   }
-
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();
   storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load(),
@@ -124,10 +161,19 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   slk::Save(res, res_builder);
 }
 
-void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                      slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler,
+                                                      const std::optional<utils::UUID> &current_main_uuid,
+                                                      slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::AppendDeltasReq req;
   slk::Load(&req, req_reader);
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::AppendDeltasReq::kType.name);
+    storage::replication::AppendDeltasRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     storage::replication::AppendDeltasRes res{false, 0};
@@ -187,12 +233,19 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
 
-void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                  slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handler,
+                                                  const std::optional<utils::UUID> &current_main_uuid,
+                                                  slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
+    storage::replication::SnapshotRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     storage::replication::SnapshotRes res{false, 0};
     slk::Save(res, res_builder);
     return;
@@ -270,12 +323,19 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   spdlog::debug("Replication recovery from snapshot finished!");
 }
 
-void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                  slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
+                                                  const std::optional<utils::UUID> &current_main_uuid,
+                                                  slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::WalFilesReq req;
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
+    storage::replication::WalFilesRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
     storage::replication::WalFilesRes res{false, 0};
     slk::Save(res, res_builder);
     return;
@@ -298,12 +358,20 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
 }
 
-void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                    slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_handler,
+                                                    const std::optional<utils::UUID> &current_main_uuid,
+                                                    slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::CurrentWalReq req;
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
+    storage::replication::CurrentWalRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
     storage::replication::CurrentWalRes res{false, 0};
     slk::Save(res, res_builder);
     return;
@@ -370,13 +438,21 @@ void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
   }
 }
 
-void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                   slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handler,
+                                                   const std::optional<utils::UUID> &current_main_uuid,
+                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::TimestampReq req;
   slk::Load(&req, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     storage::replication::TimestampRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::TimestampReq::kType.name);
+    storage::replication::CurrentWalRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
@@ -387,6 +463,7 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
   slk::Save(res, res_builder);
 }
 
+/////// AF how does this work, does it get all deltas at once or what?
 uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage *storage,
                                                         storage::durability::BaseDecoder *decoder,
                                                         const uint64_t version) {

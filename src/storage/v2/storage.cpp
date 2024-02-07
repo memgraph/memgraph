@@ -49,7 +49,8 @@ Storage::Storage(Config config, StorageMode storage_mode)
 }
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, memgraph::replication::ReplicationRole replication_role)
+                            StorageMode storage_mode,
+                            memgraph::replication_coordination_glue::ReplicationRole replication_role)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
@@ -61,7 +62,8 @@ Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationL
       creation_storage_mode_(storage_mode) {}
 
 Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, memgraph::replication::ReplicationRole replication_role)
+                            StorageMode storage_mode,
+                            memgraph::replication_coordination_glue::ReplicationRole replication_role)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state

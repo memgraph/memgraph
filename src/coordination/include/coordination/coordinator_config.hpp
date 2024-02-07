@@ -25,16 +25,14 @@ namespace memgraph::coordination {
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 
 struct CoordinatorClientConfig {
-  const std::string instance_name;
-  const std::string ip_address;
-  const uint16_t port{};
+  std::string instance_name;
+  std::string ip_address;
+  uint16_t port{};
+  std::chrono::seconds health_check_frequency_sec{1};
 
-  // Frequency with which coordinator pings main/replicas about it status
-  const std::chrono::seconds health_check_frequency_sec{1};
+  auto SocketAddress() const -> std::string { return ip_address + ":" + std::to_string(port); }
 
-  // Info which coordinator will send to new main when performing failover
   struct ReplicationClientInfo {
-    // Should be the same as CoordinatorClientConfig's instance_name
     std::string instance_name;
     replication_coordination_glue::ReplicationMode replication_mode{};
     std::string replication_ip_address;
@@ -43,19 +41,21 @@ struct CoordinatorClientConfig {
     friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
   };
 
-  std::optional<ReplicationClientInfo> replication_client_info;
+  ReplicationClientInfo replication_client_info;
 
   struct SSL {
-    const std::string key_file;
-    const std::string cert_file;
+    std::string key_file;
+    std::string cert_file;
 
     friend bool operator==(const SSL &, const SSL &) = default;
   };
 
-  const std::optional<SSL> ssl;
+  std::optional<SSL> ssl;
 
   friend bool operator==(CoordinatorClientConfig const &, CoordinatorClientConfig const &) = default;
 };
+
+using ReplClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
 
 struct CoordinatorServerConfig {
   std::string ip_address;

@@ -13,54 +13,30 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "utils/result.hpp"
+#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_instance_status.hpp"
+#include "coordination/coordinator_state.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
 
-#include <cstdint>
-#include <optional>
 #include <vector>
 
-namespace memgraph::coordination {
-struct CoordinatorEntityInfo;
-struct CoordinatorEntityHealthInfo;
-struct CoordinatorClientConfig;
-}  // namespace memgraph::coordination
-
 namespace memgraph::dbms {
-
-enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
-  NAME_EXISTS,
-  END_POINT_EXISTS,
-  COULD_NOT_BE_PERSISTED,
-  NOT_COORDINATOR,
-  SUCCESS
-};
-
-enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN, MAIN_ALIVE, CLUSTER_UNINITIALIZED };
 
 class DbmsHandler;
 
 class CoordinatorHandler {
  public:
-  explicit CoordinatorHandler(DbmsHandler &dbms_handler);
+  explicit CoordinatorHandler(coordination::CoordinatorState &coordinator_state);
 
-  auto RegisterReplicaOnCoordinator(const memgraph::coordination::CoordinatorClientConfig &config)
-      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
+  auto RegisterInstance(coordination::CoordinatorClientConfig config)
+      -> coordination::RegisterInstanceCoordinatorStatus;
 
-  auto RegisterMainOnCoordinator(const memgraph::coordination::CoordinatorClientConfig &config)
-      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
+  auto SetInstanceToMain(std::string instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
 
-  auto ShowReplicasOnCoordinator() const -> std::vector<memgraph::coordination::CoordinatorEntityInfo>;
-
-  auto ShowMainOnCoordinator() const -> std::optional<memgraph::coordination::CoordinatorEntityInfo>;
-
-  auto PingReplicasOnCoordinator() const -> std::unordered_map<std::string_view, bool>;
-
-  auto PingMainOnCoordinator() const -> std::optional<memgraph::coordination::CoordinatorEntityHealthInfo>;
-
-  auto DoFailover() const -> DoFailoverStatus;
+  auto ShowInstances() const -> std::vector<coordination::CoordinatorInstanceStatus>;
 
  private:
-  DbmsHandler &dbms_handler_;
+  coordination::CoordinatorState &coordinator_state_;
 };
 
 }  // namespace memgraph::dbms

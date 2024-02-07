@@ -270,9 +270,9 @@ class RuleBasedPlanner {
  private:
   TPlanningContext *context_;
 
-  storage::LabelId GetLabel(LabelIx label) { return context_->db->NameToLabel(label.name); }
+  storage::LabelId GetLabel(const LabelIx &label) { return context_->db->NameToLabel(label.name); }
 
-  storage::PropertyId GetProperty(PropertyIx prop) { return context_->db->NameToProperty(prop.name); }
+  storage::PropertyId GetProperty(const PropertyIx &prop) { return context_->db->NameToProperty(prop.name); }
 
   storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
 

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,21 @@
 
 #pragma once
 
-#include "dbms/dbms_handler.hpp"
-#include "replication/replication_client.hpp"
+#ifdef MG_ENTERPRISE
 
-namespace memgraph::dbms {
+#include "io/network/endpoint.hpp"
 
-void StartReplicaClient(DbmsHandler &dbms_handler, replication::ReplicationClient &client);
+#include <string_view>
 
-}  // namespace memgraph::dbms
+namespace memgraph::coordination {
+
+struct CoordinatorInstanceStatus {
+  std::string instance_name;
+  std::string socket_address;
+  std::string replication_role;
+  bool is_alive;
+};
+
+}  // namespace memgraph::coordination
+
+#endif

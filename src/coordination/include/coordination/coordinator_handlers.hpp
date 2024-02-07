@@ -13,7 +13,9 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "slk/serialization.hpp"
+#include "coordination/coordinator_server.hpp"
+#include "replication_handler/replication_handler.hpp"
+#include "slk/streams.hpp"
 
 namespace memgraph::dbms {
 
@@ -21,11 +23,16 @@ class DbmsHandler;
 
 class CoordinatorHandlers {
  public:
-  static void Register(DbmsHandler &dbms_handler);
+  static void Register(memgraph::coordination::CoordinatorServer &server,
+                       replication::ReplicationHandler &replication_handler);
 
  private:
-  static void PromoteReplicaToMainHandler(DbmsHandler &dbms_handler, slk::Reader *req_reader,
+  static void PromoteReplicaToMainHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
                                           slk::Builder *res_builder);
+  static void DemoteMainToReplicaHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
+                                         slk::Builder *res_builder);
+  static void SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader, slk::Builder *res_builder);
+
 };
 
 }  // namespace memgraph::dbms

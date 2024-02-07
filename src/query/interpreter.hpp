@@ -15,7 +15,6 @@
 
 #include <gflags/gflags.h>
 
-#include "coordination/coordinator_entity_info.hpp"
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "memory/query_memory_control.hpp"
@@ -53,6 +52,10 @@
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 
+#ifdef MG_ENTERPRISE
+#include "coordination/coordinator_instance_status.hpp"
+#endif
+
 namespace memgraph::metrics {
 extern const Event FailedQuery;
 extern const Event FailedPrepare;
@@ -69,6 +72,7 @@ inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
+#ifdef MG_ENTERPRISE
 class CoordinatorQueryHandler {
  public:
   CoordinatorQueryHandler() = default;
@@ -90,53 +94,29 @@ class CoordinatorQueryHandler {
     ReplicationQuery::ReplicaState state;
   };
 
-#ifdef MG_ENTERPRISE
   struct MainReplicaStatus {
     std::string_view name;
-    std::string socket_address;
+    std::string_view socket_address;
     bool alive;
     bool is_main;
 
-    MainReplicaStatus(std::string_view name, std::string socket_address, bool alive, bool is_main)
-        : name{name}, socket_address{std::move(socket_address)}, alive{alive}, is_main{is_main} {}
+    MainReplicaStatus(std::string_view name, std::string_view socket_address, bool alive, bool is_main)
+        : name{name}, socket_address{socket_address}, alive{alive}, is_main{is_main} {}
   };
-#endif
-
-#ifdef MG_ENTERPRISE
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterReplicaCoordinatorServer(const std::string &replication_socket_address,
-                                                const std::string &coordinator_socket_address,
-                                                const std::chrono::seconds instance_check_frequency,
-                                                const std::string &instance_name,
-                                                CoordinatorQuery::SyncMode sync_mode) = 0;
-  virtual void RegisterMainCoordinatorServer(const std::string &socket_address,
-                                             const std::chrono::seconds instance_check_frequency,
-                                             const std::string &instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<coordination::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const = 0;
+  virtual void RegisterInstance(const std::string &coordinator_socket_address,
+                                const std::string &replication_socket_address,
+                                const std::chrono::seconds instance_check_frequency, const std::string &instance_name,
+                                CoordinatorQuery::SyncMode sync_mode) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<coordination::CoordinatorEntityInfo> ShowMainOnCoordinator() const = 0;
+  virtual void SetInstanceToMain(const std::string &instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::unordered_map<std::string_view, bool> PingReplicasOnCoordinator() const = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<coordination::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DoFailover() const = 0;
-
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<MainReplicaStatus> ShowMainReplicaStatus(
-      const std::vector<coordination::CoordinatorEntityInfo> &replicas,
-      const std::unordered_map<std::string_view, bool> &health_check_replicas,
-      const std::optional<coordination::CoordinatorEntityInfo> &main,
-      const std::optional<coordination::CoordinatorEntityHealthInfo> &health_check_main) const = 0;
-
-#endif
+  virtual std::vector<coordination::CoordinatorInstanceStatus> ShowInstances() const = 0;
 };
+#endif
 
 class AnalyzeGraphQueryHandler {
  public:
@@ -313,32 +293,12 @@ class Interpreter final {
 
   void SetUser(std::string_view username);
 
-  struct SystemTransactionGuard {
-    explicit SystemTransactionGuard(std::unique_lock<utils::ResourceLock> guard, dbms::DbmsHandler &dbms_handler)
-        : system_guard_(std::move(guard)), dbms_handler_{&dbms_handler} {
-      dbms_handler_->NewSystemTransaction();
-    }
-    SystemTransactionGuard &operator=(SystemTransactionGuard &&) = default;
-    SystemTransactionGuard(SystemTransactionGuard &&) = default;
-
-    ~SystemTransactionGuard() {
-      if (system_guard_.owns_lock()) dbms_handler_->ResetSystemTransaction();
-    }
-
-    dbms::AllSyncReplicaStatus Commit() { return dbms_handler_->Commit(); }
-
-   private:
-    std::unique_lock<utils::ResourceLock> system_guard_;
-    dbms::DbmsHandler *dbms_handler_;
-  };
-
-  std::optional<SystemTransactionGuard> system_transaction_guard_{};
+  std::optional<memgraph::system::Transaction> system_transaction_{};
 
  private:
   void ResetInterpreter() {
     query_executions_.clear();
-    system_guard.reset();
-    system_transaction_guard_.reset();
+    system_transaction_.reset();
     transaction_queries_->clear();
     if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
       current_db_.db_acc_.reset();
@@ -403,8 +363,6 @@ class Interpreter final {
   // TODO Figure out how this would work for multi-database
   // Exists only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
-  // TODO: our upgradable lock guard for system
-  std::optional<utils::ResourceLockGuard> system_guard;
 
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;

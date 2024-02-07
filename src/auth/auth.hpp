@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -10,15 +10,22 @@
 
 #include <mutex>
 #include <optional>
+#include <regex>
 #include <vector>
 
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "auth/module.hpp"
+#include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
+#include "system/action.hpp"
 #include "utils/settings.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::auth {
+
+class Auth;
+using SynchedAuth = memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>;
 
 static const constexpr char *const kAllDatabases = "*";
 
@@ -31,7 +38,47 @@ static const constexpr char *const kAllDatabases = "*";
  */
 class Auth final {
  public:
-  explicit Auth(const std::string &storage_directory);
+  struct Config {
+    Config() {}
+    Config(std::string name_regex, std::string password_regex, bool password_permit_null)
+        : name_regex_str{std::move(name_regex)},
+          password_regex_str{std::move(password_regex)},
+          password_permit_null{password_permit_null},
+          custom_name_regex{name_regex_str != glue::kDefaultUserRoleRegex},
+          name_regex{name_regex_str},
+          custom_password_regex{password_regex_str != glue::kDefaultPasswordRegex},
+          password_regex{password_regex_str} {}
+
+    std::string name_regex_str{glue::kDefaultUserRoleRegex};
+    std::string password_regex_str{glue::kDefaultPasswordRegex};
+    bool password_permit_null{true};
+
+   private:
+    friend class Auth;
+    bool custom_name_regex{false};
+    std::regex name_regex{name_regex_str};
+    bool custom_password_regex{false};
+    std::regex password_regex{password_regex_str};
+  };
+
+  explicit Auth(std::string storage_directory, Config config);
+
+  /**
+   * @brief Set the Config object
+   *
+   * @param config
+   */
+  void SetConfig(Config config) {
+    // NOTE: The Auth class itself is not thread-safe, higher-level code needs to synchronize it when using it.
+    config_ = std::move(config);
+  }
+
+  /**
+   * @brief
+   *
+   * @return Config
+   */
+  Config GetConfig() const { return config_; }
 
   /**
    * Authenticates a user using his username and password.
@@ -61,7 +108,7 @@ class Auth final {
    *
    * @throw AuthException if unable to save the user.
    */
-  void SaveUser(const User &user);
+  void SaveUser(const User &user, system::Transaction *system_tx = nullptr);
 
   /**
    * Creates a user if the user doesn't exist.
@@ -72,7 +119,8 @@ class Auth final {
    * @return a user when the user is created, nullopt if the user exists
    * @throw AuthException if unable to save the user.
    */
-  std::optional<User> AddUser(const std::string &username, const std::optional<std::string> &password = std::nullopt);
+  std::optional<User> AddUser(const std::string &username, const std::optional<std::string> &password = std::nullopt,
+                              system::Transaction *system_tx = nullptr);
 
   /**
    * Removes a user from the storage.
@@ -83,7 +131,15 @@ class Auth final {
    *         doesn't exist
    * @throw AuthException if unable to remove the user.
    */
-  bool RemoveUser(const std::string &username);
+  bool RemoveUser(const std::string &username, system::Transaction *system_tx = nullptr);
+
+  /**
+   * @brief
+   *
+   * @param user
+   * @param password
+   */
+  void UpdatePassword(auth::User &user, const std::optional<std::string> &password);
 
   /**
    * Gets all users from the storage.
@@ -92,6 +148,13 @@ class Auth final {
    * @throw AuthException if unable to load user data.
    */
   std::vector<User> AllUsers() const;
+
+  /**
+   * @brief
+   *
+   * @return std::vector<std::string>
+   */
+  std::vector<std::string> AllUsernames() const;
 
   /**
    * Returns whether there are users in the storage.
@@ -117,7 +180,7 @@ class Auth final {
    *
    * @throw AuthException if unable to save the role.
    */
-  void SaveRole(const Role &role);
+  void SaveRole(const Role &role, system::Transaction *system_tx = nullptr);
 
   /**
    * Creates a role if the role doesn't exist.
@@ -127,7 +190,7 @@ class Auth final {
    * @return a role when the role is created, nullopt if the role exists
    * @throw AuthException if unable to save the role.
    */
-  std::optional<Role> AddRole(const std::string &rolename);
+  std::optional<Role> AddRole(const std::string &rolename, system::Transaction *system_tx = nullptr);
 
   /**
    * Removes a role from the storage.
@@ -138,7 +201,7 @@ class Auth final {
    *         doesn't exist
    * @throw AuthException if unable to remove the role.
    */
-  bool RemoveRole(const std::string &rolename);
+  bool RemoveRole(const std::string &rolename, system::Transaction *system_tx = nullptr);
 
   /**
    * Gets all roles from the storage.
@@ -147,6 +210,13 @@ class Auth final {
    * @throw AuthException if unable to load role data.
    */
   std::vector<Role> AllRoles() const;
+
+  /**
+   * @brief
+   *
+   * @return std::vector<std::string>
+   */
+  std::vector<std::string> AllRolenames() const;
 
   /**
    * Gets all users for a role from the storage.
@@ -167,7 +237,7 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool RevokeDatabaseFromUser(const std::string &db, const std::string &name);
+  bool RevokeDatabaseFromUser(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Grant access to individual database for a user.
@@ -177,7 +247,7 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool GrantDatabaseToUser(const std::string &db, const std::string &name);
+  bool GrantDatabaseToUser(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Delete a database from all users.
@@ -185,7 +255,7 @@ class Auth final {
    * @param db name of the database to delete
    * @throw AuthException if unable to read data
    */
-  void DeleteDatabase(const std::string &db);
+  void DeleteDatabase(const std::string &db, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Set main database for an individual user.
@@ -195,14 +265,24 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool SetMainDatabase(std::string_view db, const std::string &name);
+  bool SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx = nullptr);
 #endif
 
  private:
+  /**
+   * @brief
+   *
+   * @param user_or_role
+   * @return true
+   * @return false
+   */
+  bool NameRegexMatch(const std::string &user_or_role) const;
+
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,
   // Auth is not thread-safe because modifying users and roles might require
   // more than one operation on the storage.
   kvstore::KVStore storage_;
   auth::Module module_;
+  Config config_;
 };
 }  // namespace memgraph::auth

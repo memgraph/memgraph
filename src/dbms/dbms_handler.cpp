@@ -11,29 +11,75 @@
 
 #include "dbms/dbms_handler.hpp"
 
-#include "dbms/coordinator_handlers.hpp"
-#include "flags/replication.hpp"
-
 #include <cstdint>
 #include <filesystem>
 
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
-#include "dbms/replication_client.hpp"
 #include "spdlog/spdlog.h"
+#include "system/include/system/system.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
 
-#ifdef MG_ENTERPRISE
-
 namespace {
-constexpr std::string_view kDBPrefix = "database:";                               // Key prefix for database durability
-constexpr std::string_view kLastCommitedSystemTsKey = "last_commited_system_ts";  // Key for timestamp durability
+constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
+
+std::string RegisterReplicaErrorToString(query::RegisterReplicaError error) {
+  switch (error) {
+    using enum query::RegisterReplicaError;
+    case NAME_EXISTS:
+      return "NAME_EXISTS";
+    case ENDPOINT_EXISTS:
+      return "ENDPOINT_EXISTS";
+    case CONNECTION_FAILED:
+      return "CONNECTION_FAILED";
+    case COULD_NOT_BE_PERSISTED:
+      return "COULD_NOT_BE_PERSISTED";
+    case ERROR_ACCEPTING_MAIN:
+      return "ERROR_ACCEPTING_MAIN";
+  }
+}
+
+// Per storage
+// NOTE Storage will connect to all replicas. Future work might change this
+void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_acc) {
+  spdlog::info("Restoring replication role.");
+
+  // Each individual client has already been restored and started. Here we just go through each database and start its
+  // client
+  for (auto &instance_client : mainData.registered_replicas_) {
+    spdlog::info("Replica {} restoration started for {}.", instance_client.name_, db_acc->name());
+    const auto &ret = db_acc->storage()->repl_storage_state_.replication_clients_.WithLock(
+        [&, db_acc](auto &storage_clients) mutable -> utils::BasicResult<query::RegisterReplicaError> {
+          auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client, mainData.uuid_);
+          auto *storage = db_acc->storage();
+          client->Start(storage, std::move(db_acc));
+          // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
+          // MAYBE_BEHIND isn't a statement of the current state, this is the default value
+          // Failed to start due to branching of MAIN and REPLICA
+          if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
+            spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
+                         instance_client.name_);
+          }
+          storage_clients.push_back(std::move(client));
+          return {};
+        });
+
+    if (ret.HasError()) {
+      MG_ASSERT(query::RegisterReplicaError::CONNECTION_FAILED != ret.GetError());
+      LOG_FATAL("Failure when restoring replica {}: {}.", instance_client.name_,
+                RegisterReplicaErrorToString(ret.GetError()));
+    }
+    spdlog::info("Replica {} restored for {}.", instance_client.name_, db_acc->name());
+  }
+  spdlog::info("Replication role restored to MAIN.");
+}
 }  // namespace
 
+#ifdef MG_ENTERPRISE
 struct Durability {
   enum class DurabilityVersion : uint8_t {
     V0 = 0,
@@ -112,11 +158,9 @@ struct Durability {
   }
 };
 
-DbmsHandler::DbmsHandler(
-    storage::Config config,
-    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-    bool recovery_on_startup)
-    : default_config_{std::move(config)}, repl_state_{ReplicationStateRootPath(default_config_)} {
+DbmsHandler::DbmsHandler(storage::Config config, memgraph::system::System &system,
+                         replication::ReplicationState &repl_state, auth::SynchedAuth &auth, bool recovery_on_startup)
+    : default_config_{std::move(config)}, auth_{auth}, repl_state_{repl_state}, system_{&system} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
 
@@ -150,19 +194,13 @@ DbmsHandler::DbmsHandler(
       const auto uuid = json.at("uuid").get<utils::UUID>();
       const auto rel_dir = json.at("rel_dir").get<std::filesystem::path>();
       spdlog::info("Restoring database {} at {}.", name, rel_dir);
-      auto new_db = New_(name, uuid, rel_dir);
+      auto new_db = New_(name, uuid, nullptr, rel_dir);
       MG_ASSERT(!new_db.HasError(), "Failed while creating database {}.", name);
       directories.emplace(rel_dir.filename());
       spdlog::info("Database {} restored.", name);
     }
-    // Read the last timestamp
-    auto lcst = durability_->Get(kLastCommitedSystemTsKey);
-    if (lcst) {
-      last_commited_system_timestamp_ = std::stoul(*lcst);
-      system_timestamp_ = last_commited_system_timestamp_;
-    }
   } else {  // Clear databases from the durability list and auth
-    auto locked_auth = auth->Lock();
+    auto locked_auth = auth_.Lock();
     auto it = durability_->begin(std::string{kDBPrefix});
     auto end = durability_->end(std::string{kDBPrefix});
     for (; it != end; ++it) {
@@ -172,8 +210,6 @@ DbmsHandler::DbmsHandler(
       locked_auth->DeleteDatabase(name);
       durability_->Delete(key);
     }
-    // Delete the last timestamp
-    durability_->Delete(kLastCommitedSystemTsKey);
   }
 
   /*
@@ -198,45 +234,31 @@ DbmsHandler::DbmsHandler(
    */
   // Setup the default DB
   SetupDefault_();
-
-  /*
-   * REPLICATION RECOVERY AND STARTUP
-   */
-  // Startup replication state (if recovered at startup)
-  auto replica = [this](replication::RoleReplicaData const &data) { return StartRpcServer(*this, data); };
-  // Replication recovery and frequent check start
-  auto main = [this](replication::RoleMainData &data) {
-    for (auto &client : data.registered_replicas_) {
-      SystemRestore(client);
-    }
-    ForEach([this](DatabaseAccess db) { RecoverReplication(db); });
-    for (auto &client : data.registered_replicas_) {
-      StartReplicaClient(*this, client);
-    }
-    return true;
-  };
-  // Startup proccess for main/replica
-  MG_ASSERT(std::visit(memgraph::utils::Overloaded{replica, main}, repl_state_.ReplicationData()),
-            "Replica recovery failure!");
-
-  // Warning
-  if (default_config_.durability.snapshot_wal_mode == storage::Config::Durability::SnapshotWalMode::DISABLED &&
-      repl_state_.IsMain()) {
-    spdlog::warn(
-        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please "
-        "consider "
-        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-        "without write-ahead logs this instance is not replicating any data.");
-  }
-
-  // MAIN or REPLICA instance
-  if (FLAGS_coordinator_server_port) {
-    CoordinatorHandlers::Register(*this);
-    MG_ASSERT(coordinator_state_.GetCoordinatorServer().Start(), "Failed to start coordinator server!");
-  }
 }
 
-DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name) {
+struct DropDatabase : memgraph::system::ISystemAction {
+  explicit DropDatabase(utils::UUID uuid) : uuid_{uuid} {}
+  void DoDurability() override { /* Done during DBMS execution */
+  }
+
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     replication::ReplicationEpoch const &epoch,
+                     memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const storage::replication::DropDatabaseRes &response) {
+      return response.result != storage::replication::DropDatabaseRes::Result::FAILURE;
+    };
+
+    return client.SteamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
+        check_response, main_uuid, std::string(epoch.id()), txn.last_committed_system_timestamp(), txn.timestamp(),
+        uuid_);
+  }
+  void PostReplication(replication::RoleMainData &mainData) const override {}
+
+ private:
+  utils::UUID uuid_;
+};
+
+DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, system::Transaction *transaction) {
   std::lock_guard<LockT> wr(lock_);
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
@@ -273,9 +295,10 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name) {
 
   // Success
   // Save delta
-  if (system_transaction_) {
-    system_transaction_->delta.emplace(SystemTransaction::Delta::drop_database, uuid);
+  if (transaction) {
+    transaction->AddAction<DropDatabase>(uuid);
   }
+
   return {};
 }
 
@@ -296,18 +319,50 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
   return Delete_(db_name);
 }
 
-DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config) {
+struct CreateDatabase : memgraph::system::ISystemAction {
+  explicit CreateDatabase(storage::SalientConfig config, DatabaseAccess db_acc)
+      : config_{std::move(config)}, db_acc(db_acc) {}
+
+  void DoDurability() override {
+    // Done during dbms execution
+  }
+
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     replication::ReplicationEpoch const &epoch,
+                     memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const storage::replication::CreateDatabaseRes &response) {
+      return response.result != storage::replication::CreateDatabaseRes::Result::FAILURE;
+    };
+
+    return client.SteamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
+        check_response, main_uuid, std::string(epoch.id()), txn.last_committed_system_timestamp(), txn.timestamp(),
+        config_);
+  }
+
+  void PostReplication(replication::RoleMainData &mainData) const override {
+    // Sync database with REPLICAs
+    // NOTE: The function bellow is used to create ReplicationStorageClient, so it must be called on a new storage
+    // We don't need to have it here, since the function won't fail even if the replication client fails to
+    // connect We will just have everything ready, for recovery at some point.
+    dbms::DbmsHandler::RecoverStorageReplication(db_acc, mainData);
+  }
+
+ private:
+  storage::SalientConfig config_;
+  DatabaseAccess db_acc;
+};
+
+DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system::Transaction *txn) {
   auto new_db = db_handler_.New(storage_config, repl_state_);
 
   if (new_db.HasValue()) {  // Success
                             // Save delta
-    if (system_transaction_) {
-      system_transaction_->delta.emplace(SystemTransaction::Delta::create_database, storage_config.salient);
-    }
     UpdateDurability(storage_config);
-    return new_db.GetValue();
+    if (txn) {
+      txn->AddAction<CreateDatabase>(storage_config.salient, new_db.GetValue());
+    }
   }
-  return new_db.GetError();
+  return new_db;
 }
 
 DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
@@ -361,89 +416,16 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
   durability_->Put(key, val);
 }
 
-AllSyncReplicaStatus DbmsHandler::Commit() {
-  if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt)
-    return AllSyncReplicaStatus::AllCommitsConfirmed;  // Nothing to commit
-  const auto &delta = *system_transaction_->delta;
-
-  auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
-  // TODO Create a system client that can handle all of this automatically
-  switch (delta.action) {
-    using enum SystemTransaction::Delta::Action;
-    case CREATE_DATABASE: {
-      // Replication
-      auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-        // TODO: data race issue? registered_replicas_ access not protected
-        // This is sync in any case, as this is the startup
-        for (auto &client : main_data.registered_replicas_) {
-          bool completed = SteamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
-              client,
-              [](const storage::replication::CreateDatabaseRes &response) {
-                return response.result != storage::replication::CreateDatabaseRes::Result::FAILURE;
-              },
-              std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
-              system_transaction_->system_timestamp, delta.config);
-          // TODO: reduce duplicate code
-          if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-            sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
-          }
-        }
-        // Sync database with REPLICAs
-        RecoverReplication(Get_(delta.config.name));
-      };
-      auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
-      std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-    } break;
-    case DROP_DATABASE: {
-      // Replication
-      auto main_handler = [&](memgraph::replication::RoleMainData &main_data) {
-        // TODO: data race issue? registered_replicas_ access not protected
-        // This is sync in any case, as this is the startup
-        for (auto &client : main_data.registered_replicas_) {
-          bool completed = SteamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
-              client,
-              [](const storage::replication::DropDatabaseRes &response) {
-                return response.result != storage::replication::DropDatabaseRes::Result::FAILURE;
-              },
-              std::string(main_data.epoch_.id()), last_commited_system_timestamp_,
-              system_transaction_->system_timestamp, delta.uuid);
-          // TODO: reduce duplicate code
-          if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-            sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
-          }
-        }
-      };
-      auto replica_handler = [](memgraph::replication::RoleReplicaData &) { /* Nothing to do */ };
-      std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
-    } break;
-  }
-
-  durability_->Put(kLastCommitedSystemTsKey, std::to_string(system_transaction_->system_timestamp));
-  last_commited_system_timestamp_ = system_transaction_->system_timestamp;
-  ResetSystemTransaction();
-  return sync_status;
-}
-
-#else  // not MG_ENTERPRISE
-
-AllSyncReplicaStatus DbmsHandler::Commit() {
-  if (system_transaction_ == std::nullopt || system_transaction_->delta == std::nullopt) {
-    return AllSyncReplicaStatus::AllCommitsConfirmed;  // Nothing to commit
-  }
-  const auto &delta = *system_transaction_->delta;
-
-  switch (delta.action) {
-    using enum SystemTransaction::Delta::Action;
-    case CREATE_DATABASE:
-    case DROP_DATABASE:
-      /* Community edition doesn't support multi-tenant replication */
-      break;
-  }
-
-  last_commited_system_timestamp_ = system_transaction_->system_timestamp;
-  ResetSystemTransaction();
-  return AllSyncReplicaStatus::AllCommitsConfirmed;
-}
-
 #endif
+
+void DbmsHandler::RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data) {
+  if (allow_mt_repl || db_acc->name() == dbms::kDefaultDB) {
+    // Handle global replication state
+    spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
+    // RECOVER REPLICA CONNECTIONS
+    memgraph::dbms::RestoreReplication(role_main_data, db_acc);
+  } else if (!role_main_data.registered_replicas_.empty()) {
+    spdlog::warn("Multi-tenant replication is currently not supported!");
+  }
+}
 }  // namespace memgraph::dbms

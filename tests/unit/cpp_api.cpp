@@ -43,7 +43,8 @@ struct CppApiTestFixture : public ::testing::Test {
   }
 
   memgraph::query::DbAccessor &CreateDbAccessor(const memgraph::storage::IsolationLevel isolationLevel) {
-    accessors_.push_back(storage->Access(memgraph::replication::ReplicationRole::MAIN, isolationLevel));
+    accessors_.push_back(
+        storage->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN, isolationLevel));
     db_accessors_.emplace_back(accessors_.back().get());
     return db_accessors_.back();
   }

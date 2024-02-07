@@ -73,7 +73,8 @@ class InMemoryStorage final : public Storage {
     friend class InMemoryStorage;
 
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode, memgraph::replication::ReplicationRole replication_role);
+                              StorageMode storage_mode,
+                              memgraph::replication_coordination_glue::ReplicationRole replication_role);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -301,6 +302,9 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
+    /// Duiring commit, in some cases you do not need to hand over deltas to GC
+    /// in those cases this method is a light weight way to unlink and discard our deltas
+    void FastDiscardOfDeltas(uint64_t oldest_active_timestamp, std::unique_lock<std::mutex> gc_guard);
     SalientConfig::Items config_;
   };
 
@@ -322,10 +326,10 @@ class InMemoryStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Accessor> Access(memgraph::replication::ReplicationRole replication_role,
+  std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                    std::optional<IsolationLevel> override_isolation_level) override;
   using Storage::UniqueAccess;
-  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication::ReplicationRole replication_role,
+  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                          std::optional<IsolationLevel> override_isolation_level) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) override;
@@ -335,12 +339,12 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
   utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
-      memgraph::replication::ReplicationRole replication_role);
+      memgraph::replication_coordination_glue::ReplicationRole replication_role);
 
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                memgraph::replication::ReplicationRole replication_role) override;
+                                memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
   void SetStorageMode(StorageMode storage_mode);
 
@@ -365,7 +369,8 @@ class InMemoryStorage final : public Storage {
   void FinalizeWalFile();
 
   StorageInfo GetBaseInfo(bool force_directory) override;
-  StorageInfo GetInfo(bool force_directory, memgraph::replication::ReplicationRole replication_role) override;
+  StorageInfo GetInfo(bool force_directory,
+                      memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
@@ -427,16 +432,15 @@ class InMemoryStorage final : public Storage {
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
-  using BondPmrLd = Bond<utils::pmr::list<Delta>>;
   struct GCDeltas {
-    GCDeltas(uint64_t mark_timestamp, BondPmrLd deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
+    GCDeltas(uint64_t mark_timestamp, std::deque<Delta> deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
         : mark_timestamp_{mark_timestamp}, deltas_{std::move(deltas)}, commit_timestamp_{std::move(commit_timestamp)} {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
 
     uint64_t mark_timestamp_{};                                  //!< a timestamp no active transaction currently has
-    BondPmrLd deltas_;                                           //!< the deltas that need cleaning
+    std::deque<Delta> deltas_;                                   //!< the deltas that need cleaning
     std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
   };
 
@@ -460,6 +464,9 @@ class InMemoryStorage final : public Storage {
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
   std::function<void()> create_snapshot_handler{};
+
+  // A way to tell async operation to stop
+  std::stop_source stop_source;
 };
 
 }  // namespace memgraph::storage

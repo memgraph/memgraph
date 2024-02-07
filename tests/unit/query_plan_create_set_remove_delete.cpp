@@ -38,7 +38,7 @@
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 template <typename StorageType>
 class QueryPlanTest : public testing::Test {

@@ -1209,7 +1209,8 @@ class PropertyLookup : public memgraph::query::Expression {
   }
 
  protected:
-  PropertyLookup(Expression *expression, PropertyIx property) : expression_(expression), property_(property) {}
+  PropertyLookup(Expression *expression, PropertyIx property)
+      : expression_(expression), property_(std::move(property)) {}
 
  private:
   friend class AstStorage;
@@ -1805,9 +1806,9 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Type { SINGLE, DEPTH_FIRST, BREADTH_FIRST, WEIGHTED_SHORTEST_PATH, ALL_SHORTEST_PATHS };
+  enum class Type : uint8_t { SINGLE, DEPTH_FIRST, BREADTH_FIRST, WEIGHTED_SHORTEST_PATH, ALL_SHORTEST_PATHS };
 
-  enum class Direction { IN, OUT, BOTH };
+  enum class Direction : uint8_t { IN, OUT, BOTH };
 
   /// Lambda for use in filtering or weight calculation during variable expand.
   struct Lambda {
@@ -2216,7 +2217,7 @@ class IndexQuery : public memgraph::query::Query {
 
  protected:
   IndexQuery(Action action, LabelIx label, std::vector<PropertyIx> properties)
-      : action_(action), label_(label), properties_(properties) {}
+      : action_(action), label_(std::move(label)), properties_(std::move(properties)) {}
 
  private:
   friend class AstStorage;
@@ -3071,13 +3072,10 @@ class CoordinatorQuery : public memgraph::query::Query {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   enum class Action {
-    REGISTER_MAIN_COORDINATOR_SERVER,
-    REGISTER_REPLICA_COORDINATOR_SERVER,
+    REGISTER_INSTANCE,
+    SET_INSTANCE_TO_MAIN,
     SHOW_REPLICATION_CLUSTER,
-    DO_FAILOVER
   };
-
-  enum class ReplicationRole { MAIN, REPLICA };
 
   enum class SyncMode { SYNC, ASYNC };
 
@@ -3086,18 +3084,17 @@ class CoordinatorQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::CoordinatorQuery::Action action_;
-  memgraph::query::CoordinatorQuery::ReplicationRole role_;
   std::string instance_name_;
-  memgraph::query::Expression *socket_address_{nullptr};
+  memgraph::query::Expression *replication_socket_address_{nullptr};
   memgraph::query::Expression *coordinator_socket_address_{nullptr};
   memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
 
   CoordinatorQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CoordinatorQuery>();
     object->action_ = action_;
-    object->role_ = role_;
     object->instance_name_ = instance_name_;
-    object->socket_address_ = socket_address_ ? socket_address_->Clone(storage) : nullptr;
+    object->replication_socket_address_ =
+        replication_socket_address_ ? replication_socket_address_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
     object->coordinator_socket_address_ =
         coordinator_socket_address_ ? coordinator_socket_address_->Clone(storage) : nullptr;

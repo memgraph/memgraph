@@ -38,7 +38,7 @@ class AllTypesFixture : public testing::Test {
   memgraph::storage::Config config_{disk_test_utils::GenerateOnDiskConfig(testSuite)};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config_)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{
-      db->Access(memgraph::replication::ReplicationRole::MAIN)};
+      db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
 
   void SetUp() override {

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ inline std::optional<std::string> GetOldDiskKeyOrNull(storage::Delta *head) {
     head = head->next;
   }
   if (head->action == storage::Delta::Action::DELETE_DESERIALIZED_OBJECT) {
-    return head->old_disk_key;
+    return head->old_disk_key.value;
   }
   return std::nullopt;
 }

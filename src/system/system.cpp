@@ -8,27 +8,4 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-
-#pragma once
-
-#ifdef MG_ENTERPRISE
-
-#include "io/network/endpoint.hpp"
-
-#include <string>
-
-namespace memgraph::coordination {
-
-struct CoordinatorEntityInfo {
-  std::string_view name;
-  const io::network::Endpoint &endpoint;
-};
-
-struct CoordinatorEntityHealthInfo {
-  std::string_view name;
-  bool alive;
-};
-
-}  // namespace memgraph::coordination
-
-#endif
+#include "system/include/system/system.hpp"

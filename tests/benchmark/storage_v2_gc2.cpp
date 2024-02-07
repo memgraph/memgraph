@@ -17,7 +17,7 @@
 #include "storage/v2/storage.hpp"
 #include "utils/timer.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 // This benchmark should be run for a fixed amount of time that is
 // large compared to GC interval to make the output relevant.

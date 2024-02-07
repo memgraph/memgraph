@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <thread>
 
+#include "auth/auth.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "csv/parsing.hpp"
@@ -98,11 +99,18 @@ class MultiTenantTest : public ::testing::Test {
 
   struct MinMemgraph {
     explicit MinMemgraph(const memgraph::storage::Config &conf)
-        : dbms{conf,
-               reinterpret_cast<
-                   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *>(0),
-               true},
-          interpreter_context{{}, &dbms, &dbms.ReplicationState()} {
+        : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
+          repl_state{ReplicationStateRootPath(conf)},
+          dbms{conf, system, repl_state, auth, true},
+          interpreter_context{{},
+                              &dbms,
+                              &repl_state,
+                              system
+#ifdef MG_ENTERPRISE
+                              ,
+                              nullptr
+#endif
+          } {
       memgraph::utils::global_settings.Initialize(conf.durability.storage_directory / "settings");
       memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
                                                  memgraph::utils::global_settings);
@@ -114,6 +122,9 @@ class MultiTenantTest : public ::testing::Test {
 
     auto NewInterpreter() { return InterpreterFaker{&interpreter_context, dbms.Get()}; }
 
+    memgraph::auth::SynchedAuth auth;
+    memgraph::system::System system;
+    memgraph::replication::ReplicationState repl_state;
     memgraph::dbms::DbmsHandler dbms;
     memgraph::query::InterpreterContext interpreter_context;
   };
