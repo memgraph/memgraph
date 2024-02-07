@@ -60,6 +60,8 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
                unsigned arena_ind) {
   // This needs to be before, to throw exception in case of too big alloc
   if (*commit) [[likely]] {
+    // This needs to happen before global alloc, because if thread tracker throws
+    // we will be left with incorrect state of global alloc
     if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
       GetQueriesMemoryControl().TrackAllocOnCurrentThread(size);
     }
