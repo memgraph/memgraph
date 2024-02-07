@@ -40,7 +40,7 @@ class RaftInstance {
   RaftInstance &operator=(RaftInstance const &other) = delete;
   RaftInstance(RaftInstance &&other) noexcept = delete;
   RaftInstance &operator=(RaftInstance &&other) noexcept = delete;
-  ~RaftInstance() = default;
+  ~RaftInstance();
 
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;

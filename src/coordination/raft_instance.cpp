@@ -72,7 +72,6 @@ RaftInstance::RaftInstance(BecomeLeaderCb become_leader_cb, BecomeFollowerCb bec
 
   raft_server_ = launcher_.init(state_machine_, state_manager_, logger_, static_cast<int>(raft_port_), asio_opts,
                                 params, init_opts);
-  raft_server_->request_leadership();
 
   if (!raft_server_) {
     throw RaftServerStartException("Failed to launch raft server on {}", raft_endpoint);
@@ -89,6 +88,8 @@ RaftInstance::RaftInstance(BecomeLeaderCb become_leader_cb, BecomeFollowerCb bec
 
   spdlog::info("Raft server started on {}", raft_endpoint);
 }
+
+RaftInstance::~RaftInstance() { launcher_.shutdown(); }
 
 auto RaftInstance::InstanceName() const -> std::string { return "coordinator_" + std::to_string(raft_server_id_); }
 
@@ -113,10 +114,7 @@ auto RaftInstance::GetAllCoordinators() const -> std::vector<ptr<srv_config>> {
 auto RaftInstance::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 auto RaftInstance::RequestLeadership() -> bool {
-  if (!raft_server_->is_leader()) {
-    raft_server_->request_leadership();
-  }
-  return raft_server_->is_leader();
+  return raft_server_->is_leader() || raft_server_->request_leadership();
 }
 
 auto RaftInstance::AppendRegisterReplicationInstance(std::string const &instance) -> ptr<raft_result> {
