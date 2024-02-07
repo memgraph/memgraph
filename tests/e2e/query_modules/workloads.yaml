@@ -26,11 +26,3 @@ workloads:
     proc: "query_modules/"
     args: ["query_modules/mgps_test.py"]
     <<: *in_memory_cluster
-
-  # TODO: test again with it, it was flaky
-  #- name: "Schema test"
-  #  pre_set_workload: "tests/e2e/x.sh"
-  #  binary: "tests/e2e/pytest_runner.sh"
-  #  proc: "query_modules/"
-  #  args: ["query_modules/schema_test.py"]
-  #  <<: *in_memory_cluster
