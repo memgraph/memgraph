@@ -466,9 +466,6 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         // We can only clear this execution as some of the queries
         // in the transaction can be in unfinished state
         query_execution.reset(nullptr);
-        // if (current_transaction_) {
-        //   memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
-        // }
       }
     }
   } catch (const ExplicitTransactionUsageException &) {
