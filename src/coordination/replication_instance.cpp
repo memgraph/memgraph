@@ -13,6 +13,8 @@
 
 #include "coordination/replication_instance.hpp"
 
+#include "replication_coordination_glue/handler.hpp"
+
 namespace memgraph::coordination {
 
 ReplicationInstance::ReplicationInstance(CoordinatorData *data, CoordinatorClientConfig config,

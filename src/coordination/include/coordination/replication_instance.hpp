@@ -68,6 +68,13 @@ class ReplicationInstance {
   std::chrono::system_clock::time_point last_response_time_{};
   bool is_alive_{false};
 
+  // for replica this is main uuid of current main
+  // for "main" main this same as in CoordinatorData
+  // it is set to nullopt when replica is down
+  // TLDR; when replica is down and comes back up we reset uuid of main replica is listening to
+  // so we need to send swap uuid again
+  std::optional<utils::UUID> main_uuid_;
+
   friend bool operator==(ReplicationInstance const &first, ReplicationInstance const &second) {
     return first.client_ == second.client_ && first.replication_role_ == second.replication_role_;
   }
