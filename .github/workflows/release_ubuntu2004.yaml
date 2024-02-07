@@ -107,7 +107,7 @@ jobs:
       - name: Save code coverage
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Coverage build)"
+          name: "Code coverage (Coverage build)"
           path: tools/github/generated/code_coverage.tar.gz
 
   debug_build:
@@ -161,8 +161,15 @@ jobs:
       - name: Save cppcheck and clang-format errors
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Debug build)"
+          name: "Code coverage (Debug build)"
           path: tools/github/cppcheck_and_clang_format.txt
+
+      - name: Save test logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Test logs (Debug drivers tests)"
+          path: build/logs
 
   debug_integration_test:
     name: "Debug integration tests"
@@ -193,6 +200,13 @@ jobs:
       - name: Run integration tests
         run: |
           tests/integration/run.sh
+
+      - name: Save test logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Test logs (Debug integration tests)"
+          path: build/logs
 
   release_build:
     name: "Release build"
@@ -365,6 +379,13 @@ jobs:
           cd ../pulsar
           docker-compose down
 
+      - name: Save test logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Test logs (Release e2e tests)"
+          path: build/logs
+
   release_durability_stress_tests:
     name: "Release durability and stress tests"
     runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
@@ -412,3 +433,10 @@ jobs:
           cd tests/stress
           source ve3/bin/activate
           python3 durability --num-steps 20
+
+      - name: Save test logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Test logs (Release durability and stress)"
+          path: build/logs

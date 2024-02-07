@@ -139,7 +139,7 @@ jobs:
       - name: Save code coverage
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Code analysis)"
+          name: "Code coverage (Code analysis)"
           path: tools/github/generated/code_coverage.tar.gz
 
       - name: Run clang-tidy
@@ -210,8 +210,15 @@ jobs:
       - name: Save cppcheck and clang-format errors
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Debug build)"
+          name: "Code coverage (Debug build)"
           path: tools/github/cppcheck_and_clang_format.txt
+
+      - name: Save test logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Test logs (Debug build)"
+          path: build/logs
 
   release_build:
     name: "Release build"
@@ -330,14 +337,12 @@ jobs:
           name: "Enterprise DEB package"
           path: build/output/memgraph*.deb
 
-      - name: Save test data
+      - name: Save test logs
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Test data(Release build)"
-          path: |
-            # multiple paths could be defined
-            build/logs
+          name: "Test logs (Release build)"
+          path: build/logs
 
   experimental_build_ha:
     name: "High availability build"
@@ -377,14 +382,12 @@ jobs:
           ./run.sh "Coordinator"
           ./run.sh "Client initiated failover"
           ./run.sh "Uninitialized cluster"
-      - name: Save test data
+      - name: Save test logs
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Test data(High availability build)"
-          path: |
-            # multiple paths could be defined
-            build/logs
+          name: "Test logs (High availability build)"
+          path: build/logs
 
   experimental_build_mt:
     name: "MultiTenancy replication build"
@@ -442,14 +445,12 @@ jobs:
           ./run.sh "Index replication"
           ./run.sh "Constraints"
 
-      - name: Save test data
+      - name: Save test logs
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Test data(MultiTenancy replication build)"
-          path: |
-            # multiple paths could be defined
-            build/logs
+          name: "Test logs (MultiTenancy replication build)"
+          path: build/logs
 
   release_jepsen_test:
     name: "Release Jepsen Test"
