@@ -19,7 +19,7 @@ namespace memgraph::storage {
 
 void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std::uint64_t transaction_start_timestamp,
                         const std::vector<mgcxx::text_search::Context *> &applicable_text_indices, bool skip_commit) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -72,7 +72,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
 
 void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
                         const std::uint64_t transaction_start_timestamp) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -83,7 +83,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
 
 void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
                            const std::uint64_t transaction_start_timestamp) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -96,7 +96,7 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
 void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
                            const std::uint64_t transaction_start_timestamp,
                            const std::vector<LabelId> &removed_labels) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -111,7 +111,7 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
 
 void TextIndex::RemoveNode(Vertex *vertex_after_update,
                            const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -128,7 +128,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update,
 }
 
 void TextIndex::RemoveNode(Vertex *vertex_after_update) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -139,7 +139,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update) {
 
 void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, Storage *storage,
                                  const std::uint64_t transaction_start_timestamp) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -152,7 +152,7 @@ void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_updat
 
 void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
                                     const std::uint64_t transaction_start_timestamp) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -164,7 +164,7 @@ void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_
 
 void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage,
                                     std::uint64_t transaction_start_timestamp) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -172,7 +172,7 @@ void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storag
 }
 
 std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(const std::vector<LabelId> &labels) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -186,7 +186,7 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(c
 }
 
 std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(Vertex *vertex) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -200,7 +200,7 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(V
 }
 
 bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::query::DbAccessor *db) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -294,7 +294,7 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
 
 bool TextIndex::RecoverIndex(std::string index_name, LabelId label,
                              memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -392,7 +392,7 @@ bool TextIndex::RecoverIndex(std::string index_name, LabelId label,
 }
 
 bool TextIndex::DropIndex(std::string index_name) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
@@ -409,7 +409,7 @@ bool TextIndex::DropIndex(std::string index_name) {
 bool TextIndex::IndexExists(std::string index_name) const { return index_.contains(index_name); }
 
 std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_query) {
-  if (!flags::run_time::GetTextSearchEnabled()) {
+  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 

@@ -2532,7 +2532,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         if (index_type == IndexQuery::Type::LOOKUP) {
           maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
         } else if (index_type == IndexQuery::Type::TEXT) {
-          if (!flags::run_time::GetTextSearchEnabled()) {
+          if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
             throw QueryException("To use text indices, enable the text search feature.");
           }
           maybe_index_error = dba->CreateTextIndex(index_name, label);
@@ -2562,7 +2562,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         if (index_type == IndexQuery::Type::LOOKUP) {
           maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
         } else if (index_type == IndexQuery::Type::TEXT) {
-          if (!flags::run_time::GetTextSearchEnabled()) {
+          if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
             throw QueryException("To use text indices, enable the text search feature.");
           }
           maybe_index_error = dba->DropTextIndex(index_name);

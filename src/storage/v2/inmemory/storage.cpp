@@ -864,7 +864,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       return StorageManipulationError{*unique_constraint_violation};
     }
 
-    if (flags::run_time::GetTextSearchEnabled()) {
+    if (flags::run_time::GetExperimentalTextSearchEnabled()) {
       mem_storage->indices_.text_index_->Commit();
     }
   }
@@ -1099,7 +1099,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     for (auto const &[property, prop_vertices] : property_cleanup) {
       storage_->indices_.AbortEntries(property, prop_vertices, transaction_.start_timestamp);
     }
-    if (flags::run_time::GetTextSearchEnabled()) {
+    if (flags::run_time::GetExperimentalTextSearchEnabled()) {
       storage_->indices_.text_index_->Rollback();
     }
 

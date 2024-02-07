@@ -47,6 +47,6 @@ bool GetCartesianProductEnabled();
  *
  * @return bool
  */
-bool GetTextSearchEnabled();
+bool GetExperimentalTextSearchEnabled();
 
 }  // namespace memgraph::flags::run_time

@@ -149,7 +149,7 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
     return res.GetError();
   }
 
-  if (flags::run_time::GetTextSearchEnabled()) {
+  if (flags::run_time::GetExperimentalTextSearchEnabled()) {
     storage_->indices_.text_index_->RemoveNode(vertex->vertex_);
   }
 
@@ -190,7 +190,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
     return res.GetError();
   }
 
-  if (flags::run_time::GetTextSearchEnabled()) {
+  if (flags::run_time::GetExperimentalTextSearchEnabled()) {
     storage_->indices_.text_index_->RemoveNode(vertex->vertex_);
   }
 
@@ -282,7 +282,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     return maybe_deleted_vertices.GetError();
   }
 
-  if (flags::run_time::GetTextSearchEnabled()) {
+  if (flags::run_time::GetExperimentalTextSearchEnabled()) {
     for (auto *node : nodes_to_delete) {
       storage_->indices_.text_index_->RemoveNode(node);
     }

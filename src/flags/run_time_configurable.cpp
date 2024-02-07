@@ -55,7 +55,7 @@ DEFINE_double(query_execution_timeout_sec, 600,
 DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(text_search_enabled, true, "Enable text search.");
+DEFINE_bool(experimental_text_search_enabled, false, "Enable experimental text search.");
 
 namespace {
 // Bolt server name
@@ -76,14 +76,14 @@ constexpr auto kLogToStderrGFlagsKey = "also_log_to_stderr";
 constexpr auto kCartesianProductEnabledSettingKey = "cartesian-product-enabled";
 constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 
-constexpr auto kTextSearchEnabledSettingKey = "text-search-enabled";
-constexpr auto kTextSearchEnabledGFlagsKey = "text-search-enabled";
+constexpr auto kExperimentalTextSearchEnabledSettingKey = "experimental-text-search-enabled";
+constexpr auto kExperimentalTextSearchEnabledGFlagsKey = "experimental-text-search-enabled";
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
 std::atomic<bool> cartesian_product_enabled_{true};
-std::atomic<bool> text_search_enabled_{true};
+std::atomic<bool> experimental_text_search_enabled_{true};
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 auto ToLLEnum(std::string_view val) {
@@ -195,8 +195,8 @@ void Initialize() {
       [](const std::string &val) { cartesian_product_enabled_ = val == "true"; }, ValidBoolStr);
 
   register_flag(
-      kTextSearchEnabledGFlagsKey, kTextSearchEnabledSettingKey, !kRestore,
-      [](const std::string &val) { text_search_enabled_ = val == "true"; }, ValidBoolStr);
+      kExperimentalTextSearchEnabledGFlagsKey, kExperimentalTextSearchEnabledSettingKey, !kRestore,
+      [](const std::string &val) { experimental_text_search_enabled_ = val == "true"; }, ValidBoolStr);
 }
 
 std::string GetServerName() {
@@ -210,6 +210,6 @@ double GetExecutionTimeout() { return execution_timeout_sec_; }
 
 bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
 
-bool GetTextSearchEnabled() { return text_search_enabled_; }
+bool GetExperimentalTextSearchEnabled() { return experimental_text_search_enabled_; }
 
 }  // namespace memgraph::flags::run_time

@@ -1631,7 +1631,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     }
 
     // Recover text indices.
-    if (flags::run_time::GetTextSearchEnabled()) {
+    if (flags::run_time::GetExperimentalTextSearchEnabled()) {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
       spdlog::info("Recovering metadata of {} text indices.", *size);
@@ -2126,7 +2126,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     }
 
     // Write text indices.
-    if (flags::run_time::GetTextSearchEnabled()) {
+    if (flags::run_time::GetExperimentalTextSearchEnabled()) {
       auto text = storage->indices_.text_index_->ListIndices();
       snapshot.WriteUint(text.size());
       for (const auto &item : text) {

@@ -251,7 +251,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   }
   MultiPropsInitChecked(&new_node, properties);
 
-  if (flags::run_time::GetTextSearchEnabled()) {
+  if (flags::run_time::GetExperimentalTextSearchEnabled()) {
     context.db_accessor->TextIndexAddVertex(&new_node);
   }
 
@@ -2823,7 +2823,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
                                                                      TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
-      if (flags::run_time::GetTextSearchEnabled()) {
+      if (flags::run_time::GetExperimentalTextSearchEnabled()) {
         auto new_node = lhs.ValueVertex();
         context.db_accessor->TextIndexUpdateVertex(&new_node);
       }
@@ -2983,7 +2983,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     case TypedValue::Type::Vertex: {
       PropertiesMap new_properties = get_props(rhs.ValueVertex());
       update_props(new_properties);
-      if (flags::run_time::GetTextSearchEnabled()) {
+      if (flags::run_time::GetExperimentalTextSearchEnabled()) {
         auto new_node = rhs.ValueVertex();
         context->db_accessor->TextIndexUpdateVertex(&new_node);
       }
@@ -3134,7 +3134,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
   }
 
-  if (flags::run_time::GetTextSearchEnabled()) {
+  if (flags::run_time::GetExperimentalTextSearchEnabled()) {
     context.db_accessor->TextIndexUpdateVertex(&vertex);
   }
 
@@ -3209,7 +3209,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       }
 #endif
       remove_prop(&lhs.ValueVertex());
-      if (flags::run_time::GetTextSearchEnabled()) {
+      if (flags::run_time::GetExperimentalTextSearchEnabled()) {
         auto &updated_vertex = lhs.ValueVertex();
         context.db_accessor->TextIndexUpdateVertex(&updated_vertex);
       }
@@ -3303,7 +3303,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     }
   }
 
-  if (flags::run_time::GetTextSearchEnabled()) {
+  if (flags::run_time::GetExperimentalTextSearchEnabled()) {
     context.db_accessor->TextIndexUpdateVertex(&vertex, self_.labels_);
   }
 

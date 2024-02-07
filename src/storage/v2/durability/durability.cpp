@@ -197,7 +197,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   }
   spdlog::info("Label+property indices statistics are recreated.");
 
-  if (flags::run_time::GetTextSearchEnabled()) {
+  if (flags::run_time::GetExperimentalTextSearchEnabled()) {
     // Recover text indices.
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text.size());
     auto *mem_text_index = static_cast<TextIndex *>(indices->text_index_.get());
