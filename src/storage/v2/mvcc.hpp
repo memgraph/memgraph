@@ -107,7 +107,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
 
 inline void IncrementDeltasChanged(Transaction *transaction) {
   transaction->deltas_changed++;
-  if (transaction->max_deltas < 0 && transaction->deltas_changed >= transaction->max_deltas) {
+  if (transaction->max_deltas > -1 && transaction->deltas_changed > transaction->max_deltas) {
     throw utils::BasicException(
         "You have reached the maximum number of deltas for a transaction, transaction will be rollbacked!");
   }
