@@ -180,6 +180,9 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
     return;
   }
   transaction->EnsureCommitTimestampExists();
+
+  IncrementDeltasChanged(transaction);
+
   auto delta = &transaction->deltas.use().emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
                                                        transaction->command_id);
 
@@ -204,8 +207,6 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   // modification is being done, everybody else will wait until we are fully
   // done with our modification before they read the object's delta value.
   object->delta = delta;
-
-  IncrementDeltasChanged(transaction);
 }
 
 }  // namespace memgraph::storage
