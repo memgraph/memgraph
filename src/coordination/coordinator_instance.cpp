@@ -225,20 +225,19 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
   }
 
   auto const res = self_.AppendRegisterReplicationInstance(config.instance_name);
-
-  if (res->get_accepted()) {
-    spdlog::info("Request for registering instance {} accepted", config.instance_name);
-    try {
-      repl_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_);
-    } catch (CoordinatorRegisterInstanceException const &) {
-      return RegisterInstanceCoordinatorStatus::RPC_FAILED;
-    }
-  } else {
+  if (!res->get_accepted()) {
     spdlog::error(
         "Failed to accept request for registering instance {}. Most likely the reason is that the instance is not the "
         "leader.",
         config.instance_name);
     return RegisterInstanceCoordinatorStatus::RAFT_COULD_NOT_ACCEPT;
+  }
+
+  spdlog::info("Request for registering instance {} accepted", config.instance_name);
+  try {
+    repl_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_);
+  } catch (CoordinatorRegisterInstanceException const &) {
+    return RegisterInstanceCoordinatorStatus::RPC_FAILED;
   }
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
