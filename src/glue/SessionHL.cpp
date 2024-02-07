@@ -106,7 +106,7 @@ std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::De
 TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::storage::Storage *storage) : storage_(storage) {}
 
 #ifdef MG_ENTERPRISE
-inline static void MultiDatabaseAuth(memgraph::query::QueryUser *user, std::string_view db) {
+void MultiDatabaseAuth(memgraph::query::QueryUser *user, std::string_view db) {
   if (user && !user->IsAuthorized({}, std::string(db))) {
     throw memgraph::communication::bolt::ClientError(
         "You are not authorized on the database \"{}\"! Please contact your database administrator.", db);

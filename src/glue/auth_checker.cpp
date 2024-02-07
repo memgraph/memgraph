@@ -91,9 +91,9 @@ std::shared_ptr<query::QueryUser> AuthChecker::GenQueryUser(const std::optional<
   if (name) {
     auto locked_auth = auth_->ReadLock();
     const auto user = locked_auth->GetUser(*name);
-    if (user) return std::make_shared<QueryUser>(auth_, std::move(*user));
+    if (user) return std::make_shared<QueryUser>(auth_, *user);
     const auto role = locked_auth->GetRole(*name);
-    if (role) return std::make_shared<QueryUser>(auth_, std::move(*role));
+    if (role) return std::make_shared<QueryUser>(auth_, *role);
   }
   // No user or role
   return std::make_shared<QueryUser>(auth_);
