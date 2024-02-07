@@ -35,13 +35,13 @@ InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, dbm
 }
 
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
-    std::vector<std::string> maybe_kill_transaction_ids, const std::optional<std::string> &username,
-    std::function<bool(std::string const &)> privilege_checker) {
+    std::vector<std::string> maybe_kill_transaction_ids, QueryUser *user,
+    std::function<bool(QueryUser *, std::string const &)> privilege_checker) {
   auto not_found_midpoint = maybe_kill_transaction_ids.end();
 
   // Multiple simultaneous TERMINATE TRANSACTIONS aren't allowed
   // TERMINATE and SHOW TRANSACTIONS are mutually exclusive
-  interpreters.WithLock([&not_found_midpoint, &maybe_kill_transaction_ids, username,
+  interpreters.WithLock([&not_found_midpoint, &maybe_kill_transaction_ids, user,
                          privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
     for (Interpreter *interpreter : interpreters) {
       TransactionStatus alive_status = TransactionStatus::ACTIVE;
@@ -73,7 +73,14 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
           static std::string all;
           return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : all;
         };
-        if (interpreter->username_ == username || privilege_checker(get_interpreter_db_name())) {
+
+        auto same_user = [](const auto &lv, const auto &rv) {
+          if (lv.get() == rv) return true;
+          if (lv && rv) return *lv == *rv;
+          return false;
+        };
+
+        if (same_user(interpreter->user_, user) || privilege_checker(user, get_interpreter_db_name())) {
           killed = true;  // Note: this is used by the above `clean_status` (OnScopeExit)
           spdlog::warn("Transaction {} successfully killed", transaction_id);
         } else {

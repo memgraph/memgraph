@@ -29,6 +29,8 @@ using SynchedAuth = memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph
 
 static const constexpr char *const kAllDatabases = "*";
 
+using UserOrRole = std::variant<User, Role>;
+
 /**
  * This class serves as the main Authentication/Authorization storage.
  * It provides functions for managing Users, Roles, Permissions and FineGrainedAccessPermissions.
@@ -89,7 +91,7 @@ class Auth final {
    * @return a user when the username and password match, nullopt otherwise
    * @throw AuthException if unable to authenticate for whatever reason.
    */
-  std::optional<User> Authenticate(const std::string &username, const std::string &password);
+  std::optional<UserOrRole> Authenticate(const std::string &username, const std::string &password);
 
   /**
    * Gets a user from the storage.
@@ -244,7 +246,7 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool RevokeDatabaseFromUser(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  bool RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Grant access to individual database for a user.
@@ -254,7 +256,7 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool GrantDatabaseToUser(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  bool GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Delete a database from all users.

@@ -449,7 +449,7 @@ void Streams::RegisterPulsarProcedures() {
 
 template <Stream TStream, typename TDbAccess>
 void Streams::Create(const std::string &stream_name, typename TStream::StreamInfo info,
-                     std::optional<std::string> owner, TDbAccess db_acc, InterpreterContext *ic) {
+                     std::shared_ptr<QueryUser> owner, TDbAccess db_acc, InterpreterContext *ic) {
   auto locked_streams = streams_.Lock();
   auto it = CreateConsumer<TStream, TDbAccess>(*locked_streams, stream_name, std::move(info), std::move(owner),
                                                std::move(db_acc), ic);
@@ -469,26 +469,28 @@ void Streams::Create(const std::string &stream_name, typename TStream::StreamInf
 
 template void Streams::Create<KafkaStream, dbms::DatabaseAccess>(const std::string &stream_name,
                                                                  KafkaStream::StreamInfo info,
-                                                                 std::optional<std::string> owner,
+                                                                 std::shared_ptr<QueryUser> owner,
                                                                  dbms::DatabaseAccess db, InterpreterContext *ic);
 template void Streams::Create<PulsarStream, dbms::DatabaseAccess>(const std::string &stream_name,
                                                                   PulsarStream::StreamInfo info,
-                                                                  std::optional<std::string> owner,
+                                                                  std::shared_ptr<QueryUser> owner,
                                                                   dbms::DatabaseAccess db, InterpreterContext *ic);
 
 template <Stream TStream, typename TDbAccess>
 Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std::string &stream_name,
                                                       typename TStream::StreamInfo stream_info,
-                                                      std::optional<std::string> owner, TDbAccess db_acc,
+                                                      std::shared_ptr<QueryUser> owner, TDbAccess db_acc,
                                                       InterpreterContext *interpreter_context) {
   if (map.contains(stream_name)) {
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
   }
 
+  auto ownername = owner->name();
+
   auto *memory_resource = utils::NewDeleteResource();
 
   auto consumer_function = [interpreter_context, memory_resource, stream_name,
-                            transformation_name = stream_info.common_info.transformation_name, owner = owner,
+                            transformation_name = stream_info.common_info.transformation_name, owner = std::move(owner),
                             interpreter = std::make_shared<Interpreter>(interpreter_context, std::move(db_acc)),
                             result = mgp_result{nullptr, memory_resource},
                             total_retries = interpreter_context->config.stream_transaction_conflict_retries,
@@ -528,7 +530,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
           auto prepare_result =
               interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), {});
-          if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges, "")) {
+          if (!owner->IsAuthorized(prepare_result.privileges, "")) {
             throw StreamsException{
                 "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
                 "query!",
@@ -553,7 +555,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
   };
 
   auto insert_result = map.try_emplace(
-      stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
+      stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(ownername),
                                        std::make_unique<SynchronizedStreamSource<TStream>>(
                                            stream_name, std::move(stream_info), std::move(consumer_function))});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
@@ -586,8 +588,8 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
       MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);
 
       try {
-        auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(status.owner),
-                                    db, ic);
+        auto owner = ic->auth_checker->GenQueryUser(status.owner);
+        auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(owner), db, ic);
         if (status.is_running) {
           std::visit(
               [&](const auto &stream_data) {

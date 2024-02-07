@@ -24,9 +24,10 @@ class AuthChecker : public query::AuthChecker {
  public:
   explicit AuthChecker(memgraph::auth::SynchedAuth *auth);
 
-  bool IsUserAuthorized(const std::optional<std::string> &username,
-                        const std::vector<query::AuthQuery::Privilege> &privileges,
-                        const std::string &db_name) const override;
+  std::shared_ptr<query::QueryUser> GenQueryUser(const std::optional<std::string> &name) const override;
+
+  static std::unique_ptr<query::QueryUser> GenQueryUser(auth::SynchedAuth *auth,
+                                                        const std::optional<auth::UserOrRole> &user_or_role);
 
 #ifdef MG_ENTERPRISE
   std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
@@ -39,14 +40,23 @@ class AuthChecker : public query::AuthChecker {
                                              const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                                              const std::string &db_name = "");
 
+  [[nodiscard]] static bool IsRoleAuthorized(const memgraph::auth::Role &role,
+                                             const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                                             const std::string &db_name = "");
+
+  [[nodiscard]] static bool IsUserOrRoleAuthorized(const memgraph::auth::UserOrRole &user_or_role,
+                                                   const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                                                   const std::string &db_name = "");
+
  private:
   memgraph::auth::SynchedAuth *auth_;
-  mutable memgraph::utils::Synchronized<auth::User, memgraph::utils::SpinLock> user_;  // cached user
+  mutable memgraph::utils::Synchronized<auth::UserOrRole, memgraph::utils::SpinLock> user_or_role_;  // cached user
 };
 #ifdef MG_ENTERPRISE
 class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
  public:
   explicit FineGrainedAuthChecker(auth::User user, const memgraph::query::DbAccessor *dba);
+  explicit FineGrainedAuthChecker(auth::Role role, const memgraph::query::DbAccessor *dba);
 
   bool Has(const query::VertexAccessor &vertex, memgraph::storage::View view,
            query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
@@ -67,7 +77,7 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
       memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
 
  private:
-  auth::User user_;
+  auth::UserOrRole user_or_role_;
   const memgraph::query::DbAccessor *dba_;
 };
 #endif

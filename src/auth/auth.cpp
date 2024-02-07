@@ -196,7 +196,7 @@ Auth::Auth(std::string storage_directory, Config config)
   MigrateVersions(storage_);
 }
 
-std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
+std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const std::string &password) {
   if (module_.IsUsed()) {
     /*
      * MODULE AUTH STORAGE
@@ -236,9 +236,7 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
     // Authenticate the user.
     if (!is_authenticated) return std::nullopt;
 
-    // TODO Return permissions, not a temp user
-    User tmp{username, std::nullopt, role->permissions(), role->fine_grained_access_handler()};
-    return tmp;
+    return role;
   }
 
   /*
@@ -502,27 +500,43 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
 }
 
 #ifdef MG_ENTERPRISE
-bool Auth::GrantDatabaseToUser(const std::string &db, const std::string &name, system::Transaction *system_tx) {
-  if (auto user = GetUser(name)) {
+bool Auth::GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+  auto update = [&](auto &user_or_role) {
     if (db == kAllDatabases) {
-      user->db_access().GrantAll();
+      user_or_role->db_access().GrantAll();
     } else {
-      user->db_access().Add(db);
+      user_or_role->db_access().Add(db);
     }
+  };
+  if (auto user = GetUser(name)) {
+    update(user);
     SaveUser(*user, system_tx);
+    return true;
+  }
+  if (auto role = GetRole(name)) {
+    update(role);
+    SaveRole(*role, system_tx);
     return true;
   }
   return false;
 }
 
-bool Auth::RevokeDatabaseFromUser(const std::string &db, const std::string &name, system::Transaction *system_tx) {
-  if (auto user = GetUser(name)) {
+bool Auth::RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+  auto update = [&](auto &user_or_role) {
     if (db == kAllDatabases) {
-      user->db_access().DenyAll();
+      user_or_role->db_access().DenyAll();
     } else {
-      user->db_access().Remove(db);
+      user_or_role->db_access().Remove(db);
     }
+  };
+  if (auto user = GetUser(name)) {
+    update(user);
     SaveUser(*user, system_tx);
+    return true;
+  }
+  if (auto role = GetRole(name)) {
+    update(role);
+    SaveRole(*role, system_tx);
     return true;
   }
   return false;
@@ -536,14 +550,29 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
       SaveUser(*user, system_tx);
     }
   }
+  for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
+    auto rolename = it->first.substr(kRolePrefix.size());
+    if (auto role = GetRole(rolename)) {
+      role->db_access().Delete(db);
+      SaveRole(*role, system_tx);
+    }
+  }
 }
 
 bool Auth::SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx) {
-  if (auto user = GetUser(name)) {
-    if (!user->db_access().SetDefault(db)) {
-      throw AuthException("Couldn't set default database '{}' for user '{}'!", db, name);
+  auto update = [&](auto &user_or_role) {
+    if (!user_or_role->db_access().SetDefault(db)) {
+      throw AuthException("Couldn't set default database '{}' for '{}'!", db, name);
     }
+  };
+  if (auto user = GetUser(name)) {
+    update(user);
     SaveUser(*user, system_tx);
+    return true;
+  }
+  if (auto role = GetRole(name)) {
+    update(role);
+    SaveRole(*role, system_tx);
     return true;
   }
   return false;

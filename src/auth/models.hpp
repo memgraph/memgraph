@@ -205,48 +205,6 @@ class FineGrainedAccessHandler final {
 bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second);
 #endif
 
-class Role final {
- public:
-  Role() = default;
-
-  explicit Role(const std::string &rolename);
-  Role(const std::string &rolename, const Permissions &permissions);
-#ifdef MG_ENTERPRISE
-  Role(const std::string &rolename, const Permissions &permissions,
-       FineGrainedAccessHandler fine_grained_access_handler);
-#endif
-  Role(const Role &) = default;
-  Role &operator=(const Role &) = default;
-  Role(Role &&) noexcept = default;
-  Role &operator=(Role &&) noexcept = default;
-  ~Role() = default;
-
-  const std::string &rolename() const;
-  const Permissions &permissions() const;
-  Permissions &permissions();
-#ifdef MG_ENTERPRISE
-  const FineGrainedAccessHandler &fine_grained_access_handler() const;
-  FineGrainedAccessHandler &fine_grained_access_handler();
-  const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions() const;
-  const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions() const;
-#endif
-  nlohmann::json Serialize() const;
-
-  /// @throw AuthException if unable to deserialize.
-  static Role Deserialize(const nlohmann::json &data);
-
-  friend bool operator==(const Role &first, const Role &second);
-
- private:
-  std::string rolename_;
-  Permissions permissions_;
-#ifdef MG_ENTERPRISE
-  FineGrainedAccessHandler fine_grained_access_handler_;
-#endif
-};
-
-bool operator==(const Role &first, const Role &second);
-
 #ifdef MG_ENTERPRISE
 class Databases final {
  public:
@@ -328,6 +286,55 @@ class Databases final {
   std::string default_db_;                         //!< user's default database
 };
 #endif
+
+class Role final {
+ public:
+  Role() = default;
+
+  explicit Role(const std::string &rolename);
+  Role(const std::string &rolename, const Permissions &permissions);
+#ifdef MG_ENTERPRISE
+  Role(const std::string &rolename, const Permissions &permissions,
+       FineGrainedAccessHandler fine_grained_access_handler);
+#endif
+  Role(const Role &) = default;
+  Role &operator=(const Role &) = default;
+  Role(Role &&) noexcept = default;
+  Role &operator=(Role &&) noexcept = default;
+  ~Role() = default;
+
+  const std::string &rolename() const;
+  const Permissions &permissions() const;
+  Permissions &permissions();
+#ifdef MG_ENTERPRISE
+  const FineGrainedAccessHandler &fine_grained_access_handler() const;
+  FineGrainedAccessHandler &fine_grained_access_handler();
+  const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions() const;
+  const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions() const;
+#endif
+
+#ifdef MG_ENTERPRISE
+  Databases &db_access() { return database_access_; }
+  const Databases &db_access() const { return database_access_; }
+#endif
+
+  nlohmann::json Serialize() const;
+
+  /// @throw AuthException if unable to deserialize.
+  static Role Deserialize(const nlohmann::json &data);
+
+  friend bool operator==(const Role &first, const Role &second);
+
+ private:
+  std::string rolename_;
+  Permissions permissions_;
+#ifdef MG_ENTERPRISE
+  FineGrainedAccessHandler fine_grained_access_handler_;
+  Databases database_access_;
+#endif
+};
+
+bool operator==(const Role &first, const Role &second);
 
 // TODO (mferencevic): Implement password expiry.
 class User final {

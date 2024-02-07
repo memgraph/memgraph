@@ -774,14 +774,16 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
 
   // Authenticate
   {
-    auto user = auth->Authenticate("alice", "alice");
-    ASSERT_TRUE(user);
-    ASSERT_EQ(user->username(), "alice");
+    auto user_or_role = auth->Authenticate("alice", "alice");
+    ASSERT_TRUE(user_or_role);
+    const auto &user = std::get<memgraph::auth::User>(*user_or_role);
+    ASSERT_EQ(user.username(), "alice");
   }
   {
-    auto user = auth->Authenticate("alICe", "alice");
-    ASSERT_TRUE(user);
-    ASSERT_EQ(user->username(), "alice");
+    auto user_or_role = auth->Authenticate("alICe", "alice");
+    ASSERT_TRUE(user_or_role);
+    const auto &user = std::get<memgraph::auth::User>(*user_or_role);
+    ASSERT_EQ(user.username(), "alice");
   }
 
   // GetUser

@@ -176,8 +176,8 @@ authQuery : createRole
           | showPrivileges
           | showRoleForUser
           | showUsersForRole
-          | grantDatabaseToUser
-          | revokeDatabaseFromUser
+          | grantDatabaseToUserOrRole
+          | revokeDatabaseFromUserOrRole
           | showDatabasePrivileges
           | setMainDatabase
           ;
@@ -303,13 +303,13 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRol
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
-grantDatabaseToUser : GRANT DATABASE db=wildcardName TO user=symbolicName ;
+grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO userOrRole=userOrRoleName ;
 
-revokeDatabaseFromUser : REVOKE DATABASE db=wildcardName FROM user=symbolicName ;
+revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM userOrRole=userOrRoleName ;
 
-showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR user=symbolicName ;
+showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR userOrRole=userOrRoleName ;
 
-setMainDatabase : SET MAIN DATABASE db=symbolicName FOR user=symbolicName ;
+setMainDatabase : SET MAIN DATABASE db=symbolicName FOR userOrRole=userOrRoleName ;
 
 privilege : CREATE
           | DELETE

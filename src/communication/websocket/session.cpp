@@ -162,7 +162,7 @@ utils::BasicResult<std::string> Session::Authorize(const nlohmann::json &creds) 
     return {"Authentication failed!"};
   }
 #ifdef MG_ENTERPRISE
-  if (!auth_.HasUserPermission(creds.at("username").get<std::string>(), auth::Permission::WEBSOCKET)) {
+  if (!auth_.HasPermission(auth::Permission::WEBSOCKET)) {
     return {"Authorization failed!"};
   }
 #endif

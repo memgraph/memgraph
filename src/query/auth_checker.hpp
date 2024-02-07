@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,9 @@
 #include <string>
 #include <vector>
 
+#include "dbms/constants.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/query_user.hpp"
 #include "storage/v2/id_types.hpp"
 
 namespace memgraph::query {
@@ -29,9 +31,7 @@ class AuthChecker {
  public:
   virtual ~AuthChecker() = default;
 
-  [[nodiscard]] virtual bool IsUserAuthorized(const std::optional<std::string> &username,
-                                              const std::vector<AuthQuery::Privilege> &privileges,
-                                              const std::string &db_name) const = 0;
+  virtual std::shared_ptr<QueryUser> GenQueryUser(const std::optional<std::string> &username) const = 0;
 
 #ifdef MG_ENTERPRISE
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
@@ -98,10 +98,21 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
 
 class AllowEverythingAuthChecker final : public AuthChecker {
  public:
-  bool IsUserAuthorized(const std::optional<std::string> & /*username*/,
-                        const std::vector<AuthQuery::Privilege> & /*privileges*/,
-                        const std::string & /*db*/) const override {
-    return true;
+  struct User : query::QueryUser {
+    User() : query::QueryUser{std::nullopt} {}
+    User(std::string name) : query::QueryUser{std::move(name)} {}
+    bool IsAuthorized(const std::vector<AuthQuery::Privilege> & /*privileges*/,
+                      const std::string & /*db_name*/) const override {
+      return true;
+    }
+#ifdef MG_ENTERPRISE
+    std::string GetDefaultDB() const override { return std::string{dbms::kDefaultDB}; }
+#endif
+  };
+
+  std::shared_ptr<query::QueryUser> GenQueryUser(const std::optional<std::string> &name) const override {
+    if (name) return std::make_shared<User>(std::move(*name));
+    return std::make_shared<User>();
   }
 
 #ifdef MG_ENTERPRISE

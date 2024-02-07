@@ -287,7 +287,7 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
           ,
           system_tx);
 #ifdef MG_ENTERPRISE
-      GrantDatabaseToUser(auth::kAllDatabases, username, system_tx);
+      GrantDatabase(auth::kAllDatabases, username, system_tx);
       SetMainDatabase(dbms::kDefaultDB, username, system_tx);
 #endif
     }
@@ -334,25 +334,25 @@ bool AuthQueryHandler::CreateRole(const std::string &rolename, system::Transacti
 }
 
 #ifdef MG_ENTERPRISE
-bool AuthQueryHandler::RevokeDatabaseFromUser(const std::string &db_name, const std::string &username,
-                                              system::Transaction *system_tx) {
+bool AuthQueryHandler::RevokeDatabase(const std::string &db_name, const std::string &username,
+                                      system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) return false;
-    return locked_auth->RevokeDatabaseFromUser(db_name, username, system_tx);
+    return locked_auth->RevokeDatabase(db_name, username, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
-bool AuthQueryHandler::GrantDatabaseToUser(const std::string &db_name, const std::string &username,
-                                           system::Transaction *system_tx) {
+bool AuthQueryHandler::GrantDatabase(const std::string &db_name, const std::string &username,
+                                     system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) return false;
-    return locked_auth->GrantDatabaseToUser(db_name, username, system_tx);
+    return locked_auth->GrantDatabase(db_name, username, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }

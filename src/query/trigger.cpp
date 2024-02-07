@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -154,20 +154,19 @@ Trigger::Trigger(std::string name, const std::string &query,
                  const std::map<std::string, storage::PropertyValue> &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
                  DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                 std::optional<std::string> owner, const query::AuthChecker *auth_checker)
+                 std::shared_ptr<QueryUser> owner)
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config)},
       event_type_{event_type},
       owner_{std::move(owner)} {
   // We check immediately if the query is valid by trying to create a plan.
-  GetPlan(db_accessor, auth_checker);
+  GetPlan(db_accessor);
 }
 
 Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers)
     : cached_plan(std::move(logical_plan)), identifiers(std::move(identifiers)) {}
 
-std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor,
-                                                       const query::AuthChecker *auth_checker) const {
+std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) const {
   std::lock_guard plan_guard{plan_lock_};
   if (!parsed_statements_.is_cacheable || !trigger_plan_) {
     auto identifiers = GetPredefinedIdentifiers(event_type_);
@@ -187,7 +186,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor,
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
-  if (!auth_checker->IsUserAuthorized(owner_, parsed_statements_.required_privileges, "")) {
+  if (!owner_->IsAuthorized(parsed_statements_.required_privileges, "")) {
     throw utils::BasicException("The owner of trigger '{}' is not authorized to execute the query!", name_);
   }
   return trigger_plan_;
@@ -195,14 +194,13 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor,
 
 void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context,
-                      const AuthChecker *auth_checker) const {
+                      std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context) const {
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
 
   spdlog::debug("Executing trigger '{}'", name_);
-  auto trigger_plan = GetPlan(dba, auth_checker);
+  auto trigger_plan = GetPlan(dba);
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   auto &[plan, identifiers] = *trigger_plan;
 
@@ -317,10 +315,12 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
       continue;
     }
 
+    auto user = auth_checker->GenQueryUser(owner);
+
     std::optional<Trigger> trigger;
     try {
       trigger.emplace(trigger_name, statement, user_parameters, event_type, query_cache, db_accessor, query_config,
-                      std::move(owner), auth_checker);
+                      std::move(user));
     } catch (const utils::BasicException &e) {
       spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
       continue;
@@ -338,8 +338,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query,
                               const std::map<std::string, storage::PropertyValue> &user_parameters,
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                              const InterpreterConfig::Query &query_config, std::optional<std::string> owner,
-                              const query::AuthChecker *auth_checker) {
+                              const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUser> owner) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
@@ -348,7 +347,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query,
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::move(name), query, user_parameters, event_type, query_cache, db_accessor, query_config,
-                    std::move(owner), auth_checker);
+                    std::move(owner));
   } catch (const utils::BasicException &e) {
     const auto identifiers = GetPredefinedIdentifiers(event_type);
     std::stringstream identifier_names_stream;
@@ -370,8 +369,8 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query,
   data["phase"] = phase;
   data["version"] = kVersion;
 
-  if (const auto &owner_from_trigger = trigger->Owner(); owner_from_trigger.has_value()) {
-    data["owner"] = *owner_from_trigger;
+  if (const auto &owner_from_trigger = trigger->Owner(); owner_from_trigger && *owner_from_trigger) {
+    data["owner"] = owner_from_trigger->name();
   } else {
     data["owner"] = nullptr;
   }
@@ -417,7 +416,9 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
 
   const auto add_info = [&](const utils::SkipList<Trigger> &trigger_list, const TriggerPhase phase) {
     for (const auto &trigger : trigger_list.access()) {
-      info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), phase, trigger.Owner()});
+      std::optional<std::string> owner_str{};
+      if (const auto &owner = trigger.Owner(); owner && *owner) owner_str = owner->name();
+      info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), phase, std::move(owner_str)});
     }
   };
 

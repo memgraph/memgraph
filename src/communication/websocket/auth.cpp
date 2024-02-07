@@ -12,16 +12,24 @@
 #include "communication/websocket/auth.hpp"
 
 #include <string>
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::communication::websocket {
 
 bool SafeAuth::Authenticate(const std::string &username, const std::string &password) const {
-  return auth_->Lock()->Authenticate(username, password).has_value();
+  user_or_role_ = auth_->Lock()->Authenticate(username, password);
+  return user_or_role_.has_value();
 }
 
-bool SafeAuth::HasUserPermission(const std::string &username, const auth::Permission permission) const {
-  if (const auto user = auth_->ReadLock()->GetUser(username); user) {
-    return user->GetPermissions().Has(permission) == auth::PermissionLevel::GRANT;
+bool SafeAuth::HasPermission(const auth::Permission permission) const {
+  // TODO
+  // auth_->UpToDate()...
+  if (user_or_role_) {
+    return std::visit(
+        utils::Overloaded{
+            [&](auth::User &user) { return user.GetPermissions().Has(permission) == auth::PermissionLevel::GRANT; },
+            [&](auth::Role &role) { return role.permissions().Has(permission) == auth::PermissionLevel::GRANT; }},
+        *user_or_role_);
   }
   return false;
 }

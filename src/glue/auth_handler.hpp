@@ -37,11 +37,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
                    system::Transaction *system_tx) override;
 
 #ifdef MG_ENTERPRISE
-  bool RevokeDatabaseFromUser(const std::string &db_name, const std::string &username,
-                              system::Transaction *system_tx) override;
+  bool RevokeDatabase(const std::string &db_name, const std::string &username, system::Transaction *system_tx) override;
 
-  bool GrantDatabaseToUser(const std::string &db_name, const std::string &username,
-                           system::Transaction *system_tx) override;
+  bool GrantDatabase(const std::string &db_name, const std::string &username, system::Transaction *system_tx) override;
 
   std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &username) override;
 

@@ -454,8 +454,10 @@ nlohmann::json Role::Serialize() const {
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     data[kFineGrainedAccessHandler] = fine_grained_access_handler_.Serialize();
+    data[kDatabases] = database_access_.Serialize();
   } else {
     data[kFineGrainedAccessHandler] = {};
+    data[kDatabases] = {};
   }
 #endif
   return data;
@@ -471,6 +473,15 @@ Role Role::Deserialize(const nlohmann::json &data) {
   auto permissions = Permissions::Deserialize(data[kPermissions]);
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    Databases db_access;
+    if (data[kDatabases].is_structured()) {
+      db_access = Databases::Deserialize(data[kDatabases]);
+    } else {
+      // Back-compatibility
+      spdlog::warn("Role without specified database access. Given access to the default database.");
+      db_access.Add(dbms::kDefaultDB);
+      db_access.SetDefault(dbms::kDefaultDB);
+    }
     FineGrainedAccessHandler fine_grained_access_handler;
     // We can have an empty fine_grained if the user was created without a valid license
     if (data[kFineGrainedAccessHandler].is_object()) {

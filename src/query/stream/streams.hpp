@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -100,7 +100,7 @@ class Streams final {
   ///
   /// @throws StreamsException if the stream with the same name exists or if the creation of Kafka consumer fails
   template <Stream TStream, typename TDbAccess>
-  void Create(const std::string &stream_name, typename TStream::StreamInfo info, std::optional<std::string> owner,
+  void Create(const std::string &stream_name, typename TStream::StreamInfo info, std::shared_ptr<QueryUser> owner,
               TDbAccess db, InterpreterContext *interpreter_context);
 
   /// Deletes an existing stream and all the data that was persisted.
@@ -191,7 +191,7 @@ class Streams final {
 
   template <Stream TStream, typename TDbAccess>
   StreamsMap::iterator CreateConsumer(StreamsMap &map, const std::string &stream_name,
-                                      typename TStream::StreamInfo stream_info, std::optional<std::string> owner,
+                                      typename TStream::StreamInfo stream_info, std::shared_ptr<QueryUser> owner,
                                       TDbAccess db, InterpreterContext *interpreter_context);
 
   template <Stream TStream>
