@@ -61,5 +61,16 @@ class RaftBecomeLeaderException final : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(RaftBecomeLeaderException)
 };
 
+class RaftCouldNotFindEntryException final : public utils::BasicException {
+ public:
+  explicit RaftCouldNotFindEntryException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit RaftCouldNotFindEntryException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : RaftCouldNotFindEntryException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(RaftCouldNotFindEntryException)
+};
+
 }  // namespace memgraph::coordination
 #endif
