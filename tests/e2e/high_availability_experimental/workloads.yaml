@@ -44,3 +44,6 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability_experimental/not_replicate_from_old_main.py"]
 
+  - name: "Distributed coordinators"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability_experimental/distributed_coords.py"]
