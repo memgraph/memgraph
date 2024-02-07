@@ -38,6 +38,8 @@ std::string RegisterReplicaErrorToString(query::RegisterReplicaError error) {
       return "CONNECTION_FAILED";
     case COULD_NOT_BE_PERSISTED:
       return "COULD_NOT_BE_PERSISTED";
+    case ERROR_ACCEPTING_MAIN:
+      return "ERROR_ACCEPTING_MAIN";
   }
 }
 
@@ -52,7 +54,7 @@ void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_a
     spdlog::info("Replica {} restoration started for {}.", instance_client.name_, db_acc->name());
     const auto &ret = db_acc->storage()->repl_storage_state_.replication_clients_.WithLock(
         [&, db_acc](auto &storage_clients) mutable -> utils::BasicResult<query::RegisterReplicaError> {
-          auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client);
+          auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client, mainData.uuid_);
           auto *storage = db_acc->storage();
           client->Start(storage, std::move(db_acc));
           // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
@@ -239,14 +241,16 @@ struct DropDatabase : memgraph::system::ISystemAction {
   void DoDurability() override { /* Done during DBMS execution */
   }
 
-  bool DoReplication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     replication::ReplicationEpoch const &epoch,
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const storage::replication::DropDatabaseRes &response) {
       return response.result != storage::replication::DropDatabaseRes::Result::FAILURE;
     };
 
     return client.SteamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
-        check_response, epoch.id(), txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
+        check_response, main_uuid, std::string(epoch.id()), txn.last_committed_system_timestamp(), txn.timestamp(),
+        uuid_);
   }
   void PostReplication(replication::RoleMainData &mainData) const override {}
 
@@ -323,14 +327,16 @@ struct CreateDatabase : memgraph::system::ISystemAction {
     // Done during dbms execution
   }
 
-  bool DoReplication(replication::ReplicationClient &client, replication::ReplicationEpoch const &epoch,
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     replication::ReplicationEpoch const &epoch,
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const storage::replication::CreateDatabaseRes &response) {
       return response.result != storage::replication::CreateDatabaseRes::Result::FAILURE;
     };
 
     return client.SteamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
-        check_response, epoch.id(), txn.last_committed_system_timestamp(), txn.timestamp(), config_);
+        check_response, main_uuid, std::string(epoch.id()), txn.last_committed_system_timestamp(), txn.timestamp(),
+        config_);
   }
 
   void PostReplication(replication::RoleMainData &mainData) const override {

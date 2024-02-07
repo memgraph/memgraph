@@ -327,7 +327,7 @@ class ReplQueryHandler {
           .port = static_cast<uint16_t>(*port),
       };
 
-      if (!handler_->SetReplicationRoleReplica(config)) {
+      if (!handler_->SetReplicationRoleReplica(config, std::nullopt)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
       }
     }
@@ -368,7 +368,7 @@ class ReplQueryHandler {
                                                .replica_check_frequency = replica_check_frequency,
                                                .ssl = std::nullopt};
 
-      const auto error = handler_->TryRegisterReplica(replication_config).HasError();
+      const auto error = handler_->TryRegisterReplica(replication_config, true).HasError();
 
       if (error) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
@@ -518,7 +518,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
       case COULD_NOT_PROMOTE_TO_MAIN:
         throw QueryRuntimeException(
-            "Couldn't set replica instance to main!. Check coordinator and replica for more logs");
+            "Couldn't set replica instance to main! Check coordinator and replica for more logs");
+      case SWAP_UUID_FAILED:
+        throw QueryRuntimeException("Couldn't set replica instance to main. Replicas didn't swap uuid of new main.");
       case SUCCESS:
         break;
     }

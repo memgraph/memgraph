@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "utils/uuid.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_config.hpp"
@@ -44,12 +45,19 @@ class CoordinatorClient {
   auto InstanceName() const -> std::string;
   auto SocketAddress() const -> std::string;
 
-  [[nodiscard]] auto SendPromoteReplicaToMainRpc(ReplicationClientsInfo replication_clients_info) const -> bool;
   [[nodiscard]] auto DemoteToReplica() const -> bool;
+  auto SendPromoteReplicaToMainRpc(const utils::UUID &uuid, ReplicationClientsInfo replication_clients_info) const
+      -> bool;
+
+
+  auto SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bool;
 
   auto ReplicationClientInfo() const -> ReplClientInfo;
 
+
   auto SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCallback fail_cb) -> void;
+
+  auto RpcClient() -> rpc::Client & { return rpc_client_; }
 
   friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
     return first.config_ == second.config_;

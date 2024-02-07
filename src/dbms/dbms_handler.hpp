@@ -29,6 +29,7 @@
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "replication/replication_client.hpp"
+#include "replication_coordination_glue/handler.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/transaction.hpp"
 #include "system/system.hpp"
@@ -260,6 +261,16 @@ class DbmsHandler {
     return {db_gatekeeper_.access()->get()->name()};
 #endif
   }
+
+  replication::ReplicationState &ReplicationState() { return repl_state_; }
+  replication::ReplicationState const &ReplicationState() const { return repl_state_; }
+
+  bool IsMain() const { return repl_state_.IsMain(); }
+  bool IsReplica() const { return repl_state_.IsReplica(); }
+
+#ifdef MG_ENTERPRISE
+  // coordination::CoordinatorState &CoordinatorState() { return coordinator_state_; }
+#endif
 
   /**
    * @brief Return the statistics all databases.

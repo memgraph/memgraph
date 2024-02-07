@@ -21,6 +21,6 @@ target_include_directories(mg-replication PUBLIC include)
 
 find_package(fmt REQUIRED)
 target_link_libraries(mg-replication
-    PUBLIC mg::utils mg::kvstore lib::json mg::rpc mg::slk mg::io mg::repl_coord_glue
+    PUBLIC mg::utils mg::kvstore lib::json mg::rpc mg::slk mg::io mg::repl_coord_glue mg-flags
     PRIVATE fmt::fmt
 )

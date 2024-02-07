@@ -7,8 +7,8 @@ target_sources(mg-replication_handler
         include/replication_handler/system_rpc.hpp
 
         PRIVATE
-        replication_handler.cpp
         system_replication.cpp
+        replication_handler.cpp
         system_rpc.cpp
         )
 target_include_directories(mg-replication_handler PUBLIC include)

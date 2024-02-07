@@ -16,6 +16,7 @@
 
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/include/coordination/coordinator_server.hpp"
+#include "replication/state.hpp"
 
 namespace memgraph::dbms {
 
@@ -32,6 +33,29 @@ void CoordinatorHandlers::Register(memgraph::coordination::CoordinatorServer &se
         spdlog::info("Received DemoteMainToReplicaRpc from coordinator server");
         CoordinatorHandlers::DemoteMainToReplicaHandler(replication_handler, req_reader, res_builder);
       });
+
+  server.Register<replication_coordination_glue::SwapMainUUIDRpc>(
+      [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+        spdlog::info("Received SwapMainUUIDRPC on coordinator server");
+        CoordinatorHandlers::SwapMainUUIDHandler(replication_handler, req_reader, res_builder);
+      });
+}
+
+void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,
+                                              slk::Reader *req_reader, slk::Builder *res_builder) {
+  if (!replication_handler.IsReplica()) {
+    spdlog::error("Setting main uuid must be performed on replica.");
+    slk::Save(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
+    return;
+  }
+
+  replication_coordination_glue::SwapMainUUIDReq req;
+  slk::Load(&req, req_reader);
+  spdlog::info(fmt::format("Set replica data UUID  to main uuid {}", std::string(req.uuid)));
+  std::get<memgraph::replication::RoleReplicaData>(replication_handler.GetReplState().ReplicationData()).uuid_ =
+      req.uuid;
+
+  slk::Save(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
 }
 
 void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHandler &replication_handler,
@@ -51,7 +75,7 @@ void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHan
       .ip_address = req.replication_client_info.replication_ip_address,
       .port = req.replication_client_info.replication_port};
 
-  if (!replication_handler.SetReplicationRoleReplica(clients_config)) {
+  if (!replication_handler.SetReplicationRoleReplica(clients_config, std::nullopt)) {
     spdlog::error("Demoting main to replica failed!");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;
@@ -67,17 +91,16 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;
   }
+  coordination::PromoteReplicaToMainReq req;
+  slk::Load(&req, req_reader);
 
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues.
-  if (!replication_handler.DoReplicaToMainPromotion()) {
+  if (const bool success = replication_handler.DoReplicaToMainPromotion(req.main_uuid_); !success) {
     spdlog::error("Promoting replica to main failed!");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;
   }
-
-  coordination::PromoteReplicaToMainReq req;
-  slk::Load(&req, req_reader);
 
   auto const converter = [](const auto &repl_info_config) {
     return replication::ReplicationClientConfig{
@@ -90,7 +113,7 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
 
   // registering replicas
   for (auto const &config : req.replication_clients_info | ranges::views::transform(converter)) {
-    auto instance_client = replication_handler.RegisterReplica(config);
+    auto instance_client = replication_handler.RegisterReplica(config, false);
     if (instance_client.HasError()) {
       using enum memgraph::replication::RegisterReplicaError;
       switch (instance_client.GetError()) {
@@ -109,13 +132,17 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
           spdlog::error("Registered replica could not be persisted!");
           slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
           return;
+        case memgraph::query::RegisterReplicaError::ERROR_ACCEPTING_MAIN:
+          spdlog::error("Replica didn't accept change of main!");
+          slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
+          return;
         case memgraph::query::RegisterReplicaError::CONNECTION_FAILED:
           // Connection failure is not a fatal error
           break;
       }
     }
   }
-
+  spdlog::error(fmt::format("FICO : Promote replica to main was success {}", std::string(req.main_uuid_)));
   slk::Save(coordination::PromoteReplicaToMainRes{true}, res_builder);
 }
 
