@@ -147,6 +147,7 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
 
 void AuthChecker::ClearCache() const {
   user_or_role_.WithLock([](auto &user_or_role) mutable { user_or_role = {}; });
+  auth_->Lock()->UpdateEpoch();
 }
 #endif
 

@@ -63,6 +63,19 @@ class Auth final {
     std::regex password_regex{password_regex_str};
   };
 
+  struct Epoch {
+    Epoch() : epoch_{0} {}
+    Epoch(unsigned e) : epoch_{e} {}
+
+    Epoch operator++() { return ++epoch_; }
+    bool operator==(const Epoch &rhs) const = default;
+
+   private:
+    unsigned epoch_;
+  };
+
+  static const Epoch kStartEpoch;
+
   explicit Auth(std::string storage_directory, Config config);
 
   /**
@@ -277,6 +290,13 @@ class Auth final {
   bool SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx = nullptr);
 #endif
 
+  Epoch UpdateEpoch() { return ++epoch_; }
+  bool UpToDate(Epoch &e) {
+    bool res = e == epoch_;
+    e = epoch_;
+    return res;
+  }
+
  private:
   /**
    * @brief
@@ -293,5 +313,6 @@ class Auth final {
   kvstore::KVStore storage_;
   auth::Module module_;
   Config config_;
+  Epoch epoch_{kStartEpoch};
 };
 }  // namespace memgraph::auth

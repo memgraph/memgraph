@@ -42,6 +42,8 @@ DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
 
 namespace memgraph::auth {
 
+const Auth::Epoch Auth::kStartEpoch = 1;
+
 namespace {
 #ifdef MG_ENTERPRISE
 /**

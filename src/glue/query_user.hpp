@@ -42,6 +42,7 @@ struct QueryUser : public query::QueryUser {
   auth::SynchedAuth *auth_;
   mutable std::optional<auth::User> user_{};
   mutable std::optional<auth::Role> role_{};
+  mutable auth::Auth::Epoch auth_epoch_{};
 };
 
 }  // namespace memgraph::glue

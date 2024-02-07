@@ -22,8 +22,25 @@ bool SafeAuth::Authenticate(const std::string &username, const std::string &pass
 }
 
 bool SafeAuth::HasPermission(const auth::Permission permission) const {
-  // TODO
-  // auth_->UpToDate()...
+  auto locked_auth = auth_->Lock();
+  // Update if cache invalidated
+  if (!locked_auth->UpToDate(auth_epoch_) && user_or_role_) {
+    bool success = true;
+    std::visit(utils::Overloaded{[&](auth::User &user) {
+                                   auto tmp = locked_auth->GetUser(user.username());
+                                   if (!tmp) success = false;
+                                   user = std::move(*tmp);
+                                 },
+                                 [&](auth::Role &role) {
+                                   auto tmp = locked_auth->GetRole(role.rolename());
+                                   if (!tmp) success = false;
+                                   role = std::move(*tmp);
+                                 }},
+               *user_or_role_);
+    // Missing user/role; delete from cache
+    if (!success) user_or_role_.reset();
+  }
+  // Check permissions
   if (user_or_role_) {
     return std::visit(
         utils::Overloaded{
@@ -31,6 +48,7 @@ bool SafeAuth::HasPermission(const auth::Permission permission) const {
             [&](auth::Role &role) { return role.permissions().Has(permission) == auth::PermissionLevel::GRANT; }},
         *user_or_role_);
   }
+  // NOTE: websocket authenticates only if there is a user, so no need to check if access controlled
   return false;
 }
 

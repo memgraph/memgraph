@@ -17,16 +17,17 @@ namespace memgraph::glue {
 
 bool QueryUser::IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
                              const std::string &db_name) const {
-  // Invalidate cache
-  // if (!auth_->UpToDate()) {
-  //   if (user_) user_ = auth_->Lock()->GetUser(user_->username());
-  //   // role
-  // }
+  auto locked_auth = auth_->Lock();
+  // Update if cache invalidated
+  if (!locked_auth->UpToDate(auth_epoch_)) {
+    if (user_) user_ = locked_auth->GetUser(user_->username());
+    if (role_) role_ = locked_auth->GetRole(role_->rolename());
+  }
 
   if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
   if (role_) return AuthChecker::IsRoleAuthorized(*role_, privileges, db_name);
 
-  return !auth_->Lock()->AccessControlled();
+  return !locked_auth->AccessControlled();
 }
 
 #ifdef MG_ENTERPRISE
