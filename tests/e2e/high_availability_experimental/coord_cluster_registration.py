@@ -99,25 +99,94 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--raft-server-port=10113",
         ],
         "log_file": "coordinator3.log",
-        "setup_queries": [
-            "ADD COORDINATOR 1 ON '127.0.0.1:10111'",
-            "ADD COORDINATOR 2 ON '127.0.0.1:10112'",
-            "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
-            "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
-            "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
-            "SET INSTANCE instance_3 TO MAIN",
-        ],
+        "setup_queries": [],
     },
 }
 
 
-# TODO: (andi) Test that the order of setting up coordinators and instances does not matter
-# TODO: (andi) Currently, these tests are flaky, depend whether Raft server was created in time.
-def test_coordinators_communication():
+# NOTE: Repeated execution because it can fail if Raft server is not up
+def add_coordinator(cursor, query):
+    for _ in range(10):
+        try:
+            execute_and_fetch_all(cursor, query)
+            return True
+        except Exception:
+            pass
+    return False
+
+
+def test_register_repl_instances_then_coordinators():
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+
+    execute_and_fetch_all(
+        coordinator3_cursor, "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'"
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor, "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'"
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor, "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'"
+    )
+    execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
+    assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 1 ON '127.0.0.1:10111'")
+    assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 2 ON '127.0.0.1:10112'")
+
+    def check_coordinator3():
+        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+
+    expected_cluster_coord3 = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+    ]
+    mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
+
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+
+    def check_coordinator1():
+        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+
+    # TODO: (andi) This should be solved eventually
+    expected_cluster_not_shared = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
+    ]
+
+    mg_sleep_and_assert(expected_cluster_not_shared, check_coordinator1)
+
+    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
+
+    def check_coordinator2():
+        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+
+    mg_sleep_and_assert(expected_cluster_not_shared, check_coordinator2)
+
+
+def test_register_coordinator_then_repl_instances():
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+
+    assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 1 ON '127.0.0.1:10111'")
+    assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 2 ON '127.0.0.1:10112'")
+    execute_and_fetch_all(
+        coordinator3_cursor, "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'"
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor, "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'"
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor, "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'"
+    )
+    execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
 
     def check_coordinator3():
         return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
@@ -157,6 +226,21 @@ def test_coordinators_communication():
 def test_coordinators_communication_with_restarts():
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+
+    assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 1 ON '127.0.0.1:10111'")
+    assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 2 ON '127.0.0.1:10112'")
+    execute_and_fetch_all(
+        coordinator3_cursor, "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'"
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor, "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'"
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor, "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'"
+    )
+    execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
 
     expected_cluster_not_shared = [
         ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
