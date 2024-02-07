@@ -45,7 +45,7 @@ jobs:
 
           # Build release binaries
           cd build
-          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
+          cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$THREADS
 
       - name: Ensure Kafka and Pulsar are up
