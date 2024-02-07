@@ -12,7 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_server.hpp"
-#include "replication_coordination_glue/messages.hpp"
+#include "replication_coordination_glue/handler.hpp"
 
 namespace memgraph::coordination {
 

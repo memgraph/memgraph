@@ -13,6 +13,7 @@
 
 #include "replication_coordination_glue/role.hpp"
 #include "utils/result.hpp"
+#include "utils/uuid.hpp"
 
 // BEGIN fwd declares
 namespace memgraph::replication {
@@ -23,7 +24,13 @@ struct ReplicationClientConfig;
 
 namespace memgraph::query {
 
-enum class RegisterReplicaError : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, CONNECTION_FAILED, COULD_NOT_BE_PERSISTED };
+enum class RegisterReplicaError : uint8_t {
+  NAME_EXISTS,
+  ENDPOINT_EXISTS,
+  CONNECTION_FAILED,
+  COULD_NOT_BE_PERSISTED,
+  ERROR_ACCEPTING_MAIN
+};
 enum class UnregisterReplicaResult : uint8_t {
   NOT_MAIN,
   COULD_NOT_BE_PERSISTED,
@@ -39,13 +46,14 @@ struct ReplicationQueryHandler {
   virtual bool SetReplicationRoleMain() = 0;
 
   // as MAIN, become REPLICA
-  virtual bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config) = 0;
+  virtual bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
+                                         const std::optional<utils::UUID> &main_uuid) = 0;
 
   // as MAIN, define and connect to REPLICAs
-  virtual auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
+  virtual auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
       -> utils::BasicResult<RegisterReplicaError> = 0;
 
-  virtual auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
+  virtual auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
       -> utils::BasicResult<RegisterReplicaError> = 0;
 
   // as MAIN, remove a REPLICA connection

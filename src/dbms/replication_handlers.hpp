@@ -17,11 +17,21 @@
 #include "system/state.hpp"
 
 namespace memgraph::dbms {
+
 #ifdef MG_ENTERPRISE
+
+inline void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
+                         std::string_view rpc_req) {
+  spdlog::error("Received {} with main_id: {} != current_main_uuid: {}", rpc_req, std::string(main_req_id),
+                current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : "");
+}
+
 // RPC handlers
 void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
-                           DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder);
-void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access, DbmsHandler &dbms_handler,
+                           const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
+                           slk::Reader *req_reader, slk::Builder *res_builder);
+void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                         const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                          slk::Reader *req_reader, slk::Builder *res_builder);
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs);
 

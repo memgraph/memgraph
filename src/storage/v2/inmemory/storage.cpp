@@ -1847,6 +1847,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
+  //////// AF only this calls initialize transaction
   repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
 
   auto append_deltas = [&](auto callback) {
