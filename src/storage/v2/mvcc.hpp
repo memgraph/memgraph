@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/string.hpp"
 
@@ -104,6 +105,14 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   return false;
 }
 
+inline void IncrementDeltasChanged(Transaction *transaction) {
+  transaction->deltas_changed++;
+  if (transaction->max_deltas < 0 && transaction->deltas_changed >= transaction->max_deltas) {
+    throw utils::BasicException(
+        "You have reached the maximum number of deltas for a transaction, transaction will be rollbacked!");
+  }
+}
+
 /// This function creates a `DELETE_OBJECT` delta in the transaction and returns
 /// a pointer to the created delta. It doesn't perform any linking of the delta
 /// and is primarily used to create the first delta for an object (that must be
@@ -114,6 +123,9 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
     return nullptr;
   }
   transaction->EnsureCommitTimestampExists();
+
+  IncrementDeltasChanged(transaction);
+
   return &transaction->deltas.use().emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
                                                  transaction->command_id);
 }
@@ -123,6 +135,9 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction, std::list<Delta>
     return nullptr;
   }
   transaction->EnsureCommitTimestampExists();
+
+  IncrementDeltasChanged(transaction);
+
   return &deltas->emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(), transaction->command_id);
 }
 
@@ -189,6 +204,8 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   // modification is being done, everybody else will wait until we are fully
   // done with our modification before they read the object's delta value.
   object->delta = delta;
+
+  IncrementDeltasChanged(transaction);
 }
 
 }  // namespace memgraph::storage

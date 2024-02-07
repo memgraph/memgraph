@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,6 +54,9 @@ DEFINE_double(query_execution_timeout_sec, 600,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_int64(maximum_deltas_per_transaction, -1, "Limit of deltas per transaction, default -1 (no limit)");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -73,11 +76,17 @@ constexpr auto kLogToStderrGFlagsKey = "also_log_to_stderr";
 constexpr auto kCartesianProductEnabledSettingKey = "cartesian-product-enabled";
 constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 
+constexpr auto kMaximumDeltasPerTransactionSettingKey = "maximum-deltas-per-transaction";
+constexpr auto kMaximumDeltasPerTransactionGFlagsKey = "maximum-deltas-per-transaction";
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<double> execution_timeout_sec_;  // Local cache-like thing
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<bool> cartesian_product_enabled_{true};  // Local cache-like thing
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::atomic<int64_t> maximum_deltas_per_transaction_;  // Local cache-like thing
 
 auto ToLLEnum(std::string_view val) {
   const auto ll_enum = memgraph::flags::LogLevelToEnum(val);
@@ -186,6 +195,14 @@ void Initialize() {
   register_flag(
       kCartesianProductEnabledGFlagsKey, kCartesianProductEnabledSettingKey, !kRestore,
       [](const std::string &val) { cartesian_product_enabled_ = val == "true"; }, ValidBoolStr);
+
+  /*
+   * Register maximum deltas per transaction
+   */
+  register_flag(kMaximumDeltasPerTransactionGFlagsKey, kMaximumDeltasPerTransactionSettingKey, !kRestore,
+                [&](const std::string &val) {
+                  maximum_deltas_per_transaction_ = std::stoll(val);  // Cache for faster reads
+                });
 }
 
 std::string GetServerName() {
@@ -198,5 +215,7 @@ std::string GetServerName() {
 double GetExecutionTimeout() { return execution_timeout_sec_; }
 
 bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
+
+int64_t GetMaximumDeltasPerTransaction() { return maximum_deltas_per_transaction_; }
 
 }  // namespace memgraph::flags::run_time

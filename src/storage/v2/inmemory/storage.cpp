@@ -21,6 +21,9 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/metadata_delta.hpp"
 
+/// FLAGS ///
+#include "flags/run_time_configurable.hpp"
+
 /// REPLICATION ///
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
@@ -176,9 +179,9 @@ InMemoryStorage::~InMemoryStorage() {
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
 
-InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                                                    StorageMode storage_mode,
-                                                    memgraph::replication_coordination_glue::ReplicationRole replication_role)
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(
+    auto tag, InMemoryStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+    memgraph::replication_coordination_glue::ReplicationRole replication_role)
     : Accessor(tag, storage, isolation_level, storage_mode, replication_role),
       config_(storage->config_.salient.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
@@ -1303,7 +1306,10 @@ Transaction InMemoryStorage::CreateTransaction(
       start_timestamp = timestamp_;
     }
   }
-  return {transaction_id, start_timestamp, isolation_level, storage_mode, false};
+
+  auto maximum_deltas_per_transaction = flags::run_time::GetMaximumDeltasPerTransaction();
+
+  return {transaction_id, start_timestamp, isolation_level, storage_mode, false, maximum_deltas_per_transaction};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
