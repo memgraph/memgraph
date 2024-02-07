@@ -239,6 +239,10 @@ class Storage {
       storage_->indices_.text_index_->UpdateNode(vertex->vertex_, storage_, storage_->timestamp_);
     }
 
+    void TextIndexUpdateVertex(VertexAccessor *vertex, std::vector<LabelId> removed_labels) {
+      storage_->indices_.text_index_->UpdateNode(vertex->vertex_, storage_, storage_->timestamp_, removed_labels);
+    }
+
     std::vector<Gid> TextIndexSearch(std::string index_name, std::string search_query) const {
       return storage_->indices_.text_index_->Search(index_name, search_query);
     }

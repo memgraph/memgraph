@@ -3304,7 +3304,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   }
 
   if (flags::run_time::GetTextSearchEnabled()) {
-    context.db_accessor->TextIndexUpdateVertex(&vertex);
+    context.db_accessor->TextIndexUpdateVertex(&vertex, self_.labels_);
   }
 
   return true;
