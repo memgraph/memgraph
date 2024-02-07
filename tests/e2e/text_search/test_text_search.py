@@ -11,9 +11,9 @@
 
 import sys
 
+import mgclient
 import pytest
 from common import memgraph, memgraph_with_mixed_data, memgraph_with_text_indexed_data
-from gqlalchemy.exceptions import GQLAlchemyDatabaseError
 
 GET_RULES_2024_DOCUMENT = """CALL text_search.search("complianceDocuments", "data.title:Rules2024") YIELD node
              RETURN node.title AS title, node.version AS version
@@ -73,7 +73,7 @@ def test_delete_indexed_node(memgraph_with_text_indexed_data):
 
 
 def test_add_indexed_label(memgraph_with_mixed_data):
-    memgraph_with_mixed_data.execute("""MATCH (n:Revision {version:3}) SET n:Document;""")
+    memgraph_with_mixed_data.execute("""MATCH (n:Revision {version:2}) SET n:Document;""")
 
     result = list(memgraph_with_mixed_data.execute_and_fetch(GET_RULES_2024_DOCUMENT))
 
@@ -106,17 +106,25 @@ def test_add_non_text_property_to_indexed_node(memgraph_with_text_indexed_data):
     memgraph_with_text_indexed_data.execute("""MATCH (n:Document {version:1}) SET n.randomList = [2, 3, 4, 5];""")
 
 
-def test_remove_text_property_from_indexed_node(memgraph_with_text_indexed_data):
-    with pytest.raises(GQLAlchemyDatabaseError, match="Tantivy error.*Please check mappings.") as e:
-        memgraph_with_text_indexed_data.execute(
-            """MATCH (n:Document {version:1}) REMOVE n.title, n.version, n.contents;"""
-        )
+def test_remove_indexable_property_from_indexed_node(memgraph_with_text_indexed_data):
+    memgraph_with_text_indexed_data.execute(
+        """MATCH (n:Document {version:1}) REMOVE n.title, n.version, n.fulltext, n.date;"""
+    )
 
 
 def test_remove_non_text_property_from_indexed_node(memgraph_with_text_indexed_data):
     memgraph_with_text_indexed_data.execute_and_fetch(
         """MATCH (n:Document {date: date("2023-12-15")}) REMOVE n.date;"""
     )
+
+
+def test_text_search_nonexistent_index(memgraph_with_text_indexed_data):
+    NONEXISTENT_INDEX_QUERY = """CALL text_search.search("noSuchIndex", "data.fulltext:words") YIELD node
+                RETURN node.title AS title, node.version AS version
+                ORDER BY version ASC, title ASC;"""
+
+    with pytest.raises(mgclient.DatabaseError, match='Text index "noSuchIndex" doesn’t exist.') as _:
+        list(memgraph_with_text_indexed_data.execute_and_fetch(NONEXISTENT_INDEX_QUERY))
 
 
 if __name__ == "__main__":
