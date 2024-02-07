@@ -107,8 +107,7 @@ class DbmsHandler {
    * @param auth pointer to the global authenticator
    * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  DbmsHandler(storage::Config config, memgraph::system::System &system, replication::ReplicationState &repl_state,
-              auth::SynchedAuth &auth,
+  DbmsHandler(storage::Config config, replication::ReplicationState &repl_state, auth::SynchedAuth &auth,
               bool recovery_on_startup);  // TODO If more arguments are added use a config struct
 #else
   /**
@@ -116,9 +115,8 @@ class DbmsHandler {
    *
    * @param configs storage configuration
    */
-  DbmsHandler(storage::Config config, memgraph::system::System &system, replication::ReplicationState &repl_state)
+  DbmsHandler(storage::Config config, replication::ReplicationState &repl_state)
       : repl_state_{repl_state},
-        system_{&system},
         db_gatekeeper_{[&] {
                          config.salient.name = kDefaultDB;
                          return std::move(config);
@@ -271,6 +269,20 @@ class DbmsHandler {
 #ifdef MG_ENTERPRISE
   // coordination::CoordinatorState &CoordinatorState() { return coordinator_state_; }
 #endif
+
+  /**
+   * @brief Return all active databases.
+   *
+   * @return std::vector<std::string>
+   */
+  auto Count() const -> std::size_t {
+#ifdef MG_ENTERPRISE
+    std::shared_lock<LockT> rd(lock_);
+    return db_handler_.size();
+#else
+    return 1;
+#endif
+  }
 
   /**
    * @brief Return the statistics all databases.
@@ -587,9 +599,6 @@ class DbmsHandler {
   //       current replication role. TODO: make Database Access explicit about the role and remove this from
   //       dbms stuff
   replication::ReplicationState &repl_state_;  //!< Ref to global replication state
- public:
-  // TODO fix to be non public/remove from dbms....maybe
-  system::System *system_;
 
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper

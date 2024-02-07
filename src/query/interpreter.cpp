@@ -109,6 +109,7 @@
 
 #ifdef MG_ENTERPRISE
 #include "coordination/constants.hpp"
+#include "flags/experimental.hpp"
 #endif
 
 namespace memgraph::metrics {
@@ -3881,7 +3882,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       if (current_db.in_explicit_db_) {
         throw QueryException("Database switching is prohibited if session explicitly defines the used database");
       }
-      if (!dbms::allow_mt_repl && is_replica) {
+
+      using enum memgraph::flags::Experiments;
+      if (!flags::AreExperimentsEnabled(SYSTEM_REPLICATION) && is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
       return PreparedQuery{{"STATUS"},
@@ -4535,7 +4538,8 @@ void Interpreter::Commit() {
     auto const main_commit = [&](replication::RoleMainData &mainData) {
     // Only enterprise can do system replication
 #ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast()) {
+      using enum memgraph::flags::Experiments;
+      if (flags::AreExperimentsEnabled(SYSTEM_REPLICATION) && license::global_license_checker.IsEnterpriseValidFast()) {
         return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
       }
 #endif
