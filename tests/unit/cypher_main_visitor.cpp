@@ -2632,6 +2632,19 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
                           ReplicationQuery::SyncMode::SYNC);
 }
 
+#ifdef MG_ENTERPRISE
+TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const correct_query = R"(ADD COORDINATOR 1 ON "127.0.0.1:10111")";
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE);
+  ast_generator.CheckLiteral(parsed_query->raft_socket_address_, TypedValue("127.0.0.1:10111"));
+  ast_generator.CheckLiteral(parsed_query->raft_server_id_, TypedValue(1));
+}
+#endif
+
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   auto &ast_generator = *GetParam();
 
