@@ -48,6 +48,8 @@ class CoordinatorInstance {
   std::list<ReplicationInstance> repl_instances_;
   mutable utils::RWLock coord_instance_lock_{utils::RWLock::Priority::READ};
 
+  utils::UUID main_uuid_;
+
   RaftInstance self_;
 };
 
