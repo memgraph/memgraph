@@ -152,7 +152,11 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     info.offset_edges = read_offset();
     info.offset_vertices = read_offset();
     info.offset_indices = read_offset();
-    info.offset_edge_indices = read_offset();
+    if (*version >= 17) {
+      info.offset_edge_indices = read_offset();
+    } else {
+      info.offset_edge_indices = 0U;
+    }
     info.offset_constraints = read_offset();
     info.offset_mapper = read_offset();
     info.offset_epoch_history = read_offset();
@@ -1392,7 +1396,7 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
   if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
 
   if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
-  if (*version != 15U) throw RecoveryFailure(fmt::format("Expected snapshot version is 16, but got {}", *version));
+  if (*version != 16U) throw RecoveryFailure(fmt::format("Expected snapshot version is 16, but got {}", *version));
 
   // Cleanup of loaded data in case of failure.
   bool success = false;

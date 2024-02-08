@@ -1174,10 +1174,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_edge_type_index->CreateIndex(edge_type, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // TODO (gvolfing check these)
-  // transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, edge_type);
-  // We don't care if there is a replication error because on main node the change will go through
-  // memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
+  transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_create, edge_type);
   return {};
 }
 
@@ -1217,10 +1214,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_edge_type_index->DropIndex(edge_type)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // TODO check this:
-  // transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, edge_type);
-  // // We don't care if there is a replication error because on main node the change will go through
-  // memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
+  transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
   return {};
 }
 
