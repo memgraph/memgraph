@@ -13,7 +13,6 @@ import os
 import shutil
 import sys
 import tempfile
-import time
 
 import interactive_mg_runner
 import pytest
@@ -70,7 +69,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "setup_queries": [],
     },
     "coordinator": {
-        "args": ["--bolt-port", "7690", "--log-level=TRACE", "--coordinator"],
+        "args": ["--bolt-port", "7690", "--log-level=TRACE", "--raft-server-id=1", "--raft-server-port=10111"],
         "log_file": "coordinator.log",
         "setup_queries": [
             "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
@@ -111,12 +110,13 @@ def test_replication_works_on_failover():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;")))
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_on_coord = [
-        ("instance_1", "127.0.0.1:10011", True, "main"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", False, "unknown"),
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "main"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
@@ -132,7 +132,6 @@ def test_replication_works_on_failover():
     mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
 
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
-
     expected_data_on_new_main = [
         ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
         ("instance_3", "127.0.0.1:10003", "sync", 0, 0, "ready"),
@@ -143,13 +142,13 @@ def test_replication_works_on_failover():
     execute_and_fetch_all(new_main_cursor, "CREATE ();")
 
     # 6
-    alive_replica_cursor = connect(host="localhost", port=7689).cursor()
-    res = execute_and_fetch_all(alive_replica_cursor, "MATCH (n) RETURN count(n) as count;")[0][0]
+    alive_replica_cursror = connect(host="localhost", port=7689).cursor()
+    res = execute_and_fetch_all(alive_replica_cursror, "MATCH (n) RETURN count(n) as count;")[0][0]
     assert res == 1, "Vertex should be replicated"
     interactive_mg_runner.stop_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
 
-def test_show_replication_cluster():
+def test_show_instances():
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
@@ -159,12 +158,13 @@ def test_show_replication_cluster():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;")))
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data = [
-        ("instance_1", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
     ]
     mg_sleep_and_assert(expected_data, show_repl_cluster)
 
@@ -184,18 +184,20 @@ def test_show_replication_cluster():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
 
     expected_data = [
-        ("instance_1", "127.0.0.1:10011", False, "unknown"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
     ]
     mg_sleep_and_assert(expected_data, show_repl_cluster)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
     expected_data = [
-        ("instance_1", "127.0.0.1:10011", False, "unknown"),
-        ("instance_2", "127.0.0.1:10012", False, "unknown"),
-        ("instance_3", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", False, "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
     ]
     mg_sleep_and_assert(expected_data, show_repl_cluster)
 
@@ -217,12 +219,13 @@ def test_simple_automatic_failover():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;")))
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_on_coord = [
-        ("instance_1", "127.0.0.1:10011", True, "main"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", False, "unknown"),
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "main"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
@@ -280,21 +283,23 @@ def test_replica_instance_restarts():
     cursor = connect(host="localhost", port=7690).cursor()
 
     def show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")))
+        return sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;")))
 
     expected_data_up = [
-        ("instance_1", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
     ]
     mg_sleep_and_assert(expected_data_up, show_repl_cluster)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
 
     expected_data_down = [
-        ("instance_1", "127.0.0.1:10011", False, "unknown"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
     ]
     mg_sleep_and_assert(expected_data_down, show_repl_cluster)
 
@@ -320,19 +325,21 @@ def test_automatic_failover_main_back_as_replica():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW REPLICATION CLUSTER;")))
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_after_failover = [
-        ("instance_1", "127.0.0.1:10011", True, "main"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", False, "unknown"),
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "main"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
     ]
     mg_sleep_and_assert(expected_data_after_failover, retrieve_data_show_repl_cluster)
 
     expected_data_after_main_coming_back = [
-        ("instance_1", "127.0.0.1:10011", True, "main"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", True, "replica"),
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "main"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", True, "replica"),
     ]
 
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
@@ -346,60 +353,68 @@ def test_automatic_failover_main_back_as_replica():
     mg_sleep_and_assert([("replica",)], retrieve_data_show_repl_role_instance3)
 
 
-def test_replica_instance_restarts_replication_works():
+def test_automatic_failover_main_back_as_main():
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    cursor = connect(host="localhost", port=7690).cursor()
-
-    def show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")))
-
-    expected_data_up = [
-        ("instance_1", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", True, "main"),
-    ]
-    mg_sleep_and_assert(expected_data_up, show_repl_cluster)
-
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
-    expected_data_down = [
-        ("instance_1", "127.0.0.1:10011", False, "unknown"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", True, "main"),
+    coord_cursor = connect(host="localhost", port=7690).cursor()
+
+    def retrieve_data_show_repl_cluster():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    expected_data_all_down = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", False, "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
     ]
-    mg_sleep_and_assert(expected_data_down, show_repl_cluster)
+
+    mg_sleep_and_assert(expected_data_all_down, retrieve_data_show_repl_cluster)
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+    expected_data_main_back = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", False, "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+    ]
+    mg_sleep_and_assert(expected_data_main_back, retrieve_data_show_repl_cluster)
+
+    instance3_cursor = connect(host="localhost", port=7687).cursor()
+
+    def retrieve_data_show_repl_role_instance3():
+        return sorted(list(execute_and_fetch_all(instance3_cursor, "SHOW REPLICATION ROLE;")))
+
+    mg_sleep_and_assert([("main",)], retrieve_data_show_repl_role_instance3)
 
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
-    mg_sleep_and_assert(expected_data_up, show_repl_cluster)
-
-    expected_data_on_main_show_replicas = [
-        ("instance_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+    expected_data_replicas_back = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
     ]
-    instance3_cursor = connect(host="localhost", port=7687).cursor()
+
+    mg_sleep_and_assert(expected_data_replicas_back, retrieve_data_show_repl_cluster)
+
     instance1_cursor = connect(host="localhost", port=7688).cursor()
-
-    def retrieve_data_show_repl_role_instance1():
-        return sorted(list(execute_and_fetch_all(instance3_cursor, "SHOW REPLICAS;")))
-
-    mg_sleep_and_assert(expected_data_on_main_show_replicas, retrieve_data_show_repl_role_instance1)
+    instance2_cursor = connect(host="localhost", port=7689).cursor()
 
     def retrieve_data_show_repl_role_instance1():
         return sorted(list(execute_and_fetch_all(instance1_cursor, "SHOW REPLICATION ROLE;")))
 
-    expected_data_replica = [("replica",)]
-    mg_sleep_and_assert(expected_data_replica, retrieve_data_show_repl_role_instance1)
+    def retrieve_data_show_repl_role_instance2():
+        return sorted(list(execute_and_fetch_all(instance2_cursor, "SHOW REPLICATION ROLE;")))
 
-    execute_and_fetch_all(instance3_cursor, "CREATE ();")
-
-    def retrieve_data_replica():
-        return execute_and_fetch_all(instance1_cursor, "MATCH (n) RETURN count(n);")[0][0]
-
-    expected_data_replica = 1
-    mg_sleep_and_assert(expected_data_replica, retrieve_data_replica)
+    mg_sleep_and_assert([("replica",)], retrieve_data_show_repl_role_instance1)
+    mg_sleep_and_assert([("replica",)], retrieve_data_show_repl_role_instance2)
+    mg_sleep_and_assert([("main",)], retrieve_data_show_repl_role_instance3)
 
 
 if __name__ == "__main__":

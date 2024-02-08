@@ -25,7 +25,7 @@
 namespace memgraph::coordination {
 
 CoordinatorState::CoordinatorState() {
-  MG_ASSERT(!(FLAGS_coordinator && FLAGS_coordinator_server_port),
+  MG_ASSERT(!(FLAGS_raft_server_id && FLAGS_coordinator_server_port),
             "Instance cannot be a coordinator and have registered coordinator server.");
 
   spdlog::info("Executing coordinator constructor");
@@ -68,7 +68,7 @@ auto CoordinatorState::SetInstanceToMain(std::string instance_name) -> SetInstan
       data_);
 }
 
-auto CoordinatorState::ShowInstances() const -> std::vector<CoordinatorInstanceStatus> {
+auto CoordinatorState::ShowInstances() const -> std::vector<InstanceStatus> {
   MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
             "Can't call show instances on data_, as variant holds wrong alternative");
   return std::get<CoordinatorData>(data_).ShowInstances();
@@ -79,5 +79,13 @@ auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
             "Cannot get coordinator server since variant holds wrong alternative");
   return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
 }
+
+auto CoordinatorState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)
+    -> void {
+  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+            "Coordinator cannot register replica since variant holds wrong alternative");
+  return std::get<CoordinatorData>(data_).AddCoordinatorInstance(raft_server_id, raft_port, raft_address);
+}
+
 }  // namespace memgraph::coordination
 #endif

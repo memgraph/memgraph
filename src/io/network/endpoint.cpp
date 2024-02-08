@@ -39,7 +39,7 @@ Endpoint::IpFamily Endpoint::GetIpFamily(const std::string &address) {
 }
 
 std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress(
-    const std::string &address, const std::optional<uint16_t> default_port = {}) {
+    const std::string &address, const std::optional<uint16_t> default_port) {
   /// expected address format:
   ///   - "ip_address:port_number"
   ///   - "ip_address"
