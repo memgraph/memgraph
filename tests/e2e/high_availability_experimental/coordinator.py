@@ -37,16 +37,17 @@ def test_coordinator_cannot_run_show_repl_role():
     assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
-def test_coordinator_show_replication_cluster():
+def test_coordinator_show_instances():
     cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data():
-        return sorted(list(execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")))
+        return sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;")))
 
     expected_data = [
-        ("instance_1", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
     ]
     mg_sleep_and_assert(expected_data, retrieve_data)
 
@@ -65,8 +66,8 @@ def test_coordinator_cannot_call_show_replicas():
 def test_main_and_replicas_cannot_call_show_repl_cluster(port):
     cursor = connect(host="localhost", port=port).cursor()
     with pytest.raises(Exception) as e:
-        execute_and_fetch_all(cursor, "SHOW REPLICATION CLUSTER;")
-    assert str(e.value) == "Only coordinator can run SHOW REPLICATION CLUSTER."
+        execute_and_fetch_all(cursor, "SHOW INSTANCES;")
+    assert str(e.value) == "Only coordinator can run SHOW INSTANCES."
 
 
 @pytest.mark.parametrize(

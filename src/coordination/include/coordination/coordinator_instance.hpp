@@ -13,70 +13,45 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_client.hpp"
-#include "coordination/coordinator_cluster_config.hpp"
-#include "coordination/coordinator_exceptions.hpp"
-#include "replication_coordination_glue/handler.hpp"
-#include "replication_coordination_glue/role.hpp"
+#include <flags/replication.hpp>
+
+#include <libnuraft/nuraft.hxx>
 
 namespace memgraph::coordination {
 
-class CoordinatorData;
+using nuraft::logger;
+using nuraft::ptr;
+using nuraft::raft_launcher;
+using nuraft::raft_server;
+using nuraft::srv_config;
+using nuraft::state_machine;
+using nuraft::state_mgr;
 
 class CoordinatorInstance {
  public:
-  CoordinatorInstance(CoordinatorData *data, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
-                      HealthCheckCallback fail_cb);
-
+  CoordinatorInstance();
   CoordinatorInstance(CoordinatorInstance const &other) = delete;
   CoordinatorInstance &operator=(CoordinatorInstance const &other) = delete;
   CoordinatorInstance(CoordinatorInstance &&other) noexcept = delete;
   CoordinatorInstance &operator=(CoordinatorInstance &&other) noexcept = delete;
   ~CoordinatorInstance() = default;
 
-  auto OnSuccessPing() -> void;
-  auto OnFailPing() -> bool;
-
-  auto IsAlive() const -> bool;
-
   auto InstanceName() const -> std::string;
-  auto SocketAddress() const -> std::string;
-
-  auto IsReplica() const -> bool;
-  auto IsMain() const -> bool;
-
-  auto PromoteToMain(utils::UUID main_uuid, ReplicationClientsInfo repl_clients_info, HealthCheckCallback main_succ_cb,
-                     HealthCheckCallback main_fail_cb) -> bool;
-  auto DemoteToReplica(HealthCheckCallback replica_succ_cb, HealthCheckCallback replica_fail_cb) -> bool;
-
-  auto PauseFrequentCheck() -> void;
-  auto ResumeFrequentCheck() -> void;
-
-  auto ReplicationClientInfo() const -> ReplClientInfo;
-
-  auto GetClient() -> CoordinatorClient &;
-
-  void SetNewMainUUID(const std::optional<utils::UUID> &main_uuid = std::nullopt);
-  auto GetMainUUID() -> const std::optional<utils::UUID> &;
-
-  auto SendSwapAndUpdateUUID(const utils::UUID &main_uuid) -> bool;
+  auto RaftSocketAddress() const -> std::string;
+  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
+  auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
  private:
-  CoordinatorClient client_;
-  replication_coordination_glue::ReplicationRole replication_role_;
-  std::chrono::system_clock::time_point last_response_time_{};
-  // TODO this needs to be atomic? What if instance is alive and then we read it and it has changed
-  bool is_alive_{false};
-  // for replica this is main uuid of current main
-  // for "main" main this same as in CoordinatorData
-  // it is set to nullopt when replica is down
-  // TLDR; when replica is down and comes back up we reset uuid of main replica is listening to
-  // so we need to send swap uuid again
-  std::optional<utils::UUID> main_uuid_;
+  ptr<state_machine> state_machine_;
+  ptr<state_mgr> state_manager_;
+  ptr<raft_server> raft_server_;
+  ptr<logger> logger_;
+  raft_launcher launcher_;
 
-  friend bool operator==(CoordinatorInstance const &first, CoordinatorInstance const &second) {
-    return first.client_ == second.client_ && first.replication_role_ == second.replication_role_;
-  }
+  // TODO: (andi) I think variables below can be abstracted
+  uint32_t raft_server_id_;
+  uint32_t raft_port_;
+  std::string raft_address_;
 };
 
 }  // namespace memgraph::coordination
