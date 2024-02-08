@@ -262,6 +262,8 @@ class Databases final {
    * @return true if allow_all and not denied or granted
    */
   bool Contains(std::string_view db) const;
+  bool Denies(std::string_view db_name) const { return denies_dbs_.contains(db_name); }
+  bool Grants(std::string_view db_name) const { return allow_all_ || grants_dbs_.contains(db_name); }
 
   bool GetAllowAll() const { return allow_all_; }
   const std::set<std::string, std::less<>> &GetGrants() const { return grants_dbs_; }
@@ -295,7 +297,7 @@ class Role final {
   Role(const std::string &rolename, const Permissions &permissions);
 #ifdef MG_ENTERPRISE
   Role(const std::string &rolename, const Permissions &permissions,
-       FineGrainedAccessHandler fine_grained_access_handler);
+       FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {});
 #endif
   Role(const Role &) = default;
   Role &operator=(const Role &) = default;
@@ -316,6 +318,10 @@ class Role final {
 #ifdef MG_ENTERPRISE
   Databases &db_access() { return database_access_; }
   const Databases &db_access() const { return database_access_; }
+
+  bool DeniesDB(std::string_view db_name) const { return database_access_.Denies(db_name); }
+  bool GrantsDB(std::string_view db_name) const { return database_access_.Grants(db_name); }
+  bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
 #endif
 
   nlohmann::json Serialize() const;
@@ -395,6 +401,18 @@ class User final {
 #ifdef MG_ENTERPRISE
   Databases &db_access() { return database_access_; }
   const Databases &db_access() const { return database_access_; }
+
+  bool DeniesDB(std::string_view db_name) const {
+    bool denies = database_access_.Denies(db_name);
+    if (role_) denies |= role_->DeniesDB(db_name);
+    return denies;
+  }
+  bool GrantsDB(std::string_view db_name) const {
+    bool grants = database_access_.Grants(db_name);
+    if (role_) grants |= role_->GrantsDB(db_name);
+    return grants;
+  }
+  bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
 #endif
 
   nlohmann::json Serialize() const;
@@ -410,7 +428,7 @@ class User final {
   Permissions permissions_;
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
-  Databases database_access_;
+  Databases database_access_{};
 #endif
   std::optional<Role> role_;
 };

@@ -17,6 +17,7 @@
 #include "glue/auth_checker.hpp"
 
 #include "license/license.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query_plan_common.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -224,5 +225,92 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GrantAndDenySpecificEdgeTypes) {
   ASSERT_TRUE(auth_checker.Has(this->r2, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
   ASSERT_FALSE(auth_checker.Has(this->r3, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
   ASSERT_FALSE(auth_checker.Has(this->r4, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+}
+
+TEST(AuthChecker, Generate) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+
+  auto empty_user = auth_checker.GenQueryUser(std::nullopt);
+  auto auto_empty_user =
+      auth_checker.GenQueryUser("does_not_exist");  // NOTE: We are currently letting these through, but should make it
+                                                    // explicit and forbid if there are no users defined
+  EXPECT_FALSE(empty_user && *empty_user);
+  EXPECT_FALSE(auto_empty_user && *auto_empty_user);
+  // Still empty auth, so the above should have su permissions
+  using enum memgraph::query::AuthQuery::Privilege;
+  EXPECT_TRUE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, ""));
+  EXPECT_TRUE(auto_empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph"));
+  EXPECT_TRUE(empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db"));
+
+  // Add user
+  auth->AddUser("new_user");
+  auth->UpdateEpoch();
+
+  // Empty user should now fail
+  EXPECT_FALSE(auto_empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, ""));
+  EXPECT_FALSE(empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph"));
+  EXPECT_FALSE(empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db"));
+
+  // Add role and new user
+  auto new_role = *auth->AddRole("new_role");
+  auto new_user2 = *auth->AddUser("new_user2");
+  auth->UpdateEpoch();
+  auto role = auth_checker.GenQueryUser("new_role");
+  auto user2 = auth_checker.GenQueryUser("new_user2");
+
+  // Should be permission-less by default
+  EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(role->IsAuthorized({FREE_MEMORY}, "memgraph"));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({TRIGGER}, "memgraph"));
+
+  // Update permissions and recheck
+  new_user2.permissions().Grant(memgraph::auth::Permission::AUTH);
+  new_role.permissions().Grant(memgraph::auth::Permission::TRIGGER);
+  auth->SaveUser(new_user2);
+  auth->SaveRole(new_role);
+  auth->UpdateEpoch();
+  EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(role->IsAuthorized({FREE_MEMORY}, "memgraph"));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph"));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({TRIGGER}, "memgraph"));
+
+  // Connect role and recheck
+  new_user2.SetRole(new_role);
+  auth->SaveUser(new_user2);
+  auth->UpdateEpoch();
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph"));
+  EXPECT_TRUE(user2->IsAuthorized({TRIGGER}, "memgraph"));
+
+  // Add database and recheck
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default"));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "another"));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default"));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another"));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph"));
+  new_user2.db_access().Add("another");
+  new_role.db_access().Add("non_default");
+  auth->SaveUser(new_user2);
+  auth->SaveRole(new_role);
+  auth->UpdateEpoch();
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "non_default"));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another"));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "non_default"));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another"));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph"));
 }
 #endif

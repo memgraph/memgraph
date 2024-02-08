@@ -503,45 +503,63 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
 
 #ifdef MG_ENTERPRISE
 bool Auth::GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
-  auto update = [&](auto &user_or_role) {
-    if (db == kAllDatabases) {
-      user_or_role->db_access().GrantAll();
-    } else {
-      user_or_role->db_access().Add(db);
-    }
-  };
   if (auto user = GetUser(name)) {
-    update(user);
-    SaveUser(*user, system_tx);
+    GrantDatabase(db, *user, system_tx);
     return true;
   }
   if (auto role = GetRole(name)) {
-    update(role);
-    SaveRole(*role, system_tx);
+    GrantDatabase(db, *role, system_tx);
     return true;
   }
   return false;
 }
 
+void Auth::GrantDatabase(const std::string &db, User &user, system::Transaction *system_tx) {
+  if (db == kAllDatabases) {
+    user.db_access().GrantAll();
+  } else {
+    user.db_access().Add(db);
+  }
+  SaveUser(user, system_tx);
+}
+
+void Auth::GrantDatabase(const std::string &db, Role &role, system::Transaction *system_tx) {
+  if (db == kAllDatabases) {
+    role.db_access().GrantAll();
+  } else {
+    role.db_access().Add(db);
+  }
+  SaveRole(role, system_tx);
+}
+
 bool Auth::RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
-  auto update = [&](auto &user_or_role) {
-    if (db == kAllDatabases) {
-      user_or_role->db_access().DenyAll();
-    } else {
-      user_or_role->db_access().Remove(db);
-    }
-  };
   if (auto user = GetUser(name)) {
-    update(user);
-    SaveUser(*user, system_tx);
+    RevokeDatabase(db, *user, system_tx);
     return true;
   }
   if (auto role = GetRole(name)) {
-    update(role);
-    SaveRole(*role, system_tx);
+    RevokeDatabase(db, *role, system_tx);
     return true;
   }
   return false;
+}
+
+void Auth::RevokeDatabase(const std::string &db, User &user, system::Transaction *system_tx) {
+  if (db == kAllDatabases) {
+    user.db_access().DenyAll();
+  } else {
+    user.db_access().Remove(db);
+  }
+  SaveUser(user, system_tx);
+}
+
+void Auth::RevokeDatabase(const std::string &db, Role &role, system::Transaction *system_tx) {
+  if (db == kAllDatabases) {
+    role.db_access().DenyAll();
+  } else {
+    role.db_access().Remove(db);
+  }
+  SaveRole(role, system_tx);
 }
 
 void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx) {
@@ -562,22 +580,29 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
 }
 
 bool Auth::SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx) {
-  auto update = [&](auto &user_or_role) {
-    if (!user_or_role->db_access().SetDefault(db)) {
-      throw AuthException("Couldn't set default database '{}' for '{}'!", db, name);
-    }
-  };
   if (auto user = GetUser(name)) {
-    update(user);
-    SaveUser(*user, system_tx);
+    SetMainDatabase(db, *user, system_tx);
     return true;
   }
   if (auto role = GetRole(name)) {
-    update(role);
-    SaveRole(*role, system_tx);
+    SetMainDatabase(db, *role, system_tx);
     return true;
   }
   return false;
+}
+
+void Auth::SetMainDatabase(std::string_view db, User &user, system::Transaction *system_tx) {
+  if (!user.db_access().SetDefault(db)) {
+    throw AuthException("Couldn't set default database '{}' for '{}'!", db, user.username());
+  }
+  SaveUser(user, system_tx);
+}
+
+void Auth::SetMainDatabase(std::string_view db, Role &role, system::Transaction *system_tx) {
+  if (!role.db_access().SetDefault(db)) {
+    throw AuthException("Couldn't set default database '{}' for '{}'!", db, role.rolename());
+  }
+  SaveRole(role, system_tx);
 }
 #endif
 

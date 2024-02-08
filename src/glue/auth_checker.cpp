@@ -155,7 +155,7 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                                    const std::string &db_name) {  // NOLINT
 #ifdef MG_ENTERPRISE
-  if (!db_name.empty() && !user.db_access().Contains(db_name)) {
+  if (!db_name.empty() && !user.HasAccess(db_name)) {
     return false;
   }
 #endif
@@ -170,7 +170,7 @@ bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Role &role,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                                    const std::string &db_name) {  // NOLINT
 #ifdef MG_ENTERPRISE
-  if (!db_name.empty() && !role.db_access().Contains(db_name)) {
+  if (!db_name.empty() && !role.HasAccess(db_name)) {
     return false;
   }
 #endif

@@ -425,10 +425,11 @@ Role::Role(const std::string &rolename, const Permissions &permissions)
     : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions) {}
 #ifdef MG_ENTERPRISE
 Role::Role(const std::string &rolename, const Permissions &permissions,
-           FineGrainedAccessHandler fine_grained_access_handler)
+           FineGrainedAccessHandler fine_grained_access_handler, Databases db_access)
     : rolename_(utils::ToLowerCase(rolename)),
       permissions_(permissions),
-      fine_grained_access_handler_(std::move(fine_grained_access_handler)) {}
+      fine_grained_access_handler_(std::move(fine_grained_access_handler)),
+      database_access_(std::move(db_access)) {}
 #endif
 
 const std::string &Role::rolename() const { return rolename_; }
@@ -487,7 +488,7 @@ Role Role::Deserialize(const nlohmann::json &data) {
     if (data[kFineGrainedAccessHandler].is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
     }
-    return {data[kRoleName], permissions, std::move(fine_grained_access_handler)};
+    return {data[kRoleName], permissions, std::move(fine_grained_access_handler), std::move(db_access)};
   }
 #endif
   return {data[kRoleName], permissions};
@@ -738,7 +739,8 @@ User User::Deserialize(const nlohmann::json &data) {
     if (data[kFineGrainedAccessHandler].is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
     }
-    return {data[kUsername], std::move(password_hash), permissions, std::move(fine_grained_access_handler), db_access};
+    return {data[kUsername], std::move(password_hash), permissions, std::move(fine_grained_access_handler),
+            std::move(db_access)};
   }
 #endif
   return {data[kUsername], std::move(password_hash), permissions};

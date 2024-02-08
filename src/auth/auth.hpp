@@ -260,6 +260,8 @@ class Auth final {
    * @throw AuthException if unable to find or update the user
    */
   bool RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  void RevokeDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
+  void RevokeDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Grant access to individual database for a user.
@@ -270,6 +272,8 @@ class Auth final {
    * @throw AuthException if unable to find or update the user
    */
   bool GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  void GrantDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
+  void GrantDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Delete a database from all users.
@@ -288,6 +292,8 @@ class Auth final {
    * @throw AuthException if unable to find or update the user
    */
   bool SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx = nullptr);
+  void SetMainDatabase(std::string_view db, User &user, system::Transaction *system_tx = nullptr);
+  void SetMainDatabase(std::string_view db, Role &role, system::Transaction *system_tx = nullptr);
 #endif
 
   Epoch UpdateEpoch() { return ++epoch_; }
