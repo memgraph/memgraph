@@ -280,6 +280,8 @@ TEST_F(AuthWithStorage, RoleManipulations) {
   }
 
   {
+    const auto all = auth->AllUsernames();
+    for (const auto &user : all) std::cout << user << std::endl;
     auto users = auth->AllUsers();
     std::sort(users.begin(), users.end(), [](const User &a, const User &b) { return a.username() < b.username(); });
     ASSERT_EQ(users.size(), 2);
@@ -811,6 +813,8 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
 
   // AllUsers
   {
+    const auto all = auth->AllUsernames();
+    for (const auto &user : all) std::cout << user << std::endl;
     auto users = auth->AllUsers();
     ASSERT_EQ(users.size(), 2);
     std::sort(users.begin(), users.end(), [](const auto &a, const auto &b) { return a.username() < b.username(); });

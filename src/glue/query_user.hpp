@@ -15,10 +15,11 @@
 
 #include "auth/auth.hpp"
 #include "query/query_user.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::glue {
 
-struct QueryUser : public query::QueryUser {
+struct QueryUserOrRole : public query::QueryUserOrRole {
   bool IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
                     const std::string &db_name) const override;
 
@@ -26,12 +27,19 @@ struct QueryUser : public query::QueryUser {
   std::string GetDefaultDB() const override;
 #endif
 
-  explicit QueryUser(auth::SynchedAuth *auth) : query::QueryUser{std::nullopt}, auth_{auth} {}
+  explicit QueryUserOrRole(auth::SynchedAuth *auth) : query::QueryUserOrRole{std::nullopt, std::nullopt}, auth_{auth} {}
 
-  QueryUser(auth::SynchedAuth *auth, auth::UserOrRole user_or_role)
-      : query::QueryUser{std::visit(utils::Overloaded{[&](const auth::User &user) { return user.username(); },
-                                                      [&](const auth::Role &role) { return role.rolename(); }},
-                                    user_or_role)},
+  QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role)
+      : query::QueryUserOrRole{std::visit(
+                                   utils::Overloaded{[](const auto &user_or_role) { return user_or_role.username(); }},
+                                   user_or_role),
+                               std::visit(utils::Overloaded{[&](const auth::User &) -> std::optional<std::string> {
+                                                              return std::nullopt;
+                                                            },
+                                                            [&](const auth::Role &role) -> std::optional<std::string> {
+                                                              return role.rolename();
+                                                            }},
+                                          user_or_role)},
         auth_{auth} {
     std::visit(utils::Overloaded{[&](auth::User &&user) { user_.emplace(std::move(user)); },
                                  [&](auth::Role &&role) { role_.emplace(std::move(role)); }},
@@ -39,10 +47,11 @@ struct QueryUser : public query::QueryUser {
   }
 
  private:
+  friend class AuthChecker;
   auth::SynchedAuth *auth_;
   mutable std::optional<auth::User> user_{};
   mutable std::optional<auth::Role> role_{};
-  mutable auth::Auth::Epoch auth_epoch_{};
+  mutable auth::Auth::Epoch auth_epoch_{auth::Auth::kStartEpoch};
 };
 
 }  // namespace memgraph::glue

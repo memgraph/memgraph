@@ -191,6 +191,17 @@ void MigrateVersions(kvstore::KVStore &store) {
     version_str = kVersionV1;
   }
 }
+
+auto ParseJson(std::string_view str) {
+  nlohmann::json data;
+  try {
+    data = nlohmann::json::parse(str);
+  } catch (const nlohmann::json::parse_error &e) {
+    throw AuthException("Couldn't load role data!");
+  }
+  return data;
+}
+
 };  // namespace
 
 Auth::Auth(std::string storage_directory, Config config)
@@ -238,7 +249,7 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
     // Authenticate the user.
     if (!is_authenticated) return std::nullopt;
 
-    return role;
+    return RoleWUsername{username, std::move(*role)};
   }
 
   /*
@@ -267,14 +278,7 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
   auto existing_user = storage_.Get(kUserPrefix + username);
   if (!existing_user) return std::nullopt;
 
-  nlohmann::json data;
-  try {
-    data = nlohmann::json::parse(*existing_user);
-  } catch (const nlohmann::json::parse_error &e) {
-    throw AuthException("Couldn't load user data!");
-  }
-
-  auto user = User::Deserialize(data);
+  auto user = User::Deserialize(ParseJson(*existing_user));
   auto link = storage_.Get(kLinkPrefix + username);
 
   if (link) {
@@ -298,6 +302,10 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   if (!success) {
     throw AuthException("Couldn't save user '{}'!", user.username());
   }
+
+  // Durability updated -> new epoch
+  UpdateEpoch();
+
   // All changes to the user end up calling this function, so no need to add a delta anywhere else
   if (system_tx) {
 #ifdef MG_ENTERPRISE
@@ -358,6 +366,10 @@ bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *sys
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove user '{}'!", username);
   }
+
+  // Durability updated -> new epoch
+  UpdateEpoch();
+
   // Handling drop user delta
   if (system_tx) {
 #ifdef MG_ENTERPRISE
@@ -372,9 +384,11 @@ std::vector<auth::User> Auth::AllUsers() const {
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
-    auto user = GetUser(username);
-    if (user) {
-      ret.push_back(std::move(*user));
+    try {
+      User user = auth::User::Deserialize(ParseJson(it->second));  // Will throw on failure
+      ret.emplace_back(std::move(user));
+    } catch (AuthException &) {
+      continue;
     }
   }
   return ret;
@@ -385,9 +399,12 @@ std::vector<std::string> Auth::AllUsernames() const {
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
-    auto user = GetUser(username);
-    if (user) {
-      ret.push_back(username);
+    try {
+      // Check if serialized correctly
+      memgraph::auth::User::Deserialize(ParseJson(it->second));  // Will throw on failure
+      ret.emplace_back(std::move(username));
+    } catch (AuthException &) {
+      continue;
     }
   }
   return ret;
@@ -402,20 +419,17 @@ std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
   auto existing_role = storage_.Get(kRolePrefix + rolename);
   if (!existing_role) return std::nullopt;
 
-  nlohmann::json data;
-  try {
-    data = nlohmann::json::parse(*existing_role);
-  } catch (const nlohmann::json::parse_error &e) {
-    throw AuthException("Couldn't load role data!");
-  }
-
-  return Role::Deserialize(data);
+  return Role::Deserialize(ParseJson(*existing_role));
 }
 
 void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
   if (!storage_.Put(kRolePrefix + role.rolename(), role.Serialize().dump())) {
     throw AuthException("Couldn't save role '{}'!", role.rolename());
   }
+
+  // Durability updated -> new epoch
+  UpdateEpoch();
+
   // All changes to the role end up calling this function, so no need to add a delta anywhere else
   if (system_tx) {
 #ifdef MG_ENTERPRISE
@@ -448,6 +462,10 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }
+
+  // Durability updated -> new epoch
+  UpdateEpoch();
+
   // Handling drop role delta
   if (system_tx) {
 #ifdef MG_ENTERPRISE
@@ -462,11 +480,8 @@ std::vector<auth::Role> Auth::AllRoles() const {
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
     if (rolename != utils::ToLowerCase(rolename)) continue;
-    if (auto role = GetRole(rolename)) {
-      ret.push_back(*role);
-    } else {
-      throw AuthException("Couldn't load role '{}'!", rolename);
-    }
+    Role role = memgraph::auth::Role::Deserialize(ParseJson(it->second));  // Will throw on failure
+    ret.emplace_back(std::move(role));
   }
   return ret;
 }
@@ -476,8 +491,12 @@ std::vector<std::string> Auth::AllRolenames() const {
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
     if (rolename != utils::ToLowerCase(rolename)) continue;
-    if (auto role = GetRole(rolename)) {
-      ret.push_back(rolename);
+    try {
+      // Check that the data is serialized correctly
+      memgraph::auth::Role::Deserialize(ParseJson(it->second));
+      ret.emplace_back(std::move(rolename));
+    } catch (AuthException &) {
+      continue;
     }
   }
   return ret;
@@ -502,16 +521,24 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
 }
 
 #ifdef MG_ENTERPRISE
-bool Auth::GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+Auth::Result Auth::GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+  using enum Auth::Result;
+  if (module_.IsUsed()) {
+    if (auto role = GetRole(name)) {
+      GrantDatabase(db, *role, system_tx);
+      return SUCCESS;
+    }
+    return NO_ROLE;
+  }
   if (auto user = GetUser(name)) {
     GrantDatabase(db, *user, system_tx);
-    return true;
+    return SUCCESS;
   }
   if (auto role = GetRole(name)) {
     GrantDatabase(db, *role, system_tx);
-    return true;
+    return SUCCESS;
   }
-  return false;
+  return NO_USER_ROLE;
 }
 
 void Auth::GrantDatabase(const std::string &db, User &user, system::Transaction *system_tx) {
@@ -532,16 +559,24 @@ void Auth::GrantDatabase(const std::string &db, Role &role, system::Transaction 
   SaveRole(role, system_tx);
 }
 
-bool Auth::RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+Auth::Result Auth::RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+  using enum Auth::Result;
+  if (module_.IsUsed()) {
+    if (auto role = GetRole(name)) {
+      RevokeDatabase(db, *role, system_tx);
+      return SUCCESS;
+    }
+    return NO_ROLE;
+  }
   if (auto user = GetUser(name)) {
     RevokeDatabase(db, *user, system_tx);
-    return true;
+    return SUCCESS;
   }
   if (auto role = GetRole(name)) {
     RevokeDatabase(db, *role, system_tx);
-    return true;
+    return SUCCESS;
   }
-  return false;
+  return NO_USER_ROLE;
 }
 
 void Auth::RevokeDatabase(const std::string &db, User &user, system::Transaction *system_tx) {
@@ -565,41 +600,55 @@ void Auth::RevokeDatabase(const std::string &db, Role &role, system::Transaction
 void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx) {
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
-    if (auto user = GetUser(username)) {
-      user->db_access().Delete(db);
-      SaveUser(*user, system_tx);
+    try {
+      User user = auth::User::Deserialize(ParseJson(it->second));
+      user.db_access().Delete(db);
+      SaveUser(user, system_tx);
+    } catch (AuthException &) {
+      continue;
     }
   }
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
-    if (auto role = GetRole(rolename)) {
-      role->db_access().Delete(db);
-      SaveRole(*role, system_tx);
+    try {
+      auto role = memgraph::auth::Role::Deserialize(ParseJson(it->second));
+      role.db_access().Delete(db);
+      SaveRole(role, system_tx);
+    } catch (AuthException &) {
+      continue;
     }
   }
 }
 
-bool Auth::SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx) {
+Auth::Result Auth::SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx) {
+  using enum Auth::Result;
+  if (module_.IsUsed()) {
+    if (auto role = GetRole(name)) {
+      SetMainDatabase(db, *role, system_tx);
+      return SUCCESS;
+    }
+    return NO_ROLE;
+  }
   if (auto user = GetUser(name)) {
     SetMainDatabase(db, *user, system_tx);
-    return true;
+    return SUCCESS;
   }
   if (auto role = GetRole(name)) {
     SetMainDatabase(db, *role, system_tx);
-    return true;
+    return SUCCESS;
   }
-  return false;
+  return NO_USER_ROLE;
 }
 
 void Auth::SetMainDatabase(std::string_view db, User &user, system::Transaction *system_tx) {
-  if (!user.db_access().SetDefault(db)) {
+  if (!user.db_access().SetMain(db)) {
     throw AuthException("Couldn't set default database '{}' for '{}'!", db, user.username());
   }
   SaveUser(user, system_tx);
 }
 
 void Auth::SetMainDatabase(std::string_view db, Role &role, system::Transaction *system_tx) {
-  if (!role.db_access().SetDefault(db)) {
+  if (!role.db_access().SetMain(db)) {
     throw AuthException("Couldn't set default database '{}' for '{}'!", db, role.rolename());
   }
   SaveRole(role, system_tx);

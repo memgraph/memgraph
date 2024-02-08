@@ -29,7 +29,17 @@ using SynchedAuth = memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph
 
 static const constexpr char *const kAllDatabases = "*";
 
-using UserOrRole = std::variant<User, Role>;
+struct RoleWUsername : Role {
+  template <typename... Args>
+  RoleWUsername(std::string_view username, Args &&...args) : Role{std::forward<Args>(args)...}, username_{username} {}
+
+  std::string username() { return username_; }
+  const std::string &username() const { return username_; }
+
+ private:
+  std::string username_;
+};
+using UserOrRole = std::variant<User, RoleWUsername>;
 
 /**
  * This class serves as the main Authentication/Authorization storage.
@@ -75,6 +85,12 @@ class Auth final {
   };
 
   static const Epoch kStartEpoch;
+
+  enum class Result {
+    SUCCESS,
+    NO_USER_ROLE,
+    NO_ROLE,
+  };
 
   explicit Auth(std::string storage_directory, Config config);
 
@@ -195,6 +211,37 @@ class Auth final {
    */
   std::optional<Role> GetRole(const std::string &rolename) const;
 
+  std::optional<UserOrRole> GetUserOrRole(const std::optional<std::string> &username,
+                                          const std::optional<std::string> &rolename) const {
+    auto expect = [](bool condition, std::string &&msg) {
+      if (!condition) throw AuthException(std::move(msg));
+    };
+    // Special case if we are using a module; we must find the specified role
+    if (module_.IsUsed()) {
+      expect(username && rolename, "When using a module, a role needs to be connected to a username.");
+      const auto role = GetRole(*rolename);
+      expect(role != std::nullopt, "No role named " + *rolename);
+      return UserOrRole(auth::RoleWUsername{*username, *role});
+    }
+
+    // First check if we need to find a role
+    if (username && rolename) {
+      const auto role = GetRole(*rolename);
+      expect(role != std::nullopt, "No role named " + *rolename);
+      return UserOrRole(auth::RoleWUsername{*username, *role});
+    }
+
+    // We are only looking for a user
+    if (username) {
+      const auto user = GetUser(*username);
+      expect(user != std::nullopt, "No user named " + *username);
+      return *user;
+    }
+
+    // No user or role
+    return std::nullopt;
+  }
+
   /**
    * Saves a role object to the storage.
    *
@@ -259,7 +306,7 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  Result RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
   void RevokeDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
   void RevokeDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
 
@@ -271,7 +318,7 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  Result GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
   void GrantDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
   void GrantDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
 
@@ -291,13 +338,12 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx = nullptr);
+  Result SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx = nullptr);
   void SetMainDatabase(std::string_view db, User &user, system::Transaction *system_tx = nullptr);
   void SetMainDatabase(std::string_view db, Role &role, system::Transaction *system_tx = nullptr);
 #endif
 
-  Epoch UpdateEpoch() { return ++epoch_; }
-  bool UpToDate(Epoch &e) {
+  bool UpToDate(Epoch &e) const {
     bool res = e == epoch_;
     e = epoch_;
     return res;
@@ -312,6 +358,14 @@ class Auth final {
    * @return false
    */
   bool NameRegexMatch(const std::string &user_or_role) const;
+
+  void UpdateEpoch() {
+    // NOTE: The epoch gets updated every time durability is changed. This is then used to invalidate cached
+    // permissions.
+    // However, for now we don't want to invalidate the cached permissions (a session has the same permissions as long
+    // as it is connected); so we disabled this for now.
+    // ++epoch_;
+  }
 
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,
   // Auth is not thread-safe because modifying users and roles might require

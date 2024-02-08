@@ -19,6 +19,8 @@
 #include "query/auth_checker.hpp"
 #include "query/constants.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/query_user.hpp"
+#include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -87,67 +89,54 @@ namespace memgraph::glue {
 
 AuthChecker::AuthChecker(memgraph::auth::SynchedAuth *auth) : auth_(auth) {}
 
-std::shared_ptr<query::QueryUser> AuthChecker::GenQueryUser(const std::optional<std::string> &name) const {
-  if (name) {
-    auto locked_auth = auth_->ReadLock();
-    const auto user = locked_auth->GetUser(*name);
-    if (user) return std::make_shared<QueryUser>(auth_, *user);
-    const auto role = locked_auth->GetRole(*name);
-    if (role) return std::make_shared<QueryUser>(auth_, *role);
+std::shared_ptr<query::QueryUserOrRole> AuthChecker::GenQueryUser(const std::optional<std::string> &username,
+                                                                  const std::optional<std::string> &rolename) const {
+  const auto user_or_role = auth_->ReadLock()->GetUserOrRole(username, rolename);
+  if (user_or_role) {
+    return std::make_shared<QueryUserOrRole>(auth_, *user_or_role);
   }
   // No user or role
-  return std::make_shared<QueryUser>(auth_);
+  return std::make_shared<QueryUserOrRole>(auth_);
 }
 
-std::unique_ptr<query::QueryUser> AuthChecker::GenQueryUser(auth::SynchedAuth *auth,
-                                                            const std::optional<auth::UserOrRole> &user_or_role) {
+std::unique_ptr<query::QueryUserOrRole> AuthChecker::GenQueryUser(auth::SynchedAuth *auth,
+                                                                  const std::optional<auth::UserOrRole> &user_or_role) {
   if (user_or_role) {
     return std::visit(
-        utils::Overloaded{[&](auto &user_or_role) { return std::make_unique<QueryUser>(auth, user_or_role); }},
+        utils::Overloaded{[&](auto &user_or_role) { return std::make_unique<QueryUserOrRole>(auth, user_or_role); }},
         *user_or_role);
   }
   // No user or role
-  return std::make_unique<QueryUser>(auth);
+  return std::make_unique<QueryUserOrRole>(auth);
 }
 
 #ifdef MG_ENTERPRISE
 std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
-    const std::string &name, const memgraph::query::DbAccessor *dba) const {
+    std::shared_ptr<query::QueryUserOrRole> user, const memgraph::query::DbAccessor *dba) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
-  try {
-    auto user_or_role = user_or_role_.Lock();
-    std::string current_name = std::visit(utils::Overloaded{[](auth::User &user) { return user.username(); },
-                                                            [](auth::Role &role) { return role.rolename(); }},
-                                          *user_or_role);
-    if (name != current_name) {
-      auto locked_auth = auth_->ReadLock();
-      auto maybe_user = locked_auth->GetUser(name);
-      if (maybe_user) {
-        *user_or_role = std::move(*maybe_user);
-        return std::make_unique<memgraph::glue::FineGrainedAuthChecker>(*maybe_user, dba);
-      }
-      auto maybe_role = locked_auth->GetRole(name);
-      if (maybe_role) {
-        *user_or_role = std::move(*maybe_role);
-        return std::make_unique<memgraph::glue::FineGrainedAuthChecker>(*maybe_role, dba);
-      }
-      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", name);
-    }
-    return std::visit(utils::Overloaded{[dba](auto &user_or_role) {
-                        return std::make_unique<memgraph::glue::FineGrainedAuthChecker>(user_or_role, dba);
-                      }},
-                      *user_or_role);
-
-  } catch (const memgraph::auth::AuthException &e) {
-    throw memgraph::query::QueryRuntimeException(e.what());
+  if (!user || !*user) {
+    throw query::QueryRuntimeException("No user specified for fine grained authorization!");
   }
-}
 
-void AuthChecker::ClearCache() const {
-  user_or_role_.WithLock([](auto &user_or_role) mutable { user_or_role = {}; });
-  auth_->Lock()->UpdateEpoch();
+  // Convert from query user to auth user or role
+  try {
+    auto glue_user = dynamic_cast<glue::QueryUserOrRole &>(*user);
+    if (glue_user.user_) {
+      return std::make_unique<glue::FineGrainedAuthChecker>(std::move(*glue_user.user_), dba);
+    }
+    if (glue_user.role_) {
+      return std::make_unique<glue::FineGrainedAuthChecker>(
+          auth::RoleWUsername{*glue_user.username(), std::move(*glue_user.role_)}, dba);
+    }
+    DMG_ASSERT(false, "Glue user has neither user not role");
+  } catch (std::bad_cast &e) {
+    DMG_ASSERT(false, "Using a non-glue user in glue...");
+  }
+
+  // Should never get here
+  return {};
 }
 #endif
 
@@ -174,9 +163,9 @@ bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Role &role,
     return false;
   }
 #endif
-  const auto user_permissions = role.permissions();
-  return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
-    return user_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
+  const auto role_permissions = role.permissions();
+  return std::all_of(privileges.begin(), privileges.end(), [&role_permissions](const auto privilege) {
+    return role_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
            memgraph::auth::PermissionLevel::GRANT;
   });
 }
@@ -192,10 +181,8 @@ bool AuthChecker::IsUserOrRoleAuthorized(const memgraph::auth::UserOrRole &user_
 }
 
 #ifdef MG_ENTERPRISE
-FineGrainedAuthChecker::FineGrainedAuthChecker(auth::User user, const memgraph::query::DbAccessor *dba)
-    : user_or_role_{std::move(user)}, dba_(dba){};
-FineGrainedAuthChecker::FineGrainedAuthChecker(auth::Role role, const memgraph::query::DbAccessor *dba)
-    : user_or_role_{std::move(role)}, dba_(dba){};
+FineGrainedAuthChecker::FineGrainedAuthChecker(auth::UserOrRole user_or_role, const memgraph::query::DbAccessor *dba)
+    : user_or_role_{std::move(user_or_role)}, dba_(dba){};
 
 bool FineGrainedAuthChecker::Has(const memgraph::query::VertexAccessor &vertex, const memgraph::storage::View view,
                                  const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {

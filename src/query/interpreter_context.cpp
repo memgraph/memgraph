@@ -35,8 +35,8 @@ InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, dbm
 }
 
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
-    std::vector<std::string> maybe_kill_transaction_ids, QueryUser *user,
-    std::function<bool(QueryUser *, std::string const &)> privilege_checker) {
+    std::vector<std::string> maybe_kill_transaction_ids, QueryUserOrRole *user,
+    std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker) {
   auto not_found_midpoint = maybe_kill_transaction_ids.end();
 
   // Multiple simultaneous TERMINATE TRANSACTIONS aren't allowed

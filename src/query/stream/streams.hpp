@@ -67,6 +67,7 @@ struct StreamStatus {
   bool is_running;
   StreamInfoType<T> info;
   std::optional<std::string> owner;
+  std::optional<std::string> owner_role;
 };
 
 using TransformationResult = std::vector<std::vector<TypedValue>>;
@@ -100,7 +101,7 @@ class Streams final {
   ///
   /// @throws StreamsException if the stream with the same name exists or if the creation of Kafka consumer fails
   template <Stream TStream, typename TDbAccess>
-  void Create(const std::string &stream_name, typename TStream::StreamInfo info, std::shared_ptr<QueryUser> owner,
+  void Create(const std::string &stream_name, typename TStream::StreamInfo info, std::shared_ptr<QueryUserOrRole> owner,
               TDbAccess db, InterpreterContext *interpreter_context);
 
   /// Deletes an existing stream and all the data that was persisted.
@@ -182,6 +183,7 @@ class Streams final {
   struct StreamData {
     std::string transformation_name;
     std::optional<std::string> owner;
+    std::optional<std::string> owner_role;
     std::unique_ptr<SynchronizedStreamSource<TStream>> stream_source;
   };
 
@@ -191,7 +193,7 @@ class Streams final {
 
   template <Stream TStream, typename TDbAccess>
   StreamsMap::iterator CreateConsumer(StreamsMap &map, const std::string &stream_name,
-                                      typename TStream::StreamInfo stream_info, std::shared_ptr<QueryUser> owner,
+                                      typename TStream::StreamInfo stream_info, std::shared_ptr<QueryUserOrRole> owner,
                                       TDbAccess db, InterpreterContext *interpreter_context);
 
   template <Stream TStream>

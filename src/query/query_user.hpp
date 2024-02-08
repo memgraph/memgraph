@@ -18,9 +18,10 @@
 
 namespace memgraph::query {
 
-struct QueryUser {
-  QueryUser(std::optional<std::string> name) : name_{std::move(name)} {}
-  virtual ~QueryUser() = default;
+struct QueryUserOrRole {
+  QueryUserOrRole(std::optional<std::string> username, std::optional<std::string> rolename)
+      : username_{std::move(username)}, rolename_{std::move(rolename)} {}
+  virtual ~QueryUserOrRole() = default;
 
   virtual bool IsAuthorized(const std::vector<AuthQuery::Privilege> &privileges, const std::string &db_name) const = 0;
 
@@ -28,13 +29,19 @@ struct QueryUser {
   virtual std::string GetDefaultDB() const = 0;
 #endif
 
-  std::string name() const { return name_ ? *name_ : ""; }
+  std::string key() const {
+    // NOTE: Each role has an associated username, that's why we check it with higher priority
+    return rolename_ ? *rolename_ : (username_ ? *username_ : "");
+  }
+  const std::optional<std::string> &username() const { return username_; }
+  const std::optional<std::string> &rolename() const { return rolename_; }
 
-  bool operator==(const QueryUser &other) const = default;
-  operator bool() const { return name_.has_value(); }
+  bool operator==(const QueryUserOrRole &other) const = default;
+  operator bool() const { return username_.has_value(); }
 
  private:
-  std::optional<std::string> name_;
+  std::optional<std::string> username_;
+  std::optional<std::string> rolename_;
 };
 
 }  // namespace memgraph::query

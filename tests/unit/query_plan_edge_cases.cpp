@@ -77,7 +77,7 @@ class QueryExecution : public testing::Test {
     );
     auth_checker_.emplace();
     interpreter_.emplace(&*interpreter_context_, *db_acc_);
-    interpreter_->SetUser(auth_checker_->GenQueryUser(std::nullopt));
+    interpreter_->SetUser(auth_checker_->GenQueryUser(std::nullopt, std::nullopt));
   }
 
   void TearDown() override {

@@ -12,6 +12,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "disk_test_utils.hpp"
 #include "glue/auth_checker.hpp"
@@ -237,33 +238,30 @@ TEST(AuthChecker, Generate) {
   memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
   memgraph::glue::AuthChecker auth_checker(&auth);
 
-  auto empty_user = auth_checker.GenQueryUser(std::nullopt);
-  auto auto_empty_user =
-      auth_checker.GenQueryUser("does_not_exist");  // NOTE: We are currently letting these through, but should make it
-                                                    // explicit and forbid if there are no users defined
+  auto empty_user = auth_checker.GenQueryUser(std::nullopt, std::nullopt);
+  ASSERT_THROW(auth_checker.GenQueryUser("does_not_exist", std::nullopt), memgraph::auth::AuthException);
+
   EXPECT_FALSE(empty_user && *empty_user);
-  EXPECT_FALSE(auto_empty_user && *auto_empty_user);
   // Still empty auth, so the above should have su permissions
   using enum memgraph::query::AuthQuery::Privilege;
   EXPECT_TRUE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, ""));
-  EXPECT_TRUE(auto_empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph"));
+  EXPECT_TRUE(empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph"));
   EXPECT_TRUE(empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db"));
 
   // Add user
   auth->AddUser("new_user");
-  auth->UpdateEpoch();
 
-  // Empty user should now fail
-  EXPECT_FALSE(auto_empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, ""));
-  EXPECT_FALSE(empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph"));
-  EXPECT_FALSE(empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db"));
+  // ~Empty user should now fail~
+  // NOTE: Cache invalidation has been disabled, so this will pass; change if it is ever turned on
+  EXPECT_TRUE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, ""));
+  EXPECT_TRUE(empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph"));
+  EXPECT_TRUE(empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db"));
 
   // Add role and new user
   auto new_role = *auth->AddRole("new_role");
   auto new_user2 = *auth->AddUser("new_user2");
-  auth->UpdateEpoch();
-  auto role = auth_checker.GenQueryUser("new_role");
-  auto user2 = auth_checker.GenQueryUser("new_user2");
+  auto role = auth_checker.GenQueryUser("anyuser", "new_role");
+  auto user2 = auth_checker.GenQueryUser("new_user2", std::nullopt);
 
   // Should be permission-less by default
   EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph"));
@@ -278,7 +276,9 @@ TEST(AuthChecker, Generate) {
   new_role.permissions().Grant(memgraph::auth::Permission::TRIGGER);
   auth->SaveUser(new_user2);
   auth->SaveRole(new_role);
-  auth->UpdateEpoch();
+  // NOTE: Cache invalidation is disabled, so we need to generate a new user every time;
+  role = auth_checker.GenQueryUser("no check", "new_role");
+  user2 = auth_checker.GenQueryUser("new_user2", std::nullopt);
   EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph"));
   EXPECT_FALSE(role->IsAuthorized({FREE_MEMORY}, "memgraph"));
   EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph"));
@@ -289,7 +289,8 @@ TEST(AuthChecker, Generate) {
   // Connect role and recheck
   new_user2.SetRole(new_role);
   auth->SaveUser(new_user2);
-  auth->UpdateEpoch();
+  // NOTE: Cache invalidation is disabled, so we need to generate a new user every time;
+  user2 = auth_checker.GenQueryUser("new_user2", std::nullopt);
   EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph"));
   EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph"));
   EXPECT_TRUE(user2->IsAuthorized({TRIGGER}, "memgraph"));
@@ -305,7 +306,9 @@ TEST(AuthChecker, Generate) {
   new_role.db_access().Add("non_default");
   auth->SaveUser(new_user2);
   auth->SaveRole(new_role);
-  auth->UpdateEpoch();
+  // NOTE: Cache invalidation is disabled, so we need to generate a new user every time;
+  role = auth_checker.GenQueryUser("just tags", "new_role");
+  user2 = auth_checker.GenQueryUser("new_user2", std::nullopt);
   EXPECT_TRUE(user2->IsAuthorized({AUTH}, "non_default"));
   EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another"));
   EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph"));

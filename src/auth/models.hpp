@@ -208,7 +208,7 @@ bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 #ifdef MG_ENTERPRISE
 class Databases final {
  public:
-  Databases() : grants_dbs_{std::string{dbms::kDefaultDB}}, allow_all_(false), default_db_(dbms::kDefaultDB) {}
+  Databases() : grants_dbs_{std::string{dbms::kDefaultDB}}, allow_all_(false), main_db_(dbms::kDefaultDB) {}
 
   Databases(const Databases &) = default;
   Databases &operator=(const Databases &) = default;
@@ -253,7 +253,7 @@ class Databases final {
   /**
    * @brief Set the default database.
    */
-  bool SetDefault(std::string_view db);
+  bool SetMain(std::string_view db);
 
   /**
    * @brief Checks if access is grated to the database.
@@ -268,7 +268,7 @@ class Databases final {
   bool GetAllowAll() const { return allow_all_; }
   const std::set<std::string, std::less<>> &GetGrants() const { return grants_dbs_; }
   const std::set<std::string, std::less<>> &GetDenies() const { return denies_dbs_; }
-  const std::string &GetDefault() const;
+  const std::string &GetMain() const;
 
   nlohmann::json Serialize() const;
   /// @throw AuthException if unable to deserialize.
@@ -280,16 +280,16 @@ class Databases final {
       : grants_dbs_(std::move(grant)),
         denies_dbs_(std::move(deny)),
         allow_all_(allow_all),
-        default_db_(std::move(default_db)) {}
+        main_db_(std::move(default_db)) {}
 
   std::set<std::string, std::less<>> grants_dbs_;  //!< set of databases with granted access
   std::set<std::string, std::less<>> denies_dbs_;  //!< set of databases with denied access
   bool allow_all_;                                 //!< flag to allow access to everything (denied overrides this)
-  std::string default_db_;                         //!< user's default database
+  std::string main_db_;                            //!< user's default database
 };
 #endif
 
-class Role final {
+class Role {
  public:
   Role() = default;
 
@@ -308,6 +308,7 @@ class Role final {
   const std::string &rolename() const;
   const Permissions &permissions() const;
   Permissions &permissions();
+  Permissions GetPermissions() const { return permissions_; }
 #ifdef MG_ENTERPRISE
   const FineGrainedAccessHandler &fine_grained_access_handler() const;
   FineGrainedAccessHandler &fine_grained_access_handler();
@@ -316,11 +317,11 @@ class Role final {
 #endif
 
 #ifdef MG_ENTERPRISE
-  Databases &db_access() { return database_access_; }
-  const Databases &db_access() const { return database_access_; }
+  Databases &db_access() { return db_access_; }
+  const Databases &db_access() const { return db_access_; }
 
-  bool DeniesDB(std::string_view db_name) const { return database_access_.Denies(db_name); }
-  bool GrantsDB(std::string_view db_name) const { return database_access_.Grants(db_name); }
+  bool DeniesDB(std::string_view db_name) const { return db_access_.Denies(db_name); }
+  bool GrantsDB(std::string_view db_name) const { return db_access_.Grants(db_name); }
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
 #endif
 
@@ -336,7 +337,7 @@ class Role final {
   Permissions permissions_;
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
-  Databases database_access_;
+  Databases db_access_;
 #endif
 };
 

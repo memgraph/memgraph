@@ -106,7 +106,7 @@ std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::De
 TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::storage::Storage *storage) : storage_(storage) {}
 
 #ifdef MG_ENTERPRISE
-void MultiDatabaseAuth(memgraph::query::QueryUser *user, std::string_view db) {
+void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view db) {
   if (user && !user->IsAuthorized({}, std::string(db))) {
     throw memgraph::communication::bolt::ClientError(
         "You are not authorized on the database \"{}\"! Please contact your database administrator.", db);
@@ -118,8 +118,8 @@ namespace memgraph::glue {
 
 #ifdef MG_ENTERPRISE
 std::string SessionHL::GetDefaultDB() {
-  if (user_) {
-    return user_->GetDefaultDB();
+  if (user_or_role_) {
+    return user_or_role_->GetDefaultDB();
   }
   return std::string{memgraph::dbms::kDefaultDB};
 }
@@ -144,14 +144,14 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
     if (locked_auth->AccessControlled()) {
       const auto user_or_role = locked_auth->Authenticate(username, password);
       if (user_or_role.has_value()) {
-        user_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+        user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
         interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));
       } else {
         res = false;
       }
     } else {
       // No access control -> give empty user
-      user_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
+      user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
       interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, std::nullopt));
     }
   }
@@ -211,14 +211,15 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     auto &db = interpreter_.current_db_.db_acc_;
-    audit_log_->Record(endpoint_.address().to_string(), user_->name(), query,
-                       memgraph::storage::PropertyValue(params_pv), db ? db->get()->name() : "no known database");
+    const auto username = user_or_role_ ? (user_or_role_->username() ? *user_or_role_->username() : "") : "";
+    audit_log_->Record(endpoint_.address().to_string(), username, query, memgraph::storage::PropertyValue(params_pv),
+                       db ? db->get()->name() : "no known database");
   }
 #endif
   try {
     auto result = interpreter_.Prepare(query, params_pv, ToQueryExtras(extra));
     const std::string db_name = result.db ? *result.db : "";
-    if (user_ && !user_->IsAuthorized(result.privileges, db_name)) {
+    if (user_or_role_ && !user_or_role_->IsAuthorized(result.privileges, db_name)) {
       interpreter_.Abort();
       if (db_name.empty()) {
         throw memgraph::communication::bolt::ClientError(
@@ -320,7 +321,7 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
 
   // Check if the underlying database needs to be updated
   if (update) {
-    MultiDatabaseAuth(user_.get(), db);
+    MultiDatabaseAuth(user_or_role_.get(), db);
     interpreter_.SetCurrentDB(db, in_explicit_db_);
   }
 #endif
@@ -347,7 +348,7 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
   // Metrics update
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
 #ifdef MG_ENTERPRISE
-  interpreter_.OnChangeCB([&](std::string_view db_name) { MultiDatabaseAuth(user_.get(), db_name); });
+  interpreter_.OnChangeCB([&](std::string_view db_name) { MultiDatabaseAuth(user_or_role_.get(), db_name); });
 #endif
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
 }

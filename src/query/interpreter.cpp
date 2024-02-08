@@ -888,9 +888,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (database != memgraph::auth::kAllDatabases) {
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
-          if (!auth->GrantDatabase(database, username, &*interpreter->system_transaction_)) {
-            throw QueryRuntimeException("Failed to grant database {} to user {}.", database, username);
-          }
+          auth->GrantDatabase(database, username, &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
         }
@@ -914,9 +912,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (database != memgraph::auth::kAllDatabases) {
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
-          if (!auth->RevokeDatabase(database, username, &*interpreter->system_transaction_)) {
-            throw QueryRuntimeException("Failed to revoke database {} from user {}.", database, username);
-          }
+          auth->RevokeDatabase(database, username, &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
         }
@@ -949,9 +945,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         try {
           const auto db =
               db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
-          if (!auth->SetMainDatabase(database, username, &*interpreter->system_transaction_)) {
-            throw QueryRuntimeException("Failed to set main database {} for user {}.", database, username);
-          }
+          auth->SetMainDatabase(database, username, &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
         }
@@ -1275,7 +1269,7 @@ std::vector<std::string> EvaluateTopicNames(ExpressionVisitor<TypedValue> &evalu
 Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator,
                                                   memgraph::dbms::DatabaseAccess db_acc,
                                                   InterpreterContext *interpreter_context,
-                                                  std::shared_ptr<QueryUser> user) {
+                                                  std::shared_ptr<QueryUserOrRole> user) {
   static constexpr std::string_view kDefaultConsumerGroup = "mg_consumer";
   std::string consumer_group{stream_query->consumer_group_.empty() ? kDefaultConsumerGroup
                                                                    : stream_query->consumer_group_};
@@ -1327,7 +1321,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
 Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator,
                                                    memgraph::dbms::DatabaseAccess db,
                                                    InterpreterContext *interpreter_context,
-                                                   std::shared_ptr<QueryUser> user) {
+                                                   std::shared_ptr<QueryUserOrRole> user) {
   auto service_url = GetOptionalStringValue(stream_query->service_url_, evaluator);
   if (service_url && service_url->empty()) {
     throw SemanticException("Service URL must not be an empty string!");
@@ -1351,7 +1345,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
 
 Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
                            memgraph::dbms::DatabaseAccess &db_acc, InterpreterContext *interpreter_context,
-                           std::shared_ptr<QueryUser> user, std::vector<Notification> *notifications) {
+                           std::shared_ptr<QueryUserOrRole> user, std::vector<Notification> *notifications) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
@@ -1640,7 +1634,7 @@ struct TxTimeout {
 struct PullPlan {
   explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    std::shared_ptr<QueryUser> user, std::atomic<TransactionStatus> *transaction_status,
+                    std::shared_ptr<QueryUserOrRole> user, std::atomic<TransactionStatus> *transaction_status,
                     std::shared_ptr<utils::AsyncTimer> tx_timer,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, bool use_monotonic_memory = true,
@@ -1680,7 +1674,7 @@ struct PullPlan {
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                   std::shared_ptr<QueryUser> user, std::atomic<TransactionStatus> *transaction_status,
+                   std::shared_ptr<QueryUserOrRole> user, std::atomic<TransactionStatus> *transaction_status,
                    std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
                    const std::optional<size_t> memory_limit, bool use_monotonic_memory,
                    FrameChangeCollector *frame_change_collector)
@@ -1696,10 +1690,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
-  if (license::global_license_checker.IsEnterpriseValidFast() && user && dba) {
-    // TODO How can we avoid creating this every time? If we must create it, it would be faster with an auth::User
-    // instead of the username
-    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user->name(), dba);
+  if (license::global_license_checker.IsEnterpriseValidFast() && user && *user && dba) {
+    // Create only if an explicit user is defined
+    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(std::move(user), dba);
 
     // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
     // otherwise, we do assign the auth checker to check for label access control
@@ -1989,7 +1982,8 @@ bool IsCallBatchedProcedureQuery(const std::vector<memgraph::query::Clause *> &c
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-                                 std::shared_ptr<QueryUser> user, std::atomic<TransactionStatus> *transaction_status,
+                                 std::shared_ptr<QueryUserOrRole> user,
+                                 std::atomic<TransactionStatus> *transaction_status,
                                  std::shared_ptr<utils::AsyncTimer> tx_timer,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -2129,7 +2123,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
                                   InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                  utils::MemoryResource *execution_memory, std::shared_ptr<QueryUser> user,
+                                  utils::MemoryResource *execution_memory, std::shared_ptr<QueryUserOrRole> user,
                                   std::atomic<TransactionStatus> *transaction_status,
                                   std::shared_ptr<utils::AsyncTimer> tx_timer,
                                   FrameChangeCollector *frame_change_collector) {
@@ -2661,27 +2655,22 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
   auto callback = HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters, interpreter);
 
-  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
-                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr),
-                        interpreter_context](  // NOLINT
-                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         if (!pull_plan) {
-                           // Run the specific query
-                           auto results = handler();
-                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-#ifdef MG_ENTERPRISE
-                           // Invalidate auth cache after every type of AuthQuery
-                           interpreter_context->auth_checker->ClearCache();
-      // TODO Update epoch in auth::Auth
-#endif
-                         }
+  return PreparedQuery{
+      std::move(callback.header), std::move(parsed_query.required_privileges),
+      [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](  // NOLINT
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          // Run the specific query
+          auto results = handler();
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+        }
 
-                         if (pull_plan->Pull(stream, n)) {
-                           return QueryHandlerResult::COMMIT;
-                         }
-                         return std::nullopt;
-                       },
-                       RWType::NONE};
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -2885,7 +2874,7 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
 Callback CreateTrigger(TriggerQuery *trigger_query,
                        const std::map<std::string, storage::PropertyValue> &user_parameters,
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
-                       std::shared_ptr<QueryUser> owner) {
+                       std::shared_ptr<QueryUserOrRole> owner) {
   return {{},
           [trigger_name = std::move(trigger_query->trigger_name_),
            trigger_statement = std::move(trigger_query->statement_), event_type = trigger_query->event_type_,
@@ -2936,7 +2925,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                   std::vector<Notification> *notifications, CurrentDB &current_db,
                                   InterpreterContext *interpreter_context,
                                   const std::map<std::string, storage::PropertyValue> &user_parameters,
-                                  std::shared_ptr<QueryUser> user) {
+                                  std::shared_ptr<QueryUserOrRole> user) {
   if (in_explicit_transaction) {
     throw TriggerModificationInMulticommandTxException();
   }
@@ -2989,7 +2978,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
 PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                  std::vector<Notification> *notifications, CurrentDB &current_db,
-                                 InterpreterContext *interpreter_context, std::shared_ptr<QueryUser> user) {
+                                 InterpreterContext *interpreter_context, std::shared_ptr<QueryUserOrRole> user) {
   if (in_explicit_transaction) {
     throw StreamQueryInMulticommandTxException();
   }
@@ -3304,8 +3293,8 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_tra
 }
 
 template <typename Func>
-auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUser *user, Func &&privilege_checker)
-    -> std::vector<std::vector<TypedValue>> {
+auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user,
+                      Func &&privilege_checker) -> std::vector<std::vector<TypedValue>> {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
@@ -3334,8 +3323,10 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
     if (transaction_id.has_value() &&
         (same_user(interpreter->user_, user) || privilege_checker(user, get_interpreter_db_name()))) {
       const auto &typed_queries = interpreter->GetQueries();
-      results.push_back({TypedValue(interpreter->user_ ? interpreter->user_->name() : ""),
-                         TypedValue(std::to_string(transaction_id.value())), TypedValue(typed_queries)});
+      results.push_back(
+          {TypedValue(interpreter->user_ ? (interpreter->user_->username() ? *interpreter->user_->username() : "")
+                                         : ""),
+           TypedValue(std::to_string(transaction_id.value())), TypedValue(typed_queries)});
       // Handle user-defined metadata
       std::map<std::string, TypedValue> metadata_tv;
       if (interpreter->metadata_) {
@@ -3349,9 +3340,9 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
   return results;
 }
 
-Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query, std::shared_ptr<QueryUser> user,
+Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query, std::shared_ptr<QueryUserOrRole> user,
                                      const Parameters &parameters, InterpreterContext *interpreter_context) {
-  auto privilege_checker = [](QueryUser *user, std::string const &db_name) {
+  auto privilege_checker = [](QueryUserOrRole *user, std::string const &db_name) {
     return user->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name);
   };
 
@@ -3390,7 +3381,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query, s
   return callback;
 }
 
-PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, std::shared_ptr<QueryUser> user,
+PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, std::shared_ptr<QueryUserOrRole> user,
                                            InterpreterContext *interpreter_context) {
   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
   MG_ASSERT(transaction_queue_query);
@@ -4028,7 +4019,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
 }
 
 PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                        std::shared_ptr<QueryUser> user) {
+                                        std::shared_ptr<QueryUserOrRole> user) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryException("Trying to use enterprise feature without a valid license.");
@@ -4066,7 +4057,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       gen_status(db_handler->All(), std::vector<TypedValue>{});
     } else {
       // User has a subset of accessible dbs; this is synched with the SessionContextHandler
-      const auto &db_priv = auth->GetDatabasePrivileges(user->name());
+      const auto &db_priv = auth->GetDatabasePrivileges(user->key());
       const auto &allowed = db_priv[0][0];
       const auto &denied = db_priv[0][1].ValueList();
       if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
@@ -4769,6 +4760,6 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
   interpreter_isolation_level.emplace(isolation_level);
 }
 void Interpreter::ResetUser() { user_.reset(); }
-void Interpreter::SetUser(std::shared_ptr<QueryUser> user) { user_ = std::move(user); }
+void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user) { user_ = std::move(user); }
 
 }  // namespace memgraph::query

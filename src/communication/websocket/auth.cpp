@@ -42,11 +42,10 @@ bool SafeAuth::HasPermission(const auth::Permission permission) const {
   }
   // Check permissions
   if (user_or_role_) {
-    return std::visit(
-        utils::Overloaded{
-            [&](auth::User &user) { return user.GetPermissions().Has(permission) == auth::PermissionLevel::GRANT; },
-            [&](auth::Role &role) { return role.permissions().Has(permission) == auth::PermissionLevel::GRANT; }},
-        *user_or_role_);
+    return std::visit(utils::Overloaded{[&](auto &user_or_role) {
+                        return user_or_role.GetPermissions().Has(permission) == auth::PermissionLevel::GRANT;
+                      }},
+                      *user_or_role_);
   }
   // NOTE: websocket authenticates only if there is a user, so no need to check if access controlled
   return false;

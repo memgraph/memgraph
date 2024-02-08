@@ -219,7 +219,7 @@ auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::Datab
              const std::string &query) {
   memgraph::query::Interpreter interpreter(context, db);
   memgraph::query::AllowEverythingAuthChecker auth_checker;
-  interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt));
+  interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   ResultStreamFaker stream(db->storage());
 
   auto [header, _1, qid, _2] = interpreter.Prepare(query, {}, {});
@@ -921,7 +921,7 @@ class StatefulInterpreter {
   explicit StatefulInterpreter(memgraph::query::InterpreterContext *context, memgraph::dbms::DatabaseAccess db)
       : context_(context), interpreter_(context_, db) {
     memgraph::query::AllowEverythingAuthChecker auth_checker;
-    interpreter_.SetUser(auth_checker.GenQueryUser(std::nullopt));
+    interpreter_.SetUser(auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   }
 
   auto Execute(const std::string &query) {
@@ -1145,7 +1145,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::DbAccessor dba(acc.get());
     const std::map<std::string, memgraph::storage::PropertyValue> props;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt));
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   }
   {
     ResultStreamFaker stream(this->db->storage());

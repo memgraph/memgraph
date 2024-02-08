@@ -31,13 +31,12 @@ class AuthChecker {
  public:
   virtual ~AuthChecker() = default;
 
-  virtual std::shared_ptr<QueryUser> GenQueryUser(const std::optional<std::string> &username) const = 0;
+  virtual std::shared_ptr<QueryUserOrRole> GenQueryUser(const std::optional<std::string> &username,
+                                                        const std::optional<std::string> &rolename) const = 0;
 
 #ifdef MG_ENTERPRISE
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
-      const std::string &username, const DbAccessor *db_accessor) const = 0;
-
-  virtual void ClearCache() const = 0;
+      std::shared_ptr<QueryUserOrRole> user, const DbAccessor *db_accessor) const = 0;
 #endif
 };
 #ifdef MG_ENTERPRISE
@@ -98,9 +97,9 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
 
 class AllowEverythingAuthChecker final : public AuthChecker {
  public:
-  struct User : query::QueryUser {
-    User() : query::QueryUser{std::nullopt} {}
-    User(std::string name) : query::QueryUser{std::move(name)} {}
+  struct User : query::QueryUserOrRole {
+    User() : query::QueryUserOrRole{std::nullopt, std::nullopt} {}
+    User(std::string name) : query::QueryUserOrRole{std::move(name), std::nullopt} {}
     bool IsAuthorized(const std::vector<AuthQuery::Privilege> & /*privileges*/,
                       const std::string & /*db_name*/) const override {
       return true;
@@ -110,18 +109,17 @@ class AllowEverythingAuthChecker final : public AuthChecker {
 #endif
   };
 
-  std::shared_ptr<query::QueryUser> GenQueryUser(const std::optional<std::string> &name) const override {
+  std::shared_ptr<query::QueryUserOrRole> GenQueryUser(const std::optional<std::string> &name,
+                                                       const std::optional<std::string> & /*role*/) const override {
     if (name) return std::make_shared<User>(std::move(*name));
     return std::make_shared<User>();
   }
 
 #ifdef MG_ENTERPRISE
-  std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const std::string & /*username*/,
+  std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(std::shared_ptr<QueryUserOrRole> /*user*/,
                                                                     const DbAccessor * /*dba*/) const override {
     return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
   }
-
-  void ClearCache() const override {}
 #endif
 };
 

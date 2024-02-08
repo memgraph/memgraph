@@ -37,8 +37,8 @@ using StreamStatus = memgraph::query::stream::StreamStatus<memgraph::query::stre
 namespace {
 const static std::string kTopicName{"TrialTopic"};
 
-struct FakeUser : memgraph::query::QueryUser {
-  FakeUser() : memgraph::query::QueryUser{std::nullopt} {}
+struct FakeUser : memgraph::query::QueryUserOrRole {
+  FakeUser() : memgraph::query::QueryUserOrRole{std::nullopt, std::nullopt} {}
 
   bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                     const std::string &db_name) const {
@@ -53,7 +53,7 @@ struct StreamCheckData {
   std::string name;
   StreamInfo info;
   bool is_running;
-  std::shared_ptr<memgraph::query::QueryUser> owner;
+  std::shared_ptr<memgraph::query::QueryUserOrRole> owner;
 };
 
 std::string GetDefaultStreamName() {

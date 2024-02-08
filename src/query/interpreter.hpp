@@ -210,7 +210,7 @@ class Interpreter final {
     std::optional<std::string> db;
   };
 
-  std::shared_ptr<QueryUser> user_{};
+  std::shared_ptr<QueryUserOrRole> user_{};
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
 
@@ -300,7 +300,7 @@ class Interpreter final {
 
   void ResetUser();
 
-  void SetUser(std::shared_ptr<QueryUser> user);
+  void SetUser(std::shared_ptr<QueryUserOrRole> user);
 
   std::optional<memgraph::system::Transaction> system_transaction_{};
 

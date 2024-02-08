@@ -18,7 +18,7 @@ struct InterpreterFaker {
       : interpreter_context(interpreter_context), interpreter(interpreter_context, db) {
     interpreter_context->auth_checker = &auth_checker;
     interpreter_context->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter); });
-    interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt));
+    interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   }
 
   auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {

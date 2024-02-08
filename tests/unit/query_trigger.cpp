@@ -43,19 +43,20 @@ const std::unordered_set<memgraph::query::TriggerEventType> kAllEventTypes{
 
 class MockAuthChecker : public memgraph::query::AuthChecker {
  public:
-  MOCK_CONST_METHOD1(GenQueryUser,
-                     std::shared_ptr<memgraph::query::QueryUser>(const std::optional<std::string> &username));
+  MOCK_CONST_METHOD2(GenQueryUser,
+                     std::shared_ptr<memgraph::query::QueryUserOrRole>(const std::optional<std::string> &username,
+                                                                       const std::optional<std::string> &rolename));
 #ifdef MG_ENTERPRISE
-  MOCK_CONST_METHOD2(GetFineGrainedAuthChecker,
-                     std::unique_ptr<memgraph::query::FineGrainedAuthChecker>(
-                         const std::string &username, const memgraph::query::DbAccessor *db_accessor));
+  MOCK_CONST_METHOD2(GetFineGrainedAuthChecker, std::unique_ptr<memgraph::query::FineGrainedAuthChecker>(
+                                                    std::shared_ptr<memgraph::query::QueryUserOrRole> user,
+                                                    const memgraph::query::DbAccessor *db_accessor));
   MOCK_CONST_METHOD0(ClearCache, void());
 #endif
 };
 
-class MockQueryUser : public memgraph::query::QueryUser {
+class MockQueryUser : public memgraph::query::QueryUserOrRole {
  public:
-  MockQueryUser(std::optional<std::string> name) : memgraph::query::QueryUser(std::move(name)) {}
+  MockQueryUser(std::optional<std::string> name) : memgraph::query::QueryUserOrRole(std::move(name), std::nullopt) {}
   MOCK_CONST_METHOD2(IsAuthorized, bool(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                                         const std::string &db_name));
 
@@ -977,12 +978,12 @@ TYPED_TEST(TriggerStoreTest, Restore) {
       trigger_name_before, trigger_statement,
       std::map<std::string, memgraph::storage::PropertyValue>{{"parameter", memgraph::storage::PropertyValue{1}}},
       event_type, memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-      memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt));
+      memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   store->AddTrigger(
       trigger_name_after, trigger_statement,
       std::map<std::string, memgraph::storage::PropertyValue>{{"parameter", memgraph::storage::PropertyValue{"value"}}},
       event_type, memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
-      memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(owner));
+      memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(owner, std::nullopt));
 
   const auto check_triggers = [&] {
     ASSERT_EQ(store->GetTriggerInfo().size(), 2);
@@ -992,9 +993,9 @@ TYPED_TEST(TriggerStoreTest, Restore) {
       ASSERT_EQ(trigger.OriginalStatement(), trigger_statement);
       ASSERT_EQ(trigger.EventType(), event_type);
       if (owner != nullptr) {
-        ASSERT_EQ(trigger.Owner()->name(), *owner);
+        ASSERT_EQ(trigger.Owner()->username(), *owner);
       } else {
-        ASSERT_TRUE(trigger.Owner()->name().empty());
+        ASSERT_FALSE(trigger.Owner()->username());
       }
     };
 
@@ -1031,40 +1032,41 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
   memgraph::query::TriggerStore store{this->testing_directory};
 
   // Invalid query in statements
-  ASSERT_THROW(
-      store.AddTrigger("trigger", "RETUR 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
-                       memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-                       memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt)),
-      memgraph::utils::BasicException);
-  ASSERT_THROW(
-      store.AddTrigger("trigger", "RETURN createdEdges", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
-                       memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-                       memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt)),
-      memgraph::utils::BasicException);
+  ASSERT_THROW(store.AddTrigger("trigger", "RETUR 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
+                                memgraph::query::InterpreterConfig::Query{},
+                                this->auth_checker.GenQueryUser(std::nullopt, std::nullopt)),
+               memgraph::utils::BasicException);
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN createdEdges", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
+                                memgraph::query::InterpreterConfig::Query{},
+                                this->auth_checker.GenQueryUser(std::nullopt, std::nullopt)),
+               memgraph::utils::BasicException);
 
-  ASSERT_THROW(
-      store.AddTrigger("trigger", "RETURN $parameter", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
-                       memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-                       memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt)),
-      memgraph::utils::BasicException);
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN $parameter", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
+                                memgraph::query::InterpreterConfig::Query{},
+                                this->auth_checker.GenQueryUser(std::nullopt, std::nullopt)),
+               memgraph::utils::BasicException);
 
   ASSERT_NO_THROW(store.AddTrigger(
       "trigger", "RETURN $parameter",
       std::map<std::string, memgraph::storage::PropertyValue>{{"parameter", memgraph::storage::PropertyValue{1}}},
       memgraph::query::TriggerEventType::VERTEX_CREATE, memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache,
-      &*this->dba, memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt)));
+      &*this->dba, memgraph::query::InterpreterConfig::Query{},
+      this->auth_checker.GenQueryUser(std::nullopt, std::nullopt)));
 
   // Inserting with the same name
-  ASSERT_THROW(
-      store.AddTrigger("trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
-                       memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-                       memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt)),
-      memgraph::utils::BasicException);
-  ASSERT_THROW(
-      store.AddTrigger("trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
-                       memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
-                       memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt)),
-      memgraph::utils::BasicException);
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
+                                memgraph::query::InterpreterConfig::Query{},
+                                this->auth_checker.GenQueryUser(std::nullopt, std::nullopt)),
+               memgraph::utils::BasicException);
+  ASSERT_THROW(store.AddTrigger("trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
+                                memgraph::query::InterpreterConfig::Query{},
+                                this->auth_checker.GenQueryUser(std::nullopt, std::nullopt)),
+               memgraph::utils::BasicException);
 
   ASSERT_EQ(store.GetTriggerInfo().size(), 1);
   ASSERT_EQ(store.BeforeCommitTriggers().size(), 1);
@@ -1079,7 +1081,8 @@ TYPED_TEST(TriggerStoreTest, DropTrigger) {
   const auto *trigger_name = "trigger";
   store.AddTrigger(trigger_name, "RETURN 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
                    memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-                   memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt));
+                   memgraph::query::InterpreterConfig::Query{},
+                   this->auth_checker.GenQueryUser(std::nullopt, std::nullopt));
 
   ASSERT_THROW(store.DropTrigger("Unknown"), memgraph::utils::BasicException);
   ASSERT_NO_THROW(store.DropTrigger(trigger_name));
@@ -1092,7 +1095,8 @@ TYPED_TEST(TriggerStoreTest, TriggerInfo) {
   std::vector<memgraph::query::TriggerStore::TriggerInfo> expected_info;
   store.AddTrigger("trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::VERTEX_CREATE,
                    memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
-                   memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt));
+                   memgraph::query::InterpreterConfig::Query{},
+                   this->auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   expected_info.push_back({"trigger",
                            "RETURN 1",
                            memgraph::query::TriggerEventType::VERTEX_CREATE,
@@ -1115,7 +1119,8 @@ TYPED_TEST(TriggerStoreTest, TriggerInfo) {
 
   store.AddTrigger("edge_update_trigger", "RETURN 1", {}, memgraph::query::TriggerEventType::EDGE_UPDATE,
                    memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
-                   memgraph::query::InterpreterConfig::Query{}, this->auth_checker.GenQueryUser(std::nullopt));
+                   memgraph::query::InterpreterConfig::Query{},
+                   this->auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   expected_info.push_back({"edge_update_trigger",
                            "RETURN 1",
                            memgraph::query::TriggerEventType::EDGE_UPDATE,
@@ -1233,7 +1238,7 @@ TYPED_TEST(TriggerStoreTest, AnyTriggerAllKeywords) {
       EXPECT_NO_THROW(store.AddTrigger(trigger_name, fmt::format("RETURN {}", keyword), {}, event_type,
                                        memgraph::query::TriggerPhase::BEFORE_COMMIT, &this->ast_cache, &*this->dba,
                                        memgraph::query::InterpreterConfig::Query{},
-                                       this->auth_checker.GenQueryUser(std::nullopt)));
+                                       this->auth_checker.GenQueryUser(std::nullopt, std::nullopt)));
       store.DropTrigger(trigger_name);
     }
   }
@@ -1248,11 +1253,11 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   MockAuthChecker mock_checker;
   const std::optional<std::string> owner{"mock_user"};
   MockQueryUser mock_user(owner);
-  std::shared_ptr<memgraph::query::QueryUser> mock_user_ptr(&mock_user,
-                                                            [](memgraph::query::QueryUser *) { /* do nothing */ });
+  std::shared_ptr<memgraph::query::QueryUserOrRole> mock_user_ptr(
+      &mock_user, [](memgraph::query::QueryUserOrRole *) { /* do nothing */ });
   MockQueryUser mock_userless(std::nullopt);
-  std::shared_ptr<memgraph::query::QueryUser> mock_userless_ptr(&mock_userless,
-                                                                [](memgraph::query::QueryUser *) { /* do nothing */ });
+  std::shared_ptr<memgraph::query::QueryUserOrRole> mock_userless_ptr(
+      &mock_userless, [](memgraph::query::QueryUserOrRole *) { /* do nothing */ });
 
   ::testing::InSequence s;
 
@@ -1280,9 +1285,9 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   store.emplace(this->testing_directory);
 
   std::optional<std::string> nopt{};
-  EXPECT_CALL(mock_checker, GenQueryUser(owner)).WillOnce(Return(mock_user_ptr));
+  EXPECT_CALL(mock_checker, GenQueryUser(owner, nopt)).WillOnce(Return(mock_user_ptr));
   EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), "")).WillOnce(Return(true));
-  EXPECT_CALL(mock_checker, GenQueryUser(nopt)).WillOnce(Return(mock_userless_ptr));
+  EXPECT_CALL(mock_checker, GenQueryUser(nopt, nopt)).WillOnce(Return(mock_userless_ptr));
   EXPECT_CALL(mock_userless, IsAuthorized(ElementsAre(Privilege::CREATE), "")).WillOnce(Return(false));
 
   ASSERT_NO_THROW(store->RestoreTriggers(&this->ast_cache, &*this->dba, memgraph::query::InterpreterConfig::Query{},

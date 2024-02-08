@@ -48,11 +48,11 @@ class AuthQueryHandler {
 #ifdef MG_ENTERPRISE
   /// Return true if access revoked successfully
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool RevokeDatabase(const std::string &db, const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void RevokeDatabase(const std::string &db, const std::string &username, system::Transaction *system_tx) = 0;
 
   /// Return true if access granted successfully
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool GrantDatabase(const std::string &db, const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void GrantDatabase(const std::string &db, const std::string &username, system::Transaction *system_tx) = 0;
 
   /// Returns database access rights for the user
   /// @throw QueryRuntimeException if an error ocurred.
@@ -60,7 +60,7 @@ class AuthQueryHandler {
 
   /// Return true if main database set successfully
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool SetMainDatabase(std::string_view db, const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void SetMainDatabase(std::string_view db, const std::string &username, system::Transaction *system_tx) = 0;
 
   /// Delete database from all users
   /// @throw QueryRuntimeException if an error ocurred.

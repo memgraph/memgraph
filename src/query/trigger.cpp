@@ -11,8 +11,6 @@
 
 #include "query/trigger.hpp"
 
-#include <concepts>
-
 #include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -154,7 +152,7 @@ Trigger::Trigger(std::string name, const std::string &query,
                  const std::map<std::string, storage::PropertyValue> &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
                  DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                 std::shared_ptr<QueryUser> owner)
+                 std::shared_ptr<QueryUserOrRole> owner)
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config)},
       event_type_{event_type},
@@ -306,6 +304,7 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
     }
     const auto user_parameters = serialization::DeserializePropertyValueMap(json_trigger_data["user_parameters"]);
 
+    // TODO: Migration
     const auto owner_json = json_trigger_data["owner"];
     std::optional<std::string> owner{};
     if (owner_json.is_string()) {
@@ -315,7 +314,16 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
       continue;
     }
 
-    auto user = auth_checker->GenQueryUser(owner);
+    const auto owner_role_json = json_trigger_data["owner_role"];
+    std::optional<std::string> role{};
+    if (owner_role_json.is_string()) {
+      owner.emplace(owner_role_json.get<std::string>());
+    } else if (!owner_role_json.is_null()) {
+      spdlog::warn(invalid_state_message);
+      continue;
+    }
+
+    auto user = auth_checker->GenQueryUser(owner, role);
 
     std::optional<Trigger> trigger;
     try {
@@ -338,7 +346,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query,
                               const std::map<std::string, storage::PropertyValue> &user_parameters,
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                              const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUser> owner) {
+                              const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
@@ -370,9 +378,22 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query,
   data["version"] = kVersion;
 
   if (const auto &owner_from_trigger = trigger->Owner(); owner_from_trigger && *owner_from_trigger) {
-    data["owner"] = owner_from_trigger->name();
+    const auto &maybe_username = owner_from_trigger->username();
+    if (maybe_username) {
+      data["owner"] = *maybe_username;
+      // Roles need to be associated with a username
+      const auto &maybe_rolename = owner_from_trigger->rolename();
+      if (maybe_rolename) {
+        data["owner_role"] = *maybe_rolename;
+      } else {
+        data["owner_role"] = nullptr;
+      }
+    } else {
+      data["owner"] = nullptr;
+    }
   } else {
     data["owner"] = nullptr;
+    data["owner_role"] = nullptr;
   }
   storage_.Put(trigger->Name(), data.dump());
   store_guard.unlock();
@@ -417,7 +438,7 @@ std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
   const auto add_info = [&](const utils::SkipList<Trigger> &trigger_list, const TriggerPhase phase) {
     for (const auto &trigger : trigger_list.access()) {
       std::optional<std::string> owner_str{};
-      if (const auto &owner = trigger.Owner(); owner && *owner) owner_str = owner->name();
+      if (const auto &owner = trigger.Owner(); owner && *owner) owner_str = owner->username();
       info.push_back({trigger.Name(), trigger.OriginalStatement(), trigger.EventType(), phase, std::move(owner_str)});
     }
   };
