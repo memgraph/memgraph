@@ -14,8 +14,8 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_config.hpp"
-#include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_state.hpp"
+#include "coordination/instance_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 
 #include <vector>
@@ -33,7 +33,9 @@ class CoordinatorHandler {
 
   auto SetInstanceToMain(std::string instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
 
-  auto ShowInstances() const -> std::vector<coordination::CoordinatorInstanceStatus>;
+  auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
+
+  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
 
  private:
   coordination::CoordinatorState &coordinator_state_;
