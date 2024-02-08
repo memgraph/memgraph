@@ -265,7 +265,7 @@ repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" 
 
 # this is hack for cmake in libs to set path, and for FindJemalloc to use Jemalloc_INCLUDE_DIR
 pushd jemalloc
-
+patch -p1 < ../jemalloc-oversize_threshold.patch
 ./autogen.sh
 MALLOC_CONF="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000" \
 ./configure \
