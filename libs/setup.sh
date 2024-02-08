@@ -123,10 +123,10 @@ declare -A primary_urls=(
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
   ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
   ["ctre"]="http://$local_cache_host/file/hanickadot/compile-time-regular-expressions/v3.7.2/single-header/ctre.hpp"
-  ["absl"]="https://$local_cache_host/git/abseil-cpp.git"
-  ["jemalloc"]="https://$local_cache_host/git/jemalloc.git"
-  ["range-v3"]="https://$local_cache_host/git/ericniebler/range-v3.git"
-  ["nuraft"]="https://$local_cache_host/git/eBay/NuRaft.git"
+  ["absl"]="http://$local_cache_host/git/abseil-cpp.git"
+  ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
+  ["range-v3"]="http://$local_cache_host/git/range-v3.git"
+  ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
