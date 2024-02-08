@@ -29,6 +29,25 @@ void Load(memgraph::replication_coordination_glue::FrequentHeartbeatReq * /*self
   /* Nothing to serialize */
 }
 
+// Serialize code for SwapMainUUIDRes
+
+void Save(const memgraph::replication_coordination_glue::SwapMainUUIDRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.success, builder);
+}
+
+void Load(memgraph::replication_coordination_glue::SwapMainUUIDRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->success, reader);
+}
+
+// Serialize code for SwapMainUUIDReq
+void Save(const memgraph::replication_coordination_glue::SwapMainUUIDReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.uuid, builder);
+}
+
+void Load(memgraph::replication_coordination_glue::SwapMainUUIDReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->uuid, reader);
+}
+
 }  // namespace memgraph::slk
 
 namespace memgraph::replication_coordination_glue {
@@ -38,6 +57,10 @@ constexpr utils::TypeInfo FrequentHeartbeatReq::kType{utils::TypeId::REP_FREQUEN
 
 constexpr utils::TypeInfo FrequentHeartbeatRes::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_RES, "FrequentHeartbeatRes",
                                                       nullptr};
+
+constexpr utils::TypeInfo SwapMainUUIDReq::kType{utils::TypeId::COORD_SWAP_UUID_REQ, "SwapUUIDReq", nullptr};
+
+constexpr utils::TypeInfo SwapMainUUIDRes::kType{utils::TypeId::COORD_SWAP_UUID_RES, "SwapUUIDRes", nullptr};
 
 void FrequentHeartbeatReq::Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -52,12 +75,16 @@ void FrequentHeartbeatRes::Load(FrequentHeartbeatRes *self, memgraph::slk::Reade
   memgraph::slk::Load(self, reader);
 }
 
-void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
-  FrequentHeartbeatReq req;
-  FrequentHeartbeatReq::Load(&req, req_reader);
-  memgraph::slk::Load(&req, req_reader);
-  FrequentHeartbeatRes res{};
-  memgraph::slk::Save(res, res_builder);
+void SwapMainUUIDReq::Save(const SwapMainUUIDReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
 }
+
+void SwapMainUUIDReq::Load(SwapMainUUIDReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
+void SwapMainUUIDRes::Save(const SwapMainUUIDRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void SwapMainUUIDRes::Load(SwapMainUUIDRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 
 }  // namespace memgraph::replication_coordination_glue

@@ -21,7 +21,8 @@ namespace memgraph::dbms {
 #ifdef MG_ENTERPRISE
 
 void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
-                           DbmsHandler &dbms_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
+                           const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
+                           slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::storage::replication::CreateDatabaseRes;
   CreateDatabaseRes res(CreateDatabaseRes::Result::FAILURE);
 
@@ -34,6 +35,12 @@ void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
 
   memgraph::storage::replication::CreateDatabaseReq req;
   memgraph::slk::Load(&req, req_reader);
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::CreateDatabaseReq::kType.name);
+    memgraph::slk::Save(res, res_builder);
+    return;
+  }
 
   // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
   //       of the set of databases. Hence no history exists to maintain regarding epoch change.
@@ -63,7 +70,8 @@ void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   memgraph::slk::Save(res, res_builder);
 }
 
-void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access, DbmsHandler &dbms_handler,
+void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                         const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                          slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::storage::replication::DropDatabaseRes;
   DropDatabaseRes res(DropDatabaseRes::Result::FAILURE);
@@ -77,6 +85,12 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
 
   memgraph::storage::replication::DropDatabaseReq req;
   memgraph::slk::Load(&req, req_reader);
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::DropDatabaseReq::kType.name);
+    memgraph::slk::Save(res, res_builder);
+    return;
+  }
 
   // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
   //       of the set of databases. Hence no history exists to maintain regarding epoch change.
@@ -177,14 +191,14 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
               dbms::DbmsHandler &dbms_handler) {
   // NOTE: Register even without license as the user could add a license at run-time
   data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
-      [system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
+      [&data, system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
         spdlog::debug("Received CreateDatabaseRpc");
-        CreateDatabaseHandler(system_state_access, dbms_handler, req_reader, res_builder);
+        CreateDatabaseHandler(system_state_access, data.uuid_, dbms_handler, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::DropDatabaseRpc>(
-      [system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
+      [&data, system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
         spdlog::debug("Received DropDatabaseRpc");
-        DropDatabaseHandler(system_state_access, dbms_handler, req_reader, res_builder);
+        DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, req_reader, res_builder);
       });
 }
 #endif

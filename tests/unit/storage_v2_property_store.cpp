@@ -419,9 +419,9 @@ TEST(PropertyStore, IntEncoding) {
       {memgraph::storage::PropertyId::FromUint(1048576UL), memgraph::storage::PropertyValue(1048576L)},
       {memgraph::storage::PropertyId::FromUint(std::numeric_limits<uint32_t>::max()),
        memgraph::storage::PropertyValue(std::numeric_limits<int32_t>::max())},
-      {memgraph::storage::PropertyId::FromUint(4294967296UL), memgraph::storage::PropertyValue(4294967296L)},
-      {memgraph::storage::PropertyId::FromUint(137438953472UL), memgraph::storage::PropertyValue(137438953472L)},
-      {memgraph::storage::PropertyId::FromUint(std::numeric_limits<uint64_t>::max()),
+      {memgraph::storage::PropertyId::FromUint(1048577UL), memgraph::storage::PropertyValue(4294967296L)},
+      {memgraph::storage::PropertyId::FromUint(1048578UL), memgraph::storage::PropertyValue(137438953472L)},
+      {memgraph::storage::PropertyId::FromUint(std::numeric_limits<uint32_t>::max()),
        memgraph::storage::PropertyValue(std::numeric_limits<int64_t>::max())}};
 
   memgraph::storage::PropertyStore props;

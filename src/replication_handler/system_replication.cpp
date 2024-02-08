@@ -21,7 +21,8 @@
 namespace memgraph::replication {
 
 #ifdef MG_ENTERPRISE
-void SystemHeartbeatHandler(const uint64_t ts, slk::Reader *req_reader, slk::Builder *res_builder) {
+void SystemHeartbeatHandler(const uint64_t ts, const std::optional<utils::UUID> &current_main_uuid,
+                            slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::SystemHeartbeatRes res{0};
 
   // Ignore if no license
@@ -30,17 +31,23 @@ void SystemHeartbeatHandler(const uint64_t ts, slk::Reader *req_reader, slk::Bui
     memgraph::slk::Save(res, res_builder);
     return;
   }
-
   replication::SystemHeartbeatReq req;
   replication::SystemHeartbeatReq::Load(&req, req_reader);
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, replication::SystemHeartbeatRes::kType.name);
+    replication::SystemHeartbeatRes res(-1);
+    memgraph::slk::Save(res, res_builder);
+    return;
+  }
 
   res = replication::SystemHeartbeatRes{ts};
   memgraph::slk::Save(res, res_builder);
 }
 
 void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
-                           dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth, slk::Reader *req_reader,
-                           slk::Builder *res_builder) {
+                           const std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
+                           auth::SynchedAuth &auth, slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::replication::SystemRecoveryRes;
   SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
 
@@ -48,6 +55,11 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
 
   memgraph::replication::SystemRecoveryReq req;
   memgraph::slk::Load(&req, req_reader);
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, SystemRecoveryReq::kType.name);
+    return;
+  }
 
   /*
    * DBMS
@@ -74,15 +86,16 @@ void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_
   auto system_state_access = dbms_handler.system_->CreateSystemStateAccess();
 
   // System
+  // TODO: remove, as this is not used
   data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
-      [system_state_access](auto *req_reader, auto *res_builder) {
+      [&data, system_state_access](auto *req_reader, auto *res_builder) {
         spdlog::debug("Received SystemHeartbeatRpc");
-        SystemHeartbeatHandler(system_state_access.LastCommitedTS(), req_reader, res_builder);
+        SystemHeartbeatHandler(system_state_access.LastCommitedTS(), data.uuid_, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
-      [system_state_access, &dbms_handler, &auth](auto *req_reader, auto *res_builder) mutable {
+      [&data, system_state_access, &dbms_handler, &auth](auto *req_reader, auto *res_builder) mutable {
         spdlog::debug("Received SystemRecoveryRpc");
-        SystemRecoveryHandler(system_state_access, dbms_handler, auth, req_reader, res_builder);
+        SystemRecoveryHandler(system_state_access, data.uuid_, dbms_handler, auth, req_reader, res_builder);
       });
 
   // DBMS
@@ -94,13 +107,12 @@ void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_
 #endif
 
 #ifdef MG_ENTERPRISE
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, const replication::RoleReplicaData &data,
-                    auth::SynchedAuth &auth) {
+bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data, auth::SynchedAuth &auth) {
 #else
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, const replication::RoleReplicaData &data) {
+bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data) {
 #endif
   // Register storage handlers
-  dbms::InMemoryReplicationHandlers::Register(&dbms_handler, *data.server);
+  dbms::InMemoryReplicationHandlers::Register(&dbms_handler, data);
 #ifdef MG_ENTERPRISE
   // Register system handlers
   Register(data, dbms_handler, auth);
@@ -112,4 +124,5 @@ bool StartRpcServer(dbms::DbmsHandler &dbms_handler, const replication::RoleRepl
   }
   return true;
 }
+
 }  // namespace memgraph::replication

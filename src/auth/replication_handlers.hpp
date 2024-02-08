@@ -17,10 +17,16 @@
 #include "system/state.hpp"
 
 namespace memgraph::auth {
+
+void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
+                  std::string_view rpc_req);
+
 #ifdef MG_ENTERPRISE
-void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_access, auth::SynchedAuth &auth,
+void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_access,
+                           const std::optional<utils::UUID> &current_main_uuid, auth::SynchedAuth &auth,
                            slk::Reader *req_reader, slk::Builder *res_builder);
-void DropAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_access, auth::SynchedAuth &auth,
+void DropAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_access,
+                         const std::optional<utils::UUID> &current_main_uuid, auth::SynchedAuth &auth,
                          slk::Reader *req_reader, slk::Builder *res_builder);
 
 bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_config,

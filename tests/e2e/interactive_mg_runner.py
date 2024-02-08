@@ -208,6 +208,11 @@ def start_all(context, procdir="", keep_directories=True):
         start_instance(context, key, procdir)
 
 
+def start_all_keep_others(context, procdir="", keep_directories=True):
+    for key, _ in context.items():
+        start_instance(context, key, procdir)
+
+
 def start(context, name, procdir=""):
     if name != "all":
         start_instance(context, name, procdir)
