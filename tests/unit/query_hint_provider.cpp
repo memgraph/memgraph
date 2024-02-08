@@ -39,7 +39,7 @@ class HintProviderSuite : public ::testing::Test {
   int symbol_count = 0;
 
   void SetUp() {
-    storage_dba.emplace(db->Access(memgraph::replication::ReplicationRole::MAIN));
+    storage_dba.emplace(db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN));
     dba.emplace(storage_dba->get());
   }
 

@@ -123,9 +123,10 @@ declare -A primary_urls=(
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
   ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
   ["ctre"]="http://$local_cache_host/file/hanickadot/compile-time-regular-expressions/v3.7.2/single-header/ctre.hpp"
-  ["absl"]="https://$local_cache_host/git/abseil-cpp.git"
-  ["jemalloc"]="https://$local_cache_host/git/jemalloc.git"
-  ["range-v3"]="https://$local_cache_host/git/ericniebler/range-v3.git"
+  ["absl"]="http://$local_cache_host/git/abseil-cpp.git"
+  ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
+  ["range-v3"]="http://$local_cache_host/git/range-v3.git"
+  ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -155,6 +156,7 @@ declare -A secondary_urls=(
   ["absl"]="https://github.com/abseil/abseil-cpp.git"
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["range-v3"]="https://github.com/ericniebler/range-v3.git"
+  ["nuraft"]="https://github.com/eBay/NuRaft.git"
 )
 
 # antlr
@@ -268,6 +270,8 @@ pushd jemalloc
 MALLOC_CONF="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000" \
 ./configure \
   --disable-cxx \
+  --with-lg-page=12 \
+  --with-lg-hugepage=21 \
   --enable-shared=no --prefix=$working_dir \
   --with-malloc-conf="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
 
@@ -277,3 +281,10 @@ popd
 #range-v3 release-0.12.0
 range_v3_ref="release-0.12.0"
 repo_clone_try_double "${primary_urls[range-v3]}" "${secondary_urls[range-v3]}" "rangev3" "$range_v3_ref"
+
+# NuRaft
+nuraft_tag="v2.1.0"
+repo_clone_try_double "${primary_urls[nuraft]}" "${secondary_urls[nuraft]}" "nuraft" "$nuraft_tag" true
+pushd nuraft
+./prepare.sh
+popd

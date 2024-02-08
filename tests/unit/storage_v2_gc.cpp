@@ -14,7 +14,7 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::UnorderedElementsAre;
 
 // TODO: The point of these is not to test GC fully, these are just simple

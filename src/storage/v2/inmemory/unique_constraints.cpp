@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "utils/counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
 namespace memgraph::storage {
@@ -79,7 +80,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
       case Delta::Action::SET_PROPERTY: {
         auto pos = FindPropertyPosition(property_array, delta->property.key);
         if (pos) {
-          current_value_equal_to_value[*pos] = delta->property.value == value_array[*pos];
+          current_value_equal_to_value[*pos] = *delta->property.value == value_array[*pos];
         }
         break;
       }
@@ -95,14 +96,14 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
         break;
       }
       case Delta::Action::ADD_LABEL: {
-        if (delta->label == label) {
+        if (delta->label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
           break;
         }
       }
       case Delta::Action::REMOVE_LABEL: {
-        if (delta->label == label) {
+        if (delta->label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
           break;
@@ -189,13 +190,13 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
     }
     switch (delta->action) {
       case Delta::Action::ADD_LABEL:
-        if (delta->label == label) {
+        if (delta->label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
         }
         break;
       case Delta::Action::REMOVE_LABEL:
-        if (delta->label == label) {
+        if (delta->label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
         }
@@ -203,7 +204,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
       case Delta::Action::SET_PROPERTY: {
         auto pos = FindPropertyPosition(property_array, delta->property.key);
         if (pos) {
-          current_value_equal_to_value[*pos] = delta->property.value == values[*pos];
+          current_value_equal_to_value[*pos] = *delta->property.value == values[*pos];
         }
         break;
       }
@@ -487,10 +488,18 @@ std::vector<std::pair<LabelId, std::set<PropertyId>>> InMemoryUniqueConstraints:
   return ret;
 }
 
-void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
+void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+  auto maybe_stop = utils::ResettableCounter<2048>();
+
   for (auto &[label_props, storage] : constraints_) {
+    // before starting constraint, check if stop_requested
+    if (token.stop_requested()) return;
+
     auto acc = storage.access();
     for (auto it = acc.begin(); it != acc.end();) {
+      // Hot loop, don't check stop_requested every time
+      if (maybe_stop() && token.stop_requested()) return;
+
       auto next_it = it;
       ++next_it;
 

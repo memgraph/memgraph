@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@
 namespace memgraph::storage {
 
 bool EdgeAccessor::IsDeleted() const {
-  if (!storage_->config_.items.properties_on_edges) {
+  if (!storage_->config_.salient.items.properties_on_edges) {
     return false;
   }
   return edge_.ptr->deleted;
@@ -38,7 +38,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
   bool deleted = true;
   // When edges don't have properties, their isolation level is still dictated by MVCC ->
   // iterate over the deltas of the from_vertex_ and see which deltas can be applied on edges.
-  if (!storage_->config_.items.properties_on_edges) {
+  if (!storage_->config_.salient.items.properties_on_edges) {
     Delta *delta = nullptr;
     {
       auto guard = std::shared_lock{from_vertex_->lock};
@@ -120,7 +120,7 @@ VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
 
 Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  if (!storage_->config_.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
+  if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   auto guard = std::unique_lock{edge_.ptr->lock};
 
@@ -153,7 +153,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
 
 Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  if (!storage_->config_.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
+  if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   auto guard = std::unique_lock{edge_.ptr->lock};
 
@@ -175,7 +175,7 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAccessor::UpdateProperties(
     std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  if (!storage_->config_.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
+  if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   auto guard = std::unique_lock{edge_.ptr->lock};
 
@@ -198,7 +198,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
-  if (!storage_->config_.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
+  if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   auto guard = std::unique_lock{edge_.ptr->lock};
 
@@ -222,22 +222,22 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 }
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
-  if (!storage_->config_.items.properties_on_edges) return PropertyValue();
+  if (!storage_->config_.salient.items.properties_on_edges) return PropertyValue();
   bool exists = true;
   bool deleted = false;
-  PropertyValue value;
+  std::optional<PropertyValue> value;
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted;
-    value = edge_.ptr->properties.GetProperty(property);
+    value.emplace(edge_.ptr->properties.GetProperty(property));
     delta = edge_.ptr->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         if (delta.property.key == property) {
-          value = delta.property.value;
+          *value = *delta.property.value;
         }
         break;
       }
@@ -261,11 +261,11 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
-  return std::move(value);
+  return *std::move(value);
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
-  if (!storage_->config_.items.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
+  if (!storage_->config_.salient.items.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
   bool exists = true;
   bool deleted = false;
   std::map<PropertyId, PropertyValue> properties;
@@ -281,15 +281,15 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
       case Delta::Action::SET_PROPERTY: {
         auto it = properties.find(delta.property.key);
         if (it != properties.end()) {
-          if (delta.property.value.IsNull()) {
+          if (delta.property.value->IsNull()) {
             // remove the property
             properties.erase(it);
           } else {
             // set the value
-            it->second = delta.property.value;
+            it->second = *delta.property.value;
           }
-        } else if (!delta.property.value.IsNull()) {
-          properties.emplace(delta.property.key, delta.property.value);
+        } else if (!delta.property.value->IsNull()) {
+          properties.emplace(delta.property.key, *delta.property.value);
         }
         break;
       }
@@ -317,7 +317,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
 }
 
 Gid EdgeAccessor::Gid() const noexcept {
-  if (storage_->config_.items.properties_on_edges) {
+  if (storage_->config_.salient.items.properties_on_edges) {
     return edge_.ptr->gid;
   }
   return edge_.gid;

@@ -56,6 +56,7 @@ target_link_libraries(mg-query PUBLIC dl
     mg-kvstore
     mg-memory
     mg::csv
+    mg::system
     mg-flags
     mg-dbms
     mg-events)

@@ -20,6 +20,7 @@ options { tokenVocab=MemgraphCypherLexer; }
 import Cypher ;
 
 memgraphCypherKeyword : cypherKeyword
+                      | ADD
                       | ACTIVE
                       | AFTER
                       | ALTER
@@ -48,10 +49,12 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DENY
                       | DROP
+                      | DO
                       | DUMP
                       | EDGE
                       | EDGE_TYPES
                       | EXECUTE
+                      | FAILOVER
                       | FOR
                       | FOREACH
                       | FREE
@@ -61,6 +64,8 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANT
                       | HEADER
                       | IDENTIFIED
+                      | INSTANCE
+                      | INSTANCES
                       | NODE_LABELS
                       | NULLIF
                       | IMPORT
@@ -151,6 +156,7 @@ query : cypherQuery
       | multiDatabaseQuery
       | showDatabases
       | edgeImportModeQuery
+      | coordinatorQuery
       ;
 
 cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -181,6 +187,12 @@ replicationQuery : setReplicationRole
                  | registerReplica
                  | dropReplica
                  | showReplicas
+                 ;
+
+coordinatorQuery : registerInstanceOnCoordinator
+                 | setInstanceToMain
+                 | showInstances
+                 | addCoordinatorInstance
                  ;
 
 triggerQuery : createTrigger
@@ -323,6 +335,7 @@ privilege : CREATE
           | STORAGE_MODE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
+          | COORDINATOR
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -364,14 +377,28 @@ setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
-replicaName : symbolicName ;
+showInstances : SHOW INSTANCES ;
+
+instanceName : symbolicName ;
 
 socketAddress : literal ;
 
-registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
+coordinatorSocketAddress : literal ;
+replicationSocketAddress : literal ;
+raftSocketAddress : literal ;
+
+registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
 
-dropReplica : DROP REPLICA replicaName ;
+registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ON coordinatorSocketAddress ( AS ASYNC ) ? WITH replicationSocketAddress ;
+
+setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
+
+raftServerId : literal ;
+
+addCoordinatorInstance : ADD COORDINATOR raftServerId ON raftSocketAddress ;
+
+dropReplica : DROP REPLICA instanceName ;
 
 showReplicas : SHOW REPLICAS ;
 
@@ -480,6 +507,7 @@ transactionId : literal ;
 multiDatabaseQuery : createDatabase
                    | useDatabase
                    | dropDatabase
+                   | showDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
@@ -487,6 +515,8 @@ createDatabase : CREATE DATABASE databaseName ;
 useDatabase : USE DATABASE databaseName ;
 
 dropDatabase : DROP DATABASE databaseName ;
+
+showDatabase : SHOW DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 

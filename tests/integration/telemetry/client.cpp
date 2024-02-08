@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "glue/auth_checker.hpp"
+#include "glue/auth_global.hpp"
 #include "glue/auth_handler.hpp"
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
@@ -32,23 +33,30 @@ int main(int argc, char **argv) {
 
   // Memgraph backend
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_telemetry_integration_test"};
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory /
-                                                                                                     "auth"};
-  memgraph::glue::AuthQueryHandler auth_handler(&auth_, "");
+  memgraph::auth::SynchedAuth auth_{
+      data_directory / "auth",
+      memgraph::auth::Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, "", true}};
+  memgraph::glue::AuthQueryHandler auth_handler(&auth_);
   memgraph::glue::AuthChecker auth_checker(&auth_);
 
   memgraph::storage::Config db_config;
   memgraph::storage::UpdatePaths(db_config, data_directory);
   memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(db_config));
 
-  memgraph::dbms::DbmsHandler dbms_handler(db_config
+  memgraph::system::System system_state;
+  memgraph::dbms::DbmsHandler dbms_handler(db_config, system_state, repl_state
 #ifdef MG_ENTERPRISE
                                            ,
-                                           &auth_, false, false
+                                           auth_, false
 #endif
   );
-  memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, &repl_state, &auth_handler,
-                                                           &auth_checker);
+  memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, &repl_state, system_state
+#ifdef MG_ENTERPRISE
+                                                           ,
+                                                           nullptr
+#endif
+                                                           ,
+                                                           &auth_handler, &auth_checker);
 
   memgraph::requests::Init();
   memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory, memgraph::utils::GenerateUUID(),
@@ -63,9 +71,9 @@ int main(int argc, char **argv) {
   });
 
   // Memgraph specific collectors
-  telemetry.AddStorageCollector(dbms_handler, auth_);
+  telemetry.AddStorageCollector(dbms_handler, auth_, repl_state);
 #ifdef MG_ENTERPRISE
-  telemetry.AddDatabaseCollector(dbms_handler);
+  telemetry.AddDatabaseCollector(dbms_handler, repl_state);
 #else
   telemetry.AddDatabaseCollector();
 #endif

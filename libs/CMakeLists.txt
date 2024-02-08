@@ -294,3 +294,10 @@ set_path_external_library(jemalloc STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
 
 import_header_library(rangev3 ${CMAKE_CURRENT_SOURCE_DIR}/rangev3/include)
+
+# Setup NuRaft
+import_external_library(nuraft STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
+find_package(OpenSSL REQUIRED)
+target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})

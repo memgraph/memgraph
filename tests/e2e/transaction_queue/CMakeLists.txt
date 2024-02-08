@@ -6,3 +6,5 @@ copy_query_modules_reloading_procedures_e2e_python_files(common.py)
 copy_query_modules_reloading_procedures_e2e_python_files(test_transaction_queue.py)
 
 add_subdirectory(procedures)
+
+copy_e2e_files(transaction_queue workloads.yaml)

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
@@ -26,7 +27,8 @@ namespace memgraph::storage {
 // contained in the internal buffer and the file.
 class InMemoryCurrentWalHandler {
  public:
-  explicit InMemoryCurrentWalHandler(InMemoryStorage const *storage, rpc::Client &rpc_client);
+  explicit InMemoryCurrentWalHandler(const utils::UUID &main_uuid, InMemoryStorage const *storage,
+                                     rpc::Client &rpc_client);
   void AppendFilename(const std::string &filename);
 
   void AppendSize(size_t size);
@@ -43,8 +45,9 @@ class InMemoryCurrentWalHandler {
 };
 
 ////// CurrentWalHandler //////
-InMemoryCurrentWalHandler::InMemoryCurrentWalHandler(InMemoryStorage const *storage, rpc::Client &rpc_client)
-    : stream_(rpc_client.Stream<replication::CurrentWalRpc>(storage->id())) {}
+InMemoryCurrentWalHandler::InMemoryCurrentWalHandler(const utils::UUID &main_uuid, InMemoryStorage const *storage,
+                                                     rpc::Client &rpc_client)
+    : stream_(rpc_client.Stream<replication::CurrentWalRpc>(main_uuid, storage->uuid())) {}
 
 void InMemoryCurrentWalHandler::AppendFilename(const std::string &filename) {
   replication::Encoder encoder(stream_.GetBuilder());
@@ -69,10 +72,10 @@ void InMemoryCurrentWalHandler::AppendBufferData(const uint8_t *buffer, const si
 replication::CurrentWalRes InMemoryCurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
 
 ////// ReplicationClient Helpers //////
-replication::WalFilesRes TransferWalFiles(std::string db_name, rpc::Client &client,
+replication::WalFilesRes TransferWalFiles(const utils::UUID &main_uuid, const utils::UUID &uuid, rpc::Client &client,
                                           const std::vector<std::filesystem::path> &wal_files) {
   MG_ASSERT(!wal_files.empty(), "Wal files list is empty!");
-  auto stream = client.Stream<replication::WalFilesRpc>(std::move(db_name), wal_files.size());
+  auto stream = client.Stream<replication::WalFilesRpc>(main_uuid, uuid, wal_files.size());
   replication::Encoder encoder(stream.GetBuilder());
   for (const auto &wal : wal_files) {
     spdlog::debug("Sending wal file: {}", wal);
@@ -81,15 +84,17 @@ replication::WalFilesRes TransferWalFiles(std::string db_name, rpc::Client &clie
   return stream.AwaitResponse();
 }
 
-replication::SnapshotRes TransferSnapshot(std::string db_name, rpc::Client &client, const std::filesystem::path &path) {
-  auto stream = client.Stream<replication::SnapshotRpc>(std::move(db_name));
+replication::SnapshotRes TransferSnapshot(const utils::UUID &main_uuid, const utils::UUID &uuid, rpc::Client &client,
+                                          const std::filesystem::path &path) {
+  auto stream = client.Stream<replication::SnapshotRpc>(main_uuid, uuid);
   replication::Encoder encoder(stream.GetBuilder());
   encoder.WriteFile(path);
   return stream.AwaitResponse();
 }
 
-uint64_t ReplicateCurrentWal(const InMemoryStorage *storage, rpc::Client &client, durability::WalFile const &wal_file) {
-  InMemoryCurrentWalHandler stream{storage, client};
+uint64_t ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage, rpc::Client &client,
+                             durability::WalFile const &wal_file) {
+  InMemoryCurrentWalHandler stream{main_uuid, storage, client};
   stream.AppendFilename(wal_file.Path().filename());
   utils::InputFile file;
   MG_ASSERT(file.Open(wal_file.Path()), "Failed to open current WAL file at {}!", wal_file.Path());

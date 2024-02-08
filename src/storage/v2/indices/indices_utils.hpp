@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,11 +21,18 @@
 
 namespace memgraph::storage {
 
+namespace {
+
+template <Delta::Action... actions>
+struct ActionSet {
+  constexpr bool contains(Delta::Action action) const { return ((action == actions) || ...); }
+};
+
 /// Traverses deltas visible from transaction with start timestamp greater than
 /// the provided timestamp, and calls the provided callback function for each
 /// delta. If the callback ever returns true, traversal is stopped and the
 /// function returns true. Otherwise, the function returns false.
-template <typename TCallback>
+template <ActionSet interesting, typename TCallback>
 inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta, const TCallback &predicate) {
   while (delta != nullptr) {
     const auto ts = delta->timestamp->load(std::memory_order_acquire);
@@ -33,7 +40,7 @@ inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta,
     if (ts < timestamp) {
       break;
     }
-    if (predicate(*delta)) {
+    if (interesting.contains(delta->action) && predicate(*delta)) {
       return true;
     }
     // Move to the next delta.
@@ -41,6 +48,8 @@ inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta,
   }
   return false;
 }
+
+}  // namespace
 
 /// Helper function for label index garbage collection. Returns true if there's
 /// a reachable version of the vertex that has the given label.
@@ -57,16 +66,19 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
   if (!deleted && has_label) {
     return true;
   }
-  return AnyVersionSatisfiesPredicate(timestamp, delta, [&has_label, &deleted, label](const Delta &delta) {
+  constexpr auto interesting =
+      ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL, Delta::Action::RECREATE_OBJECT,
+                Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  return AnyVersionSatisfiesPredicate<interesting>(timestamp, delta, [&has_label, &deleted, label](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::ADD_LABEL:
-        if (delta.label == label) {
+        if (delta.label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
         }
         break;
       case Delta::Action::REMOVE_LABEL:
-        if (delta.label == label) {
+        if (delta.label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
         }
@@ -98,10 +110,10 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
 /// property value.
 inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId key, const PropertyValue &value,
                                        uint64_t timestamp) {
-  bool has_label{false};
-  bool current_value_equal_to_value{value.IsNull()};
-  bool deleted{false};
-  const Delta *delta = nullptr;
+  Delta const *delta;
+  bool deleted;
+  bool has_label;
+  bool current_value_equal_to_value;
   {
     auto guard = std::shared_lock{vertex.lock};
     delta = vertex.delta;
@@ -116,24 +128,27 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
     return true;
   }
 
-  return AnyVersionSatisfiesPredicate(
+  constexpr auto interesting = ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL,
+                                         Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
+                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  return AnyVersionSatisfiesPredicate<interesting>(
       timestamp, delta, [&has_label, &current_value_equal_to_value, &deleted, label, key, &value](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_LABEL:
-            if (delta.label == label) {
+            if (delta.label.value == label) {
               MG_ASSERT(!has_label, "Invalid database state!");
               has_label = true;
             }
             break;
           case Delta::Action::REMOVE_LABEL:
-            if (delta.label == label) {
+            if (delta.label.value == label) {
               MG_ASSERT(has_label, "Invalid database state!");
               has_label = false;
             }
             break;
           case Delta::Action::SET_PROPERTY:
             if (delta.property.key == key) {
-              current_value_equal_to_value = delta.property.value == value;
+              current_value_equal_to_value = *delta.property.value == value;
             }
             break;
           case Delta::Action::RECREATE_OBJECT: {
