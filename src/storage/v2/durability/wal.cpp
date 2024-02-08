@@ -603,7 +603,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
     case Delta::Action::REMOVE_LABEL: {
       encoder->WriteMarker(VertexActionToMarker(delta.action));
       encoder->WriteUint(vertex.gid.AsUint());
-      encoder->WriteString(name_id_mapper->IdToName(delta.label.AsUint()));
+      encoder->WriteString(name_id_mapper->IdToName(delta.label.value.AsUint()));
       break;
     }
     case Delta::Action::ADD_OUT_EDGE:

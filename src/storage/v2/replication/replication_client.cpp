@@ -14,6 +14,7 @@
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
 
 #include <algorithm>
@@ -25,8 +26,9 @@ template <typename>
 
 namespace memgraph::storage {
 
-ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::ReplicationClient &client)
-    : client_{client} {}
+ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::ReplicationClient &client,
+                                                   utils::UUID main_uuid)
+    : client_{client}, main_uuid_(main_uuid) {}
 
 void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc) {
   uint64_t current_commit_timestamp{kTimestampInitialId};
@@ -34,14 +36,13 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   auto &replStorageState = storage->repl_storage_state_;
 
   auto hb_stream{client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-      storage->uuid(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()})};
-
+      main_uuid_, storage->uuid(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()})};
   const auto replica = hb_stream.AwaitResponse();
 
 #ifdef MG_ENTERPRISE       // Multi-tenancy is only supported in enterprise
   if (!replica.success) {  // Replica is missing the current database
     client_.state_.WithLock([&](auto &state) {
-      spdlog::debug("Replica '{}' missing database '{}' - '{}'", client_.name_, storage->name(),
+      spdlog::debug("Replica '{}' can't respond or missing database '{}' - '{}'", client_.name_, storage->name(),
                     std::string{storage->uuid()});
       state = memgraph::replication::ReplicationClient::State::BEHIND;
     });
@@ -95,7 +96,7 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
   info.current_number_of_timestamp_behind_master = 0;
 
   try {
-    auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(storage->uuid())};
+    auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(main_uuid_, storage->uuid())};
     const auto response = stream.AwaitResponse();
     const auto is_success = response.success;
 
@@ -173,7 +174,7 @@ void ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
     case READY:
       MG_ASSERT(!replica_stream_);
       try {
-        replica_stream_.emplace(storage, client_.rpc_client_, current_wal_seq_num);
+        replica_stream_.emplace(storage, client_.rpc_client_, current_wal_seq_num, main_uuid_);
         *locked_state = REPLICATING;
       } catch (const rpc::RpcFailedException &) {
         *locked_state = MAYBE_BEHIND;
@@ -183,6 +184,9 @@ void ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
   }
 }
 
+//////// AF: you can't finialize transaction replication if you are not replicating
+/////// AF: if there is no stream or it is Defunct than we need to set replica in MAYBE_BEHIND -> is that even used
+/////// AF:
 bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc) {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
@@ -256,36 +260,38 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
       spdlog::trace("Recovering in step: {}", i++);
       try {
         rpc::Client &rpcClient = client_.rpc_client_;
-        std::visit(utils::Overloaded{
-                       [&replica_commit, mem_storage, &rpcClient](RecoverySnapshot const &snapshot) {
-                         spdlog::debug("Sending the latest snapshot file: {}", snapshot);
-                         auto response = TransferSnapshot(mem_storage->uuid(), rpcClient, snapshot);
-                         replica_commit = response.current_commit_timestamp;
-                       },
-                       [&replica_commit, mem_storage, &rpcClient](RecoveryWals const &wals) {
-                         spdlog::debug("Sending the latest wal files");
-                         auto response = TransferWalFiles(mem_storage->uuid(), rpcClient, wals);
-                         replica_commit = response.current_commit_timestamp;
-                         spdlog::debug("Wal files successfully transferred.");
-                       },
-                       [&replica_commit, mem_storage, &rpcClient](RecoveryCurrentWal const &current_wal) {
-                         std::unique_lock transaction_guard(mem_storage->engine_lock_);
-                         if (mem_storage->wal_file_ &&
-                             mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
-                           utils::OnScopeExit on_exit([mem_storage]() { mem_storage->wal_file_->EnableFlushing(); });
-                           mem_storage->wal_file_->DisableFlushing();
-                           transaction_guard.unlock();
-                           spdlog::debug("Sending current wal file");
-                           replica_commit = ReplicateCurrentWal(mem_storage, rpcClient, *mem_storage->wal_file_);
-                         } else {
-                           spdlog::debug("Cannot recover using current wal file");
-                         }
-                       },
-                       [](auto const &in) {
-                         static_assert(always_false_v<decltype(in)>, "Missing type from variant visitor");
-                       },
-                   },
-                   recovery_step);
+        std::visit(
+            utils::Overloaded{
+                [&replica_commit, mem_storage, &rpcClient, main_uuid = main_uuid_](RecoverySnapshot const &snapshot) {
+                  spdlog::debug("Sending the latest snapshot file: {}", snapshot);
+                  auto response = TransferSnapshot(main_uuid, mem_storage->uuid(), rpcClient, snapshot);
+                  replica_commit = response.current_commit_timestamp;
+                },
+                [&replica_commit, mem_storage, &rpcClient, main_uuid = main_uuid_](RecoveryWals const &wals) {
+                  spdlog::debug("Sending the latest wal files");
+                  auto response = TransferWalFiles(main_uuid, mem_storage->uuid(), rpcClient, wals);
+                  replica_commit = response.current_commit_timestamp;
+                  spdlog::debug("Wal files successfully transferred.");
+                },
+                [&replica_commit, mem_storage, &rpcClient,
+                 main_uuid = main_uuid_](RecoveryCurrentWal const &current_wal) {
+                  std::unique_lock transaction_guard(mem_storage->engine_lock_);
+                  if (mem_storage->wal_file_ &&
+                      mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
+                    utils::OnScopeExit on_exit([mem_storage]() { mem_storage->wal_file_->EnableFlushing(); });
+                    mem_storage->wal_file_->DisableFlushing();
+                    transaction_guard.unlock();
+                    spdlog::debug("Sending current wal file");
+                    replica_commit = ReplicateCurrentWal(main_uuid, mem_storage, rpcClient, *mem_storage->wal_file_);
+                  } else {
+                    spdlog::debug("Cannot recover using current wal file");
+                  }
+                },
+                [](auto const &in) {
+                  static_assert(always_false_v<decltype(in)>, "Missing type from variant visitor");
+                },
+            },
+            recovery_step);
       } catch (const rpc::RpcFailedException &) {
         replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
         LogRpcFailure();
@@ -314,10 +320,12 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
 }
 
 ////// ReplicaStream //////
-ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const uint64_t current_seq_num)
+ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const uint64_t current_seq_num,
+                             utils::UUID main_uuid)
     : storage_{storage},
       stream_(rpc_client.Stream<replication::AppendDeltasRpc>(
-          storage->uuid(), storage->repl_storage_state_.last_commit_timestamp_.load(), current_seq_num)) {
+          main_uuid, storage->uuid(), storage->repl_storage_state_.last_commit_timestamp_.load(), current_seq_num)),
+      main_uuid_(main_uuid) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
 }

@@ -27,17 +27,22 @@ struct UpdateAuthDataReq {
   static void Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
   static void Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
   UpdateAuthDataReq() = default;
-  UpdateAuthDataReq(std::string epoch_id, uint64_t expected_ts, uint64_t new_ts, auth::User user)
-      : epoch_id{std::move(epoch_id)},
+  UpdateAuthDataReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_ts, uint64_t new_ts,
+                    auth::User user)
+      : main_uuid(main_uuid),
+        epoch_id{std::move(epoch_id)},
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         user{std::move(user)} {}
-  UpdateAuthDataReq(std::string epoch_id, uint64_t expected_ts, uint64_t new_ts, auth::Role role)
-      : epoch_id{std::move(epoch_id)},
+  UpdateAuthDataReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_ts, uint64_t new_ts,
+                    auth::Role role)
+      : main_uuid(main_uuid),
+        epoch_id{std::move(epoch_id)},
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         role{std::move(role)} {}
 
+  utils::UUID main_uuid;
   std::string epoch_id;
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;
@@ -69,13 +74,16 @@ struct DropAuthDataReq {
 
   enum class DataType { USER, ROLE };
 
-  DropAuthDataReq(std::string epoch_id, uint64_t expected_ts, uint64_t new_ts, DataType type, std::string_view name)
-      : epoch_id{std::move(epoch_id)},
+  DropAuthDataReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_ts, uint64_t new_ts,
+                  DataType type, std::string_view name)
+      : main_uuid(main_uuid),
+        epoch_id{std::move(epoch_id)},
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         type{type},
         name{name} {}
 
+  utils::UUID main_uuid;
   std::string epoch_id;
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;

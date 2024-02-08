@@ -77,10 +77,12 @@ void Load(memgraph::coordination::PromoteReplicaToMainRes *self, memgraph::slk::
 }
 
 void Save(const memgraph::coordination::PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid_, builder);
   memgraph::slk::Save(self.replication_clients_info, builder);
 }
 
 void Load(memgraph::coordination::PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid_, reader);
   memgraph::slk::Load(&self->replication_clients_info, reader);
 }
 

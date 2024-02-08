@@ -54,7 +54,7 @@ struct ReplicationClient {
             } catch (const rpc::RpcFailedException &) {
               // Nothing to do...wait for a reconnect
               // NOTE: Here we are communicating with the instance connection.
-              //       We don't have access to the undelying client; so the only thing we can do it
+              //       We don't have access to the underlying client; so the only thing we can do it
               //       tell the callback that this is a reconnection and to check the state
               reconnect = true;
             }
@@ -106,6 +106,9 @@ struct ReplicationClient {
   communication::ClientContext rpc_context_;
   rpc::Client rpc_client_;
   std::chrono::seconds replica_check_frequency_;
+  // True only when we are migrating from V1 or V2 to V3 in replication durability
+  // and we want to set replica to listen to main
+  bool try_set_uuid{false};
 
   // TODO: Better, this was the easiest place to put this
   enum class State {

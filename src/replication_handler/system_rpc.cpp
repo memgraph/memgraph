@@ -29,15 +29,16 @@ void Load(memgraph::replication::SystemHeartbeatRes *self, memgraph::slk::Reader
 }
 
 // Serialize code for SystemHeartbeatReq
-void Save(const memgraph::replication::SystemHeartbeatReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
-  /* Nothing to serialize */
+void Save(const memgraph::replication::SystemHeartbeatReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
 }
-void Load(memgraph::replication::SystemHeartbeatReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
-  /* Nothing to serialize */
+void Load(memgraph::replication::SystemHeartbeatReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
 }
 
 // Serialize code for SystemRecoveryReq
 void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.forced_group_timestamp, builder);
   memgraph::slk::Save(self.database_configs, builder);
   memgraph::slk::Save(self.auth_config, builder);
@@ -46,6 +47,7 @@ void Save(const memgraph::replication::SystemRecoveryReq &self, memgraph::slk::B
 }
 
 void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->forced_group_timestamp, reader);
   memgraph::slk::Load(&self->database_configs, reader);
   memgraph::slk::Load(&self->auth_config, reader);

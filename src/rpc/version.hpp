@@ -28,6 +28,9 @@ constexpr auto v1 = Version{2023'10'30'0'2'13};
 // for any TypeIds that get added.
 constexpr auto v2 = Version{2023'12'07'0'2'14};
 
-constexpr auto current_version = v2;
+// To each RPC main uuid was added
+constexpr auto v3 = Version{2024'02'02'0'2'14};
+
+constexpr auto current_version = v3;
 
 }  // namespace memgraph::rpc

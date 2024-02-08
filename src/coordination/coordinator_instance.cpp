@@ -13,71 +13,85 @@
 
 #include "coordination/coordinator_instance.hpp"
 
+#include "coordination/coordinator_exceptions.hpp"
+#include "nuraft/coordinator_state_machine.hpp"
+#include "nuraft/coordinator_state_manager.hpp"
+#include "utils/counter.hpp"
+
 namespace memgraph::coordination {
 
-CoordinatorInstance::CoordinatorInstance(CoordinatorData *data, CoordinatorClientConfig config,
-                                         HealthCheckCallback succ_cb, HealthCheckCallback fail_cb)
-    : client_(data, std::move(config), std::move(succ_cb), std::move(fail_cb)),
-      replication_role_(replication_coordination_glue::ReplicationRole::REPLICA),
-      is_alive_(true) {
-  if (!client_.DemoteToReplica()) {
-    throw CoordinatorRegisterInstanceException("Failed to demote instance {} to replica", client_.InstanceName());
-  }
-  client_.StartFrequentCheck();
-}
+using nuraft::asio_service;
+using nuraft::cmd_result;
+using nuraft::cs_new;
+using nuraft::ptr;
+using nuraft::raft_params;
+using nuraft::srv_config;
+using raft_result = cmd_result<ptr<buffer>>;
 
-auto CoordinatorInstance::OnSuccessPing() -> void {
-  last_response_time_ = std::chrono::system_clock::now();
-  is_alive_ = true;
-}
+CoordinatorInstance::CoordinatorInstance()
+    : raft_server_id_(FLAGS_raft_server_id), raft_port_(FLAGS_raft_server_port), raft_address_("127.0.0.1") {
+  auto raft_endpoint = raft_address_ + ":" + std::to_string(raft_port_);
+  state_manager_ = cs_new<CoordinatorStateManager>(raft_server_id_, raft_endpoint);
+  state_machine_ = cs_new<CoordinatorStateMachine>();
+  logger_ = nullptr;
 
-auto CoordinatorInstance::OnFailPing() -> bool {
-  is_alive_ =
-      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_response_time_).count() <
-      CoordinatorClusterConfig::alive_response_time_difference_sec_;
-  return is_alive_;
-}
+  // ASIO options
+  asio_service::options asio_opts;
+  asio_opts.thread_pool_size_ = 1;  // TODO: (andi) Improve this
 
-auto CoordinatorInstance::InstanceName() const -> std::string { return client_.InstanceName(); }
-auto CoordinatorInstance::SocketAddress() const -> std::string { return client_.SocketAddress(); }
-auto CoordinatorInstance::IsAlive() const -> bool { return is_alive_; }
+  // RAFT parameters. Heartbeat every 100ms, election timeout between 200ms and 400ms.
+  raft_params params;
+  params.heart_beat_interval_ = 100;
+  params.election_timeout_lower_bound_ = 200;
+  params.election_timeout_upper_bound_ = 400;
+  // 5 logs are preserved before the last snapshot
+  params.reserved_log_items_ = 5;
+  // Create snapshot for every 5 log appends
+  params.snapshot_distance_ = 5;
+  params.client_req_timeout_ = 3000;
+  params.return_method_ = raft_params::blocking;
 
-auto CoordinatorInstance::IsReplica() const -> bool {
-  return replication_role_ == replication_coordination_glue::ReplicationRole::REPLICA;
-}
-auto CoordinatorInstance::IsMain() const -> bool {
-  return replication_role_ == replication_coordination_glue::ReplicationRole::MAIN;
-}
+  raft_server_ =
+      launcher_.init(state_machine_, state_manager_, logger_, static_cast<int>(raft_port_), asio_opts, params);
 
-auto CoordinatorInstance::PromoteToMain(ReplicationClientsInfo repl_clients_info, HealthCheckCallback main_succ_cb,
-                                        HealthCheckCallback main_fail_cb) -> bool {
-  if (!client_.SendPromoteReplicaToMainRpc(std::move(repl_clients_info))) {
-    return false;
+  if (!raft_server_) {
+    throw RaftServerStartException("Failed to launch raft server on {}", raft_endpoint);
   }
 
-  replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
-  client_.SetCallbacks(std::move(main_succ_cb), std::move(main_fail_cb));
-
-  return true;
-}
-
-auto CoordinatorInstance::DemoteToReplica(HealthCheckCallback replica_succ_cb, HealthCheckCallback replica_fail_cb)
-    -> bool {
-  if (!client_.DemoteToReplica()) {
-    return false;
+  auto maybe_stop = utils::ResettableCounter<20>();
+  while (!raft_server_->is_initialized() && !maybe_stop()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
   }
 
-  replication_role_ = replication_coordination_glue::ReplicationRole::REPLICA;
-  client_.SetCallbacks(std::move(replica_succ_cb), std::move(replica_fail_cb));
+  if (!raft_server_->is_initialized()) {
+    throw RaftServerStartException("Failed to initialize raft server on {}", raft_endpoint);
+  }
 
-  return true;
+  spdlog::info("Raft server started on {}", raft_endpoint);
 }
 
-auto CoordinatorInstance::PauseFrequentCheck() -> void { client_.PauseFrequentCheck(); }
-auto CoordinatorInstance::ResumeFrequentCheck() -> void { client_.ResumeFrequentCheck(); }
+auto CoordinatorInstance::InstanceName() const -> std::string {
+  return "coordinator_" + std::to_string(raft_server_id_);
+}
 
-auto CoordinatorInstance::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo {
-  return client_.ReplicationClientInfo();
+auto CoordinatorInstance::RaftSocketAddress() const -> std::string {
+  return raft_address_ + ":" + std::to_string(raft_port_);
+}
+
+auto CoordinatorInstance::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)
+    -> void {
+  auto const endpoint = raft_address + ":" + std::to_string(raft_port);
+  srv_config const srv_config_to_add(static_cast<int>(raft_server_id), endpoint);
+  if (!raft_server_->add_srv(srv_config_to_add)->get_accepted()) {
+    throw RaftAddServerException("Failed to add server {} to the cluster", endpoint);
+  }
+  spdlog::info("Request to add server {} to the cluster accepted", endpoint);
+}
+
+auto CoordinatorInstance::GetAllCoordinators() const -> std::vector<ptr<srv_config>> {
+  std::vector<ptr<srv_config>> all_srv_configs;
+  raft_server_->get_srv_config_all(all_srv_configs);
+  return all_srv_configs;
 }
 
 }  // namespace memgraph::coordination

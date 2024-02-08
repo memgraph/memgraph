@@ -27,7 +27,7 @@ struct ISystemAction {
   virtual void DoDurability() = 0;
 
   /// Prepare the RPC payload that will be sent to all replicas clients
-  virtual bool DoReplication(memgraph::replication::ReplicationClient &client,
+  virtual bool DoReplication(memgraph::replication::ReplicationClient &client, const utils::UUID &main_uuid,
                              memgraph::replication::ReplicationEpoch const &epoch,
                              Transaction const &system_tx) const = 0;
 

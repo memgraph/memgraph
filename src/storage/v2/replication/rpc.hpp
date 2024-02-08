@@ -32,9 +32,11 @@ struct AppendDeltasReq {
   static void Load(AppendDeltasReq *self, memgraph::slk::Reader *reader);
   static void Save(const AppendDeltasReq &self, memgraph::slk::Builder *builder);
   AppendDeltasReq() = default;
-  AppendDeltasReq(const utils::UUID &uuid, uint64_t previous_commit_timestamp, uint64_t seq_num)
-      : uuid{uuid}, previous_commit_timestamp(previous_commit_timestamp), seq_num(seq_num) {}
+  AppendDeltasReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t previous_commit_timestamp,
+                  uint64_t seq_num)
+      : main_uuid{main_uuid}, uuid{uuid}, previous_commit_timestamp(previous_commit_timestamp), seq_num(seq_num) {}
 
+  utils::UUID main_uuid;
   utils::UUID uuid;
   uint64_t previous_commit_timestamp;
   uint64_t seq_num;
@@ -63,9 +65,11 @@ struct HeartbeatReq {
   static void Load(HeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const HeartbeatReq &self, memgraph::slk::Builder *builder);
   HeartbeatReq() = default;
-  HeartbeatReq(const utils::UUID &uuid, uint64_t main_commit_timestamp, std::string epoch_id)
-      : uuid{uuid}, main_commit_timestamp(main_commit_timestamp), epoch_id(std::move(epoch_id)) {}
+  HeartbeatReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t main_commit_timestamp,
+               std::string epoch_id)
+      : main_uuid(main_uuid), uuid{uuid}, main_commit_timestamp(main_commit_timestamp), epoch_id(std::move(epoch_id)) {}
 
+  utils::UUID main_uuid;
   utils::UUID uuid;
   uint64_t main_commit_timestamp;
   std::string epoch_id;
@@ -95,8 +99,9 @@ struct SnapshotReq {
   static void Load(SnapshotReq *self, memgraph::slk::Reader *reader);
   static void Save(const SnapshotReq &self, memgraph::slk::Builder *builder);
   SnapshotReq() = default;
-  explicit SnapshotReq(const utils::UUID &uuid) : uuid{uuid} {}
+  explicit SnapshotReq(const utils::UUID &main_uuid, const utils::UUID &uuid) : main_uuid{main_uuid}, uuid{uuid} {}
 
+  utils::UUID main_uuid;
   utils::UUID uuid;
 };
 
@@ -123,8 +128,10 @@ struct WalFilesReq {
   static void Load(WalFilesReq *self, memgraph::slk::Reader *reader);
   static void Save(const WalFilesReq &self, memgraph::slk::Builder *builder);
   WalFilesReq() = default;
-  explicit WalFilesReq(const utils::UUID &uuid, uint64_t file_number) : uuid{uuid}, file_number(file_number) {}
+  explicit WalFilesReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t file_number)
+      : main_uuid{main_uuid}, uuid{uuid}, file_number(file_number) {}
 
+  utils::UUID main_uuid;
   utils::UUID uuid;
   uint64_t file_number;
 };
@@ -152,8 +159,9 @@ struct CurrentWalReq {
   static void Load(CurrentWalReq *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalReq &self, memgraph::slk::Builder *builder);
   CurrentWalReq() = default;
-  explicit CurrentWalReq(const utils::UUID &uuid) : uuid{uuid} {}
+  explicit CurrentWalReq(const utils::UUID &main_uuid, const utils::UUID &uuid) : main_uuid(main_uuid), uuid{uuid} {}
 
+  utils::UUID main_uuid;
   utils::UUID uuid;
 };
 
@@ -180,8 +188,9 @@ struct TimestampReq {
   static void Load(TimestampReq *self, memgraph::slk::Reader *reader);
   static void Save(const TimestampReq &self, memgraph::slk::Builder *builder);
   TimestampReq() = default;
-  explicit TimestampReq(const utils::UUID &uuid) : uuid{uuid} {}
+  explicit TimestampReq(const utils::UUID &main_uuid, const utils::UUID &uuid) : main_uuid(main_uuid), uuid{uuid} {}
 
+  utils::UUID main_uuid;
   utils::UUID uuid;
 };
 

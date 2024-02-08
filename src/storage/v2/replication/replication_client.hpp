@@ -28,6 +28,7 @@
 #include "utils/scheduler.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
+#include "utils/uuid.hpp"
 
 #include <atomic>
 #include <concepts>
@@ -48,7 +49,7 @@ class ReplicationStorageClient;
 // Handler used for transferring the current transaction.
 class ReplicaStream {
  public:
-  explicit ReplicaStream(Storage *storage, rpc::Client &rpc_client, uint64_t current_seq_num);
+  explicit ReplicaStream(Storage *storage, rpc::Client &rpc_client, uint64_t current_seq_num, utils::UUID main_uuid);
 
   /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
@@ -75,6 +76,7 @@ class ReplicaStream {
  private:
   Storage *storage_;
   rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
+  utils::UUID main_uuid_;
 };
 
 template <typename F>
@@ -87,7 +89,7 @@ class ReplicationStorageClient {
   friend struct ::memgraph::replication::ReplicationClient;
 
  public:
-  explicit ReplicationStorageClient(::memgraph::replication::ReplicationClient &client);
+  explicit ReplicationStorageClient(::memgraph::replication::ReplicationClient &client, utils::UUID main_uuid);
 
   ReplicationStorageClient(ReplicationStorageClient const &) = delete;
   ReplicationStorageClient &operator=(ReplicationStorageClient const &) = delete;
@@ -205,6 +207,8 @@ class ReplicationStorageClient {
       replica_stream_;  // Currently active stream (nullopt if not in use), note: a single stream per rpc client
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
+
+  const utils::UUID main_uuid_;
 };
 
 }  // namespace memgraph::storage

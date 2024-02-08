@@ -72,13 +72,13 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
   return AnyVersionSatisfiesPredicate<interesting>(timestamp, delta, [&has_label, &deleted, label](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::ADD_LABEL:
-        if (delta.label == label) {
+        if (delta.label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
         }
         break;
       case Delta::Action::REMOVE_LABEL:
-        if (delta.label == label) {
+        if (delta.label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
         }
@@ -135,20 +135,20 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
       timestamp, delta, [&has_label, &current_value_equal_to_value, &deleted, label, key, &value](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_LABEL:
-            if (delta.label == label) {
+            if (delta.label.value == label) {
               MG_ASSERT(!has_label, "Invalid database state!");
               has_label = true;
             }
             break;
           case Delta::Action::REMOVE_LABEL:
-            if (delta.label == label) {
+            if (delta.label.value == label) {
               MG_ASSERT(has_label, "Invalid database state!");
               has_label = false;
             }
             break;
           case Delta::Action::SET_PROPERTY:
             if (delta.property.key == key) {
-              current_value_equal_to_value = delta.property.value == value;
+              current_value_equal_to_value = *delta.property.value == value;
             }
             break;
           case Delta::Action::RECREATE_OBJECT: {

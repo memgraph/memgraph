@@ -17,14 +17,27 @@
 
 namespace memgraph::auth {
 
+void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
+                  std::string_view rpc_req) {
+  spdlog::error(fmt::format("Received {} with main_id: {} != current_main_uuid: {}", rpc_req, std::string(main_req_id),
+                            current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : ""));
+}
+
 #ifdef MG_ENTERPRISE
-void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access, auth::SynchedAuth &auth,
+void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                           const std::optional<utils::UUID> &current_main_uuid, auth::SynchedAuth &auth,
                            slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::UpdateAuthDataReq req;
   memgraph::slk::Load(&req, req_reader);
 
   using memgraph::replication::UpdateAuthDataRes;
   UpdateAuthDataRes res(false);
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, replication::UpdateAuthDataReq::kType.name);
+    memgraph::slk::Save(res, res_builder);
+    return;
+  }
 
   // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
   //       of the set of databases. Hence no history exists to maintain regarding epoch change.
@@ -53,13 +66,20 @@ void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system
   memgraph::slk::Save(res, res_builder);
 }
 
-void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access, auth::SynchedAuth &auth,
+void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                         const std::optional<utils::UUID> &current_main_uuid, auth::SynchedAuth &auth,
                          slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::DropAuthDataReq req;
   memgraph::slk::Load(&req, req_reader);
 
   using memgraph::replication::DropAuthDataRes;
   DropAuthDataRes res(false);
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, replication::DropAuthDataRes::kType.name);
+    memgraph::slk::Save(res, res_builder);
+    return;
+  }
 
   // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
   //       of the set of databases. Hence no history exists to maintain regarding epoch change.
@@ -155,14 +175,14 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
               auth::SynchedAuth &auth) {
   // NOTE: Register even without license as the user could add a license at run-time
   data.server->rpc_server_.Register<replication::UpdateAuthDataRpc>(
-      [system_state_access, &auth](auto *req_reader, auto *res_builder) mutable {
+      [&data, system_state_access, &auth](auto *req_reader, auto *res_builder) mutable {
         spdlog::debug("Received UpdateAuthDataRpc");
-        UpdateAuthDataHandler(system_state_access, auth, req_reader, res_builder);
+        UpdateAuthDataHandler(system_state_access, data.uuid_, auth, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<replication::DropAuthDataRpc>(
-      [system_state_access, &auth](auto *req_reader, auto *res_builder) mutable {
+      [&data, system_state_access, &auth](auto *req_reader, auto *res_builder) mutable {
         spdlog::debug("Received DropAuthDataRpc");
-        DropAuthDataHandler(system_state_access, auth, req_reader, res_builder);
+        DropAuthDataHandler(system_state_access, data.uuid_, auth, req_reader, res_builder);
       });
 }
 #endif
