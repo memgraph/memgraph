@@ -17,7 +17,7 @@ PIP_DEPS=(
    "pyyaml==6.0.1"
    "six==1.15.0"
    "networkx==2.4"
-   "gqlalchemy==1.5.1"
+   "gqlalchemy==1.3.3"
 )
 
 # Remove old and create a new virtualenv.
