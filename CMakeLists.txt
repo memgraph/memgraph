@@ -275,7 +275,7 @@ option(MG_EXPERIMENTAL_HIGH_AVAILABILITY "Feature flag for experimental high ava
 
 if (NOT MG_ENTERPRISE AND MG_EXPERIMENTAL_HIGH_AVAILABILITY)
     set(MG_EXPERIMENTAL_HIGH_AVAILABILITY OFF)
-    message(FATAL_ERROR "MG_EXPERIMENTAL_HIGH_AVAILABILITY must be used with enterpise version of the code.")
+    message(FATAL_ERROR "MG_EXPERIMENTAL_HIGH_AVAILABILITY can only be used with enterpise version of the code.")
 endif ()
 
 if (MG_EXPERIMENTAL_HIGH_AVAILABILITY)

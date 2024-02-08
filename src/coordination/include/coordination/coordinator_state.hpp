@@ -14,8 +14,8 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_data.hpp"
-#include "coordination/coordinator_instance_status.hpp"
 #include "coordination/coordinator_server.hpp"
+#include "coordination/instance_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 
 #include <variant>
@@ -37,7 +37,9 @@ class CoordinatorState {
 
   [[nodiscard]] auto SetInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus;
 
-  auto ShowInstances() const -> std::vector<CoordinatorInstanceStatus>;
+  auto ShowInstances() const -> std::vector<InstanceStatus>;
+
+  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
 
   // The client code must check that the server exists before calling this method.
   auto GetCoordinatorServer() const -> CoordinatorServer &;

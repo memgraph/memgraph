@@ -3071,11 +3071,7 @@ class CoordinatorQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action {
-    REGISTER_INSTANCE,
-    SET_INSTANCE_TO_MAIN,
-    SHOW_REPLICATION_CLUSTER,
-  };
+  enum class Action { REGISTER_INSTANCE, SET_INSTANCE_TO_MAIN, SHOW_INSTANCES, ADD_COORDINATOR_INSTANCE };
 
   enum class SyncMode { SYNC, ASYNC };
 
@@ -3087,6 +3083,8 @@ class CoordinatorQuery : public memgraph::query::Query {
   std::string instance_name_;
   memgraph::query::Expression *replication_socket_address_{nullptr};
   memgraph::query::Expression *coordinator_socket_address_{nullptr};
+  memgraph::query::Expression *raft_socket_address_{nullptr};
+  memgraph::query::Expression *raft_server_id_{nullptr};
   memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
 
   CoordinatorQuery *Clone(AstStorage *storage) const override {
@@ -3098,6 +3096,8 @@ class CoordinatorQuery : public memgraph::query::Query {
     object->sync_mode_ = sync_mode_;
     object->coordinator_socket_address_ =
         coordinator_socket_address_ ? coordinator_socket_address_->Clone(storage) : nullptr;
+    object->raft_socket_address_ = raft_socket_address_ ? raft_socket_address_->Clone(storage) : nullptr;
+    object->raft_server_id_ = raft_server_id_ ? raft_server_id_->Clone(storage) : nullptr;
 
     return object;
   }
