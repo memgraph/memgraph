@@ -268,7 +268,7 @@ jobs:
           ctest -R memgraph__unit --output-on-failure -j$THREADS
 
       - name: Ensure Kafka and Pulsar are up
-        if: false
+        if: true
         run: |
           cd tests/e2e/streams/kafka
           docker-compose up -d
@@ -276,7 +276,7 @@ jobs:
           docker-compose up -d
 
       - name: Run e2e tests
-        if: false
+        if: true
         run: |
           cd tests
           ./setup.sh /opt/toolchain-v4/activate
@@ -285,7 +285,7 @@ jobs:
           ./run.sh
 
       - name: Ensure Kafka and Pulsar are down
-        if: false
+        if: true
         run: |
           cd tests/e2e/streams/kafka
           docker-compose down
