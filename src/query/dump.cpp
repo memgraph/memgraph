@@ -392,7 +392,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateTextIndicesPullChunk() {
     if (!indices_info_) {
       indices_info_.emplace(dba_->ListAllIndices());
     }
-    const auto &text = indices_info_->text;
+    const auto &text = indices_info_->text_indices;
 
     size_t local_counter = 0;
     while (global_index < text.size() && (!n || local_counter < *n)) {

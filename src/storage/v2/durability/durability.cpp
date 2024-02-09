@@ -199,10 +199,10 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 
   if (flags::run_time::GetExperimentalTextSearchEnabled()) {
     // Recover text indices.
-    spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text.size());
-    auto *mem_text_index = static_cast<TextIndex *>(indices->text_index_.get());
-    for (const auto &item : indices_metadata.text) {
-      if (!mem_text_index->RecoverIndex(item.first, item.second, vertices->access(), name_id_mapper))
+    spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
+    auto &mem_text_index = indices->text_index_;
+    for (const auto &item : indices_metadata.text_indices) {
+      if (!mem_text_index.RecoverIndex(item.first, item.second, vertices->access(), name_id_mapper))
         throw RecoveryFailure("The text index must be created here!");
       spdlog::info("Text index {} on :{} is recreated from metadata", item.first,
                    name_id_mapper->IdToName(item.second.AsUint()));

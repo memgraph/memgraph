@@ -14,6 +14,7 @@
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/storage.hpp"
 
 namespace memgraph::storage {
 
@@ -43,7 +44,7 @@ void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction 
   label_index_->UpdateOnAddLabel(label, vertex, tx);
   label_property_index_->UpdateOnAddLabel(label, vertex, tx);
   if (update_text_index) {
-    text_index_->UpdateOnAddLabel(label, vertex, storage, tx.start_timestamp);
+    text_index_.UpdateOnAddLabel(label, vertex, storage->name_id_mapper_.get(), tx.start_timestamp);
   }
 }
 
@@ -51,7 +52,7 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transacti
   label_index_->UpdateOnRemoveLabel(label, vertex, tx);
   label_property_index_->UpdateOnRemoveLabel(label, vertex, tx);
   if (update_text_index) {
-    text_index_->UpdateOnRemoveLabel(label, vertex, tx.start_timestamp);
+    text_index_.UpdateOnRemoveLabel(label, vertex, tx.start_timestamp);
   }
 }
 
@@ -59,13 +60,12 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &valu
                                   const Transaction &tx, Storage *storage, bool update_text_index) const {
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
   if (update_text_index) {
-    text_index_->UpdateOnSetProperty(vertex, storage, tx.start_timestamp);
+    text_index_.UpdateOnSetProperty(vertex, storage->name_id_mapper_.get(), tx.start_timestamp);
   }
 }
 
 Indices::Indices(const Config &config, StorageMode storage_mode) {
   std::invoke([this, config, storage_mode]() {
-    text_index_ = std::make_unique<TextIndex>();
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>();
       label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>();

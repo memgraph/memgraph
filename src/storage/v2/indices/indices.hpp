@@ -68,7 +68,7 @@ struct Indices {
 
   std::unique_ptr<LabelIndex> label_index_;
   std::unique_ptr<LabelPropertyIndex> label_property_index_;
-  std::unique_ptr<TextIndex> text_index_;
+  mutable TextIndex text_index_;
 };
 
 }  // namespace memgraph::storage

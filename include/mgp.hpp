@@ -4340,7 +4340,7 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
   return List(label_property_indices);
 }
 
-inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query) {
+inline List RunTextSearchQuery(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query) {
   auto results_or_error =
       Map(mgp::MemHandlerCallback(graph_search_text_index, memgraph_graph, index_name.data(), search_query.data()));
   auto maybe_error = results_or_error["error_msg"].ValueString();

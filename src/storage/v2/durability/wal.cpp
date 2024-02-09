@@ -950,14 +950,14 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
         case WalDeltaData::Type::TEXT_INDEX_CREATE: {
           auto index_name = delta.operation_text.index_name;
           auto label = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_text.label));
-          AddRecoveredIndexConstraint(&indices_constraints->indices.text, {index_name, label},
+          AddRecoveredIndexConstraint(&indices_constraints->indices.text_indices, {index_name, label},
                                       "The text index already exists!");
           break;
         }
         case WalDeltaData::Type::TEXT_INDEX_DROP: {
           auto index_name = delta.operation_text.index_name;
           auto label = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_text.label));
-          RemoveRecoveredIndexConstraint(&indices_constraints->indices.text, {index_name, label},
+          RemoveRecoveredIndexConstraint(&indices_constraints->indices.text_indices, {index_name, label},
                                          "The text index doesn't exist!");
           break;
         }

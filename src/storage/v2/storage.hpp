@@ -61,7 +61,7 @@ class EdgeAccessor;
 struct IndicesInfo {
   std::vector<LabelId> label;
   std::vector<std::pair<LabelId, PropertyId>> label_property;
-  std::vector<std::pair<std::string, LabelId>> text;
+  std::vector<std::pair<std::string, LabelId>> text_indices;
 };
 
 struct ConstraintsInfo {
@@ -228,23 +228,24 @@ class Storage {
     virtual bool LabelPropertyIndexExists(LabelId label, PropertyId property) const = 0;
 
     bool TextIndexExists(const std::string &index_name) const {
-      return storage_->indices_.text_index_->IndexExists(index_name);
+      return storage_->indices_.text_index_.IndexExists(index_name);
     }
 
     void TextIndexAddVertex(VertexAccessor *vertex) {
-      storage_->indices_.text_index_->AddNode(vertex->vertex_, storage_, storage_->timestamp_);
+      storage_->indices_.text_index_.AddNode(vertex->vertex_, storage_->name_id_mapper_.get(), storage_->timestamp_);
     }
 
     void TextIndexUpdateVertex(VertexAccessor *vertex) {
-      storage_->indices_.text_index_->UpdateNode(vertex->vertex_, storage_, storage_->timestamp_);
+      storage_->indices_.text_index_.UpdateNode(vertex->vertex_, storage_->name_id_mapper_.get(), storage_->timestamp_);
     }
 
     void TextIndexUpdateVertex(VertexAccessor *vertex, std::vector<LabelId> removed_labels) {
-      storage_->indices_.text_index_->UpdateNode(vertex->vertex_, storage_, storage_->timestamp_, removed_labels);
+      storage_->indices_.text_index_.UpdateNode(vertex->vertex_, storage_->name_id_mapper_.get(), storage_->timestamp_,
+                                                removed_labels);
     }
 
     std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query) const {
-      return storage_->indices_.text_index_->Search(index_name, search_query);
+      return storage_->indices_.text_index_.Search(index_name, search_query);
     }
 
     virtual IndicesInfo ListAllIndices() const = 0;
@@ -294,12 +295,12 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateTextIndex(const std::string &index_name,
                                                                                   LabelId label,
                                                                                   query::DbAccessor *db) {
-      storage_->indices_.text_index_->CreateIndex(index_name, label, db);
+      storage_->indices_.text_index_.CreateIndex(index_name, label, db);
       return {};
     }
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name) {
-      storage_->indices_.text_index_->DropIndex(index_name);
+      storage_->indices_.text_index_.DropIndex(index_name);
       return {};
     }
 

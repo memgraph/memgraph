@@ -33,9 +33,8 @@ struct TextIndexData {
 
 class TextIndex {
  private:
-  void AddNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp,
-               const std::vector<mgcxx::text_search::Context *> &applicable_text_indices,
-               bool skip_commit = kDoSkipCommit);
+  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper, const std::uint64_t transaction_start_timestamp,
+               const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(const std::vector<LabelId> &labels);
 
@@ -56,22 +55,22 @@ class TextIndex {
   std::map<std::string, TextIndexData> index_;
   std::map<LabelId, std::string> label_to_index_;
 
-  void AddNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp);
+  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper, const std::uint64_t transaction_start_timestamp);
 
-  void UpdateNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp);
+  void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper, const std::uint64_t transaction_start_timestamp);
 
-  void UpdateNode(Vertex *vertex, Storage *storage, const std::uint64_t transaction_start_timestamp,
+  void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper, const std::uint64_t transaction_start_timestamp,
                   const std::vector<LabelId> &removed_labels);
 
   void RemoveNode(Vertex *vertex);
 
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, Storage *storage,
+  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
                         const std::uint64_t transaction_start_timestamp);
 
   void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
                            const std::uint64_t transaction_start_timestamp);
 
-  void UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage,
+  void UpdateOnSetProperty(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
                            const std::uint64_t transaction_start_timestamp);
 
   bool CreateIndex(const std::string &index_name, LabelId label, memgraph::query::DbAccessor *db);

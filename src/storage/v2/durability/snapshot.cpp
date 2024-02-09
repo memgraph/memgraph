@@ -1640,8 +1640,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
-        AddRecoveredIndexConstraint(&indices_constraints.indices.text, {index_name.value(), get_label_from_id(*label)},
-                                    "The text index already exists!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
+                                    {index_name.value(), get_label_from_id(*label)}, "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -2127,7 +2127,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     // Write text indices.
     if (flags::run_time::GetExperimentalTextSearchEnabled()) {
-      auto text = storage->indices_.text_index_->ListIndices();
+      auto text = storage->indices_.text_index_.ListIndices();
       snapshot.WriteUint(text.size());
       for (const auto &item : text) {
         snapshot.WriteString(item.first);

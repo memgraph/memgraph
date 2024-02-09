@@ -877,7 +877,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     }
 
     if (flags::run_time::GetExperimentalTextSearchEnabled()) {
-      mem_storage->indices_.text_index_->Commit();
+      mem_storage->indices_.text_index_.Commit();
     }
   }
 
@@ -1202,7 +1202,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         storage_->indices_.AbortEntries(property, prop_vertices, transaction_.start_timestamp);
       }
       if (flags::run_time::GetExperimentalTextSearchEnabled()) {
-        storage_->indices_.text_index_->Rollback();
+        storage_->indices_.text_index_.Rollback();
       }
 
       // VERTICES
@@ -1803,7 +1803,7 @@ StorageInfo InMemoryStorage::GetInfo(bool force_directory,
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
-    info.text_indices = lbl.text.size();
+    info.text_indices = lbl.text_indices.size();
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();
@@ -2058,12 +2058,12 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
                                   final_commit_timestamp);
       } break;
       case MetadataDelta::Action::TEXT_INDEX_CREATE: {
-        const auto &info = md_delta.text;
+        const auto &info = md_delta.text_indices;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_CREATE, info.index_name, info.label,
                                   final_commit_timestamp);
       } break;
       case MetadataDelta::Action::TEXT_INDEX_DROP: {
-        const auto &info = md_delta.text;
+        const auto &info = md_delta.text_indices;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_DROP, info.index_name, info.label,
                                   final_commit_timestamp);
       } break;
@@ -2274,8 +2274,8 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  auto *text_index = storage_->indices_.text_index_.get();
-  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices(), text_index->ListIndices()};
+  auto &text_index = storage_->indices_.text_index_;
+  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices(), text_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);

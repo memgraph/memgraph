@@ -17,8 +17,9 @@
 
 namespace memgraph::storage {
 
-void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std::uint64_t transaction_start_timestamp,
-                        const std::vector<mgcxx::text_search::Context *> &applicable_text_indices, bool skip_commit) {
+void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
+                        const std::uint64_t transaction_start_timestamp,
+                        const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
   if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
@@ -30,16 +31,16 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
   for (const auto &[prop_id, prop_value] : vertex_after_update->properties.Properties()) {
     switch (prop_value.type()) {
       case PropertyValue::Type::Bool:
-        properties[storage->PropertyToName(prop_id)] = prop_value.ValueBool();
+        properties[name_id_mapper->IdToName(prop_id.AsUint())] = prop_value.ValueBool();
         break;
       case PropertyValue::Type::Int:
-        properties[storage->PropertyToName(prop_id)] = prop_value.ValueInt();
+        properties[name_id_mapper->IdToName(prop_id.AsUint())] = prop_value.ValueInt();
         break;
       case PropertyValue::Type::Double:
-        properties[storage->PropertyToName(prop_id)] = prop_value.ValueDouble();
+        properties[name_id_mapper->IdToName(prop_id.AsUint())] = prop_value.ValueDouble();
         break;
       case PropertyValue::Type::String:
-        properties[storage->PropertyToName(prop_id)] = prop_value.ValueString();
+        properties[name_id_mapper->IdToName(prop_id.AsUint())] = prop_value.ValueString();
         break;
       case PropertyValue::Type::Null:
       case PropertyValue::Type::List:
@@ -63,14 +64,14 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage, const std
           *index_context,
           mgcxx::text_search::DocumentInput{
               .data = document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
-          skip_commit);
+          kDoSkipCommit);
     } catch (const std::exception &e) {
       throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
     }
   }
 }
 
-void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
+void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
                         const std::uint64_t transaction_start_timestamp) {
   if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
@@ -78,10 +79,10 @@ void TextIndex::AddNode(Vertex *vertex_after_update, Storage *storage,
 
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
   if (applicable_text_indices.empty()) return;
-  AddNode(vertex_after_update, storage, transaction_start_timestamp, applicable_text_indices);
+  AddNode(vertex_after_update, std::move(name_id_mapper), transaction_start_timestamp, applicable_text_indices);
 }
 
-void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
+void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
                            const std::uint64_t transaction_start_timestamp) {
   if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
@@ -90,10 +91,10 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
   if (applicable_text_indices.empty()) return;
   RemoveNode(vertex_after_update, applicable_text_indices);
-  AddNode(vertex_after_update, storage, transaction_start_timestamp, applicable_text_indices);
+  AddNode(vertex_after_update, std::move(name_id_mapper), transaction_start_timestamp, applicable_text_indices);
 }
 
-void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
+void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
                            const std::uint64_t transaction_start_timestamp,
                            const std::vector<LabelId> &removed_labels) {
   if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
@@ -106,7 +107,7 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, Storage *storage,
   auto indexes_to_update_node = GetApplicableTextIndices(vertex_after_update);
   if (indexes_to_update_node.empty()) return;
   RemoveNode(vertex_after_update, indexes_to_update_node);
-  AddNode(vertex_after_update, storage, transaction_start_timestamp, indexes_to_update_node);
+  AddNode(vertex_after_update, std::move(name_id_mapper), transaction_start_timestamp, indexes_to_update_node);
 }
 
 void TextIndex::RemoveNode(Vertex *vertex_after_update,
@@ -137,7 +138,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update) {
   RemoveNode(vertex_after_update, applicable_text_indices);
 }
 
-void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, Storage *storage,
+void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
                                  const std::uint64_t transaction_start_timestamp) {
   if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
@@ -146,7 +147,7 @@ void TextIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_updat
   if (!label_to_index_.contains(added_label)) {
     return;
   }
-  AddNode(vertex_after_update, storage, transaction_start_timestamp,
+  AddNode(vertex_after_update, std::move(name_id_mapper), transaction_start_timestamp,
           std::vector<mgcxx::text_search::Context *>{&index_.at(label_to_index_.at(added_label)).context_});
 }
 
@@ -162,13 +163,13 @@ void TextIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_
   RemoveNode(vertex_after_update, {&index_.at(label_to_index_.at(removed_label)).context_});
 }
 
-void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage,
+void TextIndex::UpdateOnSetProperty(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
                                     std::uint64_t transaction_start_timestamp) {
   if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
 
-  UpdateNode(vertex_after_update, storage, transaction_start_timestamp);
+  UpdateNode(vertex_after_update, std::move(name_id_mapper), transaction_start_timestamp);
 }
 
 std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(const std::vector<LabelId> &labels) {
@@ -222,6 +223,8 @@ bool TextIndex::CreateIndex(const std::string &index_name, LabelId label, memgra
   bool has_schema = false;
   std::vector<std::pair<PropertyId, std::string>> indexed_properties{};
   auto &index_context = index_.at(index_name).context_;
+
+  // TODO antepusic get nodes with label if there's an adequate label index
   for (const auto &v : db->Vertices(View::NEW)) {
     if (!v.HasLabel(View::NEW, label).GetValue()) {
       continue;
@@ -431,13 +434,11 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
   } catch (const std::exception &e) {
     throw query::QueryException(fmt::format("Tantivy error: {}", e.what()));
   }
-  auto docs = search_results.docs;
-  for (const auto &doc : docs) {
+  for (const auto &doc : search_results.docs) {
     // The CXX .data() method (https://cxx.rs/binding/string.html) may overestimate string length, causing JSON parsing
     // errors downstream. We prevent this by resizing the converted string with the correctly-working .length() method.
-    auto doc_data = doc.data;
-    std::string doc_string = doc_data.data();
-    doc_string.resize(doc_data.length());
+    std::string doc_string = doc.data.data();
+    doc_string.resize(doc.data.length());
     auto doc_json = nlohmann::json::parse(doc_string);
     found_nodes.push_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()));
   }
@@ -460,7 +461,7 @@ std::vector<std::pair<std::string, LabelId>> TextIndex::ListIndices() const {
   std::vector<std::pair<std::string, LabelId>> ret;
   ret.reserve(index_.size());
   for (const auto &[index_name, index_data] : index_) {
-    ret.push_back({index_name, index_data.scope_});
+    ret.emplace_back(index_name, index_data.scope_);
   }
   return ret;
 }

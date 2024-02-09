@@ -847,7 +847,7 @@ StorageInfo DiskStorage::GetInfo(bool force_dir,
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
-    info.text_indices = lbl.text.size();
+    info.text_indices = lbl.text_indices.size();
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();
@@ -1657,12 +1657,12 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage.");
         } break;
         case MetadataDelta::Action::TEXT_INDEX_CREATE: {
-          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(md_delta.text.index_name)) {
+          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(md_delta.text_indices.index_name)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
         case MetadataDelta::Action::TEXT_INDEX_DROP: {
-          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(md_delta.text.index_name)) {
+          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(md_delta.text_indices.index_name)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
@@ -1765,7 +1765,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
   }
   spdlog::trace("rocksdb: Commit successful");
   if (flags::run_time::GetExperimentalTextSearchEnabled()) {
-    disk_storage->indices_.text_index_->Commit();
+    disk_storage->indices_.text_index_.Commit();
   }
 
   is_transaction_active_ = false;
@@ -1886,7 +1886,7 @@ void DiskStorage::DiskAccessor::Abort() {
   transaction_.disk_transaction_->Rollback();
   transaction_.disk_transaction_->ClearSnapshot();
   if (flags::run_time::GetExperimentalTextSearchEnabled()) {
-    storage_->indices_.text_index_->Rollback();
+    storage_->indices_.text_index_.Rollback();
   }
   delete transaction_.disk_transaction_;
   transaction_.disk_transaction_ = nullptr;
@@ -2077,8 +2077,8 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  auto *text_index = storage_->indices_.text_index_.get();
-  return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices(), text_index->ListIndices()};
+  auto &text_index = storage_->indices_.text_index_;
+  return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices(), text_index.ListIndices()};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);

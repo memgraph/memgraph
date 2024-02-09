@@ -3431,7 +3431,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         auto info = dba->ListAllIndices();
         auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
-        results.reserve(info.label.size() + info.label_property.size() + info.text.size());
+        results.reserve(info.label.size() + info.label_property.size() + info.text_indices.size());
         for (const auto &item : info.label) {
           results.push_back({TypedValue(label_index_mark), TypedValue(storage->LabelToName(item)), TypedValue(),
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item)))});
@@ -3442,7 +3442,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                TypedValue(storage->PropertyToName(item.second)),
                TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, item.second)))});
         }
-        for (const auto &item : info.text) {
+        for (const auto &item : info.text_indices) {
           results.push_back({TypedValue(text_index_mark), TypedValue(item.first), TypedValue(), TypedValue()});
         }
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {

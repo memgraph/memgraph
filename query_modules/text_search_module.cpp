@@ -41,7 +41,7 @@ void TextSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
     }
 
     // 2. Run a text search of that index and return the search results
-    for (const auto &node : mgp::SearchTextIndex(memgraph_graph, index_name, search_query)) {
+    for (const auto &node : mgp::RunTextSearchQuery(memgraph_graph, index_name, search_query)) {
       auto record = record_factory.NewRecord();
       record.Insert(TextSearch::kReturnNode.data(), node.ValueNode());
     }
