@@ -41,6 +41,8 @@ class CoordinatorInstance {
 
   auto GetMainUUID() const -> utils::UUID;
 
+  auto SetMainUUID(utils::UUID new_uuid) -> void;
+
  private:
   auto ClusterHasAliveMain_() const -> bool;
 
