@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -223,6 +223,20 @@ void SetHooks() {
     if (err) {
       LOG_FATAL("Error setting custom hooks for jemalloc arena {}", i);
     }
+  }
+  auto last_arena = n_arenas;
+  // For oversize arena, no need to read hooks, it will be intialized
+  // with arena, just set our custom hooks
+  std::string func_name = "arena." + std::to_string(last_arena) + ".extent_hooks";
+
+  if (err) {
+    LOG_FATAL("Error setting jemalloc hooks for jemalloc arena {}", last_arena);
+  }
+
+  err = mallctl(func_name.c_str(), nullptr, nullptr, &new_hooks, sizeof(new_hooks));
+
+  if (err) {
+    LOG_FATAL("Error setting custom hooks for jemalloc oversize threshold arena {}", last_arena);
   }
 
 #endif

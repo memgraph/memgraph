@@ -1,0 +1,39 @@
+diff --git a/src/ctl.c b/src/ctl.c
+index 48afaa61..1e545710 100644
+--- a/src/ctl.c
++++ b/src/ctl.c
+@@ -2376,11 +2376,11 @@ arena_i_extent_hooks_ctl(tsd_t *tsd, const size_t *mib, size_t miblen,
+
+ 	malloc_mutex_lock(tsd_tsdn(tsd), &ctl_mtx);
+ 	MIB_UNSIGNED(arena_ind, 1);
+-	if (arena_ind < narenas_total_get()) {
++	if (arena_ind <= narenas_total_get()) {
+ 		extent_hooks_t *old_extent_hooks;
+ 		arena = arena_get(tsd_tsdn(tsd), arena_ind, false);
+ 		if (arena == NULL) {
+-			if (arena_ind >= narenas_auto) {
++			if (arena_ind >= narenas_auto+1) {
+ 				ret = EFAULT;
+ 				goto label_return;
+ 			}
+@@ -2388,6 +2388,20 @@ arena_i_extent_hooks_ctl(tsd_t *tsd, const size_t *mib, size_t miblen,
+ 			    (extent_hooks_t *)&extent_hooks_default;
+ 			READ(old_extent_hooks, extent_hooks_t *);
+ 			if (newp != NULL) {
++				if (arena_ind == narenas_auto) {
++					// init some number for huge arena
++					arena_init_huge();
++					//init arena really
++					arena = arena_choose_huge(tsd);
++					extent_hooks_t *new_extent_hooks
++				    	JEMALLOC_CC_SILENCE_INIT(NULL);
++					WRITE(new_extent_hooks, extent_hooks_t *);
++					old_extent_hooks = extent_hooks_set(tsd, arena,
++						new_extent_hooks);
++					READ(old_extent_hooks, extent_hooks_t *);
++					ret = 0;
++					goto label_return;
++				}
+ 				/* Initialize a new arena as a side effect. */
+ 				extent_hooks_t *new_extent_hooks
+ 				    JEMALLOC_CC_SILENCE_INIT(NULL);
