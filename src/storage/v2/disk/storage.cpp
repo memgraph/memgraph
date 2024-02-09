@@ -818,8 +818,8 @@ uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
 }
 
 uint64_t DiskStorage::DiskAccessor::ApproximateEdgeCount(EdgeTypeId /*edge_type*/) const {
-  throw utils::NotYetImplemented(
-      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  return 0U;
 }
 
 uint64_t DiskStorage::GetDiskSpaceUsage() const {
@@ -2082,8 +2082,8 @@ std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(
 }
 
 bool DiskStorage::DiskAccessor::EdgeTypeIndexExists(EdgeTypeId /*edge_type*/) const {
-  throw utils::NotYetImplemented(
-      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  return false;
 }
 
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
