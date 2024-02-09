@@ -43,13 +43,15 @@ using PmrListDelta = utils::pmr::list<Delta>;
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
-              StorageMode storage_mode, bool edge_import_mode_active, int64_t max_deltas = -1)
+              StorageMode storage_mode, bool edge_import_mode_active, int64_t max_deltas = -1,
+              int64_t max_delete_deltas = -1)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
         deltas(0),
         md_deltas(utils::NewDeleteResource()),
         max_deltas(max_deltas),
+        max_delete_deltas(max_delete_deltas),
         must_abort(false),
         isolation_level(isolation_level),
         storage_mode(storage_mode),
@@ -94,8 +96,10 @@ struct Transaction {
 
   Bond<PmrListDelta> deltas;
   utils::pmr::list<MetadataDelta> md_deltas;
-  int64_t max_deltas{0};
+  int64_t max_deltas{-1};
+  int64_t max_delete_deltas{-1};
   uint64_t deltas_changed{0};
+  uint64_t delete_deltas_changed{0};
   bool must_abort{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};

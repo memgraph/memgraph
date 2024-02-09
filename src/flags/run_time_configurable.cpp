@@ -57,6 +57,10 @@ DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_int64(maximum_deltas_per_transaction, -1, "Limit of deltas per transaction, default -1 (no limit)");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_int64(maximum_delete_deltas_per_transaction, -1,
+             "Limit of delete deltas per transaction, default -1 (no limit)");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -79,6 +83,9 @@ constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 constexpr auto kMaximumDeltasPerTransactionSettingKey = "maximum-deltas-per-transaction";
 constexpr auto kMaximumDeltasPerTransactionGFlagsKey = "maximum-deltas-per-transaction";
 
+constexpr auto kMaximumDeleteDeltasPerTransactionSettingKey = "maximum-delete-deltas-per-transaction";
+constexpr auto kMaximumDeleteDeltasPerTransactionGFlagsKey = "maximum-delete-deltas-per-transaction";
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<double> execution_timeout_sec_;  // Local cache-like thing
 
@@ -87,6 +94,9 @@ std::atomic<bool> cartesian_product_enabled_{true};  // Local cache-like thing
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<int64_t> maximum_deltas_per_transaction_;  // Local cache-like thing
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+std::atomic<int64_t> maximum_delete_deltas_per_transaction_;  // Local cache-like thing
 
 auto ToLLEnum(std::string_view val) {
   const auto ll_enum = memgraph::flags::LogLevelToEnum(val);
@@ -203,6 +213,14 @@ void Initialize() {
                 [&](const std::string &val) {
                   maximum_deltas_per_transaction_ = std::stoll(val);  // Cache for faster reads
                 });
+
+  /*
+   * Register maximum delete deltas per transaction
+   */
+  register_flag(kMaximumDeleteDeltasPerTransactionGFlagsKey, kMaximumDeleteDeltasPerTransactionSettingKey, !kRestore,
+                [&](const std::string &val) {
+                  maximum_delete_deltas_per_transaction_ = std::stoll(val);  // Cache for faster reads
+                });
 }
 
 std::string GetServerName() {
@@ -217,5 +235,7 @@ double GetExecutionTimeout() { return execution_timeout_sec_; }
 bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
 
 int64_t GetMaximumDeltasPerTransaction() { return maximum_deltas_per_transaction_; }
+
+int64_t GetMaximumDeleteDeltasPerTransaction() { return maximum_delete_deltas_per_transaction_; }
 
 }  // namespace memgraph::flags::run_time

@@ -49,4 +49,11 @@ bool GetCartesianProductEnabled();
  */
 int64_t GetMaximumDeltasPerTransaction();
 
+/**
+ * @brief Get the maximum amount of delete deltas per transaction
+ *
+ * @return int64_t
+ */
+int64_t GetMaximumDeleteDeltasPerTransaction();
+
 }  // namespace memgraph::flags::run_time

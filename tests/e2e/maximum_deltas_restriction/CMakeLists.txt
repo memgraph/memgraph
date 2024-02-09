@@ -1,0 +1,8 @@
+function(copy_maximum_deltas_restriction_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(maximum_deltas_restriction ${FILE_NAME})
+endfunction()
+
+copy_maximum_deltas_restriction_e2e_python_files(common.py)
+copy_maximum_deltas_restriction_e2e_python_files(maximum_deltas_restriction.py)
+
+copy_e2e_files(maximum_deltas_restriction workloads.yaml)

@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <optional>
+#include <unordered_set>
 
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
@@ -23,6 +24,9 @@
 #include "utils/string.hpp"
 
 namespace memgraph::storage {
+
+const std::unordered_set<Delta::Action> delete_delta_actions{Delta::Action::ADD_IN_EDGE, Delta::Action::ADD_OUT_EDGE,
+                                                             Delta::Action::RECREATE_OBJECT};
 
 /// This function iterates through the undo buffers from an object (starting
 /// from the supplied delta) and determines what deltas should be applied to get
@@ -105,11 +109,18 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   return false;
 }
 
-inline void IncrementDeltasChanged(Transaction *transaction) {
-  transaction->deltas_changed++;
-  if (transaction->max_deltas > -1 && transaction->deltas_changed > transaction->max_deltas) {
+inline void IncrementDeltasChanged(Transaction *transaction, Delta *delta) {
+  if (transaction->max_deltas > -1) {
+    transaction->deltas_changed++;
+    if (transaction->deltas_changed > transaction->max_deltas) {
+      throw utils::BasicException(
+          "You have reached the maximum number of deltas for a transaction, transaction will be rollbacked!");
+    }
+  }
+
+  if (transaction->max_delete_deltas > -1 && delete_delta_actions.contains(delta->action)) {
     throw utils::BasicException(
-        "You have reached the maximum number of deltas for a transaction, transaction will be rollbacked!");
+        "You have reached the maximum number of delete deltas for a transaction, transaction will be rollbacked!");
   }
 }
 
@@ -124,21 +135,12 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
   }
   transaction->EnsureCommitTimestampExists();
 
-  IncrementDeltasChanged(transaction);
+  auto *delta = &transaction->deltas.use().emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
+                                                        transaction->command_id);
 
-  return &transaction->deltas.use().emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
-                                                 transaction->command_id);
-}
+  IncrementDeltasChanged(transaction, delta);
 
-inline Delta *CreateDeleteObjectDelta(Transaction *transaction, std::list<Delta> *deltas) {
-  if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-    return nullptr;
-  }
-  transaction->EnsureCommitTimestampExists();
-
-  IncrementDeltasChanged(transaction);
-
-  return &deltas->emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(), transaction->command_id);
+  return delta;
 }
 
 /// TODO: what if in-memory analytical
@@ -181,10 +183,10 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   }
   transaction->EnsureCommitTimestampExists();
 
-  IncrementDeltasChanged(transaction);
-
   auto delta = &transaction->deltas.use().emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
                                                        transaction->command_id);
+
+  IncrementDeltasChanged(transaction, delta);
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times

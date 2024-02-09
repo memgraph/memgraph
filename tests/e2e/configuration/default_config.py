@@ -90,6 +90,8 @@ startup_config_dict = {
         "TRACE",
         "Minimum log level. Allowed values: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL",
     ),
+    "maximum_deltas_per_transaction": ("-1", "-1", "Limit of deltas per transaction, default -1 (no limit)"),
+    "maximum_delete_deltas_per_transaction": ("-1", "-1", "Limit of deltas per transaction, default -1 (no limit)"),
     "memory_limit": (
         "0",
         "0",

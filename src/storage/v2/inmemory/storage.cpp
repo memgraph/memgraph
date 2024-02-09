@@ -1308,8 +1308,15 @@ Transaction InMemoryStorage::CreateTransaction(
   }
 
   auto maximum_deltas_per_transaction = flags::run_time::GetMaximumDeltasPerTransaction();
+  auto maximum_delete_deltas_per_transaction = flags::run_time::GetMaximumDeleteDeltasPerTransaction();
 
-  return {transaction_id, start_timestamp, isolation_level, storage_mode, false, maximum_deltas_per_transaction};
+  return {transaction_id,
+          start_timestamp,
+          isolation_level,
+          storage_mode,
+          false,
+          maximum_deltas_per_transaction,
+          maximum_delete_deltas_per_transaction};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {

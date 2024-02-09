@@ -1,0 +1,14 @@
+maximum_deltas_restriction_cluster: &maximum_deltas_restriction_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "maximum_deltas_restriction.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Maximum deltas restriction"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["maximum_deltas_restriction/maximum_deltas_restriction.py"]
+    <<: *maximum_deltas_restriction_cluster
