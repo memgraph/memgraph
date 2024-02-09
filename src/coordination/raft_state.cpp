@@ -31,19 +31,19 @@ using nuraft::raft_server;
 using nuraft::srv_config;
 using raft_result = cmd_result<ptr<buffer>>;
 
-RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb)
-    : raft_server_id_(FLAGS_raft_server_id),
-      raft_port_(FLAGS_raft_server_port),
-      raft_address_("127.0.0.1"),
+RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
+                     uint32_t raft_port, std::string raft_address)
+    : raft_server_id_(raft_server_id),
+      raft_port_(raft_port),
+      raft_address_(std::move(raft_address)),
+      state_machine_(cs_new<CoordinatorStateMachine>()),
+      state_manager_(
+          cs_new<CoordinatorStateManager>(raft_server_id_, raft_address_ + ":" + std::to_string(raft_port_))),
+      logger_(nullptr),
       become_leader_cb_(std::move(become_leader_cb)),
-      become_follower_cb_(std::move(become_follower_cb)) {
-  auto raft_endpoint = raft_address_ + ":" + std::to_string(raft_port_);
-  state_manager_ = cs_new<CoordinatorStateManager>(raft_server_id_, raft_endpoint);
-  state_machine_ = cs_new<CoordinatorStateMachine>();
-  logger_ = nullptr;
+      become_follower_cb_(std::move(become_follower_cb)) {}
 
-  // TODO: (andi) Maybe params file
-
+auto RaftState::InitRaftServer() -> void {
   asio_service::options asio_opts;
   asio_opts.thread_pool_size_ = 1;  // TODO: (andi) Improve this
 
@@ -70,11 +70,13 @@ RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_fo
     return CbReturnCode::Ok;
   };
 
-  raft_server_ = launcher_.init(state_machine_, state_manager_, logger_, static_cast<int>(raft_port_), asio_opts,
-                                params, init_opts);
+  raft_launcher launcher;
+
+  raft_server_ = launcher.init(state_machine_, state_manager_, logger_, static_cast<int>(raft_port_), asio_opts, params,
+                               init_opts);
 
   if (!raft_server_) {
-    throw RaftServerStartException("Failed to launch raft server on {}", raft_endpoint);
+    throw RaftServerStartException("Failed to launch raft server on {}:{}", raft_address_, raft_port_);
   }
 
   auto maybe_stop = utils::ResettableCounter<20>();
@@ -83,10 +85,24 @@ RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_fo
   }
 
   if (!raft_server_->is_initialized()) {
-    throw RaftServerStartException("Failed to initialize raft server on {}", raft_endpoint);
+    throw RaftServerStartException("Failed to initialize raft server on {}:{}", raft_address_, raft_port_);
+  }
+}
+
+auto RaftState::MakeRaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb) -> RaftState {
+  uint32_t raft_server_id{0};
+  uint32_t raft_port{0};
+  try {
+    raft_server_id = FLAGS_raft_server_id;
+    raft_port = FLAGS_raft_server_port;
+  } catch (std::exception const &e) {
+    throw RaftCouldNotParseFlagsException("Failed to parse flags: {}", e.what());
   }
 
-  spdlog::info("Raft server started on {}", raft_endpoint);
+  auto raft_state =
+      RaftState(std::move(become_leader_cb), std::move(become_follower_cb), raft_server_id, raft_port, "127.0.0.1");
+  raft_state.InitRaftServer();
+  return raft_state;
 }
 
 RaftState::~RaftState() { launcher_.shutdown(); }

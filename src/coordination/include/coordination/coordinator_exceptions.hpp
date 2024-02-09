@@ -72,5 +72,16 @@ class RaftCouldNotFindEntryException final : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(RaftCouldNotFindEntryException)
 };
 
+class RaftCouldNotParseFlagsException final : public utils::BasicException {
+ public:
+  explicit RaftCouldNotParseFlagsException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit RaftCouldNotParseFlagsException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : RaftCouldNotParseFlagsException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(RaftCouldNotParseFlagsException)
+};
+
 }  // namespace memgraph::coordination
 #endif

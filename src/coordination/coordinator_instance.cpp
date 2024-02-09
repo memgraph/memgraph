@@ -27,8 +27,9 @@ using nuraft::ptr;
 using nuraft::srv_config;
 
 CoordinatorInstance::CoordinatorInstance()
-    : raft_state_([this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StartFrequentCheck); },
-                  [this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StopFrequentCheck); }) {
+    : raft_state_(RaftState::MakeRaftState(
+          [this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StartFrequentCheck); },
+          [this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StopFrequentCheck); })) {
   auto find_repl_instance = [](CoordinatorInstance *self,
                                std::string_view repl_instance_name) -> ReplicationInstance & {
     auto repl_instance =
@@ -282,7 +283,8 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
   auto const res = raft_state_.AppendRegisterReplicationInstance(config.instance_name);
   if (!res->get_accepted()) {
     spdlog::error(
-        "Failed to accept request for registering instance {}. Most likely the reason is that the instance is not the "
+        "Failed to accept request for registering instance {}. Most likely the reason is that the instance is not "
+        "the "
         "leader.",
         config.instance_name);
     return RegisterInstanceCoordinatorStatus::RAFT_COULD_NOT_ACCEPT;

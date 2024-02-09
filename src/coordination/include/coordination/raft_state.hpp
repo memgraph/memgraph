@@ -15,6 +15,8 @@
 
 #include <flags/replication.hpp>
 
+#include <optional>
+
 #include <libnuraft/nuraft.hxx>
 
 namespace memgraph::coordination {
@@ -33,14 +35,21 @@ using nuraft::state_mgr;
 using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
 class RaftState {
- public:
-  RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb);
+ private:
+  explicit RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
+                     uint32_t raft_port, std::string raft_address);
 
-  RaftState(RaftState const &other) = delete;
-  RaftState &operator=(RaftState const &other) = delete;
-  RaftState(RaftState &&other) noexcept = delete;
-  RaftState &operator=(RaftState &&other) noexcept = delete;
+  auto InitRaftServer() -> void;
+
+ public:
+  RaftState() = delete;
+  RaftState(RaftState const &other) = default;
+  RaftState &operator=(RaftState const &other) = default;
+  RaftState(RaftState &&other) noexcept = default;
+  RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
+
+  static auto MakeRaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb) -> RaftState;
 
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
@@ -53,17 +62,16 @@ class RaftState {
 
   auto AppendRegisterReplicationInstance(std::string const &instance) -> ptr<raft_result>;
 
- private:
+  // TODO: (andi) I think variables below can be abstracted
+  uint32_t raft_server_id_;
+  uint32_t raft_port_;
+  std::string raft_address_;
+
   ptr<state_machine> state_machine_;
   ptr<state_mgr> state_manager_;
   ptr<raft_server> raft_server_;
   ptr<logger> logger_;
   raft_launcher launcher_;
-
-  // TODO: (andi) I think variables below can be abstracted
-  uint32_t raft_server_id_;
-  uint32_t raft_port_;
-  std::string raft_address_;
 
   BecomeLeaderCb become_leader_cb_;
   BecomeFollowerCb become_follower_cb_;
