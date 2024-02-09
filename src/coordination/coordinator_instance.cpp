@@ -260,8 +260,10 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
     -> RegisterInstanceCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  auto const name_matches = [&config](ReplicationInstance const &instance) {
-    return instance.InstanceName() == config.instance_name;
+  auto instance_name = config.instance_name;
+
+  auto const name_matches = [&instance_name](ReplicationInstance const &instance) {
+    return instance.InstanceName() == instance_name;
   };
 
   if (std::ranges::any_of(repl_instances_, name_matches)) {
@@ -280,7 +282,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
-  auto const res = raft_state_.AppendRegisterReplicationInstance(config.instance_name);
+  auto const res = raft_state_.AppendRegisterReplicationInstance(instance_name);
   if (!res->get_accepted()) {
     spdlog::error(
         "Failed to accept request for registering instance {}. Most likely the reason is that the instance is not "
@@ -290,7 +292,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
     return RegisterInstanceCoordinatorStatus::RAFT_COULD_NOT_ACCEPT;
   }
 
-  spdlog::info("Request for registering instance {} accepted", config.instance_name);
+  spdlog::info("Request for registering instance {} accepted", instance_name);
   try {
     repl_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_);
   } catch (CoordinatorRegisterInstanceException const &) {
@@ -298,11 +300,11 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
   }
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to register instance {} with error code {}", config.instance_name, res->get_result_code());
+    spdlog::error("Failed to register instance {} with error code {}", instance_name, res->get_result_code());
     return RegisterInstanceCoordinatorStatus::RAFT_COULD_NOT_APPEND;
   }
 
-  spdlog::info("Instance {} registered", config.instance_name);
+  spdlog::info("Instance {} registered", instance_name);
   return RegisterInstanceCoordinatorStatus::SUCCESS;
 }
 
