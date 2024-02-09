@@ -535,7 +535,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         if (!vertex)
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         // NOTE: Phase 1 of the text search feature doesn't have replication in scope
-        auto ret = vertex->AddLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label), false);
+        auto ret = vertex->AddLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
         if (ret.HasError() || !ret.GetValue())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
@@ -548,7 +548,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         if (!vertex)
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         // NOTE: Phase 1 of the text search feature doesn't have replication in scope
-        auto ret = vertex->RemoveLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label), false);
+        auto ret = vertex->RemoveLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
         if (ret.HasError() || !ret.GetValue())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
@@ -562,7 +562,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         // NOTE: Phase 1 of the text search feature doesn't have replication in scope
         auto ret = vertex->SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
-                                       delta.vertex_edge_set_property.value, false);
+                                       delta.vertex_edge_set_property.value);
         if (ret.HasError())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;

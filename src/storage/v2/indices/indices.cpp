@@ -39,29 +39,28 @@ void Indices::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std:
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token));
 }
 
-void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx, Storage *storage,
-                               bool update_text_index) const {
+void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx, Storage *storage) const {
   label_index_->UpdateOnAddLabel(label, vertex, tx);
   label_property_index_->UpdateOnAddLabel(label, vertex, tx);
-  if (update_text_index) {
-    text_index_.UpdateOnAddLabel(label, vertex, storage->name_id_mapper_.get(), tx.start_timestamp);
-  }
+  // if (update_text_index) {
+  //   text_index_.UpdateOnAddLabel(label, vertex, storage->name_id_mapper_.get(), tx.start_timestamp);
+  // }
 }
 
-void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx, bool update_text_index) const {
+void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   label_index_->UpdateOnRemoveLabel(label, vertex, tx);
   label_property_index_->UpdateOnRemoveLabel(label, vertex, tx);
-  if (update_text_index) {
-    text_index_.UpdateOnRemoveLabel(label, vertex, tx.start_timestamp);
-  }
+  // if (update_text_index) {
+  //   text_index_.UpdateOnRemoveLabel(label, vertex, tx.start_timestamp);
+  // }
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                  const Transaction &tx, Storage *storage, bool update_text_index) const {
+                                  const Transaction &tx, Storage *storage) const {
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
-  if (update_text_index) {
-    text_index_.UpdateOnSetProperty(vertex, storage->name_id_mapper_.get(), tx.start_timestamp);
-  }
+  // if (update_text_index) {
+  //   text_index_.UpdateOnSetProperty(vertex, storage->name_id_mapper_.get(), tx.start_timestamp);
+  // }
 }
 
 Indices::Indices(const Config &config, StorageMode storage_mode) {

@@ -100,7 +100,7 @@ bool VertexAccessor::IsVisible(View view) const {
   return exists && (for_deleted_ || !deleted);
 }
 
-Result<bool> VertexAccessor::AddLabel(LabelId label, bool update_text_index) {
+Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -124,14 +124,14 @@ Result<bool> VertexAccessor::AddLabel(LabelId label, bool update_text_index) {
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
   transaction_->constraint_verification_info.AddedLabel(vertex_);
-  storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_, storage_, update_text_index);
+  storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_, storage_);
   transaction_->manyDeltasCache.Invalidate(vertex_, label);
 
   return true;
 }
 
 /// TODO: move to after update and change naming to vertex after update
-Result<bool> VertexAccessor::RemoveLabel(LabelId label, bool update_text_index) {
+Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -152,7 +152,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label, bool update_text_index) 
 
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
-  storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_, update_text_index);
+  storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, label);
 
   return true;
@@ -252,8 +252,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   return std::move(labels);
 }
 
-Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value,
-                                                  bool update_text_index) {
+Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -285,14 +284,13 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   } else {
     transaction_->constraint_verification_info.RemovedProperty(vertex_);
   }
-  storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_, storage_, update_text_index);
+  storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_, storage_);
   transaction_->manyDeltasCache.Invalidate(vertex_, property);
 
   return std::move(current_value);
 }
 
-Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties,
-                                            bool update_text_index) {
+Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -305,14 +303,14 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   bool result{false};
   utils::AtomicMemoryBlock atomic_memory_block{
-      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, update_text_index]() {
+      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_]() {
         if (!vertex->properties.InitProperties(properties)) {
           result = false;
           return;
         }
         for (const auto &[property, value] : properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
-          storage->indices_.UpdateOnSetProperty(property, value, vertex, *transaction, storage, update_text_index);
+          storage->indices_.UpdateOnSetProperty(property, value, vertex, *transaction, storage);
           transaction->manyDeltasCache.Invalidate(vertex, property);
           if (!value.IsNull()) {
             transaction->constraint_verification_info.AddedProperty(vertex);
@@ -328,7 +326,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 }
 
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> VertexAccessor::UpdateProperties(
-    std::map<storage::PropertyId, storage::PropertyValue> &properties, bool update_text_index) const {
+    std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -342,30 +340,30 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
   using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
-  utils::AtomicMemoryBlock atomic_memory_block{[storage = storage_, transaction = transaction_, vertex = vertex_,
-                                                &properties, &id_old_new_change, update_text_index]() {
-    id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
+  utils::AtomicMemoryBlock atomic_memory_block{
+      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &id_old_new_change]() {
+        id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
 
-    if (!id_old_new_change.has_value()) {
-      return;
-    }
-    for (auto &[id, old_value, new_value] : *id_old_new_change) {
-      storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction, storage, update_text_index);
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, std::move(old_value));
-      transaction->manyDeltasCache.Invalidate(vertex, id);
-      if (!new_value.IsNull()) {
-        transaction->constraint_verification_info.AddedProperty(vertex);
-      } else {
-        transaction->constraint_verification_info.RemovedProperty(vertex);
-      }
-    }
-  }};
+        if (!id_old_new_change.has_value()) {
+          return;
+        }
+        for (auto &[id, old_value, new_value] : *id_old_new_change) {
+          storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction, storage);
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, std::move(old_value));
+          transaction->manyDeltasCache.Invalidate(vertex, id);
+          if (!new_value.IsNull()) {
+            transaction->constraint_verification_info.AddedProperty(vertex);
+          } else {
+            transaction->constraint_verification_info.RemovedProperty(vertex);
+          }
+        }
+      }};
   std::invoke(atomic_memory_block);
 
   return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
 }
 
-Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties(bool update_text_index) {
+Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -378,15 +376,14 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties(bool
   using ReturnType = decltype(vertex_->properties.Properties());
   std::optional<ReturnType> properties;
   utils::AtomicMemoryBlock atomic_memory_block{
-      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, update_text_index]() {
+      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties]() {
         properties.emplace(vertex->properties.Properties());
         if (!properties.has_value()) {
           return;
         }
         for (const auto &[property, value] : *properties) {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, value);
-          storage->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex, *transaction, storage,
-                                                update_text_index);
+          storage->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex, *transaction, storage);
           transaction->constraint_verification_info.RemovedProperty(vertex);
           transaction->manyDeltasCache.Invalidate(vertex, property);
         }

@@ -1841,8 +1841,8 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
 
     const auto result = std::visit(
         [prop_key, property_value](auto &impl) {
-          return impl.SetProperty(prop_key, ToPropertyValue(*property_value),
-                                  memgraph::flags::run_time::GetExperimentalTextSearchEnabled());
+          // TODO antepusic also update text index
+          return impl.SetProperty(prop_key, ToPropertyValue(*property_value));
         },
         v->impl);
     if (result.HasError()) {
@@ -1900,8 +1900,8 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
           v->graph->impl));
     }
 
-    const auto result =
-        v->getImpl().UpdateProperties(props, memgraph::flags::run_time::GetExperimentalTextSearchEnabled());
+    const auto result = v->getImpl().UpdateProperties(props);
+    // TODO antepusic also update text index
     if (result.HasError()) {
       switch (result.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -1960,7 +1960,8 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
 
     const auto result = std::visit(
         [label_id](auto &impl) {
-          return impl.AddLabel(label_id, memgraph::flags::run_time::GetExperimentalTextSearchEnabled());
+          // TODO antepusic also update text index
+          return impl.AddLabel(label_id);
         },
         v->impl);
 
@@ -2006,7 +2007,8 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     }
     const auto result = std::visit(
         [label_id](auto &impl) {
-          return impl.RemoveLabel(label_id, memgraph::flags::run_time::GetExperimentalTextSearchEnabled());
+          // todo also remove from text index
+          return impl.RemoveLabel(label_id);
         },
         v->impl);
 

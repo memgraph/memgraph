@@ -217,7 +217,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   auto new_node = dba.InsertVertex();
   context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
   for (auto label : node_info.labels) {
-    auto maybe_error = new_node.AddLabel(label, false);  // skip updating text indices until all labels are added
+    auto maybe_error = new_node.AddLabel(label);  // skip updating text indices until all labels are added
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
@@ -3177,7 +3177,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 #endif
 
   for (auto label : self_.labels_) {
-    auto maybe_value = vertex.AddLabel(label, false);  // skip updating text indices until all labels are added
+    auto maybe_value = vertex.AddLabel(label);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
@@ -3345,7 +3345,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 #endif
 
   for (auto label : self_.labels_) {
-    auto maybe_value = vertex.RemoveLabel(label, false);
+    auto maybe_value = vertex.RemoveLabel(label);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
