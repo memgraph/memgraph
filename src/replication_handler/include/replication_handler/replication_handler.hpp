@@ -133,39 +133,38 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   auto GetReplState() -> memgraph::replication::ReplicationState &;
 
  private:
-  template <bool HandleFailure>
-  auto RegisterReplica_(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
-      -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
+  template <bool AllowReplicaToBeUnreachable>
+  auto RegisterReplica_(const replication::ReplicationClientConfig &config, bool send_swap_uuid)
+      -> utils::BasicResult<memgraph::query::RegisterReplicaError> {
     MG_ASSERT(repl_state_.IsMain(), "Only main instance can register a replica!");
 
     auto maybe_client = repl_state_.RegisterReplica(config);
     if (maybe_client.HasError()) {
       switch (maybe_client.GetError()) {
-        case memgraph::replication::RegisterReplicaError::NOT_MAIN:
+        case replication::RegisterReplicaError::NOT_MAIN:
           MG_ASSERT(false, "Only main instance can register a replica!");
           return {};
-        case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
-          return memgraph::query::RegisterReplicaError::NAME_EXISTS;
-        case memgraph::replication::RegisterReplicaError::ENDPOINT_EXISTS:
-          return memgraph::query::RegisterReplicaError::ENDPOINT_EXISTS;
-        case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-          return memgraph::query::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
-        case memgraph::replication::RegisterReplicaError::SUCCESS:
+        case replication::RegisterReplicaError::NAME_EXISTS:
+          return query::RegisterReplicaError::NAME_EXISTS;
+        case replication::RegisterReplicaError::ENDPOINT_EXISTS:
+          return query::RegisterReplicaError::ENDPOINT_EXISTS;
+        case replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+          return query::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+        case replication::RegisterReplicaError::SUCCESS:
           break;
       }
     }
 
-    if (!memgraph::dbms::allow_mt_repl && dbms_handler_.All().size() > 1) {
+    if (!dbms::allow_mt_repl && dbms_handler_.All().size() > 1) {
       spdlog::warn("Multi-tenant replication is currently not supported!");
     }
-    const auto main_uuid =
-        std::get<memgraph::replication::RoleMainData>(dbms_handler_.ReplicationState().ReplicationData()).uuid_;
 
-    if (send_swap_uuid) {
-      if (!memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(maybe_client.GetValue()->rpc_client_,
-                                                                        main_uuid)) {
-        return memgraph::query::RegisterReplicaError::ERROR_ACCEPTING_MAIN;
-      }
+    auto const main_uuid =
+        std::get<replication::RoleMainData>(dbms_handler_.ReplicationState().ReplicationData()).uuid_;
+
+    if (send_swap_uuid &&
+        !replication_coordination_glue::SendSwapMainUUIDRpc(maybe_client.GetValue()->rpc_client_, main_uuid)) {
+      return query::RegisterReplicaError::ERROR_ACCEPTING_MAIN;
     }
 
 #ifdef MG_ENTERPRISE
@@ -193,21 +192,21 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
           [storage, &instance_client_ptr, db_acc = std::move(db_acc),
            main_uuid](auto &storage_clients) mutable {  // NOLINT
             auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
-            // All good, start replica client
             client->Start(storage, std::move(db_acc));
-            // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
-            // MAYBE_BEHIND isn't a statement of the current state, this is the default value
-            // Failed to start due an error like branching of MAIN and REPLICA
-            const bool success = client->State() != storage::replication::ReplicaState::MAYBE_BEHIND;
-            if (HandleFailure || success) {
+            // After start the storage <-> replica state shouldn't be MAYBE_BEHIND.
+            // When part of coordinator cluster we allow replica to be UNREACHABLE.
+            auto state = client->State();
+            bool const success =
+                (state != storage::replication::ReplicaState::MAYBE_BEHIND) ||
+                (state == storage::replication::ReplicaState::UNREACHABLE && AllowReplicaToBeUnreachable);
+            if (success) {
               storage_clients.push_back(std::move(client));
             }
             return success;
           });
     });
 
-    // NOTE Currently if any databases fails, we revert back
-    if (!HandleFailure && !all_clients_good) {
+    if (!all_clients_good) {
       spdlog::error("Failed to register all databases on the REPLICA \"{}\"", config.name);
       UnregisterReplica(config.name);
       return memgraph::query::RegisterReplicaError::CONNECTION_FAILED;

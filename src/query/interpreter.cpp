@@ -437,6 +437,9 @@ class ReplQueryHandler {
         case storage::replication::ReplicaState::MAYBE_BEHIND:
           replica.state = ReplicationQuery::ReplicaState::MAYBE_BEHIND;
           break;
+        case storage::replication::ReplicaState::UNREACHABLE:
+          replica.state = ReplicationQuery::ReplicaState::UNREACHABLE;
+          break;
       }
 
       return replica;
@@ -1081,6 +1084,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
               break;
             case ReplicationQuery::ReplicaState::MAYBE_BEHIND:
               typed_replica.emplace_back("invalid");
+              break;
+            case ReplicationQuery::ReplicaState::UNREACHABLE:
+              typed_replica.emplace_back("unreachable");
               break;
           }
 

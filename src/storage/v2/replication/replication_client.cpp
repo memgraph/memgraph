@@ -46,6 +46,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
                     std::string{storage->uuid()});
       state = memgraph::replication::ReplicationClient::State::BEHIND;
     });
+
+    replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::UNREACHABLE; });
+
     return;
   }
 #endif
@@ -149,6 +152,9 @@ void ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
   auto locked_state = replica_state_.Lock();
   switch (*locked_state) {
     using enum replication::ReplicaState;
+    case UNREACHABLE:
+      spdlog::debug("Replica {} is unreachable", client_.name_);
+      return;
     case RECOVERY:
       spdlog::debug("Replica {} is behind MAIN instance", client_.name_);
       return;
