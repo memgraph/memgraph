@@ -260,7 +260,14 @@ def test_drop_replicas(connection):
     mg_sleep_and_assert(expected_data, retrieve_data)
 
 
-def test_basic_recovery(connection):
+@pytest.mark.parametrize(
+    "recover_data_on_startup",
+    [
+        "true",
+        "false",
+    ],
+)
+def test_basic_recovery(recover_data_on_startup, connection):
     # Goal of this test is to check the recovery of main.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 1/ We check that all replicas have the correct state: they should all be ready.
@@ -320,7 +327,7 @@ def test_basic_recovery(connection):
                 "--replication-restore-state-on-startup",
                 "true",
                 "--data-recovery-on-startup",
-                "false",
+                f"{recover_data_on_startup}",
             ],
             "log_file": "replica3.log",
             # We restart this replica so we set replication role manually,
@@ -1983,4 +1990,5 @@ def test_replication_not_messed_up_by_ShowIndexInfo(connection):
 
 
 if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-k", "test_basic_recovery"]))
     sys.exit(pytest.main([__file__, "-rA"]))
