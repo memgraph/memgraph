@@ -198,6 +198,7 @@ bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::
                                                    const std::optional<utils::UUID> &main_uuid) {
   // We don't want to restart the server if we're already a REPLICA
   if (repl_state_.IsReplica()) {
+    spdlog::trace("Instance has already has replica role.");
     return false;
   }
 

@@ -165,6 +165,8 @@ class DbmsHandler {
 
     // TODO: Fix this hack
     if (config.name == kDefaultDB) {
+      // TODO (antoniofilipovic) potential issue is here, if last_commit_timestamp_ is changed due to recovery of data
+      // from snapshot
       if (db->storage()->repl_storage_state_.last_commit_timestamp_ != storage::kTimestampInitialId) {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
         return NewError::GENERIC;  // Update error
