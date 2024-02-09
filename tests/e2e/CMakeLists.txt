@@ -39,7 +39,7 @@ endfunction()
 
 add_subdirectory(fine_grained_access)
 add_subdirectory(server)
-#add_subdirectory(replication)
+add_subdirectory(replication)
 #add_subdirectory(memory)
 add_subdirectory(triggers)
 add_subdirectory(isolation_levels)
