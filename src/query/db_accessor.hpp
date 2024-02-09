@@ -570,7 +570,7 @@ class DbAccessor final {
     return accessor_->LabelPropertyIndexExists(label, prop);
   }
 
-  bool TextIndexExists(std::string index_name) const { return accessor_->TextIndexExists(index_name); }
+  bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
   void TextIndexAddVertex(VertexAccessor *vertex) { accessor_->TextIndexAddVertex(&vertex->impl_); }
 
@@ -580,7 +580,7 @@ class DbAccessor final {
     accessor_->TextIndexUpdateVertex(&vertex->impl_, removed_labels);
   }
 
-  std::vector<storage::Gid> TextIndexSearch(std::string index_name, std::string search_query) const {
+  std::vector<storage::Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query) const {
     return accessor_->TextIndexSearch(index_name, search_query);
   }
 
@@ -659,12 +659,12 @@ class DbAccessor final {
     return accessor_->DropIndex(label, property);
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(std::string index_name,
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(const std::string &index_name,
                                                                                  storage::LabelId label) {
     return accessor_->CreateTextIndex(index_name, label, this);
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(std::string index_name) {
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name) {
     return accessor_->DropTextIndex(index_name);
   }
 

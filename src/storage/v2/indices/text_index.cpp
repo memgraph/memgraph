@@ -199,7 +199,7 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(V
   return applicable_text_indices;
 }
 
-bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::query::DbAccessor *db) {
+bool TextIndex::CreateIndex(const std::string &index_name, LabelId label, memgraph::query::DbAccessor *db) {
   if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
@@ -292,7 +292,7 @@ bool TextIndex::CreateIndex(std::string index_name, LabelId label, memgraph::que
   return true;
 }
 
-bool TextIndex::RecoverIndex(std::string index_name, LabelId label,
+bool TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
                              memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper) {
   if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
@@ -391,7 +391,7 @@ bool TextIndex::RecoverIndex(std::string index_name, LabelId label,
   return true;
 }
 
-bool TextIndex::DropIndex(std::string index_name) {
+bool TextIndex::DropIndex(const std::string &index_name) {
   if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
@@ -406,9 +406,9 @@ bool TextIndex::DropIndex(std::string index_name) {
   return true;
 }
 
-bool TextIndex::IndexExists(std::string index_name) const { return index_.contains(index_name); }
+bool TextIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
 
-std::vector<Gid> TextIndex::Search(std::string index_name, std::string search_query) {
+std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::string &search_query) {
   if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::QueryException("To use text indices, enable the text search feature.");
   }
@@ -465,6 +465,6 @@ std::vector<std::pair<std::string, LabelId>> TextIndex::ListIndices() const {
   return ret;
 }
 
-std::uint64_t TextIndex::ApproximateVertexCount(std::string index_name) const { return 10; }
+std::uint64_t TextIndex::ApproximateVertexCount(const std::string &index_name) const { return 10; }
 
 }  // namespace memgraph::storage

@@ -248,7 +248,7 @@ void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::L
       << ");";
 }
 
-void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, std::string index_name, storage::LabelId label) {
+void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label) {
   *os << "CREATE TEXT INDEX " << EscapeName(index_name) << " ON :" << EscapeName(dba->LabelToName(label)) << ";";
 }
 

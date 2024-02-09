@@ -227,7 +227,7 @@ class Storage {
 
     virtual bool LabelPropertyIndexExists(LabelId label, PropertyId property) const = 0;
 
-    bool TextIndexExists(std::string index_name) const {
+    bool TextIndexExists(const std::string &index_name) const {
       return storage_->indices_.text_index_->IndexExists(index_name);
     }
 
@@ -243,7 +243,7 @@ class Storage {
       storage_->indices_.text_index_->UpdateNode(vertex->vertex_, storage_, storage_->timestamp_, removed_labels);
     }
 
-    std::vector<Gid> TextIndexSearch(std::string index_name, std::string search_query) const {
+    std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query) const {
       return storage_->indices_.text_index_->Search(index_name, search_query);
     }
 
@@ -291,13 +291,14 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateTextIndex(std::string index_name, LabelId label,
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateTextIndex(const std::string &index_name,
+                                                                                  LabelId label,
                                                                                   query::DbAccessor *db) {
       storage_->indices_.text_index_->CreateIndex(index_name, label, db);
       return {};
     }
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropTextIndex(std::string index_name) {
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name) {
       storage_->indices_.text_index_->DropIndex(index_name);
       return {};
     }

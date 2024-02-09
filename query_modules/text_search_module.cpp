@@ -31,8 +31,8 @@ void TextSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
   auto arguments = mgp::List(args);
 
   try {
-    auto index_name = arguments[0].ValueString().data();
-    auto search_query = arguments[1].ValueString().data();
+    const auto *index_name = arguments[0].ValueString().data();
+    const auto *search_query = arguments[1].ValueString().data();
 
     // 1. See if the given index_name is text-indexed
     if (!mgp::graph_has_text_index(memgraph_graph, index_name)) {

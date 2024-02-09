@@ -2601,7 +2601,7 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
 mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
-        std::optional<memgraph::query::VertexAccessor> maybe_vertex = std::visit(
+        auto maybe_vertex = std::visit(
             [graph, id](auto *impl) {
               return impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
             },

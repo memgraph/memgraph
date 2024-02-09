@@ -74,16 +74,16 @@ class TextIndex {
   void UpdateOnSetProperty(Vertex *vertex_after_update, Storage *storage,
                            const std::uint64_t transaction_start_timestamp);
 
-  bool CreateIndex(std::string index_name, LabelId label, memgraph::query::DbAccessor *db);
+  bool CreateIndex(const std::string &index_name, LabelId label, memgraph::query::DbAccessor *db);
 
-  bool RecoverIndex(std::string index_name, LabelId label, memgraph::utils::SkipList<Vertex>::Accessor vertices,
+  bool RecoverIndex(const std::string &index_name, LabelId label, memgraph::utils::SkipList<Vertex>::Accessor vertices,
                     NameIdMapper *name_id_mapper);
 
-  bool DropIndex(std::string index_name);
+  bool DropIndex(const std::string &index_name);
 
-  bool IndexExists(std::string index_name) const;
+  bool IndexExists(const std::string &index_name) const;
 
-  std::vector<Gid> Search(std::string index_name, std::string search_query);
+  std::vector<Gid> Search(const std::string &index_name, const std::string &search_query);
 
   void Commit();
 
@@ -91,7 +91,7 @@ class TextIndex {
 
   std::vector<std::pair<std::string, LabelId>> ListIndices() const;
 
-  std::uint64_t ApproximateVertexCount(std::string index_name) const;
+  std::uint64_t ApproximateVertexCount(const std::string &index_name) const;
 };
 
 }  // namespace memgraph::storage
