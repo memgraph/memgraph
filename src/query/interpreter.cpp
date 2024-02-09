@@ -2570,11 +2570,10 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        std::optional<utils::BasicResult<storage::StorageIndexDefinitionError, void>> maybe_index_error;
-        maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
+        auto maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
-        if (maybe_index_error.has_value() && maybe_index_error.value().HasError()) {
+        if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
           index_notification.title =
               fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
@@ -2592,11 +2591,10 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        std::optional<utils::BasicResult<storage::StorageIndexDefinitionError, void>> maybe_index_error;
-        maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
+        auto maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
-        if (maybe_index_error.has_value() && maybe_index_error.value().HasError()) {
+        if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
               fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
@@ -2652,18 +2650,11 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, index_name, label_name = text_index_query->label_.name,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        std::optional<utils::BasicResult<storage::StorageIndexDefinitionError, void>> maybe_index_error;
         if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
           throw TextSearchDisabledException();
         }
-        maybe_index_error = dba->CreateTextIndex(index_name, label);
+        dba->CreateTextIndex(index_name, label);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
-
-        if (maybe_index_error.has_value() && maybe_index_error.value().HasError()) {
-          index_notification.code = NotificationCode::EXISTENT_INDEX;
-          index_notification.title = fmt::format("Text index on label {} already exists.", label_name);
-          // ABORT?
-        }
       };
       break;
     }
@@ -2673,17 +2664,11 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, index_name, label_name = text_index_query->label_.name,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        std::optional<utils::BasicResult<storage::StorageIndexDefinitionError, void>> maybe_index_error;
         if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
           throw TextSearchDisabledException();
         }
-        maybe_index_error = dba->DropTextIndex(index_name);
+        dba->DropTextIndex(index_name);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
-
-        if (maybe_index_error.has_value() && maybe_index_error.value().HasError()) {
-          index_notification.code = NotificationCode::NONEXISTENT_INDEX;
-          index_notification.title = fmt::format("Text index on label {} doesn't exist.", label_name);
-        }
       };
       break;
     }
