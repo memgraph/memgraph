@@ -11,7 +11,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/raft_instance.hpp"
+#include "coordination/raft_state.hpp"
 
 #include "coordination/coordinator_exceptions.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
@@ -31,7 +31,7 @@ using nuraft::raft_server;
 using nuraft::srv_config;
 using raft_result = cmd_result<ptr<buffer>>;
 
-RaftInstance::RaftInstance(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb)
+RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb)
     : raft_server_id_(FLAGS_raft_server_id),
       raft_port_(FLAGS_raft_server_port),
       raft_address_("127.0.0.1"),
@@ -89,14 +89,13 @@ RaftInstance::RaftInstance(BecomeLeaderCb become_leader_cb, BecomeFollowerCb bec
   spdlog::info("Raft server started on {}", raft_endpoint);
 }
 
-RaftInstance::~RaftInstance() { launcher_.shutdown(); }
+RaftState::~RaftState() { launcher_.shutdown(); }
 
-auto RaftInstance::InstanceName() const -> std::string { return "coordinator_" + std::to_string(raft_server_id_); }
+auto RaftState::InstanceName() const -> std::string { return "coordinator_" + std::to_string(raft_server_id_); }
 
-auto RaftInstance::RaftSocketAddress() const -> std::string { return raft_address_ + ":" + std::to_string(raft_port_); }
+auto RaftState::RaftSocketAddress() const -> std::string { return raft_address_ + ":" + std::to_string(raft_port_); }
 
-auto RaftInstance::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)
-    -> void {
+auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void {
   auto const endpoint = raft_address + ":" + std::to_string(raft_port);
   srv_config const srv_config_to_add(static_cast<int>(raft_server_id), endpoint);
   if (!raft_server_->add_srv(srv_config_to_add)->get_accepted()) {
@@ -105,19 +104,17 @@ auto RaftInstance::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft
   spdlog::info("Request to add server {} to the cluster accepted", endpoint);
 }
 
-auto RaftInstance::GetAllCoordinators() const -> std::vector<ptr<srv_config>> {
+auto RaftState::GetAllCoordinators() const -> std::vector<ptr<srv_config>> {
   std::vector<ptr<srv_config>> all_srv_configs;
   raft_server_->get_srv_config_all(all_srv_configs);
   return all_srv_configs;
 }
 
-auto RaftInstance::IsLeader() const -> bool { return raft_server_->is_leader(); }
+auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
-auto RaftInstance::RequestLeadership() -> bool {
-  return raft_server_->is_leader() || raft_server_->request_leadership();
-}
+auto RaftState::RequestLeadership() -> bool { return raft_server_->is_leader() || raft_server_->request_leadership(); }
 
-auto RaftInstance::AppendRegisterReplicationInstance(std::string const &instance) -> ptr<raft_result> {
+auto RaftState::AppendRegisterReplicationInstance(std::string const &instance) -> ptr<raft_result> {
   auto new_log = CoordinatorStateMachine::EncodeRegisterReplicationInstance(instance);
   return raft_server_->append_entries({new_log});
 }

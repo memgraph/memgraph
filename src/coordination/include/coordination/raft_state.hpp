@@ -32,15 +32,15 @@ using nuraft::state_machine;
 using nuraft::state_mgr;
 using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
-class RaftInstance {
+class RaftState {
  public:
-  RaftInstance(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb);
+  RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb);
 
-  RaftInstance(RaftInstance const &other) = delete;
-  RaftInstance &operator=(RaftInstance const &other) = delete;
-  RaftInstance(RaftInstance &&other) noexcept = delete;
-  RaftInstance &operator=(RaftInstance &&other) noexcept = delete;
-  ~RaftInstance();
+  RaftState(RaftState const &other) = delete;
+  RaftState &operator=(RaftState const &other) = delete;
+  RaftState(RaftState &&other) noexcept = delete;
+  RaftState &operator=(RaftState &&other) noexcept = delete;
+  ~RaftState();
 
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;

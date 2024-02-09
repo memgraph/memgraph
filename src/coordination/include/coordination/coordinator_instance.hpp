@@ -15,7 +15,7 @@
 
 #include "coordination/coordinator_server.hpp"
 #include "coordination/instance_status.hpp"
-#include "coordination/raft_instance.hpp"
+#include "coordination/raft_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "coordination/replication_instance.hpp"
 #include "utils/rw_lock.hpp"
@@ -39,6 +39,8 @@ class CoordinatorInstance {
 
   auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
 
+  auto GetMainUUID() const -> utils::UUID;
+
  private:
   auto ClusterHasAliveMain_() const -> bool;
 
@@ -50,7 +52,7 @@ class CoordinatorInstance {
 
   utils::UUID main_uuid_;
 
-  RaftInstance self_;
+  RaftState raft_state_;
 };
 
 }  // namespace memgraph::coordination

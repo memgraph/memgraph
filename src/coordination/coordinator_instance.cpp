@@ -27,66 +27,97 @@ using nuraft::ptr;
 using nuraft::srv_config;
 
 CoordinatorInstance::CoordinatorInstance()
-    : self_([this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StartFrequentCheck); },
-            [this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StopFrequentCheck); }) {
-  auto find_instance = [](CoordinatorInstance *coord_instance,
-                          std::string_view instance_name) -> ReplicationInstance & {
-    auto instance = std::ranges::find_if(
-        coord_instance->repl_instances_,
-        [instance_name](ReplicationInstance const &instance) { return instance.InstanceName() == instance_name; });
+    : raft_state_([this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StartFrequentCheck); },
+                  [this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StopFrequentCheck); }) {
+  auto find_repl_instance = [](CoordinatorInstance *self,
+                               std::string_view repl_instance_name) -> ReplicationInstance & {
+    auto repl_instance =
+        std::ranges::find_if(self->repl_instances_, [repl_instance_name](ReplicationInstance const &instance) {
+          return instance.InstanceName() == repl_instance_name;
+        });
 
-    MG_ASSERT(instance != coord_instance->repl_instances_.end(), "Instance {} not found during callback!",
-              instance_name);
-    return *instance;
+    MG_ASSERT(repl_instance != self->repl_instances_.end(), "Instance {} not found during callback!",
+              repl_instance_name);
+    return *repl_instance;
   };
 
-  replica_succ_cb_ = [find_instance](CoordinatorInstance *coord_instance, std::string_view instance_name) -> void {
-    auto lock = std::lock_guard{coord_instance->coord_instance_lock_};
-    spdlog::trace("Instance {} performing replica successful callback", instance_name);
-    find_instance(coord_instance, instance_name).OnSuccessPing();
+  replica_succ_cb_ = [find_repl_instance](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
+    auto lock = std::lock_guard{self->coord_instance_lock_};
+    spdlog::trace("Instance {} performing replica successful callback", repl_instance_name);
+    auto &repl_instance = find_repl_instance(self, repl_instance_name);
+
+    auto curr_main_uuid = self->GetMainUUID();
+    if (!repl_instance.GetMainUUID().has_value() || curr_main_uuid != repl_instance.GetMainUUID().value()) {
+      if (!repl_instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
+        spdlog::error(
+            fmt::format("Failed to swap uuid for replica instance {} which is alive", repl_instance.InstanceName()));
+        return;
+      }
+    }
+
+    repl_instance.OnSuccessPing();
   };
 
-  replica_fail_cb_ = [find_instance](CoordinatorInstance *coord_instance, std::string_view instance_name) -> void {
-    auto lock = std::lock_guard{coord_instance->coord_instance_lock_};
-    spdlog::trace("Instance {} performing replica failure callback", instance_name);
-    find_instance(coord_instance, instance_name).OnFailPing();
+  replica_fail_cb_ = [find_repl_instance](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
+    auto lock = std::lock_guard{self->coord_instance_lock_};
+    spdlog::trace("Instance {} performing replica failure callback", repl_instance_name);
+    auto &repl_instance = find_repl_instance(self, repl_instance_name);
+    repl_instance.OnFailPing();
+    // We need to restart main uuid from instance since it was "down" at least a second
+    // There is slight delay, if we choose to use isAlive, instance can be down and back up in less than
+    // our isAlive time difference, which would lead to instance setting UUID to nullopt and stopping accepting any
+    // incoming RPCs from valid main
+    // TODO(antoniofilipovic) this needs here more complex logic
+    // We need to get id of main replica is listening to on successful ping
+    // and swap it to correct uuid if it failed
+    repl_instance.SetNewMainUUID();
   };
 
-  main_succ_cb_ = [find_instance](CoordinatorInstance *coord_instance, std::string_view instance_name) -> void {
-    auto lock = std::lock_guard{coord_instance->coord_instance_lock_};
-    spdlog::trace("Instance {} performing main successful callback", instance_name);
+  main_succ_cb_ = [this, find_repl_instance](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
+    auto lock = std::lock_guard{self->coord_instance_lock_};
+    spdlog::trace("Instance {} performing main successful callback", repl_instance_name);
 
-    auto &instance = find_instance(coord_instance, instance_name);
+    auto &repl_instance = find_repl_instance(self, repl_instance_name);
 
-    if (instance.IsAlive()) {
-      instance.OnSuccessPing();
+    if (repl_instance.IsAlive()) {
+      repl_instance.OnSuccessPing();
       return;
     }
 
-    bool const is_latest_main = !coord_instance->ClusterHasAliveMain_();
-    if (is_latest_main) {
-      spdlog::info("Instance {} is the latest main", instance_name);
-      instance.OnSuccessPing();
+    const auto &repl_instance_uuid = repl_instance.GetMainUUID();
+    MG_ASSERT(repl_instance_uuid.has_value(), "Instance must have uuid set");
+    if (main_uuid_ == repl_instance_uuid.value()) {
+      repl_instance.OnSuccessPing();
       return;
     }
 
-    bool const demoted = instance.DemoteToReplica(coord_instance->replica_succ_cb_, coord_instance->replica_fail_cb_);
-    if (demoted) {
-      instance.OnSuccessPing();
-      spdlog::info("Instance {} demoted to replica", instance_name);
+    // TODO(antoniof) make demoteToReplica idempotent since main can be demoted to replica but
+    // swapUUID can fail
+    if (repl_instance.DemoteToReplica(self->replica_succ_cb_, self->replica_fail_cb_)) {
+      repl_instance.OnSuccessPing();
+      spdlog::info("Instance {} demoted to replica", repl_instance_name);
     } else {
-      spdlog::error("Instance {} failed to become replica", instance_name);
+      spdlog::error("Instance {} failed to become replica", repl_instance_name);
+      return;
+    }
+
+    if (!repl_instance.SendSwapAndUpdateUUID(main_uuid_)) {
+      spdlog::error(fmt::format("Failed to swap uuid for demoted main instance {}", repl_instance.InstanceName()));
+      return;
     }
   };
 
-  main_fail_cb_ = [find_instance](CoordinatorInstance *coord_instance, std::string_view instance_name) -> void {
-    auto lock = std::lock_guard{coord_instance->coord_instance_lock_};
-    spdlog::trace("Instance {} performing main failure callback", instance_name);
-    find_instance(coord_instance, instance_name).OnFailPing();
+  main_fail_cb_ = [find_repl_instance](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
+    auto lock = std::lock_guard{self->coord_instance_lock_};
+    spdlog::trace("Instance {} performing main failure callback", repl_instance_name);
+    auto &repl_instance = find_repl_instance(self, repl_instance_name);
+    repl_instance.OnFailPing();
+    const auto &instance_uuid = repl_instance.GetMainUUID();
+    MG_ASSERT(instance_uuid.has_value(), "Instance must have uuid set");
 
-    if (!coord_instance->ClusterHasAliveMain_()) {
+    if (!repl_instance.IsAlive() && self->GetMainUUID() == instance_uuid.value()) {
       spdlog::info("Cluster without main instance, trying automatic failover");
-      coord_instance->TryFailover();
+      self->TryFailover();  // TODO: (andi) Initiate failover
     }
   };
 }
@@ -144,7 +175,7 @@ auto CoordinatorInstance::TryFailover() -> void {
 }
 
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
-  auto const coord_instances = self_.GetAllCoordinators();
+  auto const coord_instances = raft_state_.GetAllCoordinators();
 
   std::vector<InstanceStatus> instances_status;
   instances_status.reserve(repl_instances_.size() + coord_instances.size());
@@ -251,11 +282,11 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
     return RegisterInstanceCoordinatorStatus::ENDPOINT_EXISTS;
   }
 
-  if (!self_.RequestLeadership()) {
+  if (!raft_state_.RequestLeadership()) {
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
-  auto const res = self_.AppendRegisterReplicationInstance(config.instance_name);
+  auto const res = raft_state_.AppendRegisterReplicationInstance(config.instance_name);
   if (!res->get_accepted()) {
     spdlog::error(
         "Failed to accept request for registering instance {}. Most likely the reason is that the instance is not the "
@@ -282,8 +313,10 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
 
 auto CoordinatorInstance::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)
     -> void {
-  self_.AddCoordinatorInstance(raft_server_id, raft_port, std::move(raft_address));
+  raft_state_.AddCoordinatorInstance(raft_server_id, raft_port, std::move(raft_address));
 }
+
+auto CoordinatorInstance::GetMainUUID() const -> utils::UUID { return main_uuid_; }
 
 }  // namespace memgraph::coordination
 #endif

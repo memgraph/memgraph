@@ -154,7 +154,7 @@ def test_distributed_automatic_failover():
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
     expected_data_on_new_main_old_alive = [
         ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("instance_3", "127.0.0.1:10003", "sync", 0, 0, "invalid"),  # TODO: (andi) Solve it
+        ("instance_3", "127.0.0.1:10003", "sync", 0, 0, "ready"),
     ]
 
     mg_sleep_and_assert(expected_data_on_new_main_old_alive, retrieve_data_show_replicas)
