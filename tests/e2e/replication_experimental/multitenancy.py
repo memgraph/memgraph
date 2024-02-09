@@ -1236,15 +1236,3 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
 if __name__ == "__main__":
     interactive_mg_runner.cleanup_directories_on_exit()
     sys.exit(pytest.main([__file__, "-rA"]))
-
-    sys.exit(pytest.main([__file__, "-k", "test_multitenancy_replication_restart_replica_w_fc", "-vv"]))
-
-    # test_multitenancy_replication_restart_replica_wo_fc
-    # test_multitenancy_replication_restart_replica_w_fc_w_rec
-    # test_multitenancy_replication_drop_replica
-    # test_multitenancy_replication_restart_main
-    # test_automatic_databases_drop_multitenancy_replication
-    # test_drop_multitenancy_replication_restart_replica
-
-    interactive_mg_runner.cleanup_directories_on_exit()
-    sys.exit(pytest.main([__file__, "-rA"]))
