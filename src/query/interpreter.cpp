@@ -2543,7 +2543,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
   auto *storage = db_acc->storage();
   auto label = storage->NameToLabel(index_query->label_.name);
-  auto &index_name = index_query->index_name_;
 
   std::vector<storage::PropertyId> properties;
   std::vector<std::string> properties_string;
@@ -2567,20 +2566,12 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
           fmt::format("Created index on label {} on properties {}.", index_query->label_.name, properties_stringified);
 
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, index_type = index_query->type_, label, index_name,
-                 properties_stringified = std::move(properties_stringified), label_name = index_query->label_.name,
-                 properties = std::move(properties),
+      handler = [dba, label, properties_stringified = std::move(properties_stringified),
+                 label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
         std::optional<utils::BasicResult<storage::StorageIndexDefinitionError, void>> maybe_index_error;
-        if (index_type == IndexQuery::Type::LOOKUP) {
-          maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
-        } else if (index_type == IndexQuery::Type::TEXT) {
-          if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
-            throw QueryException("To use text indices, enable the text search feature.");
-          }
-          maybe_index_error = dba->CreateTextIndex(index_name, label);
-        }
+        maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.has_value() && maybe_index_error.value().HasError()) {
@@ -2597,26 +2588,101 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       index_notification.title = fmt::format("Dropped index on label {} on properties {}.", index_query->label_.name,
                                              utils::Join(properties_string, ", "));
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, index_type = index_query->type_, label, index_name,
-                 properties_stringified = std::move(properties_stringified), label_name = index_query->label_.name,
-                 properties = std::move(properties),
+      handler = [dba, label, properties_stringified = std::move(properties_stringified),
+                 label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
         std::optional<utils::BasicResult<storage::StorageIndexDefinitionError, void>> maybe_index_error;
-        if (index_type == IndexQuery::Type::LOOKUP) {
-          maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
-        } else if (index_type == IndexQuery::Type::TEXT) {
-          if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
-            throw QueryException("To use text indices, enable the text search feature.");
-          }
-          maybe_index_error = dba->DropTextIndex(index_name);
-        }
+        maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.has_value() && maybe_index_error.value().HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
               fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
+        }
+      };
+      break;
+    }
+  }
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
+          AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+        handler(index_notification);
+        notifications->push_back(index_notification);
+        return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
+      },
+      RWType::W};
+}
+
+PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                    std::vector<Notification> *notifications, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw IndexInMulticommandTxException();
+  }
+
+  auto *text_index_query = utils::Downcast<TextIndexQuery>(parsed_query.query);
+  std::function<void(Notification &)> handler;
+
+  // TODO: we will need transaction for replication
+  MG_ASSERT(current_db.db_acc_, "Text index query expects a current DB");
+  auto &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Text index query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  // Creating an index influences computed plan costs.
+  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
+  auto *storage = db_acc->storage();
+  auto label = storage->NameToLabel(text_index_query->label_.name);
+  auto &index_name = text_index_query->index_name_;
+
+  Notification index_notification(SeverityLevel::INFO);
+  switch (text_index_query->action_) {
+    case TextIndexQuery::Action::CREATE: {
+      index_notification.code = NotificationCode::CREATE_INDEX;
+      index_notification.title = fmt::format("Created text index on label {}.", text_index_query->label_.name);
+
+      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
+      handler = [dba, label, index_name, label_name = text_index_query->label_.name,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
+        std::optional<utils::BasicResult<storage::StorageIndexDefinitionError, void>> maybe_index_error;
+        if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
+          throw TextSearchDisabledException();
+        }
+        maybe_index_error = dba->CreateTextIndex(index_name, label);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+
+        if (maybe_index_error.has_value() && maybe_index_error.value().HasError()) {
+          index_notification.code = NotificationCode::EXISTENT_INDEX;
+          index_notification.title = fmt::format("Text index on label {} already exists.", label_name);
+          // ABORT?
+        }
+      };
+      break;
+    }
+    case TextIndexQuery::Action::DROP: {
+      index_notification.code = NotificationCode::DROP_INDEX;
+      index_notification.title = fmt::format("Dropped text index on label {}.", text_index_query->label_.name);
+      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
+      handler = [dba, label, index_name, label_name = text_index_query->label_.name,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
+        std::optional<utils::BasicResult<storage::StorageIndexDefinitionError, void>> maybe_index_error;
+        if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
+          throw TextSearchDisabledException();
+        }
+        maybe_index_error = dba->DropTextIndex(index_name);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+
+        if (maybe_index_error.has_value() && maybe_index_error.value().HasError()) {
+          index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+          index_notification.title = fmt::format("Text index on label {} doesn't exist.", label_name);
         }
       };
       break;
@@ -4227,13 +4293,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
         utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
         utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
-        utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<DatabaseInfoQuery>(parsed_query.query) ||
-        utils::Downcast<ConstraintQuery>(parsed_query.query);
+        utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
+        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
       bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr ||
+                    utils::Downcast<TextIndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
                     upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
@@ -4270,6 +4337,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                          &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
+      prepared_query = PrepareTextIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                                             &query_execution->notifications, current_db_);
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {

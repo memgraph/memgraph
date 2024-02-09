@@ -2196,39 +2196,59 @@ class IndexQuery : public memgraph::query::Query {
 
   enum class Action { CREATE, DROP };
 
-  // IndexQuery distinguishes two types of indices. Lookup indices (label and label & property) make it faster to look
-  // up nodes, whereas text indices enable text search.
-  enum class Type { LOOKUP, TEXT };
-
   IndexQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::IndexQuery::Action action_;
-  memgraph::query::IndexQuery::Type type_;
   memgraph::query::LabelIx label_;
   std::vector<memgraph::query::PropertyIx> properties_;
-  std::string index_name_;
 
   IndexQuery *Clone(AstStorage *storage) const override {
     IndexQuery *object = storage->Create<IndexQuery>();
     object->action_ = action_;
-    object->type_ = type_;
     object->label_ = storage->GetLabelIx(label_.name);
     object->properties_.resize(properties_.size());
     for (auto i = 0; i < object->properties_.size(); ++i) {
       object->properties_[i] = storage->GetPropertyIx(properties_[i].name);
     }
+    return object;
+  }
+
+ protected:
+  IndexQuery(Action action, LabelIx label, std::vector<PropertyIx> properties)
+      : action_(action), label_(std::move(label)), properties_(std::move(properties)) {}
+
+ private:
+  friend class AstStorage;
+};
+
+class TextIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action { CREATE, DROP };
+
+  TextIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::TextIndexQuery::Action action_;
+  memgraph::query::LabelIx label_;
+  std::string index_name_;
+
+  TextIndexQuery *Clone(AstStorage *storage) const override {
+    TextIndexQuery *object = storage->Create<TextIndexQuery>();
+    object->action_ = action_;
+    object->label_ = storage->GetLabelIx(label_.name);
     object->index_name_ = index_name_;
     return object;
   }
 
  protected:
-  IndexQuery(Action action, Type type, LabelIx label, std::vector<PropertyIx> properties)
-      : action_(action), type_(type), label_(label), properties_(properties) {}
-
-  IndexQuery(Action action, Type type, LabelIx label, std::vector<PropertyIx> properties, std::string index_name)
-      : action_(action), type_(type), label_(label), properties_(properties), index_name_(index_name) {}
+  TextIndexQuery(Action action, LabelIx label, std::string index_name)
+      : action_(action), label_(std::move(label)), index_name_(index_name) {}
 
  private:
   friend class AstStorage;

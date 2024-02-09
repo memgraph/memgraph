@@ -133,6 +133,7 @@ symbolicName : UnescapedSymbolicName
 
 query : cypherQuery
       | indexQuery
+      | textIndexQuery
       | explainQuery
       | profileQuery
       | databaseInfoQuery

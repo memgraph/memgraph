@@ -243,10 +243,16 @@ antlrcpp::Any CypherMainVisitor::visitIndexQuery(MemgraphCypher::IndexQueryConte
   return index_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitTextIndexQuery(MemgraphCypher::TextIndexQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "TextIndexQuery should have exactly one child!");
+  auto *text_index_query = std::any_cast<TextIndexQuery *>(ctx->children[0]->accept(this));
+  query_ = text_index_query;
+  return text_index_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::CREATE;
-  index_query->type_ = IndexQuery::Type::LOOKUP;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   if (ctx->propertyKeyName()) {
     auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
@@ -256,10 +262,9 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitCreateTextIndex(MemgraphCypher::CreateTextIndexContext *ctx) {
-  auto *index_query = storage_->Create<IndexQuery>();
+  auto *index_query = storage_->Create<TextIndexQuery>();
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
-  index_query->action_ = IndexQuery::Action::CREATE;
-  index_query->type_ = IndexQuery::Type::TEXT;
+  index_query->action_ = TextIndexQuery::Action::CREATE;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   return index_query;
 }
@@ -267,7 +272,6 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextIndex(MemgraphCypher::CreateText
 antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::DROP;
-  index_query->type_ = IndexQuery::Type::LOOKUP;
   if (ctx->propertyKeyName()) {
     auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
     index_query->properties_ = {key};
@@ -277,10 +281,9 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
 }
 
 antlrcpp::Any CypherMainVisitor::visitDropTextIndex(MemgraphCypher::DropTextIndexContext *ctx) {
-  auto *index_query = storage_->Create<IndexQuery>();
+  auto *index_query = storage_->Create<TextIndexQuery>();
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
-  index_query->action_ = IndexQuery::Action::DROP;
-  index_query->type_ = IndexQuery::Type::TEXT;
+  index_query->action_ = TextIndexQuery::Action::DROP;
   return index_query;
 }
 

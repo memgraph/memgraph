@@ -25,6 +25,7 @@ statement : query ;
 
 query : cypherQuery
       | indexQuery
+      | textIndexQuery
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -63,7 +64,9 @@ profileQuery : PROFILE cypherQuery ;
 
 cypherQuery : singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
-indexQuery : createIndex | dropIndex | createTextIndex | dropTextIndex;
+indexQuery : createIndex | dropIndex;
+
+textIndexQuery : createTextIndex | dropTextIndex;
 
 singleQuery : clause ( clause )* ;
 
