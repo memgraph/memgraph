@@ -437,6 +437,9 @@ class ReplQueryHandler {
         case storage::replication::ReplicaState::MAYBE_BEHIND:
           replica.state = ReplicationQuery::ReplicaState::MAYBE_BEHIND;
           break;
+        case storage::replication::ReplicaState::DIVERGED_FROM_MAIN:
+          replica.state = ReplicationQuery::ReplicaState::DIVERGED_FROM_MAIN;
+          break;
       }
 
       return replica;
@@ -1081,6 +1084,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
               break;
             case ReplicationQuery::ReplicaState::MAYBE_BEHIND:
               typed_replica.emplace_back("invalid");
+              break;
+            case ReplicationQuery::ReplicaState::DIVERGED_FROM_MAIN:
+              typed_replica.emplace_back("diverged");
               break;
           }
 
