@@ -239,7 +239,11 @@ def sanitize_args(args):
     assert args.benchmarks != None, helpers.list_available_workloads()
     assert args.num_workers_for_import > 0
     assert args.num_workers_for_benchmark > 0
-    assert args.export_results != None, "Pass where will results be saved"
+    assert (
+        args.export_results != None
+        or args.export_results_on_disk_txn != None
+        or args.export_results_in_memory_analytical != None
+    ), "Pass where will results be saved"
     assert args.single_threaded_runtime_sec >= 1, "Low runtime value, consider extending time for more accurate results"
     assert (
         args.workload_realistic == None or args.workload_mixed == None
@@ -686,25 +690,25 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
             run_isolated_workload_with_authorization(vendor_runner, client, bench_queries, group, workload, results)
 
 
-# TODO: (andi) Reorder functions in top-down notion in order to improve readibility
+# TODO: (andi) Reorder functions in top-down notion in order to improve readibility -> does this referes to run_target_workloads function or the code around?
 def run_target_workloads(benchmark_context, target_workloads, bench_results):
     for workload, bench_queries in target_workloads:
         log.info(f"Started running {str(workload.NAME)} workload")
-
         benchmark_context.set_active_workload(workload.NAME)
         benchmark_context.set_active_variant(workload.get_variant())
 
+        # TODO(gitbuda): What's the semantic of --export-results-xyz flags? NOTE: avoid nested if/else statements
         if workload.is_disk_workload() and benchmark_context.export_results_on_disk_txn:
             run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queries, bench_results.disk_results)
-        else:
-            run_in_memory_transactional_benchmark(
-                benchmark_context, workload, bench_queries, bench_results.in_memory_txn_results
+            return
+        if benchmark_context.export_results_in_memory_analytical:
+            run_in_memory_analytical_benchmark(
+                benchmark_context, workload, bench_queries, bench_results.in_memory_analytical_results
             )
-
-            if benchmark_context.export_results_in_memory_analytical:
-                run_in_memory_analytical_benchmark(
-                    benchmark_context, workload, bench_queries, bench_results.in_memory_analytical_results
-                )
+            return
+        run_in_memory_transactional_benchmark(
+            benchmark_context, workload, bench_queries, bench_results.in_memory_txn_results
+        )
 
 
 def run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queries, disk_results):
