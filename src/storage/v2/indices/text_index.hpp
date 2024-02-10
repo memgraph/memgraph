@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <json/json.hpp>
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/transaction.hpp"
@@ -33,12 +34,22 @@ struct TextIndexData {
 
 class TextIndex {
  private:
-  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper, const std::uint64_t transaction_start_timestamp,
-               const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
+  void CreateEmptyIndex(const std::string &index_name, LabelId label);
+
+  template <typename T>
+  nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, T *name_resolver);
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(const std::vector<LabelId> &labels);
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(Vertex *vertex);
+
+  void LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::json &properties,
+                             const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
+
+  void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
+
+  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper,
+               const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
   void RemoveNode(Vertex *vertex, const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
@@ -55,30 +66,18 @@ class TextIndex {
   std::map<std::string, TextIndexData> index_;
   std::map<LabelId, std::string> label_to_index_;
 
-  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper, const std::uint64_t transaction_start_timestamp);
+  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper);
 
-  void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper, const std::uint64_t transaction_start_timestamp);
-
-  void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper, const std::uint64_t transaction_start_timestamp,
-                  const std::vector<LabelId> &removed_labels);
+  void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper, const std::vector<LabelId> &removed_labels = {});
 
   void RemoveNode(Vertex *vertex);
 
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
-                        const std::uint64_t transaction_start_timestamp);
+  void CreateIndex(const std::string &index_name, LabelId label, memgraph::query::DbAccessor *db);
 
-  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
-                           const std::uint64_t transaction_start_timestamp);
-
-  void UpdateOnSetProperty(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
-                           const std::uint64_t transaction_start_timestamp);
-
-  bool CreateIndex(const std::string &index_name, LabelId label, memgraph::query::DbAccessor *db);
-
-  bool RecoverIndex(const std::string &index_name, LabelId label, memgraph::utils::SkipList<Vertex>::Accessor vertices,
+  void RecoverIndex(const std::string &index_name, LabelId label, memgraph::utils::SkipList<Vertex>::Accessor vertices,
                     NameIdMapper *name_id_mapper);
 
-  bool DropIndex(const std::string &index_name);
+  void DropIndex(const std::string &index_name);
 
   bool IndexExists(const std::string &index_name) const;
 

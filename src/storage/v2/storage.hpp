@@ -232,16 +232,15 @@ class Storage {
     }
 
     void TextIndexAddVertex(VertexAccessor *vertex) {
-      storage_->indices_.text_index_.AddNode(vertex->vertex_, storage_->name_id_mapper_.get(), storage_->timestamp_);
+      storage_->indices_.text_index_.AddNode(vertex->vertex_, storage_->name_id_mapper_.get());
     }
 
     void TextIndexUpdateVertex(VertexAccessor *vertex) {
-      storage_->indices_.text_index_.UpdateNode(vertex->vertex_, storage_->name_id_mapper_.get(), storage_->timestamp_);
+      storage_->indices_.text_index_.UpdateNode(vertex->vertex_, storage_->name_id_mapper_.get());
     }
 
     void TextIndexUpdateVertex(VertexAccessor *vertex, std::vector<LabelId> removed_labels) {
-      storage_->indices_.text_index_.UpdateNode(vertex->vertex_, storage_->name_id_mapper_.get(), storage_->timestamp_,
-                                                removed_labels);
+      storage_->indices_.text_index_.UpdateNode(vertex->vertex_, storage_->name_id_mapper_.get(), removed_labels);
     }
 
     std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query) const {
@@ -292,17 +291,11 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateTextIndex(const std::string &index_name,
-                                                                                  LabelId label,
-                                                                                  query::DbAccessor *db) {
+    void CreateTextIndex(const std::string &index_name, LabelId label, query::DbAccessor *db) {
       storage_->indices_.text_index_.CreateIndex(index_name, label, db);
-      return {};
     }
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name) {
-      storage_->indices_.text_index_.DropIndex(index_name);
-      return {};
-    }
+    void DropTextIndex(const std::string &index_name) { storage_->indices_.text_index_.DropIndex(index_name); }
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;

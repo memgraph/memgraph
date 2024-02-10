@@ -2648,7 +2648,7 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       index_notification.title = fmt::format("Created text index on label {}.", text_index_query->label_.name);
 
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, label, index_name, label_name = text_index_query->label_.name,
+      handler = [dba, label, index_name,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
           throw TextSearchDisabledException();
@@ -2662,7 +2662,7 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped text index on label {}.", text_index_query->label_.name);
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, label, index_name, label_name = text_index_query->label_.name,
+      handler = [dba, index_name,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
           throw TextSearchDisabledException();

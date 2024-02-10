@@ -217,7 +217,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   auto new_node = dba.InsertVertex();
   context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
   for (auto label : node_info.labels) {
-    auto maybe_error = new_node.AddLabel(label);  // skip updating text indices until all labels are added
+    auto maybe_error = new_node.AddLabel(label);
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
