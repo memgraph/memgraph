@@ -18,12 +18,26 @@
 
 namespace memgraph::query {
 
+class UserPolicy {
+ public:
+  virtual bool DoUpdate() const = 0;
+};
+extern struct SessionLongPolicy : UserPolicy {
+ public:
+  bool DoUpdate() const override { return false; }
+} session_long_policy;
+extern struct UpToDatePolicy : UserPolicy {
+ public:
+  bool DoUpdate() const override { return true; }
+} up_to_date_policy;
+
 struct QueryUserOrRole {
   QueryUserOrRole(std::optional<std::string> username, std::optional<std::string> rolename)
       : username_{std::move(username)}, rolename_{std::move(rolename)} {}
   virtual ~QueryUserOrRole() = default;
 
-  virtual bool IsAuthorized(const std::vector<AuthQuery::Privilege> &privileges, const std::string &db_name) const = 0;
+  virtual bool IsAuthorized(const std::vector<AuthQuery::Privilege> &privileges, const std::string &db_name,
+                            UserPolicy *policy) const = 0;
 
 #ifdef MG_ENTERPRISE
   virtual std::string GetDefaultDB() const = 0;

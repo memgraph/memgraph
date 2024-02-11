@@ -210,7 +210,7 @@ class Interpreter final {
     std::optional<std::string> db;
   };
 
-  std::shared_ptr<QueryUserOrRole> user_{};
+  std::shared_ptr<QueryUserOrRole> user_or_role_{};
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
 

@@ -26,6 +26,7 @@
 #include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter_context.hpp"
+#include "query/query_user.hpp"
 #include "utils/event_map.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/variant_helpers.hpp"
@@ -107,7 +108,7 @@ TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::storage::Storag
 
 #ifdef MG_ENTERPRISE
 void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view db) {
-  if (user && !user->IsAuthorized({}, std::string(db))) {
+  if (user && !user->IsAuthorized({}, std::string(db), &memgraph::query::session_long_policy)) {
     throw memgraph::communication::bolt::ClientError(
         "You are not authorized on the database \"{}\"! Please contact your database administrator.", db);
   }
@@ -219,7 +220,7 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
   try {
     auto result = interpreter_.Prepare(query, params_pv, ToQueryExtras(extra));
     const std::string db_name = result.db ? *result.db : "";
-    if (user_or_role_ && !user_or_role_->IsAuthorized(result.privileges, db_name)) {
+    if (user_or_role_ && !user_or_role_->IsAuthorized(result.privileges, db_name, &query::session_long_policy)) {
       interpreter_.Abort();
       if (db_name.empty()) {
         throw memgraph::communication::bolt::ClientError(

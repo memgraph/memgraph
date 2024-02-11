@@ -197,7 +197,7 @@ auto ParseJson(std::string_view str) {
   try {
     data = nlohmann::json::parse(str);
   } catch (const nlohmann::json::parse_error &e) {
-    throw AuthException("Couldn't load role data!");
+    throw AuthException("Couldn't load auth data!");
   }
   return data;
 }
@@ -291,6 +291,7 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
 }
 
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
+  DisableIfModuleUsed();
   bool success = false;
   if (const auto *role = user.role(); role != nullptr) {
     success = storage_.PutMultiple(
@@ -315,6 +316,7 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
 }
 
 void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) {
+  DisableIfModuleUsed();
   // Check if null
   if (!password) {
     if (!config_.password_permit_null) {
@@ -346,6 +348,7 @@ void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &pa
 
 std::optional<User> Auth::AddUser(const std::string &username, const std::optional<std::string> &password,
                                   system::Transaction *system_tx) {
+  DisableIfModuleUsed();
   if (!NameRegexMatch(username)) {
     throw AuthException("Invalid user name.");
   }
@@ -360,6 +363,7 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
 }
 
 bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
+  DisableIfModuleUsed();
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
   std::vector<std::string> keys({kLinkPrefix + username, kUserPrefix + username});

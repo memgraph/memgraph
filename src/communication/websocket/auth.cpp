@@ -22,7 +22,7 @@ bool SafeAuth::Authenticate(const std::string &username, const std::string &pass
 }
 
 bool SafeAuth::HasPermission(const auth::Permission permission) const {
-  auto locked_auth = auth_->Lock();
+  auto locked_auth = auth_->ReadLock();
   // Update if cache invalidated
   if (!locked_auth->UpToDate(auth_epoch_) && user_or_role_) {
     bool success = true;

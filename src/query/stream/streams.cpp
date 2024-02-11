@@ -543,7 +543,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
           auto prepare_result =
               interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), {});
-          if (!owner->IsAuthorized(prepare_result.privileges, "")) {
+          if (!owner->IsAuthorized(prepare_result.privileges, "", &session_long_policy)) {
             throw StreamsException{
                 "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
                 "query!",

@@ -17,6 +17,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/query_user.hpp"
 #include "query/serialization/property_value.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
@@ -184,7 +185,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) 
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
-  if (!owner_->IsAuthorized(parsed_statements_.required_privileges, "")) {
+  if (!owner_->IsAuthorized(parsed_statements_.required_privileges, "", &up_to_date_policy)) {
     throw utils::BasicException("The owner of trigger '{}' is not authorized to execute the query!", name_);
   }
   return trigger_plan_;

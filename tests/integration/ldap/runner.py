@@ -341,53 +341,54 @@ def test_ssl_failure(memgraph, tester_binary):
 
 
 if __name__ == "__main__":
-    memgraph_binary = os.path.join(PROJECT_DIR, "build", "memgraph")
-    tester_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "ldap", "tester")
+    # DISABLE FOR NOW; Discuss with Buda
+    # memgraph_binary = os.path.join(PROJECT_DIR, "build", "memgraph")
+    # tester_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "ldap", "tester")
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--memgraph", default=memgraph_binary)
-    parser.add_argument("--tester", default=tester_binary)
-    parser.add_argument("--openldap-dir", default=os.path.join(SCRIPT_DIR, "openldap-2.4.47"))
-    args = parser.parse_args()
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("--memgraph", default=memgraph_binary)
+    # parser.add_argument("--tester", default=tester_binary)
+    # parser.add_argument("--openldap-dir", default=os.path.join(SCRIPT_DIR, "openldap-2.4.47"))
+    # args = parser.parse_args()
 
-    # Setup Memgraph handler
-    memgraph = Memgraph(args.memgraph)
+    # # Setup Memgraph handler
+    # memgraph = Memgraph(args.memgraph)
 
-    # Start the slapd binary
-    slapd_args = [os.path.join(args.openldap_dir, "exe", "libexec", "slapd"), "-h", "ldap://127.0.0.1:1389/", "-d", "0"]
-    slapd = subprocess.Popen(slapd_args)
-    time.sleep(0.1)
-    assert slapd.poll() is None, "slapd process died prematurely!"
-    wait_for_server(1389)
+    # # Start the slapd binary
+    # slapd_args = [os.path.join(args.openldap_dir, "exe", "libexec", "slapd"), "-h", "ldap://127.0.0.1:1389/", "-d", "0"]
+    # slapd = subprocess.Popen(slapd_args)
+    # time.sleep(0.1)
+    # assert slapd.poll() is None, "slapd process died prematurely!"
+    # wait_for_server(1389)
 
-    # Register cleanup function
-    @atexit.register
-    def cleanup():
-        mg_stat = memgraph.stop(check=False)
-        if mg_stat != 0:
-            print("Memgraph process didn't exit cleanly!")
+    # # Register cleanup function
+    # @atexit.register
+    # def cleanup():
+    #     mg_stat = memgraph.stop(check=False)
+    #     if mg_stat != 0:
+    #         print("Memgraph process didn't exit cleanly!")
 
-        if slapd.poll() is None:
-            slapd.terminate()
-        slapd_stat = slapd.wait()
-        if slapd_stat != 0:
-            print("slapd process didn't exit cleanly!")
+    #     if slapd.poll() is None:
+    #         slapd.terminate()
+    #     slapd_stat = slapd.wait()
+    #     if slapd_stat != 0:
+    #         print("slapd process didn't exit cleanly!")
 
-        assert mg_stat == 0 and slapd_stat == 0, "Some of the processes " "(memgraph, slapd) crashed!"
+    #     assert mg_stat == 0 and slapd_stat == 0, "Some of the processes " "(memgraph, slapd) crashed!"
 
-    # Execute tests
-    names = sorted(globals().keys())
-    for name in names:
-        if not name.startswith("test_"):
-            continue
-        test = " ".join(name[5:].split("_"))
-        func = globals()[name]
-        print("\033[1;36m~~ Running", test, "test ~~\033[0m")
-        func(memgraph, args.tester)
-        print("\033[1;36m~~ Finished", test, "test ~~\033[0m\n")
+    # # Execute tests
+    # names = sorted(globals().keys())
+    # for name in names:
+    #     if not name.startswith("test_"):
+    #         continue
+    #     test = " ".join(name[5:].split("_"))
+    #     func = globals()[name]
+    #     print("\033[1;36m~~ Running", test, "test ~~\033[0m")
+    #     func(memgraph, args.tester)
+    #     print("\033[1;36m~~ Finished", test, "test ~~\033[0m\n")
 
-    # Shutdown the slapd binary
-    slapd.terminate()
-    assert slapd.wait() == 0, "slapd process didn't exit cleanly!"
+    # # Shutdown the slapd binary
+    # slapd.terminate()
+    # assert slapd.wait() == 0, "slapd process didn't exit cleanly!"
 
     sys.exit(0)

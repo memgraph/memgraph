@@ -40,8 +40,8 @@ const static std::string kTopicName{"TrialTopic"};
 struct FakeUser : memgraph::query::QueryUserOrRole {
   FakeUser() : memgraph::query::QueryUserOrRole{std::nullopt, std::nullopt} {}
 
-  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                    const std::string &db_name) const {
+  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges, const std::string &db_name,
+                    memgraph::query::UserPolicy *policy) const {
     return true;
   }
 #ifdef MG_ENTERPRISE

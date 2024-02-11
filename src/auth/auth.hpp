@@ -359,12 +359,10 @@ class Auth final {
    */
   bool NameRegexMatch(const std::string &user_or_role) const;
 
-  void UpdateEpoch() {
-    // NOTE: The epoch gets updated every time durability is changed. This is then used to invalidate cached
-    // permissions.
-    // However, for now we don't want to invalidate the cached permissions (a session has the same permissions as long
-    // as it is connected); so we disabled this for now.
-    // ++epoch_;
+  void UpdateEpoch() { ++epoch_; }
+
+  void DisableIfModuleUsed() const {
+    if (module_.IsUsed()) throw AuthException("Operation not permited when using an authentication module.");
   }
 
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,

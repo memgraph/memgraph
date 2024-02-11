@@ -27,6 +27,7 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/config.hpp"
 #include "query/discard_value_stream.hpp"
@@ -68,6 +69,11 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
   while (std::getline(file, line)) {
     if (!line.empty()) {
       try {
+        // Temporary empty user
+        // TODO: Double check with buda
+        memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
+        auto tmp_user = tmp_auth_checker.GenQueryUser(std::nullopt, std::nullopt);
+        interpreter.SetUser(tmp_user);
         auto results = interpreter.Prepare(line, {}, {});
         memgraph::query::DiscardValueResultStream stream;
         interpreter.Pull(&stream, {}, results.qid);

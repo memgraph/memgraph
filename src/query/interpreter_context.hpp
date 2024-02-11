@@ -96,7 +96,7 @@ struct InterpreterContext {
   void Shutdown() { is_shutting_down.store(true, std::memory_order_release); }
 
   std::vector<std::vector<TypedValue>> TerminateTransactions(
-      std::vector<std::string> maybe_kill_transaction_ids, QueryUserOrRole *user,
+      std::vector<std::string> maybe_kill_transaction_ids, QueryUserOrRole *user_or_role,
       std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
 };
 
