@@ -189,11 +189,11 @@ Feature: Subqueries
         Given an empty graph
         When executing query:
         """
-        MATCH (label1)
+        MATCH (node1)
         CALL {
-            MATCH (label2)
-            WHERE label1.property > 0
-            return 1
+            MATCH (node2)
+            WHERE node1.property > 0
+            return 1 as state
         }
         return 1
         """
