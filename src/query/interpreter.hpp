@@ -316,6 +316,8 @@ class Interpreter final {
 
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
+    // Used for tracking of query and procedure memory limit
+    uint64_t transaction_id_;
 
     static auto Create(std::variant<utils::MonotonicBufferResource, utils::PoolResource> memory_resource,
                        std::optional<PreparedQuery> prepared_query = std::nullopt) -> std::unique_ptr<QueryExecution> {
@@ -431,8 +433,8 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // If the query finished executing, we have received a value which tells
     // us what to do after.
     if (maybe_res) {
-      if (current_transaction_) {
-        memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
+      if (query_execution->transaction_id_) {
+        memgraph::memory::TryStopTrackingOnTransaction(query_execution->transaction_id_);
       }
       // Save its summary
       maybe_summary.emplace(std::move(query_execution->summary));

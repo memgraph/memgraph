@@ -4214,6 +4214,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                     utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
                     upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
+      query_execution_ptr->get()->transaction_id_ = *current_db_.db_transactional_accessor_->GetTransactionId();
+    }
+    if (in_explicit_transaction_) {
+      query_execution_ptr->get()->transaction_id_ = *current_db_.db_transactional_accessor_->GetTransactionId();
     }
 
 #ifdef MG_ENTERPRISE
