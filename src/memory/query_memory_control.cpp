@@ -110,7 +110,7 @@ void QueriesMemoryControl::CreateTransactionIdTracker(uint64_t transaction_id, s
 
 bool QueriesMemoryControl::EraseTransactionIdTracker(uint64_t transaction_id) {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  auto removed = transaction_id_to_tracker.access().remove(transaction_id);
+  auto removed = transaction_id_to_tracker_accessor.remove(transaction_id);
   return removed;
 }
 
