@@ -457,7 +457,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
       : coordinator_handler_(coordinator_state) {}
 
-  /// @throw QueryRuntimeException if an error ocurred.
+  void UnregisterInstance(std::string const &instance_name) override {}
+
   void RegisterReplicationInstance(const std::string &coordinator_socket_address,
                                    const std::string &replication_socket_address,
                                    const std::chrono::seconds instance_check_frequency,
@@ -1166,6 +1167,20 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                       coordinator_socket_address_tv.ValueString(), coordinator_query->instance_name_));
       return callback;
     }
+    case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryException("Trying to use enterprise feature without a valid license.");
+      }
+
+      if constexpr (!coordination::allow_ha) {
+        throw QueryRuntimeException(
+            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
+            "be able to use this functionality.");
+      }
+      if (!FLAGS_raft_server_id) {
+        throw QueryRuntimeException("Only coordinator can register coordinator server!");
+      }
+
     case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN: {
       if (!license::global_license_checker.IsEnterpriseValidFast()) {
         throw QueryException("Trying to use enterprise feature without a valid license.");
