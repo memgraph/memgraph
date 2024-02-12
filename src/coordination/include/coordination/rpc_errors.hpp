@@ -9,15 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
-
-struct CoordinatorClusterConfig {
-  static constexpr int alive_response_time_difference_sec_{5};
-  static constexpr int replica_uuid_last_check_time_difference_sec_{10};
-};
-
+enum class GetInstanceUUIDError { NO_RESPONSE, RPC_EXCEPTION };
 }  // namespace memgraph::coordination
-#endif

@@ -52,6 +52,23 @@ void DemoteMainToReplicaRes::Load(DemoteMainToReplicaRes *self, memgraph::slk::R
   memgraph::slk::Load(self, reader);
 }
 
+// GetInstanceUUID
+void GetInstanceUUIDReq::Save(const GetInstanceUUIDReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void GetInstanceUUIDReq::Load(GetInstanceUUIDReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void GetInstanceUUIDRes::Save(const GetInstanceUUIDRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void GetInstanceUUIDRes::Load(GetInstanceUUIDRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 }  // namespace coordination
 
 constexpr utils::TypeInfo coordination::PromoteReplicaToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ,
@@ -66,7 +83,15 @@ constexpr utils::TypeInfo coordination::DemoteMainToReplicaReq::kType{utils::Typ
 constexpr utils::TypeInfo coordination::DemoteMainToReplicaRes::kType{utils::TypeId::COORD_SET_REPL_MAIN_RES,
                                                                       "CoordDemoteToReplicaRes", nullptr};
 
+constexpr utils::TypeInfo coordination::GetInstanceUUIDReq::kType{utils::TypeId::COORD_GET_UUID_REQ, "CoordGetUUIDReq",
+                                                                  nullptr};
+
+constexpr utils::TypeInfo coordination::GetInstanceUUIDRes::kType{utils::TypeId::COORD_GET_UUID_RES, "CoordGetUUIDRes",
+                                                                  nullptr};
+
 namespace slk {
+
+// PromoteReplicaToMainRpc
 
 void Save(const memgraph::coordination::PromoteReplicaToMainRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
@@ -86,6 +111,7 @@ void Load(memgraph::coordination::PromoteReplicaToMainReq *self, memgraph::slk::
   memgraph::slk::Load(&self->replication_clients_info, reader);
 }
 
+// DemoteMainToReplicaRpc
 void Save(const memgraph::coordination::DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.replication_client_info, builder);
 }
@@ -100,6 +126,24 @@ void Save(const memgraph::coordination::DemoteMainToReplicaRes &self, memgraph::
 
 void Load(memgraph::coordination::DemoteMainToReplicaRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
+}
+
+// GetInstanceUUIDRpc
+
+void Save(const memgraph::coordination::GetInstanceUUIDReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
+  /* nothing to serialize*/
+}
+
+void Load(memgraph::coordination::GetInstanceUUIDReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
+  /* nothing to serialize*/
+}
+
+void Save(const memgraph::coordination::GetInstanceUUIDRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.uuid, builder);
+}
+
+void Load(memgraph::coordination::GetInstanceUUIDRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->uuid, reader);
 }
 
 }  // namespace slk

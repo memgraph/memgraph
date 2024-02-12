@@ -14,6 +14,7 @@
 #include "coordination/replication_instance.hpp"
 
 #include "replication_coordination_glue/handler.hpp"
+#include "utils/result.hpp"
 
 namespace memgraph::coordination {
 
@@ -38,6 +39,11 @@ auto ReplicationInstance::OnFailPing() -> bool {
       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_response_time_).count() <
       CoordinatorClusterConfig::alive_response_time_difference_sec_;
   return is_alive_;
+}
+
+auto ReplicationInstance::IsReadyForUUIDPing() -> bool {
+  return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_check_of_uuid_)
+             .count() > CoordinatorClusterConfig::replica_uuid_last_check_time_difference_sec_;
 }
 
 auto ReplicationInstance::InstanceName() const -> std::string { return client_.InstanceName(); }
@@ -91,10 +97,20 @@ auto ReplicationInstance::ResetMainUUID() -> void { main_uuid_ = std::nullopt; }
 auto ReplicationInstance::GetMainUUID() -> const std::optional<utils::UUID> & { return main_uuid_; }
 
 auto ReplicationInstance::EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool {
-  if (!main_uuid_ || *main_uuid_ != curr_main_uuid) {
-    return SendSwapAndUpdateUUID(curr_main_uuid);
+  if (!IsReadyForUUIDPing()) {
+    return true;
   }
-  return true;
+  auto res = SendGetInstanceUUID();
+  if (res.HasError()) {
+    return false;
+  }
+  UpdateReplicaLastResponseUUID();
+
+  if (res.GetValue().has_value() && res.GetValue().value() == curr_main_uuid) {
+    return true;
+  }
+
+  return SendSwapAndUpdateUUID(curr_main_uuid);
 }
 
 auto ReplicationInstance::SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid) -> bool {
@@ -104,6 +120,13 @@ auto ReplicationInstance::SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid
   SetNewMainUUID(new_main_uuid);
   return true;
 }
+
+auto ReplicationInstance::SendGetInstanceUUID()
+    -> utils::BasicResult<coordination::GetInstanceUUIDError, std::optional<utils::UUID>> {
+  return client_.SendGetInstanceUUID();
+}
+
+void ReplicationInstance::UpdateReplicaLastResponseUUID() { last_check_of_uuid_ = std::chrono::system_clock::now(); }
 
 }  // namespace memgraph::coordination
 #endif

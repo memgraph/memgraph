@@ -16,6 +16,8 @@
 
 #include "coordination/coordinator_config.hpp"
 #include "rpc/client.hpp"
+#include "rpc_errors.hpp"
+#include "utils/result.hpp"
 #include "utils/scheduler.hpp"
 
 namespace memgraph::coordination {
@@ -50,6 +52,8 @@ class CoordinatorClient {
       -> bool;
 
   auto SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bool;
+
+  auto SendGetInstanceUUID() const -> memgraph::utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>>;
 
   auto ReplicationClientInfo() const -> ReplClientInfo;
 
