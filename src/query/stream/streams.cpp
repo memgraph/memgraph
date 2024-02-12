@@ -509,6 +509,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
                             total_retries = interpreter_context->config.stream_transaction_conflict_retries,
                             retry_interval = interpreter_context->config.stream_transaction_retry_interval](
                                const std::vector<typename TStream::Message> &messages) mutable {
+    // Set interpreter's user to the stream owner
+    interpreter->SetUser(owner);
 #ifdef MG_ENTERPRISE
     interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
 #endif
@@ -543,7 +545,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
           auto prepare_result =
               interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), {});
-          if (!owner->IsAuthorized(prepare_result.privileges, "", &session_long_policy)) {
+          if (!owner->IsAuthorized(prepare_result.privileges, "", &up_to_date_policy)) {
             throw StreamsException{
                 "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
                 "query!",

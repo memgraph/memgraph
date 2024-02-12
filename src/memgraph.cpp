@@ -58,8 +58,13 @@ constexpr uint64_t kMgVmMaxMapCount = 262144;
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
                          std::string cypherl_file_path, memgraph::audit::Log *audit_log = nullptr) {
   memgraph::query::Interpreter interpreter(&ctx, db_acc);
-  std::ifstream file(cypherl_file_path);
+  // Temporary empty user
+  // TODO: Double check with buda
+  memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
+  auto tmp_user = tmp_auth_checker.GenQueryUser(std::nullopt, std::nullopt);
+  interpreter.SetUser(tmp_user);
 
+  std::ifstream file(cypherl_file_path);
   if (!file.is_open()) {
     spdlog::trace("Could not find init file {}", cypherl_file_path);
     return;
@@ -69,11 +74,6 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
   while (std::getline(file, line)) {
     if (!line.empty()) {
       try {
-        // Temporary empty user
-        // TODO: Double check with buda
-        memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
-        auto tmp_user = tmp_auth_checker.GenQueryUser(std::nullopt, std::nullopt);
-        interpreter.SetUser(tmp_user);
         auto results = interpreter.Prepare(line, {}, {});
         memgraph::query::DiscardValueResultStream stream;
         interpreter.Pull(&stream, {}, results.qid);
