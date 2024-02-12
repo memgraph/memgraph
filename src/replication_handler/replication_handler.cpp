@@ -196,10 +196,14 @@ bool ReplicationHandler::SetReplicationRoleMain() {
 
 bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
                                                    const std::optional<utils::UUID> &main_uuid) {
-  // We don't want to restart the server if we're already a REPLICA
   if (repl_state_.IsReplica()) {
-    spdlog::trace("Instance has already has replica role.");
-    return false;
+    // We don't want to restart the server if we're already a REPLICA with correct config
+    auto &replica_data = std::get<memgraph::replication::RoleReplicaData>(repl_state_.ReplicationData());
+    if (replica_data.config == config) {
+      return true;
+    }
+    repl_state_.SetReplicationRoleReplica(config, main_uuid);
+    return StartRpcServer(dbms_handler_, replica_data, auth_);
   }
 
   // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
