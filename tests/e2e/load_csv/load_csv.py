@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from gqlalchemy import Memgraph
 from mgclient import DatabaseError
+from neo4j import GraphDatabase
 
 SIMPLE_CSV_FILE = "simple.csv"
 
@@ -50,6 +51,23 @@ def test_given_one_row_in_db_when_load_csv_after_match_then_pass():
     )
 
     assert len(list(results)) == 4
+
+
+def test_load_csv_with_parameters():
+    memgraph = Memgraph("localhost", 7687)
+    URI = "bolt://localhost:7687"
+    AUTH = ("", "")
+
+    with GraphDatabase.driver(URI, auth=AUTH) as client:
+        with client.session(database="memgraph") as session:
+            results = session.run(
+                f"""MATCH (n {{prop: 1}}) LOAD CSV
+                FROM $file WITH HEADER AS row
+                CREATE (:Person {{name: row.name}})
+                RETURN n""",
+                file=get_file_path(SIMPLE_CSV_FILE),
+            )
+            assert len(list(results)) == 4
 
 
 if __name__ == "__main__":
