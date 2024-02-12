@@ -142,7 +142,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   MinMemgraph replica(repl_conf);
 
   auto replica_store_handler = replica.repl_handler;
-  replica_store_handler.SetReplicationRoleReplica(
+  replica_store_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[0],
@@ -439,13 +439,13 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   MinMemgraph replica1(repl_conf);
   MinMemgraph replica2(repl2_conf);
 
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[0],
       },
       std::nullopt);
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[1],
@@ -597,7 +597,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     MinMemgraph replica(repl_conf);
     auto replica_store_handler = replica.repl_handler;
 
-    replica_store_handler.SetReplicationRoleReplica(
+    replica_store_handler.TrySetReplicationRoleReplica(
         ReplicationServerConfig{
             .ip_address = local_host,
             .port = ports[0],
@@ -676,7 +676,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   MinMemgraph replica_async(repl_conf);
 
   auto replica_store_handler = replica_async.repl_handler;
-  replica_store_handler.SetReplicationRoleReplica(
+  replica_store_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[1],
@@ -726,7 +726,7 @@ TEST_F(ReplicationTest, EpochTest) {
   MinMemgraph main(main_conf);
   MinMemgraph replica1(repl_conf);
 
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[0],
@@ -734,7 +734,7 @@ TEST_F(ReplicationTest, EpochTest) {
       std::nullopt);
 
   MinMemgraph replica2(repl2_conf);
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = 10001,
@@ -819,7 +819,7 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[0],
@@ -858,7 +858,7 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   MinMemgraph replica1(repl_conf);
 
   uint16_t replica1_port = 10001;
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = replica1_port,
@@ -867,7 +867,7 @@ TEST_F(ReplicationTest, ReplicationInformation) {
 
   uint16_t replica2_port = 10002;
   MinMemgraph replica2(repl2_conf);
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = replica2_port,
@@ -923,7 +923,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
   MinMemgraph replica1(repl_conf);
 
   uint16_t replica1_port = 10001;
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = replica1_port,
@@ -932,7 +932,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
 
   uint16_t replica2_port = 10002;
   MinMemgraph replica2(repl2_conf);
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = replica2_port,
@@ -966,7 +966,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
 
   MinMemgraph main(main_conf);
   MinMemgraph replica1(repl_conf);
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = common_port,
@@ -974,7 +974,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
       std::nullopt);
 
   MinMemgraph replica2(repl2_conf);
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = common_port,
@@ -1023,7 +1023,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   std::optional<MinMemgraph> main(main_config);
   MinMemgraph replica1(replica1_config);
 
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[0],
@@ -1031,7 +1031,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
       std::nullopt);
 
   MinMemgraph replica2(replica2_config);
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[1],
@@ -1088,7 +1088,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   std::optional<MinMemgraph> main(main_config);
   MinMemgraph replica1(repl_conf);
 
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[0],
@@ -1097,7 +1097,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
 
   MinMemgraph replica2(repl2_conf);
 
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[1],
