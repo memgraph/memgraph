@@ -155,15 +155,9 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
         continue;
       }
 
-      // This can potentially make the garbage collection step extremely slow.
-      const bool edge_deleted = std::invoke([&]() {
-        for (const auto &edge : it->from_vertex->out_edges) {
-          auto *to_vertex = std::get<InMemoryEdgeTypeIndex::kVertexPos>(edge);
-          if (to_vertex == it->to_vertex) {
-            return false;
-          }
-        }
-        return true;
+      const bool edge_deleted = !std::ranges::all_of(it->from_vertex->out_edges, [&](const auto &edge) {
+        auto *to_vertex = std::get<InMemoryEdgeTypeIndex::kVertexPos>(edge);
+        return to_vertex != it->to_vertex;
       });
 
       if ((next_it != edges_acc.end() && it->edge->gid == next_it->edge->gid) || it->from_vertex->deleted ||
