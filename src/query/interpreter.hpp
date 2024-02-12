@@ -111,6 +111,9 @@ class CoordinatorQueryHandler {
                                            const std::string &instance_name, CoordinatorQuery::SyncMode sync_mode) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
+  virtual void UnregisterInstance(std::string const &instance_name) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
   virtual void SetReplicationInstanceToMain(const std::string &instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.

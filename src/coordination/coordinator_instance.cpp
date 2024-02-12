@@ -308,6 +308,11 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
   return RegisterInstanceCoordinatorStatus::SUCCESS;
 }
 
+auto CoordinatorInstance::UnregisterReplicationInstance(std::string instance_name)
+    -> UnregisterInstanceCoordinatorStatus {
+  return UnregisterInstanceCoordinatorStatus::SUCCESS;
+}
+
 auto CoordinatorInstance::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)
     -> void {
   raft_state_.AddCoordinatorInstance(raft_server_id, raft_port, std::move(raft_address));

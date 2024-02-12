@@ -28,6 +28,12 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   SUCCESS
 };
 
+enum class UnregisterInstanceCoordinatorStatus : uint8_t {
+  NO_INSTANCE_WITH_NAME,
+  NOT_COORDINATOR,
+  SUCCESS,
+};
+
 enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   NO_INSTANCE_WITH_NAME,
   NOT_COORDINATOR,
