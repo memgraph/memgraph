@@ -74,12 +74,6 @@ void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHan
                                                      slk::Reader *req_reader, slk::Builder *res_builder) {
   spdlog::info("Executing DemoteMainToReplicaHandler");
 
-  if (!replication_handler.IsMain()) {
-    spdlog::error("Setting to replica must be performed on main.");
-    slk::Save(coordination::DemoteMainToReplicaRes{false}, res_builder);
-    return;
-  }
-
   coordination::DemoteMainToReplicaReq req;
   slk::Load(&req, req_reader);
 
@@ -89,11 +83,11 @@ void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHan
 
   if (!replication_handler.SetReplicationRoleReplica(clients_config, std::nullopt)) {
     spdlog::error("Demoting main to replica failed!");
-    slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
+    slk::Save(coordination::DemoteMainToReplicaRes{false}, res_builder);
     return;
   }
 
-  slk::Save(coordination::PromoteReplicaToMainRes{true}, res_builder);
+  slk::Save(coordination::DemoteMainToReplicaRes{true}, res_builder);
 }
 
 void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHandler &replication_handler,
