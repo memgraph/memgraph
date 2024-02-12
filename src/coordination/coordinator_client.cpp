@@ -121,5 +121,19 @@ auto CoordinatorClient::SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bo
   return false;
 }
 
+auto CoordinatorClient::SendUnregisterReplicaRpc(std::string const &instance_name) const -> bool {
+  try {
+    auto stream{rpc_client_.Stream<UnregisterReplicaRpc>(instance_name)};
+    if (!stream.AwaitResponse().success) {
+      spdlog::error("Failed to receive successful RPC response for unregistering replica!");
+      return false;
+    }
+    return true;
+  } catch (rpc::RpcFailedException const &) {
+    spdlog::error("Failed to unregister replica!");
+  }
+  return false;
+}
+
 }  // namespace memgraph::coordination
 #endif

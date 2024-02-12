@@ -82,6 +82,35 @@ struct DemoteMainToReplicaRes {
 
 using DemoteMainToReplicaRpc = rpc::RequestResponse<DemoteMainToReplicaReq, DemoteMainToReplicaRes>;
 
+struct UnregisterReplicaReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
+  static void Save(UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
+
+  explicit UnregisterReplicaReq(std::string instance_name) : instance_name(std::move(instance_name)) {}
+
+  UnregisterReplicaReq() = default;
+
+  std::string instance_name;
+};
+
+struct UnregisterReplicaRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(UnregisterReplicaRes *self, memgraph::slk::Reader *reader);
+  static void Save(const UnregisterReplicaRes &self, memgraph::slk::Builder *builder);
+
+  explicit UnregisterReplicaRes(bool success) : success(success) {}
+  UnregisterReplicaRes() = default;
+
+  bool success;
+};
+
+using UnregisterReplicaRpc = rpc::RequestResponse<UnregisterReplicaReq, UnregisterReplicaRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -99,6 +128,11 @@ void Load(memgraph::coordination::DemoteMainToReplicaRes *self, memgraph::slk::R
 void Save(const memgraph::coordination::DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader);
 
+// UnregisterReplicaRpc
+void Save(memgraph::coordination::UnregisterReplicaRes const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::UnregisterReplicaRes *self, memgraph::slk::Reader *reader);
+void Save(memgraph::coordination::UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 
