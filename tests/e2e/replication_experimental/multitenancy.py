@@ -72,6 +72,27 @@ def create_memgraph_instances_with_role_recovery(data_directory: Any) -> Dict[st
     }
 
 
+def do_manual_setting_up(connection):
+    replica_1_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    execute_and_fetch_all(
+        replica_1_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"
+    )
+
+    replica_2_cursor = connection(BOLT_PORTS["replica_2"], "replica_2").cursor()
+    execute_and_fetch_all(
+        replica_2_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};"
+    )
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    execute_and_fetch_all(
+        main_cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"
+    )
+    execute_and_fetch_all(
+        main_cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
+    )
+
+
 TEMP_DIR = tempfile.TemporaryDirectory().name
 
 MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
@@ -460,24 +481,7 @@ def test_automatic_databases_create_multitenancy_replication(connection):
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    replica_1_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
-    execute_and_fetch_all(
-        replica_1_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"
-    )
-
-    replica_2_cursor = connection(BOLT_PORTS["replica_2"], "replica_2").cursor()
-    execute_and_fetch_all(
-        replica_2_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};"
-    )
-
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"
-    )
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
-    )
+    do_manual_setting_up(connection)
 
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
@@ -631,26 +635,10 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    replica_1_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
-    execute_and_fetch_all(
-        replica_1_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"
-    )
-
-    replica_2_cursor = connection(BOLT_PORTS["replica_2"], "replica_2").cursor()
-    execute_and_fetch_all(
-        replica_2_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};"
-    )
-
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"
-    )
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
-    )
+    do_manual_setting_up(connection)
 
     # 1/
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
     execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
 
@@ -711,24 +699,7 @@ def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    replica_1_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
-    execute_and_fetch_all(
-        replica_1_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"
-    )
-
-    replica_2_cursor = connection(BOLT_PORTS["replica_2"], "replica_2").cursor()
-    execute_and_fetch_all(
-        replica_2_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};"
-    )
-
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"
-    )
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
-    )
+    do_manual_setting_up(connection)
 
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
@@ -819,25 +790,7 @@ def test_multitenancy_replication_drop_replica(connection, replica_name):
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
 
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-    replica_1_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
-    execute_and_fetch_all(
-        replica_1_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"
-    )
-
-    replica_2_cursor = connection(BOLT_PORTS["replica_2"], "replica_2").cursor()
-    execute_and_fetch_all(
-        replica_2_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};"
-    )
-
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"
-    )
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
-    )
-
+    do_manual_setting_up(connection)
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
@@ -937,24 +890,7 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    replica_1_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
-    execute_and_fetch_all(
-        replica_1_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"
-    )
-
-    replica_2_cursor = connection(BOLT_PORTS["replica_2"], "replica_2").cursor()
-    execute_and_fetch_all(
-        replica_2_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};"
-    )
-
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"
-    )
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
-    )
+    do_manual_setting_up(connection)
 
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
@@ -1008,24 +944,7 @@ def test_drop_multitenancy_replication_restart_replica(connection, replica_name)
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    replica_1_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
-    execute_and_fetch_all(
-        replica_1_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"
-    )
-
-    replica_2_cursor = connection(BOLT_PORTS["replica_2"], "replica_2").cursor()
-    execute_and_fetch_all(
-        replica_2_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};"
-    )
-
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"
-    )
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
-    )
+    do_manual_setting_up(connection)
 
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
@@ -1067,24 +986,7 @@ def test_multitenancy_drop_while_replica_using(connection):
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    replica_1_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
-    execute_and_fetch_all(
-        replica_1_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"
-    )
-
-    replica_2_cursor = connection(BOLT_PORTS["replica_2"], "replica_2").cursor()
-    execute_and_fetch_all(
-        replica_2_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};"
-    )
-
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"
-    )
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
-    )
+    do_manual_setting_up(connection)
 
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
@@ -1159,24 +1061,7 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    replica_1_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
-    execute_and_fetch_all(
-        replica_1_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"
-    )
-
-    replica_2_cursor = connection(BOLT_PORTS["replica_2"], "replica_2").cursor()
-    execute_and_fetch_all(
-        replica_2_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};"
-    )
-
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"
-    )
-    execute_and_fetch_all(
-        main_cursor, f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
-    )
+    do_manual_setting_up(connection)
 
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
