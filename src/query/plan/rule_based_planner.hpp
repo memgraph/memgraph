@@ -232,7 +232,6 @@ class RuleBasedPlanner {
           } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
             context.bound_symbols.insert(row_sym);
-
             input_op = std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
                                                        load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_,
                                                        load_csv->nullif_, row_sym);
