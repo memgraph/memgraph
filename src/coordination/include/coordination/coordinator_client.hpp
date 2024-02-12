@@ -15,6 +15,8 @@
 
 #include "coordination/coordinator_config.hpp"
 #include "rpc/client.hpp"
+#include "rpc_errors.hpp"
+#include "utils/result.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 
@@ -46,7 +48,7 @@ class CoordinatorClient {
   auto SocketAddress() const -> std::string;
 
   [[nodiscard]] auto DemoteToReplica() const -> bool;
-  // TODO: (andi) Consistent naming
+
   auto SendPromoteReplicaToMainRpc(const utils::UUID &uuid, ReplicationClientsInfo replication_clients_info) const
       -> bool;
 
@@ -55,6 +57,8 @@ class CoordinatorClient {
   auto SendUnregisterReplicaRpc(std::string const &instance_name) const -> bool;
 
   auto SendEnableWritingOnMainRpc() const -> bool;
+
+  auto SendGetInstanceUUID() const -> memgraph::utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>>;
 
   auto ReplicationClientInfo() const -> ReplClientInfo;
 
@@ -71,7 +75,6 @@ class CoordinatorClient {
  private:
   utils::Scheduler instance_checker_;
 
-  // TODO: (andi) Pimpl?
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 

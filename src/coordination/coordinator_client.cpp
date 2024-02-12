@@ -17,6 +17,7 @@
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/messages.hpp"
+#include "utils/result.hpp"
 
 namespace memgraph::coordination {
 
@@ -138,6 +139,24 @@ auto CoordinatorClient::SendUnregisterReplicaRpc(std::string const &instance_nam
     spdlog::error("Failed to unregister replica!");
   }
   return false;
+}
+
+auto CoordinatorClient::SendGetInstanceUUID() const
+    -> utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>> {
+  std::optional<utils::UUID> instance_uuid;
+  try {
+    auto stream{rpc_client_.Stream<GetInstanceUUIDRpc>()};
+    auto res = stream.AwaitResponse();
+    if (!res.uuid) {
+      return instance_uuid;
+    }
+    instance_uuid = res.uuid;
+
+  } catch (const rpc::RpcFailedException &) {
+    spdlog::error("RPC error occured while sending GetInstance UUID RPC");
+    return GetInstanceUUIDError::RPC_EXCEPTION;
+  }
+  return instance_uuid;
 }
 
 auto CoordinatorClient::SendEnableWritingOnMainRpc() const -> bool {

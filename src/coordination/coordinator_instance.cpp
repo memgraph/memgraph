@@ -48,6 +48,10 @@ CoordinatorInstance::CoordinatorInstance()
     spdlog::trace("Instance {} performing replica successful callback", repl_instance_name);
     auto &repl_instance = find_repl_instance(self, repl_instance_name);
 
+    // We need to get replicas UUID from time to time to ensure replica is listening to correct main
+    // and that it didn't go down for less time than we could notice
+    // We need to get id of main replica is listening to
+    // and swap if necessary
     if (!repl_instance.EnsureReplicaHasCorrectMainUUID(self->GetMainUUID())) {
       spdlog::error(
           fmt::format("Failed to swap uuid for replica instance {} which is alive", repl_instance.InstanceName()));
@@ -62,14 +66,6 @@ CoordinatorInstance::CoordinatorInstance()
     spdlog::trace("Instance {} performing replica failure callback", repl_instance_name);
     auto &repl_instance = find_repl_instance(self, repl_instance_name);
     repl_instance.OnFailPing();
-    // We need to restart main uuid from instance since it was "down" at least a second
-    // There is slight delay, if we choose to use isAlive, instance can be down and back up in less than
-    // our isAlive time difference, which would lead to instance setting UUID to nullopt and stopping accepting any
-    // incoming RPCs from valid main
-    // TODO(antoniofilipovic) this needs here more complex logic
-    // We need to get id of main replica is listening to on successful ping
-    // and swap it to correct uuid if it failed
-    repl_instance.ResetMainUUID();
   };
 
   main_succ_cb_ = [find_repl_instance](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {

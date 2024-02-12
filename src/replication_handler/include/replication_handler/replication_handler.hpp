@@ -193,6 +193,8 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   auto GetReplState() const -> const memgraph::replication::ReplicationState &;
   auto GetReplState() -> memgraph::replication::ReplicationState &;
 
+  auto GetReplicaUUID() -> std::optional<utils::UUID>;
+
  private:
   template <bool AllowReplicaToDivergeFromMain>
   auto RegisterReplica_(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)

@@ -51,6 +51,12 @@ void CoordinatorHandlers::Register(memgraph::coordination::CoordinatorServer &se
         spdlog::info("Received EnableWritingOnMainRpc on coordinator server");
         CoordinatorHandlers::EnableWritingOnMainHandler(replication_handler, req_reader, res_builder);
       });
+
+  server.Register<coordination::GetInstanceUUIDRpc>(
+      [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+        spdlog::info("Received GetInstanceUUIDRpc on coordinator server");
+        CoordinatorHandlers::GetInstanceUUIDHandler(replication_handler, req_reader, res_builder);
+      });
 }
 
 void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,
@@ -88,6 +94,16 @@ void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHan
   }
 
   slk::Save(coordination::DemoteMainToReplicaRes{true}, res_builder);
+}
+
+void CoordinatorHandlers::GetInstanceUUIDHandler(replication::ReplicationHandler &replication_handler,
+                                                 slk::Reader *req_reader, slk::Builder *res_builder) {
+  spdlog::info("Executing GetInstanceUUIDHandler");
+
+  coordination::GetInstanceUUIDReq req;
+  slk::Load(&req, req_reader);
+
+  slk::Save(coordination::GetInstanceUUIDRes{replication_handler.GetReplicaUUID()}, res_builder);
 }
 
 void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHandler &replication_handler,

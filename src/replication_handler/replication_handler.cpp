@@ -268,6 +268,11 @@ auto ReplicationHandler::GetRole() const -> memgraph::replication_coordination_g
   return repl_state_.GetRole();
 }
 
+auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
+  MG_ASSERT(repl_state_.IsReplica());
+  return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
+}
+
 auto ReplicationHandler::GetReplState() const -> const memgraph::replication::ReplicationState & { return repl_state_; }
 
 auto ReplicationHandler::GetReplState() -> memgraph::replication::ReplicationState & { return repl_state_; }
