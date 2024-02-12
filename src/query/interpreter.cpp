@@ -630,6 +630,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                                                           AuthQuery::Action::SHOW_USERS_FOR_ROLE,
                                                           AuthQuery::Action::SHOW_ROLE_FOR_USER,
                                                           AuthQuery::Action::GRANT_DATABASE_TO_USER,
+                                                          AuthQuery::Action::DENY_DATABASE_FROM_USER,
                                                           AuthQuery::Action::REVOKE_DATABASE_FROM_USER,
                                                           AuthQuery::Action::SHOW_DATABASE_PRIVILEGES,
                                                           AuthQuery::Action::SET_MAIN_DATABASE};
@@ -890,6 +891,30 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
           auth->GrantDatabase(database, username, &*interpreter->system_transaction_);  // Can throws query exception
+        } catch (memgraph::dbms::UnknownDatabaseException &e) {
+          throw QueryRuntimeException(e.what());
+        }
+#else
+      callback.fn = [] {
+#endif
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    case AuthQuery::Action::DENY_DATABASE_FROM_USER:
+      forbid_on_replica();
+#ifdef MG_ENTERPRISE
+      callback.fn = [auth, database, username, db_handler, interpreter = &interpreter] {  // NOLINT
+        if (!interpreter->system_transaction_) {
+          throw QueryException("Expected to be in a system transaction");
+        }
+
+        try {
+          std::optional<memgraph::dbms::DatabaseAccess> db =
+              std::nullopt;  // Hold pointer to database to protect it until query is done
+          if (database != memgraph::auth::kAllDatabases) {
+            db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          }
+          auth->DenyDatabase(database, username, &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
         }

@@ -364,11 +364,11 @@ bool AuthQueryHandler::CreateRole(const std::string &rolename, system::Transacti
 }
 
 #ifdef MG_ENTERPRISE
-void AuthQueryHandler::RevokeDatabase(const std::string &db_name, const std::string &user_or_role,
-                                      system::Transaction *system_tx) {
+void AuthQueryHandler::GrantDatabase(const std::string &db_name, const std::string &user_or_role,
+                                     system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
-    const auto res = locked_auth->RevokeDatabase(db_name, user_or_role, system_tx);
+    const auto res = locked_auth->GrantDatabase(db_name, user_or_role, system_tx);
     switch (res) {
       using enum auth::Auth::Result;
       case SUCCESS:
@@ -384,11 +384,31 @@ void AuthQueryHandler::RevokeDatabase(const std::string &db_name, const std::str
   }
 }
 
-void AuthQueryHandler::GrantDatabase(const std::string &db_name, const std::string &user_or_role,
-                                     system::Transaction *system_tx) {
+void AuthQueryHandler::DenyDatabase(const std::string &db_name, const std::string &user_or_role,
+                                    system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
-    const auto res = locked_auth->GrantDatabase(db_name, user_or_role, system_tx);
+    const auto res = locked_auth->DenyDatabase(db_name, user_or_role, system_tx);
+    switch (res) {
+      using enum auth::Auth::Result;
+      case SUCCESS:
+        return;
+      case NO_USER_ROLE:
+        throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
+      case NO_ROLE:
+        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
+        break;
+    }
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+void AuthQueryHandler::RevokeDatabase(const std::string &db_name, const std::string &user_or_role,
+                                      system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    const auto res = locked_auth->RevokeDatabase(db_name, user_or_role, system_tx);
     switch (res) {
       using enum auth::Auth::Result;
       case SUCCESS:

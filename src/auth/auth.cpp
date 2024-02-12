@@ -273,20 +273,23 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
   return user;
 }
 
-std::optional<User> Auth::GetUser(const std::string &username_orig) const {
-  auto username = utils::ToLowerCase(username_orig);
-  auto existing_user = storage_.Get(kUserPrefix + username);
-  if (!existing_user) return std::nullopt;
-
-  auto user = User::Deserialize(ParseJson(*existing_user));
-  auto link = storage_.Get(kLinkPrefix + username);
-
+void Auth::LinkUser(User &user) const {
+  auto link = storage_.Get(kLinkPrefix + user.username());
   if (link) {
     auto role = GetRole(*link);
     if (role) {
       user.SetRole(*role);
     }
   }
+}
+
+std::optional<User> Auth::GetUser(const std::string &username_orig) const {
+  auto username = utils::ToLowerCase(username_orig);
+  auto existing_user = storage_.Get(kUserPrefix + username);
+  if (!existing_user) return std::nullopt;
+
+  auto user = User::Deserialize(ParseJson(*existing_user));
+  LinkUser(user);
   return user;
 }
 
@@ -390,6 +393,7 @@ std::vector<auth::User> Auth::AllUsers() const {
     if (username != utils::ToLowerCase(username)) continue;
     try {
       User user = auth::User::Deserialize(ParseJson(it->second));  // Will throw on failure
+      LinkUser(user);
       ret.emplace_back(std::move(user));
     } catch (AuthException &) {
       continue;
@@ -549,7 +553,7 @@ void Auth::GrantDatabase(const std::string &db, User &user, system::Transaction 
   if (db == kAllDatabases) {
     user.db_access().GrantAll();
   } else {
-    user.db_access().Add(db);
+    user.db_access().Grant(db);
   }
   SaveUser(user, system_tx);
 }
@@ -558,7 +562,45 @@ void Auth::GrantDatabase(const std::string &db, Role &role, system::Transaction 
   if (db == kAllDatabases) {
     role.db_access().GrantAll();
   } else {
-    role.db_access().Add(db);
+    role.db_access().Grant(db);
+  }
+  SaveRole(role, system_tx);
+}
+
+Auth::Result Auth::DenyDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+  using enum Auth::Result;
+  if (module_.IsUsed()) {
+    if (auto role = GetRole(name)) {
+      DenyDatabase(db, *role, system_tx);
+      return SUCCESS;
+    }
+    return NO_ROLE;
+  }
+  if (auto user = GetUser(name)) {
+    DenyDatabase(db, *user, system_tx);
+    return SUCCESS;
+  }
+  if (auto role = GetRole(name)) {
+    DenyDatabase(db, *role, system_tx);
+    return SUCCESS;
+  }
+  return NO_USER_ROLE;
+}
+
+void Auth::DenyDatabase(const std::string &db, User &user, system::Transaction *system_tx) {
+  if (db == kAllDatabases) {
+    user.db_access().DenyAll();
+  } else {
+    user.db_access().Deny(db);
+  }
+  SaveUser(user, system_tx);
+}
+
+void Auth::DenyDatabase(const std::string &db, Role &role, system::Transaction *system_tx) {
+  if (db == kAllDatabases) {
+    role.db_access().DenyAll();
+  } else {
+    role.db_access().Deny(db);
   }
   SaveRole(role, system_tx);
 }
@@ -585,18 +627,18 @@ Auth::Result Auth::RevokeDatabase(const std::string &db, const std::string &name
 
 void Auth::RevokeDatabase(const std::string &db, User &user, system::Transaction *system_tx) {
   if (db == kAllDatabases) {
-    user.db_access().DenyAll();
+    user.db_access().RevokeAll();
   } else {
-    user.db_access().Remove(db);
+    user.db_access().Revoke(db);
   }
   SaveUser(user, system_tx);
 }
 
 void Auth::RevokeDatabase(const std::string &db, Role &role, system::Transaction *system_tx) {
   if (db == kAllDatabases) {
-    role.db_access().DenyAll();
+    role.db_access().RevokeAll();
   } else {
-    role.db_access().Remove(db);
+    role.db_access().Revoke(db);
   }
   SaveRole(role, system_tx);
 }
@@ -606,7 +648,8 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
     auto username = it->first.substr(kUserPrefix.size());
     try {
       User user = auth::User::Deserialize(ParseJson(it->second));
-      user.db_access().Delete(db);
+      LinkUser(user);
+      user.db_access().Revoke(db);
       SaveUser(user, system_tx);
     } catch (AuthException &) {
       continue;
@@ -616,7 +659,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
     auto rolename = it->first.substr(kRolePrefix.size());
     try {
       auto role = memgraph::auth::Role::Deserialize(ParseJson(it->second));
-      role.db_access().Delete(db);
+      role.db_access().Revoke(db);
       SaveRole(role, system_tx);
     } catch (AuthException &) {
       continue;

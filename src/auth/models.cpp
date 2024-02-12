@@ -480,7 +480,7 @@ Role Role::Deserialize(const nlohmann::json &data) {
     } else {
       // Back-compatibility
       spdlog::warn("Role without specified database access. Given access to the default database.");
-      db_access.Add(dbms::kDefaultDB);
+      db_access.Grant(dbms::kDefaultDB);
       db_access.SetMain(dbms::kDefaultDB);
     }
     FineGrainedAccessHandler fine_grained_access_handler;
@@ -505,7 +505,7 @@ bool operator==(const Role &first, const Role &second) {
 }
 
 #ifdef MG_ENTERPRISE
-void Databases::Add(std::string_view db) {
+void Databases::Grant(std::string_view db) {
   if (allow_all_) {
     grants_dbs_.clear();
     allow_all_ = false;
@@ -514,12 +514,12 @@ void Databases::Add(std::string_view db) {
   denies_dbs_.erase(std::string{db});  // TODO: C++23 use transparent key compare
 }
 
-void Databases::Remove(const std::string &db) {
+void Databases::Deny(const std::string &db) {
   denies_dbs_.emplace(db);
   grants_dbs_.erase(db);
 }
 
-void Databases::Delete(const std::string &db) {
+void Databases::Revoke(const std::string &db) {
   denies_dbs_.erase(db);
   if (!allow_all_) {
     grants_dbs_.erase(db);
@@ -540,6 +540,13 @@ void Databases::DenyAll() {
   allow_all_ = false;
   grants_dbs_.clear();
   denies_dbs_.clear();
+}
+
+void Databases::RevokeAll() {
+  allow_all_ = false;
+  grants_dbs_.clear();
+  denies_dbs_.clear();
+  main_db_ = "";
 }
 
 bool Databases::SetMain(std::string_view db) {
@@ -731,7 +738,7 @@ User User::Deserialize(const nlohmann::json &data) {
     } else {
       // Back-compatibility
       spdlog::warn("User without specified database access. Given access to the default database.");
-      db_access.Add(dbms::kDefaultDB);
+      db_access.Grant(dbms::kDefaultDB);
       db_access.SetMain(dbms::kDefaultDB);
     }
     FineGrainedAccessHandler fine_grained_access_handler;

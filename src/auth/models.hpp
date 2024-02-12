@@ -221,7 +221,7 @@ class Databases final {
    *
    * @param db name of the database to grant access to
    */
-  void Add(std::string_view db);
+  void Grant(std::string_view db);
 
   /**
    * @brief Remove database to the list of granted access.
@@ -230,7 +230,7 @@ class Databases final {
    *
    * @param db name of the database to grant access to
    */
-  void Remove(const std::string &db);
+  void Deny(const std::string &db);
 
   /**
    * @brief Called when database is dropped. Removes it from granted (if allow_all is false) and denied set.
@@ -238,7 +238,7 @@ class Databases final {
    *
    * @param db name of the database to grant access to
    */
-  void Delete(const std::string &db);
+  void Revoke(const std::string &db);
 
   /**
    * @brief Set allow_all_ to true and clears grants and denied sets.
@@ -249,6 +249,11 @@ class Databases final {
    * @brief Set allow_all_ to false and clears grants and denied sets.
    */
   void DenyAll();
+
+  /**
+   * @brief Set allow_all_ to false and clears grants and denied sets.
+   */
+  void RevokeAll();
 
   /**
    * @brief Set the default database.

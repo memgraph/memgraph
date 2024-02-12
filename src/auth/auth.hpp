@@ -132,6 +132,8 @@ class Auth final {
    */
   std::optional<User> GetUser(const std::string &username) const;
 
+  void LinkUser(User &user) const;
+
   /**
    * Saves a user object to the storage.
    *
@@ -299,18 +301,6 @@ class Auth final {
 
 #ifdef MG_ENTERPRISE
   /**
-   * @brief Revoke access to individual database for a user.
-   *
-   * @param db name of the database to revoke
-   * @param name user's username
-   * @return true on success
-   * @throw AuthException if unable to find or update the user
-   */
-  Result RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
-  void RevokeDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
-  void RevokeDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
-
-  /**
    * @brief Grant access to individual database for a user.
    *
    * @param db name of the database to revoke
@@ -321,6 +311,30 @@ class Auth final {
   Result GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
   void GrantDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
   void GrantDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
+
+  /**
+   * @brief Revoke access to individual database for a user.
+   *
+   * @param db name of the database to revoke
+   * @param name user's username
+   * @return true on success
+   * @throw AuthException if unable to find or update the user
+   */
+  Result DenyDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  void DenyDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
+  void DenyDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
+
+  /**
+   * @brief Revoke access to individual database for a user.
+   *
+   * @param db name of the database to revoke
+   * @param name user's username
+   * @return true on success
+   * @throw AuthException if unable to find or update the user
+   */
+  Result RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx = nullptr);
+  void RevokeDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
+  void RevokeDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Delete a database from all users.
