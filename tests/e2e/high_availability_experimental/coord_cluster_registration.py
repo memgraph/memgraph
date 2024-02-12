@@ -281,7 +281,11 @@ def test_coordinators_communication_with_restarts():
 
 
 # TODO: (andi) Test when dealing with distributed coordinators that you can register on one coordinator and unregister from any other coordinator
-def test_unregister_instance():
+@pytest.mark.parametrize(
+    "kill_instance",
+    [True, False],
+)
+def test_unregister_replicas(kill_instance):
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
@@ -320,6 +324,8 @@ def test_unregister_instance():
     mg_sleep_and_assert(expected_cluster, check_coordinator3)
     mg_sleep_and_assert(expected_replicas, check_main)
 
+    if kill_instance:
+        interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_1")
 
     expected_cluster = [
@@ -335,6 +341,8 @@ def test_unregister_instance():
     mg_sleep_and_assert(expected_cluster, check_coordinator3)
     mg_sleep_and_assert(expected_replicas, check_main)
 
+    if kill_instance:
+        interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_2")
 
     expected_cluster = [

@@ -105,5 +105,9 @@ auto ReplicationInstance::SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid
   return true;
 }
 
+auto ReplicationInstance::SendUnregisterReplicaRpc(std::string const &instance_name) -> bool {
+  return client_.SendUnregisterReplicaRpc(instance_name);
+}
+
 }  // namespace memgraph::coordination
 #endif

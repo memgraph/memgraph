@@ -46,10 +46,13 @@ class CoordinatorClient {
   auto SocketAddress() const -> std::string;
 
   [[nodiscard]] auto DemoteToReplica() const -> bool;
+  // TODO: (andi) Consistent naming
   auto SendPromoteReplicaToMainRpc(const utils::UUID &uuid, ReplicationClientsInfo replication_clients_info) const
       -> bool;
 
   auto SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bool;
+
+  auto SendUnregisterReplicaRpc(std::string const &instance_name) const -> bool;
 
   auto ReplicationClientInfo() const -> ReplClientInfo;
 

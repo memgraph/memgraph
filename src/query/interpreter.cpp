@@ -457,7 +457,24 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
       : coordinator_handler_(coordinator_state) {}
 
-  void UnregisterInstance(std::string const &instance_name) override {}
+  void UnregisterInstance(std::string const &instance_name) override {
+    auto status = coordinator_handler_.UnregisterReplicationInstance(instance_name);
+    switch (status) {
+      using enum memgraph::coordination::UnregisterInstanceCoordinatorStatus;
+      case NO_INSTANCE_WITH_NAME:
+        throw QueryRuntimeException("No instance with such name!");
+      case NOT_COORDINATOR:
+        throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
+      case NOT_LEADER:
+        throw QueryRuntimeException("Couldn't unregister replica instance since coordinator is not a leader!");
+      case RPC_FAILED:
+        throw QueryRuntimeException(
+            "Instance deregistered from coordinator but error occurred while sending request to current main to "
+            "unregister replica. Log into main and run UNREGISTER REPLICA query to unregister replica!");
+      case SUCCESS:
+        break;
+    }
+  }
 
   void RegisterReplicationInstance(const std::string &coordinator_socket_address,
                                    const std::string &replication_socket_address,
@@ -1180,6 +1197,16 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       if (!FLAGS_raft_server_id) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
+                     instance_name = coordinator_query->instance_name_]() mutable {
+        handler.UnregisterInstance(instance_name);
+        return std::vector<std::vector<TypedValue>>();
+      };
+      notifications->emplace_back(
+          SeverityLevel::INFO, NotificationCode::UNREGISTER_INSTANCE,
+          fmt::format("Coordinator has unregistered instance {}.", coordinator_query->instance_name_));
+
+      return callback;
 
     case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN: {
       if (!license::global_license_checker.IsEnterpriseValidFast()) {

@@ -59,7 +59,11 @@ class ReplicationInstance {
   auto ReplicationClientInfo() const -> ReplClientInfo;
 
   auto EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool;
+
   auto SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid) -> bool;
+  auto SendUnregisterReplicaRpc(std::string const &instance_name) -> bool;
+
+  // TODO: (andi) Inconsistent API
   auto GetClient() -> CoordinatorClient &;
 
   auto SetNewMainUUID(utils::UUID const &main_uuid) -> void;

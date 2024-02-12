@@ -310,6 +310,37 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
 
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string instance_name)
     -> UnregisterInstanceCoordinatorStatus {
+  auto lock = std::lock_guard{coord_instance_lock_};
+
+  auto const name_matches = [&instance_name](ReplicationInstance const &instance) {
+    return instance.InstanceName() == instance_name;
+  };
+
+  bool is_replica{false};
+  {
+    auto inst_to_remove = std::ranges::find_if(repl_instances_, name_matches);
+    if (inst_to_remove == repl_instances_.end()) {
+      return UnregisterInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
+    }
+    inst_to_remove->PauseFrequentCheck();
+    is_replica = inst_to_remove->IsReplica();
+  }
+
+  // if (!raft_state_.RequestLeadership()) {
+  //   return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
+  // }
+
+  std::erase_if(repl_instances_, name_matches);
+  if (is_replica) {
+    auto curr_main = std::ranges::find_if(repl_instances_, &ReplicationInstance::IsMain);
+    MG_ASSERT(curr_main != repl_instances_.end(), "There must be a main instance when unregistering a replica");
+    if (!curr_main->SendUnregisterReplicaRpc(instance_name)) {
+      return UnregisterInstanceCoordinatorStatus::RPC_FAILED;
+    }
+  } else {
+    TryFailover();
+  }
+
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
 
