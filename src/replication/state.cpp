@@ -57,9 +57,16 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   auto replication_data = std::move(fetched_replication_data).GetValue();
 #ifdef MG_ENTERPRISE
   if (FLAGS_coordinator_server_port && std::holds_alternative<RoleReplicaData>(replication_data)) {
+    spdlog::trace("Restarted replication uuid for replica");
     std::get<RoleReplicaData>(replication_data).uuid_.reset();
   }
 #endif
+  if (std::holds_alternative<RoleReplicaData>(replication_data)) {
+    spdlog::trace("Recovered main's uuid for replica {}",
+                  std::string(std::get<RoleReplicaData>(replication_data).uuid_.value()));
+  } else {
+    spdlog::trace("Recovered uuid for main {}", std::string(std::get<RoleMainData>(replication_data).uuid_));
+  }
   replication_data_ = std::move(replication_data);
 }
 
