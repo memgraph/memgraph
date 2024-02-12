@@ -80,13 +80,14 @@ auto RaftState::InitRaftServer() -> void {
   }
 
   auto maybe_stop = utils::ResettableCounter<20>();
-  while (!raft_server_->is_initialized() && !maybe_stop()) {
+  do {
+    if (raft_server_->is_initialized()) {
+      return;
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(250));
-  }
+  } while (!maybe_stop());
 
-  if (!raft_server_->is_initialized()) {
-    throw RaftServerStartException("Failed to initialize raft server on {}:{}", raft_address_, raft_port_);
-  }
+  throw RaftServerStartException("Failed to initialize raft server on {}:{}", raft_address_, raft_port_);
 }
 
 auto RaftState::MakeRaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb) -> RaftState {

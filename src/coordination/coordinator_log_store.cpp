@@ -14,6 +14,7 @@
 #include "nuraft/coordinator_log_store.hpp"
 
 #include "coordination/coordinator_exceptions.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::coordination {
 
@@ -132,7 +133,7 @@ ptr<buffer> CoordinatorLogStore::pack(uint64_t index, int32 cnt) {
       auto lock = std::lock_guard{logs_lock_};
       le = logs_[i];
     }
-    assert(le.get());
+    MG_ASSERT(le.get(), "Could not find log entry at index {}", i);
     auto buf = le->serialize();
     size_total += buf->size();
     logs.push_back(buf);
@@ -143,9 +144,8 @@ ptr<buffer> CoordinatorLogStore::pack(uint64_t index, int32 cnt) {
   buf_out->put((int32)cnt);
 
   for (auto &entry : logs) {
-    auto &bb = entry;  // TODO: (andi) This smells like not needed
-    buf_out->put(static_cast<int32>(bb->size()));
-    buf_out->put(*bb);
+    buf_out->put(static_cast<int32>(entry->size()));
+    buf_out->put(*entry);
   }
   return buf_out;
 }
