@@ -570,6 +570,10 @@ class DbAccessor final {
     return accessor_->TextIndexSearch(index_name, search_query);
   }
 
+  std::vector<storage::Gid> TextIndexRegexSearch(const std::string &index_name, const std::string &search_query) const {
+    return accessor_->TextIndexRegexSearch(index_name, search_query);
+  }
+
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
   }

@@ -4351,6 +4351,18 @@ inline List RunTextSearchQuery(mgp_graph *memgraph_graph, std::string_view index
   return results_or_error["search_results"].ValueList();
 }
 
+inline List RunTextRegexSearchQuery(mgp_graph *memgraph_graph, std::string_view index_name,
+                                    std::string_view search_query) {
+  auto results_or_error = Map(
+      mgp::MemHandlerCallback(graph_regex_search_text_index, memgraph_graph, index_name.data(), search_query.data()));
+  auto maybe_error = results_or_error["error_msg"].ValueString();
+  if (!maybe_error.empty()) {
+    throw std::runtime_error{maybe_error.data()};
+  }
+
+  return results_or_error["search_results"].ValueList();
+}
+
 inline bool CreateExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label,
                                       const std::string_view property) {
   return create_existence_constraint(memgraph_graph, label.data(), property.data());

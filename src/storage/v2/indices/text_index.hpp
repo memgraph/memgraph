@@ -36,6 +36,8 @@ class TextIndex {
  private:
   void CreateEmptyIndex(const std::string &index_name, LabelId label);
 
+  std::string PropertiesToString(const std::map<PropertyId, PropertyValue> &properties);
+
   template <typename T>
   nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, T *name_resolver);
 
@@ -44,6 +46,7 @@ class TextIndex {
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(Vertex *vertex);
 
   void LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::json &properties,
+                             const std::string &indexable_properties_as_string,
                              const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
   void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
@@ -82,6 +85,8 @@ class TextIndex {
   bool IndexExists(const std::string &index_name) const;
 
   std::vector<Gid> Search(const std::string &index_name, const std::string &search_query);
+
+  std::vector<Gid> RegexSearch(const std::string &index_name, const std::string &search_query);
 
   void Commit();
 
