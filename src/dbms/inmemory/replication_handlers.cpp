@@ -760,7 +760,6 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
       }
       case WalDeltaData::Type::EDGE_INDEX_CREATE: {
         spdlog::trace("       Create edge index on :{}", delta.operation_edge_type.edge_type);
-        // Need to send the timestamp
         auto *transaction = get_transaction(timestamp, kUniqueAccess);
         if (transaction->CreateIndex(storage->NameToEdgeType(delta.operation_label.label)).HasError())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);

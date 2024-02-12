@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -97,7 +97,6 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
 
     if (op.input()->GetTypeInfo() == ScanAll::kType) {
-      // Rethink how to structure this predicates.
       const bool only_one_edge_type = (op.common_.edge_types.size() == 1U);
       const bool expansion_is_named = !(op.common_.edge_symbol.IsSymbolAnonym());
       const bool expdanded_node_not_named = op.common_.node_symbol.IsSymbolAnonym();
@@ -118,25 +117,6 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       SetOnParent(std::move(indexed_scan));
     }
 
-    // 0. EdgeTypeIndexing is allowed/exists.
-    // 1. If the previous logical operator is a bare ScanAll with anon nexpr
-    // 2. and this expand has only one named expr and a specified EdgeType,
-    // 2.5.(?) and if the relationships are directionless? -> probably this is not neded
-    // 3. and the destination node of this expand is anon as well,
-    // 4. and if the parent of this Expand is Produce
-    // 5. then remove the bare ScanAll and the Expand and replace them with ScanAllByEdgeType.
-
-    // use TypeInfo to typematch instead?
-    // if(auto *asd = dynamic_cast<ScanAll *>(prev_operator))
-    // {
-    //   asd->output_symbol_;
-    // }
-
-    // if(op.input().get())
-
-    // if we emptied all the expressions from the filter, then we don't need this operator anymore
-    // SetOnParent(op.input());
-
     return true;
   }
 
@@ -145,17 +125,10 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  // See if it might be better to do ScanAllBy<Index> of the destination and
-  // then do ExpandVariable to existing.
   bool PostVisit(ExpandVariable &expand) override {
     prev_ops_.pop_back();
     return true;
   }
-
-  // The following operators may only use index lookup in filters inside of
-  // their own branches. So we handle them all the same.
-  //  * Input operator is visited with the current visitor.
-  //  * Custom operator branches are visited with a new visitor.
 
   bool PreVisit(Merge &op) override {
     prev_ops_.push_back(&op);
@@ -193,7 +166,6 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(IndexedJoin &op) override {
     prev_ops_.push_back(&op);
-    // TODO
     RewriteBranch(&op.main_branch_);
     RewriteBranch(&op.sub_branch_);
     return false;
@@ -523,7 +495,6 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::vector<LogicalOperator *> prev_ops_;
   std::unordered_set<Symbol> cartesian_symbols_;
 
-  // State to confirm EdgeType-indexing
   bool EdgeTypeIndexingPossible() const {
     return expand_under_produce_ && scanall_under_expand_ && once_under_scanall_ && edge_type_index_exist;
   }
@@ -538,17 +509,11 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   std::unique_ptr<ScanAllByEdgeType> GenEdgeTypeScan(const Expand &expand) {
     const auto &input = expand.input();
-    // We have to make a new output symbol? maybe not?
-    // Won't this bee freed? -> Probably not we do the same thing with index_lookup
     const auto &output_symbol = expand.common_.edge_symbol;
     const auto &view = expand.view_;
 
     // Extract edge_type from symbol
     auto edge_type = expand.common_.edge_types.front();
-    // There can be only one
-
-    // const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::EdgeTypeId label, storage::View
-    // view = storage::View::OLD)
     return std::make_unique<ScanAllByEdgeType>(input, output_symbol, edge_type, view);
   }
 
@@ -569,65 +534,6 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       *branch = rewriter.new_root_;
     }
   }
-
-  /*
-    std::unique_ptr<HashJoin> GenHashJoin(const Cartesian &cartesian) {
-      const auto &left_op = cartesian.left_op_;
-      const auto &left_symbols = cartesian.left_symbols_;
-      const auto &right_op = cartesian.right_op_;
-      const auto &right_symbols = cartesian.right_symbols_;
-
-      auto modified_symbols = cartesian.ModifiedSymbols(*symbol_table_);
-      modified_symbols.insert(modified_symbols.end(), left_symbols.begin(), left_symbols.end());
-
-      std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
-      auto are_bound = [&bound_symbols](const auto &used_symbols) {
-        for (const auto &used_symbol : used_symbols) {
-          if (!utils::Contains(bound_symbols, used_symbol)) {
-            return false;
-          }
-        }
-        return true;
-      };
-
-      for (const auto &filter : filters_) {
-        if (filter.type != FilterInfo::Type::Property) {
-          continue;
-        }
-
-        if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
-          continue;
-        }
-
-        if (filter.property_filter->type_ != PropertyFilter::Type::EQUAL) {
-          continue;
-        }
-
-        if (filter.property_filter->value_->GetTypeInfo() != PropertyLookup::kType) {
-          continue;
-        }
-        auto *rhs_lookup = static_cast<PropertyLookup *>(filter.property_filter->value_);
-
-        auto *join_condition = static_cast<EqualOperator *>(filter.expression);
-        auto lhs_symbol = filter.property_filter->symbol_;
-        auto lhs_property = filter.property_filter->property_;
-        auto rhs_symbol = symbol_table_->at(*static_cast<Identifier *>(rhs_lookup->expression_));
-        auto rhs_property = rhs_lookup->property_;
-        filter_exprs_for_removal_.insert(filter.expression);
-        filters_.EraseFilter(filter);
-
-        if (utils::Contains(right_symbols, lhs_symbol) && utils::Contains(left_symbols, rhs_symbol)) {
-          // We need to duplicate this because expressions are shared between plans
-          join_condition = join_condition->Clone(ast_storage_);
-          std::swap(join_condition->expression1_, join_condition->expression2_);
-        }
-
-        return std::make_unique<HashJoin>(left_op, left_symbols, right_op, right_symbols, join_condition);
-      }
-
-      return nullptr;
-    }
-    */
 };
 
 }  // namespace impl
@@ -638,12 +544,6 @@ std::unique_ptr<LogicalOperator> RewriteWithEdgeTypeIndexRewriter(std::unique_pt
                                                                   TDbAccessor *db) {
   impl::EdgeTypeIndexRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
   root_op->Accept(rewriter);
-  if (rewriter.new_root_) {
-    // This shouldn't happen in real use cases because, as JoinRewriter removes Filter operations, they cannot be the
-    // root operator. In case we somehow missed this, raise NotYetImplemented instead of a MG_ASSERT crashing the
-    // application.
-    throw utils::NotYetImplemented("A Filter operator cannot be EdgeTypeIndexRewriter's root");
-  }
   return root_op;
 }
 

@@ -143,7 +143,6 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                         Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
-  spdlog::info("Recreating constraints from metadata.");
   RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
   RecoverUniqueConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
 }

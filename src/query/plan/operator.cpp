@@ -2904,8 +2904,6 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
   }
 
-  // TODO gvolfing update edge-type indices
-
   delete_executed_ = true;
 
   return false;

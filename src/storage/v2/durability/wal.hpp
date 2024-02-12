@@ -216,7 +216,6 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
                      LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                      const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
-/// Function used to encode non-transactional operation.
 void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
                      EdgeTypeId edge_type, uint64_t timestamp);
 
