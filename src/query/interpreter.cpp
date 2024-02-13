@@ -93,6 +93,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/functional.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -1264,17 +1265,13 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      replica_nfields = callback.header.size()]() mutable {
         auto const instances = handler.ShowInstances();
-        std::vector<std::vector<TypedValue>> result{};
-        result.reserve(result.size());
+        auto const converter = [](const auto &status) -> std::vector<TypedValue> {
+          return {TypedValue{status.instance_name}, TypedValue{status.raft_socket_address},
+                  TypedValue{status.coord_socket_address}, TypedValue{status.is_alive},
+                  TypedValue{status.cluster_role}};
+        };
 
-        std::ranges::transform(instances, std::back_inserter(result),
-                               [](const auto &status) -> std::vector<TypedValue> {
-                                 return {TypedValue{status.instance_name}, TypedValue{status.raft_socket_address},
-                                         TypedValue{status.coord_socket_address}, TypedValue{status.is_alive},
-                                         TypedValue{status.cluster_role}};
-                               });
-
-        return result;
+        return utils::fmap(converter, instances);
       };
       return callback;
     }

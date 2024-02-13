@@ -11,12 +11,12 @@
 
 #pragma once
 
-#include "utils/uuid.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_config.hpp"
 #include "rpc/client.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
 

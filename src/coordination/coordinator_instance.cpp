@@ -17,6 +17,7 @@
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
 #include "utils/counter.hpp"
+#include "utils/functional.hpp"
 
 #include <range/v3/view.hpp>
 #include <shared_mutex>
@@ -125,9 +126,6 @@ CoordinatorInstance::CoordinatorInstance()
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   auto const coord_instances = raft_state_.GetAllCoordinators();
 
-  std::vector<InstanceStatus> instances_status;
-  instances_status.reserve(repl_instances_.size() + coord_instances.size());
-
   auto const stringify_repl_role = [](ReplicationInstance const &instance) -> std::string {
     if (!instance.IsAlive()) return "unknown";
     if (instance.IsMain()) return "main";
@@ -149,8 +147,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
                                 // CoordinatorState to every instance, we can be smarter about this using our RPC.
   };
 
-  std::ranges::transform(coord_instances, std::back_inserter(instances_status), coord_instance_to_status);
-
+  auto instances_status = utils::fmap(coord_instance_to_status, coord_instances);
   {
     auto lock = std::shared_lock{coord_instance_lock_};
     std::ranges::transform(repl_instances_, std::back_inserter(instances_status), repl_instance_to_status);
@@ -189,6 +186,7 @@ auto CoordinatorInstance::TryFailover() -> void {
     }
   }
 
+  // TODO: (andi) fmap compliant
   ReplicationClientsInfo repl_clients_info;
   repl_clients_info.reserve(repl_instances_.size() - 1);
   std::ranges::transform(repl_instances_ | ranges::views::filter(is_not_new_main),
