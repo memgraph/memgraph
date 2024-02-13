@@ -284,6 +284,7 @@ void Auth::LinkUser(User &user) const {
 }
 
 std::optional<User> Auth::GetUser(const std::string &username_orig) const {
+  if (module_.IsUsed()) return std::nullopt;  // User's are not supported when using module
   auto username = utils::ToLowerCase(username_orig);
   auto existing_user = storage_.Get(kUserPrefix + username);
   if (!existing_user) return std::nullopt;
@@ -511,6 +512,7 @@ std::vector<std::string> Auth::AllRolenames() const {
 }
 
 std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) const {
+  DisableIfModuleUsed();
   const auto rolename = utils::ToLowerCase(rolename_orig);
   std::vector<auth::User> ret;
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
