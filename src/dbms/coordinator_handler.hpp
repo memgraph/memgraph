@@ -28,10 +28,10 @@ class CoordinatorHandler {
  public:
   explicit CoordinatorHandler(coordination::CoordinatorState &coordinator_state);
 
-  auto RegisterInstance(coordination::CoordinatorClientConfig config)
+  auto RegisterReplicationInstance(coordination::CoordinatorClientConfig config)
       -> coordination::RegisterInstanceCoordinatorStatus;
 
-  auto SetInstanceToMain(std::string instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
+  auto SetReplicationInstanceToMain(std::string instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
 
   auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
 

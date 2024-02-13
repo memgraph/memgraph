@@ -20,14 +20,14 @@ namespace memgraph::dbms {
 CoordinatorHandler::CoordinatorHandler(coordination::CoordinatorState &coordinator_state)
     : coordinator_state_(coordinator_state) {}
 
-auto CoordinatorHandler::RegisterInstance(memgraph::coordination::CoordinatorClientConfig config)
+auto CoordinatorHandler::RegisterReplicationInstance(memgraph::coordination::CoordinatorClientConfig config)
     -> coordination::RegisterInstanceCoordinatorStatus {
-  return coordinator_state_.RegisterInstance(config);
+  return coordinator_state_.RegisterReplicationInstance(config);
 }
 
-auto CoordinatorHandler::SetInstanceToMain(std::string instance_name)
+auto CoordinatorHandler::SetReplicationInstanceToMain(std::string instance_name)
     -> coordination::SetInstanceToMainCoordinatorStatus {
-  return coordinator_state_.SetInstanceToMain(std::move(instance_name));
+  return coordinator_state_.SetReplicationInstanceToMain(std::move(instance_name));
 }
 
 auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::InstanceStatus> {

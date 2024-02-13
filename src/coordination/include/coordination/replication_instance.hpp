@@ -23,11 +23,11 @@
 
 namespace memgraph::coordination {
 
-class CoordinatorData;
+class CoordinatorInstance;
 
 class ReplicationInstance {
  public:
-  ReplicationInstance(CoordinatorData *data, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
+  ReplicationInstance(CoordinatorInstance *peer, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
                       HealthCheckCallback fail_cb);
 
   ReplicationInstance(ReplicationInstance const &other) = delete;
@@ -51,15 +51,19 @@ class ReplicationInstance {
                      HealthCheckCallback main_fail_cb) -> bool;
   auto DemoteToReplica(HealthCheckCallback replica_succ_cb, HealthCheckCallback replica_fail_cb) -> bool;
 
+  auto StartFrequentCheck() -> void;
+  auto StopFrequentCheck() -> void;
   auto PauseFrequentCheck() -> void;
   auto ResumeFrequentCheck() -> void;
 
   auto ReplicationClientInfo() const -> ReplClientInfo;
 
-  auto SendSwapAndUpdateUUID(const utils::UUID &main_uuid) -> bool;
+  auto EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool;
+  auto SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid) -> bool;
   auto GetClient() -> CoordinatorClient &;
 
-  void SetNewMainUUID(const std::optional<utils::UUID> &main_uuid = std::nullopt);
+  auto SetNewMainUUID(utils::UUID const &main_uuid) -> void;
+  auto ResetMainUUID() -> void;
   auto GetMainUUID() -> const std::optional<utils::UUID> &;
 
  private:
