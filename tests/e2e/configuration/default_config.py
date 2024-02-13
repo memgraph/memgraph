@@ -222,4 +222,9 @@ startup_config_dict = {
         "128",
         "The threshold for when to cache long delta chains. This is used for heavy read + write workloads where repeated processing of delta chains can become costly.",
     ),
+    "experimental_enabled": (
+        "",
+        "",
+        "Experimental features to be used, comma seperated. Options [system-replication]",
+    ),
 }

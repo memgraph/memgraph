@@ -39,6 +39,7 @@ def create_memgraph_instances_with_role_recovery(data_directory: Any) -> Dict[st
     return {
         "replica_1": {
             "args": [
+                "--experimental-enabled=system-replication",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level",
@@ -53,6 +54,7 @@ def create_memgraph_instances_with_role_recovery(data_directory: Any) -> Dict[st
         },
         "replica_2": {
             "args": [
+                "--experimental-enabled=system-replication",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
@@ -65,7 +67,12 @@ def create_memgraph_instances_with_role_recovery(data_directory: Any) -> Dict[st
             "data_directory": f"{data_directory}/replica_2",
         },
         "main": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "main.log",
             "setup_queries": [],
         },
@@ -98,6 +105,7 @@ TEMP_DIR = tempfile.TemporaryDirectory().name
 MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
     "replica_1": {
         "args": [
+            "--experimental-enabled=system-replication",
             "--bolt-port",
             f"{BOLT_PORTS['replica_1']}",
             "--log-level=TRACE",
@@ -109,6 +117,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
     },
     "replica_2": {
         "args": [
+            "--experimental-enabled=system-replication",
             "--bolt-port",
             f"{BOLT_PORTS['replica_2']}",
             "--log-level=TRACE",
@@ -120,6 +129,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
     },
     "main": {
         "args": [
+            "--experimental-enabled=system-replication",
             "--bolt-port",
             f"{BOLT_PORTS['main']}",
             "--log-level=TRACE",
@@ -206,7 +216,12 @@ def test_manual_databases_create_multitenancy_replication(connection):
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "replica1.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -215,7 +230,12 @@ def test_manual_databases_create_multitenancy_replication(connection):
             ],
         },
         "replica_2": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "replica2.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -224,7 +244,12 @@ def test_manual_databases_create_multitenancy_replication(connection):
             ],
         },
         "main": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "main.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -281,7 +306,12 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "replica1.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -294,7 +324,12 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
             ],
         },
         "replica_2": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "replica2.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -307,7 +342,12 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
             ],
         },
         "main": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "main.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -354,7 +394,12 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "replica1.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -364,7 +409,12 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
             ],
         },
         "replica_2": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "replica2.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -374,7 +424,12 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
             ],
         },
         "main": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "main.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -416,7 +471,12 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "replica1.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -426,7 +486,12 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
             ],
         },
         "replica_2": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_2']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "replica2.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -436,7 +501,12 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
             ],
         },
         "main": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "main.log",
             "setup_queries": [
                 f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
@@ -532,14 +602,24 @@ def test_automatic_databases_multitenancy_replication_predefined(connection):
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "replica1.log",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
         },
         "main": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "main.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
@@ -585,14 +665,24 @@ def test_automatic_databases_create_multitenancy_replication_dirty_main(connecti
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "replica1.log",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
         },
         "main": {
-            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "args": [
+                "--experimental-enabled=system-replication",
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
             "log_file": "main.log",
             "setup_queries": [
                 "CREATE DATABASE A;",
