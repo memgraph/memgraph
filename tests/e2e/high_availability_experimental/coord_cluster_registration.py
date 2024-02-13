@@ -37,6 +37,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10011",
+            "--also-log-to-stderr",
         ],
         "log_file": "instance_1.log",
         "data_directory": f"{TEMP_DIR}/instance_1",
@@ -50,6 +51,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10012",
+            "--also-log-to-stderr",
         ],
         "log_file": "instance_2.log",
         "data_directory": f"{TEMP_DIR}/instance_2",
@@ -63,6 +65,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10013",
+            "--also-log-to-stderr",
         ],
         "log_file": "instance_3.log",
         "data_directory": f"{TEMP_DIR}/instance_3",
@@ -97,6 +100,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--log-level=TRACE",
             "--raft-server-id=3",
             "--raft-server-port=10113",
+            "--also-log-to-stderr",
         ],
         "log_file": "coordinator3.log",
         "setup_queries": [],
@@ -350,6 +354,55 @@ def test_unregister_replicas(kill_instance):
         ("instance_3", "", "127.0.0.1:10013", True, "main"),
     ]
     expected_replicas = []
+
+    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(expected_replicas, check_main)
+
+
+def test_unregister_main():
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+    execute_and_fetch_all(
+        coordinator3_cursor, "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'"
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor, "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'"
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor, "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'"
+    )
+    execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
+
+    def check_coordinator3():
+        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+
+    expected_cluster = [
+        ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+    ]
+
+    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+
+    execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
+
+    expected_cluster = [
+        ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "main"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+    ]
+
+    expected_replicas = [
+        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+    ]
+
+    main_cursor = connect(host="localhost", port=7687).cursor()
+
+    def check_main():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS")))
 
     mg_sleep_and_assert(expected_cluster, check_coordinator3)
     mg_sleep_and_assert(expected_replicas, check_main)
