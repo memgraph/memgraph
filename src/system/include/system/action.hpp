@@ -26,12 +26,14 @@ struct ISystemAction {
   /// Durability step which is defered until commit time
   virtual void DoDurability() = 0;
 
+#ifdef MG_ENTERPRISE
   /// Prepare the RPC payload that will be sent to all replicas clients
   virtual bool DoReplication(memgraph::replication::ReplicationClient &client, const utils::UUID &main_uuid,
                              memgraph::replication::ReplicationEpoch const &epoch,
                              Transaction const &system_tx) const = 0;
 
   virtual void PostReplication(memgraph::replication::RoleMainData &main_data) const = 0;
+#endif
 
   virtual ~ISystemAction() = default;
 };
