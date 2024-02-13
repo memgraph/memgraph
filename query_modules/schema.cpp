@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,10 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <cstdint>
 #include <mgp.hpp>
 #include "utils/string.hpp"
 
 #include <optional>
+#include <unordered_set>
 
 namespace Schema {
 
@@ -108,11 +110,17 @@ void Schema::ProcessPropertiesRel(mgp::Record &record, const std::string_view &t
   record.Insert(std::string(kReturnMandatory).c_str(), mandatory);
 }
 
-struct Property {
-  std::string name;
-  mgp::Value value;
+struct PropertyInfo {
+  std::unordered_set<std::string> values;
+  int64_t number_of_property_occurrences = 0;
 
-  Property(const std::string &name, mgp::Value &&value) : name(name), value(std::move(value)) {}
+  PropertyInfo() = default;
+  explicit PropertyInfo(std::string value) : values({value}), number_of_property_occurrences(1) {}
+};
+
+struct LabelsInfo {
+  std::unordered_map<std::string, PropertyInfo> properties;  // key is a property name
+  int64_t number_of_label_occurrences = 0;
 };
 
 struct LabelsHash {
@@ -129,21 +137,12 @@ struct LabelsComparator {
   bool operator()(const std::set<std::string> &lhs, const std::set<std::string> &rhs) const { return lhs == rhs; }
 };
 
-struct PropertyComparator {
-  bool operator()(const Property &lhs, const Property &rhs) const { return lhs.name < rhs.name; }
-};
-
-struct PropertyInfo {
-  std::set<Property, PropertyComparator> properties;
-  bool mandatory;
-};
-
 void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result,
                                 mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    std::unordered_map<std::set<std::string>, PropertyInfo, LabelsHash, LabelsComparator> node_types_properties;
+    std::unordered_map<std::set<std::string>, LabelsInfo, LabelsHash, LabelsComparator> node_types_properties;
 
     for (auto node : mgp::Graph(memgraph_graph).Nodes()) {
       std::set<std::string> labels_set = {};
@@ -152,20 +151,23 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
       }
 
       if (node_types_properties.find(labels_set) == node_types_properties.end()) {
-        node_types_properties[labels_set] = PropertyInfo{std::set<Property, PropertyComparator>(), true};
+        node_types_properties[labels_set] = LabelsInfo();
       }
 
+      node_types_properties[labels_set].number_of_label_occurrences++;
+
       if (node.Properties().empty()) {
-        node_types_properties[labels_set].mandatory = false;  // if there is node with no property, it is not mandatory
         continue;
       }
 
       auto &property_info = node_types_properties.at(labels_set);
-      for (auto &[key, prop] : node.Properties()) {
-        property_info.properties.emplace(key, std::move(prop));
-        if (property_info.mandatory) {
-          property_info.mandatory =
-              property_info.properties.size() == 1;  // if there is only one property, it is mandatory
+      for (auto const &[key, prop] : node.Properties()) {
+        const auto &prop_type = TypeOf(prop.Type());
+        if (property_info.properties.find(key) == property_info.properties.end()) {
+          property_info.properties[key] = PropertyInfo{prop_type};
+        } else {
+          property_info.properties[key].values.emplace(prop_type);
+          property_info.properties[key].number_of_property_occurrences++;
         }
       }
     }
@@ -178,9 +180,13 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
         labels_list.AppendExtend(mgp::Value(label));
       }
       for (auto const &prop : property_info.properties) {
+        mgp::List values = mgp::List();
+        for (auto const &value : prop.second.values) {
+          values.AppendExtend(mgp::Value(value));
+        }
+        bool mandatory = prop.second.number_of_property_occurrences == property_info.number_of_label_occurrences;
         auto record = record_factory.NewRecord();
-        ProcessPropertiesNode(record, label_type, labels_list, prop.name, TypeOf(prop.value.Type()),
-                              property_info.mandatory);
+        ProcessPropertiesNode(record, label_type, labels_list, prop.first, values, mandatory);
       }
       if (property_info.properties.empty()) {
         auto record = record_factory.NewRecord();
@@ -197,27 +203,30 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
 void Schema::RelTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
 
-  std::unordered_map<std::string, PropertyInfo> rel_types_properties;
+  std::unordered_map<std::string, LabelsInfo> rel_types_properties;
   const auto record_factory = mgp::RecordFactory(result);
   try {
     const mgp::Graph graph = mgp::Graph(memgraph_graph);
     for (auto rel : graph.Relationships()) {
       std::string rel_type = std::string(rel.Type());
       if (rel_types_properties.find(rel_type) == rel_types_properties.end()) {
-        rel_types_properties[rel_type] = PropertyInfo{std::set<Property, PropertyComparator>(), true};
+        rel_types_properties[rel_type] = LabelsInfo();
       }
 
+      rel_types_properties[rel_type].number_of_label_occurrences++;
+
       if (rel.Properties().empty()) {
-        rel_types_properties[rel_type].mandatory = false;  // if there is rel with no property, it is not mandatory
         continue;
       }
 
       auto &property_info = rel_types_properties.at(rel_type);
       for (auto &[key, prop] : rel.Properties()) {
-        property_info.properties.emplace(key, std::move(prop));
-        if (property_info.mandatory) {
-          property_info.mandatory =
-              property_info.properties.size() == 1;  // if there is only one property, it is mandatory
+        const auto prop_type = TypeOf(prop.Type());
+        if (property_info.properties.find(key) == property_info.properties.end()) {
+          property_info.properties[key] = PropertyInfo{prop_type};
+        } else {
+          property_info.properties[key].values.emplace(prop_type);
+          property_info.properties[key].number_of_property_occurrences++;
         }
       }
     }
@@ -225,8 +234,13 @@ void Schema::RelTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, m
     for (auto &[type, property_info] : rel_types_properties) {
       std::string type_str = ":`" + std::string(type) + "`";
       for (auto const &prop : property_info.properties) {
+        mgp::List values = mgp::List();
+        for (auto const &value : prop.second.values) {
+          values.AppendExtend(mgp::Value(value));
+        }
+        bool mandatory = prop.second.number_of_property_occurrences == property_info.number_of_label_occurrences;
         auto record = record_factory.NewRecord();
-        ProcessPropertiesRel(record, type_str, prop.name, TypeOf(prop.value.Type()), property_info.mandatory);
+        ProcessPropertiesRel(record, type_str, prop.first, values, mandatory);
       }
       if (property_info.properties.empty()) {
         auto record = record_factory.NewRecord();
