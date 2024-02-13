@@ -18,6 +18,10 @@ DEFINE_uint32(coordinator_server_port, 0, "Port on which coordinator servers wil
 DEFINE_uint32(raft_server_port, 0, "Port on which raft servers will be started.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint32(raft_server_id, 0, "Unique ID of the raft server.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint32(instance_down_timeout_sec, 5, "Time duration after which an instance is considered down.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint32(instance_health_check_frequency_sec, 1, "The time duration between two health checks/pings.");
 #endif
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
