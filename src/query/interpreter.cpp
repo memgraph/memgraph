@@ -473,8 +473,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't unregister replica instance since coordinator is not a leader!");
       case RPC_FAILED:
         throw QueryRuntimeException(
-            "Instance deregistered from coordinator but error occurred while sending request to current main to "
-            "unregister replica. Log into main and run UNREGISTER REPLICA query to unregister replica!");
+            "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
       case SUCCESS:
         break;
     }
