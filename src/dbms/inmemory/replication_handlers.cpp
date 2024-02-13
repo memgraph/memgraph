@@ -155,6 +155,12 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
     return;
   }
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
+  if (!db_acc.has_value()) {
+    spdlog::warn("No database accessor");
+    storage::replication::HeartbeatRes res{false, 0, ""};
+    slk::Save(res, res_builder);
+    return;
+  }
   auto const *storage = db_acc->get()->storage();
   storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load(),
                                          std::string{storage->repl_storage_state_.epoch_.id()}};
@@ -463,7 +469,6 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
   slk::Save(res, res_builder);
 }
 
-/////// AF how does this work, does it get all deltas at once or what?
 uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage *storage,
                                                         storage::durability::BaseDecoder *decoder,
                                                         const uint64_t version) {

@@ -423,7 +423,6 @@ jobs:
           ctest -R memgraph__unit --output-on-failure -j$THREADS
 
       - name: Run e2e tests
-        if: false
         run: |
           cd tests
           ./setup.sh /opt/toolchain-v4/activate

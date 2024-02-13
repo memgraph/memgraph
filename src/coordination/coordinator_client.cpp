@@ -28,13 +28,13 @@ auto CreateClientContext(memgraph::coordination::CoordinatorClientConfig const &
 }
 }  // namespace
 
-CoordinatorClient::CoordinatorClient(CoordinatorData *coord_data, CoordinatorClientConfig config,
+CoordinatorClient::CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorClientConfig config,
                                      HealthCheckCallback succ_cb, HealthCheckCallback fail_cb)
     : rpc_context_{CreateClientContext(config)},
       rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
                   &rpc_context_},
       config_{std::move(config)},
-      coord_data_{coord_data},
+      coord_instance_{coord_instance},
       succ_cb_{std::move(succ_cb)},
       fail_cb_{std::move(fail_cb)} {}
 
@@ -42,6 +42,10 @@ auto CoordinatorClient::InstanceName() const -> std::string { return config_.ins
 auto CoordinatorClient::SocketAddress() const -> std::string { return rpc_client_.Endpoint().SocketAddress(); }
 
 void CoordinatorClient::StartFrequentCheck() {
+  if (instance_checker_.IsRunning()) {
+    return;
+  }
+
   MG_ASSERT(config_.health_check_frequency_sec > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
@@ -54,9 +58,9 @@ void CoordinatorClient::StartFrequentCheck() {
             auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
             stream.AwaitResponse();
           }
-          succ_cb_(coord_data_, instance_name);
+          succ_cb_(coord_instance_, instance_name);
         } catch (rpc::RpcFailedException const &) {
-          fail_cb_(coord_data_, instance_name);
+          fail_cb_(coord_instance_, instance_name);
         }
       });
 }
