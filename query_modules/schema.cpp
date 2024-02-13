@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <boost/functional/hash.hpp>
 #include <mgp.hpp>
 #include "utils/string.hpp"
 
@@ -122,13 +123,7 @@ struct LabelsInfo {
 };
 
 struct LabelsHash {
-  std::size_t operator()(const std::set<std::string> &set) const {
-    std::size_t seed = set.size();
-    for (const auto &i : set) {
-      seed ^= std::hash<std::string>{}(i) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    }
-    return seed;
-  }
+  std::size_t operator()(const std::set<std::string> &s) const { return boost::hash_range(s.begin(), s.end()); }
 };
 
 struct LabelsComparator {
