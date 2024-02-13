@@ -109,6 +109,7 @@
 
 #ifdef MG_ENTERPRISE
 #include "coordination/constants.hpp"
+#include "flags/experimental.hpp"
 #endif
 
 namespace memgraph::metrics {
@@ -458,9 +459,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       : coordinator_handler_(coordinator_state) {}
 
   /// @throw QueryRuntimeException if an error ocurred.
-  void RegisterInstance(const std::string &coordinator_socket_address, const std::string &replication_socket_address,
-                        const std::chrono::seconds instance_check_frequency, const std::string &instance_name,
-                        CoordinatorQuery::SyncMode sync_mode) override {
+  void RegisterReplicationInstance(const std::string &coordinator_socket_address,
+                                   const std::string &replication_socket_address,
+                                   const std::chrono::seconds instance_check_frequency,
+                                   const std::string &instance_name, CoordinatorQuery::SyncMode sync_mode) override {
     const auto maybe_replication_ip_port =
         io::network::Endpoint::ParseSocketOrAddress(replication_socket_address, std::nullopt);
     if (!maybe_replication_ip_port) {
@@ -489,7 +491,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                               .replication_client_info = repl_config,
                                               .ssl = std::nullopt};
 
-    auto status = coordinator_handler_.RegisterInstance(coordinator_client_config);
+    auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config);
     switch (status) {
       using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:
@@ -499,6 +501,14 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't register replica instance since instance with such endpoint already exists!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("REGISTER INSTANCE query can only be run on a coordinator!");
+      case NOT_LEADER:
+        throw QueryRuntimeException("Couldn't register replica instance since coordinator is not a leader!");
+      case RAFT_COULD_NOT_ACCEPT:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance since raft server couldn't accept the log! Most likely the raft "
+            "instance is not a leader!");
+      case RAFT_COULD_NOT_APPEND:
+        throw QueryRuntimeException("Couldn't register replica instance since raft server couldn't append the log!");
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
@@ -519,8 +529,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void SetInstanceToMain(const std::string &instance_name) override {
-    auto status = coordinator_handler_.SetInstanceToMain(instance_name);
+  void SetReplicationInstanceToMain(const std::string &instance_name) override {
+    auto status = coordinator_handler_.SetReplicationInstanceToMain(instance_name);
     switch (status) {
       using enum memgraph::coordination::SetInstanceToMainCoordinatorStatus;
       case NO_INSTANCE_WITH_NAME:
@@ -1145,9 +1155,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                      replication_socket_address_tv, main_check_frequency = config.replication_replica_check_frequency,
                      instance_name = coordinator_query->instance_name_,
                      sync_mode = coordinator_query->sync_mode_]() mutable {
-        handler.RegisterInstance(std::string(coordinator_socket_address_tv.ValueString()),
-                                 std::string(replication_socket_address_tv.ValueString()), main_check_frequency,
-                                 instance_name, sync_mode);
+        handler.RegisterReplicationInstance(std::string(coordinator_socket_address_tv.ValueString()),
+                                            std::string(replication_socket_address_tv.ValueString()),
+                                            main_check_frequency, instance_name, sync_mode);
         return std::vector<std::vector<TypedValue>>();
       };
 
@@ -1176,7 +1186,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      instance_name = coordinator_query->instance_name_]() mutable {
-        handler.SetInstanceToMain(instance_name);
+        handler.SetReplicationInstanceToMain(instance_name);
         return std::vector<std::vector<TypedValue>>();
       };
 
@@ -3872,7 +3882,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       if (current_db.in_explicit_db_) {
         throw QueryException("Database switching is prohibited if session explicitly defines the used database");
       }
-      if (!dbms::allow_mt_repl && is_replica) {
+
+      using enum memgraph::flags::Experiments;
+      if (!flags::AreExperimentsEnabled(SYSTEM_REPLICATION) && is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
       return PreparedQuery{{"STATUS"},
@@ -4526,7 +4538,8 @@ void Interpreter::Commit() {
     auto const main_commit = [&](replication::RoleMainData &mainData) {
     // Only enterprise can do system replication
 #ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast()) {
+      using enum memgraph::flags::Experiments;
+      if (flags::AreExperimentsEnabled(SYSTEM_REPLICATION) && license::global_license_checker.IsEnterpriseValidFast()) {
         return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
       }
 #endif

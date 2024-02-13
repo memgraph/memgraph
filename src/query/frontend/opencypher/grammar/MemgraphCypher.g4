@@ -265,7 +265,7 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( NULLIF nullif ) ?
          AS rowVar ;
 
-csvFile : literal ;
+csvFile : literal | parameter ;
 
 delimiter : literal ;
 

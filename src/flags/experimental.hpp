@@ -11,30 +11,22 @@
 
 #pragma once
 
-#ifdef MG_ENTERPRISE
+#include "gflags/gflags.h"
 
-#include <cstdint>
+// Short help flag.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(experimental_enabled);
 
-namespace memgraph::coordination {
+namespace memgraph::flags {
 
-enum class RegisterInstanceCoordinatorStatus : uint8_t {
-  NAME_EXISTS,
-  ENDPOINT_EXISTS,
-  NOT_COORDINATOR,
-  RPC_FAILED,
-  NOT_LEADER,
-  RAFT_COULD_NOT_ACCEPT,
-  RAFT_COULD_NOT_APPEND,
-  SUCCESS
+// Each bit is an enabled experiment
+// old experiments can be reused once code cleanup has happened
+enum class Experiments : uint8_t {
+  SYSTEM_REPLICATION = 1 << 0,
 };
 
-enum class SetInstanceToMainCoordinatorStatus : uint8_t {
-  NO_INSTANCE_WITH_NAME,
-  NOT_COORDINATOR,
-  SUCCESS,
-  COULD_NOT_PROMOTE_TO_MAIN,
-  SWAP_UUID_FAILED
-};
+bool AreExperimentsEnabled(Experiments experiments);
 
-}  // namespace memgraph::coordination
-#endif
+void InitializeExperimental();
+
+}  // namespace memgraph::flags

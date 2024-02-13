@@ -41,37 +41,39 @@ CoordinatorState::CoordinatorState() {
   }
 }
 
-auto CoordinatorState::RegisterInstance(CoordinatorClientConfig config) -> RegisterInstanceCoordinatorStatus {
-  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+auto CoordinatorState::RegisterReplicationInstance(CoordinatorClientConfig config)
+    -> RegisterInstanceCoordinatorStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
 
   return std::visit(
-      memgraph::utils::Overloaded{
-          [](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
-            return RegisterInstanceCoordinatorStatus::NOT_COORDINATOR;
-          },
-          [config](CoordinatorData &coordinator_data) { return coordinator_data.RegisterInstance(config); }},
+      memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+                                    return RegisterInstanceCoordinatorStatus::NOT_COORDINATOR;
+                                  },
+                                  [config](CoordinatorInstance &coordinator_instance) {
+                                    return coordinator_instance.RegisterReplicationInstance(config);
+                                  }},
       data_);
 }
 
-auto CoordinatorState::SetInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus {
-  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+auto CoordinatorState::SetReplicationInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
 
   return std::visit(
       memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
                                     return SetInstanceToMainCoordinatorStatus::NOT_COORDINATOR;
                                   },
-                                  [&instance_name](CoordinatorData &coordinator_data) {
-                                    return coordinator_data.SetInstanceToMain(instance_name);
+                                  [&instance_name](CoordinatorInstance &coordinator_instance) {
+                                    return coordinator_instance.SetReplicationInstanceToMain(instance_name);
                                   }},
       data_);
 }
 
 auto CoordinatorState::ShowInstances() const -> std::vector<InstanceStatus> {
-  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Can't call show instances on data_, as variant holds wrong alternative");
-  return std::get<CoordinatorData>(data_).ShowInstances();
+  return std::get<CoordinatorInstance>(data_).ShowInstances();
 }
 
 auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
@@ -82,9 +84,9 @@ auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
 
 auto CoordinatorState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)
     -> void {
-  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
-  return std::get<CoordinatorData>(data_).AddCoordinatorInstance(raft_server_id, raft_port, raft_address);
+  return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(raft_server_id, raft_port, raft_address);
 }
 
 }  // namespace memgraph::coordination
