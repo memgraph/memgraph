@@ -44,7 +44,7 @@ int main(int argc, char **argv) {
   memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(db_config));
 
   memgraph::system::System system_state;
-  memgraph::dbms::DbmsHandler dbms_handler(db_config, system_state, repl_state
+  memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
 #ifdef MG_ENTERPRISE
                                            ,
                                            auth_, false

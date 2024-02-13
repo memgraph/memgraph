@@ -12,6 +12,7 @@
 
 #include "auth/auth.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "flags/experimental.hpp"
 #include "replication/include/replication/state.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "utils/result.hpp"
@@ -22,8 +23,8 @@ inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
     utils::BasicResult<replication::RegisterReplicaError, replication::ReplicationClient *> &instance_client);
 
 #ifdef MG_ENTERPRISE
-void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandler &dbms_handler, utils::UUID main_uuid,
-                        system::System *system, auth::SynchedAuth &auth);
+void StartReplicaClient(replication::ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
+                        utils::UUID main_uuid, auth::SynchedAuth &auth);
 #else
 void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandler &dbms_handler, utils::UUID main_uuid);
 #endif
@@ -33,8 +34,8 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
 // When being called by interpreter no need to gain lock, it should already be under a system transaction
 // But concurrently the FrequentCheck is running and will need to lock before reading last_committed_system_timestamp_
 template <bool REQUIRE_LOCK = false>
-void SystemRestore(replication::ReplicationClient &client, dbms::DbmsHandler &dbms_handler,
-                   const utils::UUID &main_uuid, system::System *system, auth::SynchedAuth &auth) {
+void SystemRestore(replication::ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
+                   const utils::UUID &main_uuid, auth::SynchedAuth &auth) {
   // Check if system is up to date
   if (client.state_.WithLock(
           [](auto &state) { return state == memgraph::replication::ReplicationClient::State::READY; }))
@@ -42,6 +43,10 @@ void SystemRestore(replication::ReplicationClient &client, dbms::DbmsHandler &db
 
   // Try to recover...
   {
+    using enum memgraph::flags::Experiments;
+    bool full_system_replication =
+        flags::AreExperimentsEnabled(SYSTEM_REPLICATION) && license::global_license_checker.IsEnterpriseValidFast();
+    // We still need to system replicate
     struct DbInfo {
       std::vector<storage::SalientConfig> configs;
       uint64_t last_committed_timestamp;
@@ -49,25 +54,25 @@ void SystemRestore(replication::ReplicationClient &client, dbms::DbmsHandler &db
     DbInfo db_info = std::invoke([&] {
       auto guard = std::invoke([&]() -> std::optional<memgraph::system::TransactionGuard> {
         if constexpr (REQUIRE_LOCK) {
-          return system->GenTransactionGuard();
+          return system.GenTransactionGuard();
         }
         return std::nullopt;
       });
 
-      if (license::global_license_checker.IsEnterpriseValidFast()) {
+      if (full_system_replication) {
         auto configs = std::vector<storage::SalientConfig>{};
         dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
         // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
-        return DbInfo{configs, system->LastCommittedSystemTimestamp()};
+        return DbInfo{configs, system.LastCommittedSystemTimestamp()};
       }
 
       // No license -> send only default config
-      return DbInfo{{dbms_handler.Get()->config().salient}, system->LastCommittedSystemTimestamp()};
+      return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
     });
     try {
       auto stream = std::invoke([&]() {
         // Handle only default database is no license
-        if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        if (!full_system_replication) {
           return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
               main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), auth::Auth::Config{},
               std::vector<auth::User>{}, std::vector<auth::Role>{});
@@ -98,7 +103,7 @@ void SystemRestore(replication::ReplicationClient &client, dbms::DbmsHandler &db
 struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
   explicit ReplicationHandler(memgraph::replication::ReplicationState &repl_state,
-                              memgraph::dbms::DbmsHandler &dbms_handler, memgraph::system::System *system,
+                              memgraph::dbms::DbmsHandler &dbms_handler, memgraph::system::System &system,
                               memgraph::auth::SynchedAuth &auth);
 #else
   explicit ReplicationHandler(memgraph::replication::ReplicationState &repl_state,
@@ -155,7 +160,9 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       }
     }
 
-    if (!memgraph::dbms::allow_mt_repl && dbms_handler_.All().size() > 1) {
+    using enum memgraph::flags::Experiments;
+    bool system_replication_enabled = flags::AreExperimentsEnabled(SYSTEM_REPLICATION);
+    if (!system_replication_enabled && dbms_handler_.Count() > 1) {
       spdlog::warn("Multi-tenant replication is currently not supported!");
     }
     const auto main_uuid =
@@ -170,7 +177,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 
 #ifdef MG_ENTERPRISE
     // Update system before enabling individual storage <-> replica clients
-    SystemRestore(*maybe_client.GetValue(), dbms_handler_, main_uuid, system_, auth_);
+    SystemRestore(*maybe_client.GetValue(), system_, dbms_handler_, main_uuid, auth_);
 #endif
 
     const auto dbms_error = HandleRegisterReplicaStatus(maybe_client);
@@ -183,7 +190,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
     // Add database specific clients (NOTE Currently all databases are connected to each replica)
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      if (!dbms::allow_mt_repl && storage->name() != dbms::kDefaultDB) {
+      if (!system_replication_enabled && storage->name() != dbms::kDefaultDB) {
         return;
       }
       // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
@@ -215,7 +222,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 
     // No client error, start instance level client
 #ifdef MG_ENTERPRISE
-    StartReplicaClient(*instance_client_ptr, dbms_handler_, main_uuid, system_, auth_);
+    StartReplicaClient(*instance_client_ptr, system_, dbms_handler_, main_uuid, auth_);
 #else
     StartReplicaClient(*instance_client_ptr, dbms_handler_, main_uuid);
 #endif
@@ -226,7 +233,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   memgraph::dbms::DbmsHandler &dbms_handler_;
 
 #ifdef MG_ENTERPRISE
-  memgraph::system::System *system_;
+  memgraph::system::System &system_;
   memgraph::auth::SynchedAuth &auth_;
 #endif
 };

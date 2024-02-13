@@ -57,11 +57,13 @@ struct Transaction {
       /// durability
       action->DoDurability();
 
-      /// replication prep
+#ifdef MG_ENTERPRISE
+      /// replication
       auto action_sync_status = handler.ApplyAction(*action, *this);
       if (action_sync_status != AllSyncReplicaStatus::AllCommitsConfirmed) {
         sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
       }
+#endif
 
       actions_.pop_front();
     }
@@ -93,6 +95,7 @@ struct Transaction {
   std::list<std::unique_ptr<ISystemAction>> actions_;
 };
 
+#ifdef MG_ENTERPRISE
 struct DoReplication {
   explicit DoReplication(replication::RoleMainData &main_data) : main_data_{main_data} {}
   auto ApplyAction(ISystemAction const &action, Transaction const &system_tx) -> AllSyncReplicaStatus {
@@ -113,6 +116,7 @@ struct DoReplication {
   replication::RoleMainData &main_data_;
 };
 static_assert(ReplicationPolicy<DoReplication>);
+#endif
 
 struct DoNothing {
   auto ApplyAction(ISystemAction const & /*action*/, Transaction const & /*system_tx*/) -> AllSyncReplicaStatus {
