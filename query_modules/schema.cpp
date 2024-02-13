@@ -190,7 +190,7 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
       }
       if (property_info.properties.empty()) {
         auto record = record_factory.NewRecord();
-        ProcessPropertiesNode<std::string>(record, label_type, labels_list, "", "", false);
+        ProcessPropertiesNode<mgp::List>(record, label_type, labels_list, "", mgp::List(), false);
       }
     }
 
@@ -244,7 +244,7 @@ void Schema::RelTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, m
       }
       if (property_info.properties.empty()) {
         auto record = record_factory.NewRecord();
-        ProcessPropertiesRel<std::string>(record, type_str, "", "", false);
+        ProcessPropertiesRel<mgp::List>(record, type_str, "", mgp::List(), false);
       }
     }
 
