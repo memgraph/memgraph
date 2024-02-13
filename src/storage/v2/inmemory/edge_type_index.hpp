@@ -51,7 +51,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   std::vector<EdgeTypeId> ListIndices() const override;
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override;
 

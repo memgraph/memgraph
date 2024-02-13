@@ -10,8 +10,10 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/edge_type_index.hpp"
+
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "utils/counter.hpp"
 
 namespace {
 
@@ -143,10 +145,16 @@ std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ListIndices() const {
   return ret;
 }
 
-void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
+void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+  auto maybe_stop = utils::ResettableCounter<2048>();
+
   for (auto &label_storage : index_) {
+    if (token.stop_requested()) return;
+
     auto edges_acc = label_storage.second.access();
     for (auto it = edges_acc.begin(); it != edges_acc.end();) {
+      if (maybe_stop() && token.stop_requested()) return;
+
       auto next_it = it;
       ++next_it;
 

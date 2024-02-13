@@ -304,17 +304,6 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
       }
       break;
     }
-    case WalDeltaData::Type::EDGE_INDEX_CREATE:
-    case WalDeltaData::Type::EDGE_INDEX_DROP: {
-      if constexpr (read_data) {
-        auto edge_type = decoder->ReadString();
-        if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_edge_type.edge_type = std::move(*edge_type);
-      } else {
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
-      }
-      break;
-    }
     case WalDeltaData::Type::LABEL_INDEX_STATS_SET: {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
@@ -381,6 +370,17 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
           if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
         }
       }
+    }
+    case WalDeltaData::Type::EDGE_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_INDEX_DROP: {
+      if constexpr (read_data) {
+        auto edge_type = decoder->ReadString();
+        if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_edge_type.edge_type = std::move(*edge_type);
+      } else {
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
     }
   }
 
