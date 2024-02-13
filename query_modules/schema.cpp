@@ -9,11 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <cstdint>
 #include <mgp.hpp>
 #include "utils/string.hpp"
 
-#include <optional>
 #include <unordered_set>
 
 namespace Schema {
