@@ -510,7 +510,10 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
                             retry_interval = interpreter_context->config.stream_transaction_retry_interval](
                                const std::vector<typename TStream::Message> &messages) mutable {
     // Set interpreter's user to the stream owner
-    interpreter->SetUser(owner);
+    // NOTE: We generate an empty user to avoid interpreter's access control and rely only on the one inside the stream
+    // itself
+    // TODO: Fix
+    interpreter->SetUser(interpreter_context->auth_checker->GenQueryUser(std::nullopt, std::nullopt));
 #ifdef MG_ENTERPRISE
     interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
 #endif
@@ -540,7 +543,6 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
           spdlog::trace("Processing row in stream '{}'", stream_name);
           auto [query_value, params_value] = ExtractTransformationResult(row.values, transformation_name, stream_name);
           storage::PropertyValue params_prop{params_value};
-
           std::string query{query_value.ValueString()};
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
           auto prepare_result =
