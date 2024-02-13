@@ -30,12 +30,11 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Vertex *from_vertex;
     Vertex *to_vertex;
 
-    // We might or might not need this. We might have to make use of the deltachain.
     Edge *edge;
 
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs) { return edge->gid < rhs.edge->gid; }
+    bool operator<(const Entry &rhs) const { return edge->gid < rhs.edge->gid; }
     bool operator==(const Entry &rhs) const { return edge->gid == rhs.edge->gid; }
   };
 
@@ -86,7 +85,6 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
       Iterable *self_;
       utils::SkipList<Entry>::Iterator index_iterator_;
       EdgeAccessor current_edge_accessor_;
-      // current edge might be a bad idea.
       EdgeRef current_edge_{nullptr};
     };
 
@@ -105,19 +103,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   Iterable Edges(EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction);
 
-  // TODO(gvolfing) - check this.
-  // void SetIndexStats(const storage::LabelId &edge_type, const storage::LabelIndexStats &stats);
-  // std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &edge_type) const;
-  // std::vector<LabelId> ClearIndexStats();
-  // bool DeleteIndexStats(const storage::LabelId &edge_type);
-
  private:
   std::map<EdgeTypeId, utils::SkipList<Entry>> index_;
-  // Todo gvolfing deal with this.
-  // We might need this member to get hold of "deleted" edges temporarily.
-  // std::set<EdgeAccessor> deleted_edges;
-
-  // utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 
 }  // namespace memgraph::storage

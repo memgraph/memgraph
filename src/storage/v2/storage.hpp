@@ -30,6 +30,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/enums.hpp"

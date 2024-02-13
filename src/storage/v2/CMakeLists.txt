@@ -21,6 +21,7 @@ add_library(mg-storage-v2 STATIC
         storage.cpp
         indices/indices.cpp
         all_vertices_iterable.cpp
+        edges_iterable.cpp
         vertices_iterable.cpp
         inmemory/storage.cpp
         inmemory/edge_type_index.cpp

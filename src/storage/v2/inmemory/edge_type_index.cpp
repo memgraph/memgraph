@@ -250,7 +250,6 @@ std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> InMemoryEdgeTypeIndex::Itera
   auto *to_vertex = index_iterator_->to_vertex;
 
   if (index_iterator_->edge->deleted) {
-    // TODO make sure this is aware of the possiblity of multiple edgetypes between nodes if it needs to.
     const auto missing_in_edge = VertexDeletedConnectedEdges(from_vertex, self_->transaction_, self_->view_);
     const auto missing_out_edge = VertexDeletedConnectedEdges(to_vertex, self_->transaction_, self_->view_);
     if (missing_in_edge && missing_out_edge &&
@@ -263,8 +262,6 @@ std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> InMemoryEdgeTypeIndex::Itera
   const auto &from_edges = from_vertex->out_edges;
   const auto &to_edges = to_vertex->in_edges;
 
-  // TODO rework this logic, it should be enough to firstly check
-  // against index_iterator_->edge->gid and go from there.
   auto it = std::find_if(from_edges.begin(), from_edges.end(), [&](const auto &from_entry) {
     const auto &from_edge = std::get<kEdgeRefPos>(from_entry);
     return std::any_of(to_edges.begin(), to_edges.end(), [&](const auto &to_entry) {
@@ -290,7 +287,7 @@ void InMemoryEdgeTypeIndex::RunGC() {
 InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_type, View view, Storage *storage,
                                                              Transaction *transaction) {
   const auto it = index_.find(edge_type);
-  MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", edge_type.AsUint());
+  MG_ASSERT(it != index_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
   return {it->second.access(), edge_type, view, storage, transaction};
 }
 
