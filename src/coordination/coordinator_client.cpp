@@ -16,6 +16,7 @@
 
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_rpc.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/messages.hpp"
 #include "utils/result.hpp"
 
@@ -138,6 +139,21 @@ auto CoordinatorClient::SendGetInstanceUUID() const
     return GetInstanceUUIDError::RPC_EXCEPTION;
   }
   return instance_uuid;
+}
+
+auto CoordinatorClient::SendGetInstanceTimestampsRpc() const
+    -> utils::BasicResult<GetInstanceUUIDError,
+                          std::vector<replication_coordination_glue::ReplicationTimestampResult>> {
+  try {
+    auto stream{rpc_client_.Stream<coordination::GetInstanceTimestampsRpc>()};
+    auto res = stream.AwaitResponse();
+
+    return res.replica_timestamps;
+
+  } catch (const rpc::RpcFailedException &) {
+    spdlog::error("RPC error occured while sending GetInstance UUID RPC");
+    return GetInstanceUUIDError::RPC_EXCEPTION;
+  }
 }
 
 }  // namespace memgraph::coordination

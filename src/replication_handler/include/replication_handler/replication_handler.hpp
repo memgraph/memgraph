@@ -13,6 +13,7 @@
 #include "auth/auth.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "replication/include/replication/state.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "utils/result.hpp"
@@ -189,6 +190,8 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   auto GetReplState() -> memgraph::replication::ReplicationState &;
 
   auto GetReplicaUUID() -> std::optional<utils::UUID>;
+
+  auto GetTimestampsForEachDb() -> std::vector<replication_coordination_glue::ReplicationTimestampResult>;
 
  private:
   template <bool HandleFailure>

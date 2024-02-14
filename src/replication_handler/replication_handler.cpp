@@ -272,6 +272,28 @@ auto ReplicationHandler::GetRole() const -> memgraph::replication_coordination_g
   return repl_state_.GetRole();
 }
 
+auto ReplicationHandler::GetTimestampsForEachDb()
+    -> std::vector<replication_coordination_glue::ReplicationTimestampResult> {
+  std::vector<replication_coordination_glue::ReplicationTimestampResult> results;
+  dbms_handler_.ForEach([&results](memgraph::dbms::DatabaseAccess db_acc) {
+    auto *storage = db_acc->storage();
+    auto &repl_storage_state = storage->repl_storage_state_;
+    std::vector<std::pair<std::string, uint64_t>> history;
+    history.reserve(repl_storage_state.history.size());
+    std::transform(repl_storage_state.history.begin(), repl_storage_state.history.end(), std::back_inserter(history),
+                   [](const auto &elem) { return std::pair<std::string, uint64_t>(elem.first, elem.second); });
+
+    replication_coordination_glue::ReplicationTimestampResult repl{
+        .db_uuid = db_acc->storage()->uuid(),
+        .history = history,
+        .last_commit_timestamp = repl_storage_state.last_commit_timestamp_.load(),
+        .epoch_id = std::string(repl_storage_state.epoch_.id())};
+    results.emplace_back(repl);
+  });
+
+  return results;
+}
+
 auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
   MG_ASSERT(repl_state_.IsReplica());
   return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
