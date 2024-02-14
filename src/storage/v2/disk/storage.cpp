@@ -905,11 +905,11 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges,
-                                        bool detach) {
+                                        bool detach, bool fast) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
   /// TODO: (andi) Refactor
-  auto maybe_result = Storage::Accessor::DetachDelete(nodes, edges, detach);
+  auto maybe_result = Storage::Accessor::DetachDelete(nodes, edges, detach, fast);
   if (maybe_result.HasError()) {
     return maybe_result.GetError();
   }

@@ -222,7 +222,8 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
 }
 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
-Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
+Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach,
+                                bool fast) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
   if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
     for (const auto *vertex : nodes) {
@@ -236,6 +237,15 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
         return in_edges_res.GetError();
       }
     }
+  }
+
+  if (detach && fast) {
+    auto maybe_deleted_entities = DeleteVerticesFast(nodes);
+    if (maybe_deleted_entities.HasError()) {
+      return maybe_deleted_entities.GetError();
+    }
+
+    return maybe_deleted_entities.GetValue();
   }
 
   // 1. Gather nodes which are not deleted yet in the system
@@ -363,6 +373,84 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
                              .partial_dest_edge_ids = std::move(dest_edge_ids),
                              .partial_src_vertices = std::move(partial_src_vertices),
                              .partial_dest_vertices = std::move(partial_dest_vertices)};
+}
+
+Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
+Storage::Accessor::DeleteVerticesFast(const std::vector<VertexAccessor *> &vertices) {
+  using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
+
+  std::vector<VertexAccessor> deleted_vertices;
+  deleted_vertices.reserve(vertices.size());
+  std::vector<EdgeAccessor> deleted_edges;
+  for (auto *vertex_accessor : vertices) {
+    auto vertex_ptr = vertex_accessor->vertex_;
+    auto vertex_lock = std::unique_lock{vertex_ptr->lock};
+
+    if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+    MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
+
+    while (!vertex_ptr->in_edges.empty()) {
+      auto const &[edge_type, opposing_vertex, edge_ref] = *vertex_ptr->in_edges.rbegin();
+      std::unique_lock<utils::RWSpinLock> guard;
+      if (storage_->config_.salient.items.properties_on_edges) {
+        auto *edge_ptr = edge_ref.ptr;
+        guard = std::unique_lock{edge_ptr->lock};
+
+        if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
+      }
+
+      // MarkEdgeAsDeleted allocates additional memory
+      // and CreateAndLinkDelta needs memory
+      utils::AtomicMemoryBlock atomic_memory_block{[in_edges = &vertex_ptr->in_edges, &vertex_ptr,
+                                                    edge_type = edge_type, opposing_vertex = opposing_vertex,
+                                                    edge_ref = edge_ref, this]() {
+        in_edges->pop_back();
+        if (this->storage_->config_.salient.items.properties_on_edges) {
+          auto *edge_ptr = edge_ref.ptr;
+          MarkEdgeAsDeleted(edge_ptr);
+        }
+
+        CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::AddInEdgeTag(), edge_type, opposing_vertex, edge_ref);
+      }};
+      std::invoke(atomic_memory_block);
+    }
+    while (!vertex_ptr->out_edges.empty()) {
+      auto const &[edge_type, opposing_vertex, edge_ref] = *vertex_ptr->out_edges.rbegin();
+      std::unique_lock<utils::RWSpinLock> guard;
+      if (storage_->config_.salient.items.properties_on_edges) {
+        auto *edge_ptr = edge_ref.ptr;
+        guard = std::unique_lock{edge_ptr->lock};
+
+        if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
+      }
+
+      // MarkEdgeAsDeleted allocates additional memory
+      // and CreateAndLinkDelta needs memory
+      utils::AtomicMemoryBlock atomic_memory_block{[out_edges = &vertex_ptr->out_edges, &vertex_ptr, &deleted_edges,
+                                                    edge_type = edge_type, opposing_vertex = opposing_vertex,
+                                                    edge_ref = edge_ref, this]() {
+        out_edges->pop_back();
+        if (this->storage_->config_.salient.items.properties_on_edges) {
+          auto *edge_ptr = edge_ref.ptr;
+          MarkEdgeAsDeleted(edge_ptr);
+        }
+
+        CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::AddOutEdgeTag(), edge_type, opposing_vertex, edge_ref);
+        deleted_edges.emplace_back(edge_ref, edge_type, vertex_ptr, opposing_vertex, storage_, &transaction_, true);
+      }};
+      std::invoke(atomic_memory_block);
+    }
+
+    if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) {
+      return Error::VERTEX_HAS_EDGES;
+    }
+
+    CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
+    vertex_ptr->deleted = true;
+
+    deleted_vertices.emplace_back(vertex_ptr, storage_, &transaction_, true);
+  }
+  return std::make_optional<ReturnType>(deleted_vertices, deleted_edges);
 }
 
 Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOnVertices(

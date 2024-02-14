@@ -242,10 +242,10 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid 
 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges,
-                                                bool detach) {
+                                                bool detach, bool fast) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
 
-  auto maybe_result = Storage::Accessor::DetachDelete(nodes, edges, detach);
+  auto maybe_result = Storage::Accessor::DetachDelete(nodes, edges, detach, fast);
 
   if (maybe_result.HasError()) {
     return maybe_result.GetError();
@@ -276,13 +276,16 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
     }
   }};
 
-  for (auto const &vertex : deleted_vertices) {
-    transaction_.manyDeltasCache.Invalidate(vertex.vertex_);
-  }
-
-  for (const auto &edge : deleted_edges) {
-    transaction_.manyDeltasCache.Invalidate(edge.from_vertex_, edge.edge_type_, EdgeDirection::OUT);
-    transaction_.manyDeltasCache.Invalidate(edge.to_vertex_, edge.edge_type_, EdgeDirection::IN);
+  if (!fast) {
+    for (auto const &vertex : deleted_vertices) {
+      transaction_.manyDeltasCache.Invalidate(vertex.vertex_);
+    }
+    for (const auto &edge : deleted_edges) {
+      transaction_.manyDeltasCache.Invalidate(edge.from_vertex_, edge.edge_type_, EdgeDirection::OUT);
+      transaction_.manyDeltasCache.Invalidate(edge.to_vertex_, edge.edge_type_, EdgeDirection::IN);
+    }
+  } else {
+    transaction_.manyDeltasCache.Clear();
   }
 
   return maybe_result;
@@ -957,17 +960,21 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
 
     // 3.b) remove from veretex skip_list
     auto vertex_acc = mem_storage->vertices_.access();
-    for (auto gid : current_deleted_vertices) {
-      vertex_acc.remove(gid);
+    if (!current_deleted_vertices.empty()) {
+      mem_storage->vertices_.clear();
     }
+    // for (auto gid : current_deleted_vertices) {
+    //   vertex_acc.remove(gid);
+    // }
   }
 
   if (!current_deleted_edges.empty()) {
+    mem_storage->edges_.clear();
     // 3.c) remove from edge skip_list
-    auto edge_acc = mem_storage->edges_.access();
-    for (auto gid : current_deleted_edges) {
-      edge_acc.remove(gid);
-    }
+    // auto edge_acc = mem_storage->edges_.access();
+    // for (auto gid : current_deleted_edges) {
+    //   edge_acc.remove(gid);
+    // }
   }
 }
 
@@ -1849,7 +1856,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
 
   //////// AF only this calls initialize transaction
   repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
-
+  uint64_t i = 0;
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
     // delta that should be processed and then appends all discovered deltas.
@@ -1858,6 +1865,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
         auto *older = delta->next.load(std::memory_order_acquire);
         if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
         delta = older;
+        i += 1;
       }
       while (true) {
         if (filter(delta->action)) {
@@ -1867,6 +1875,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
         MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
         if (prev.type != PreviousPtr::Type::DELTA) break;
         delta = prev.delta;
+        i += 1;
       }
     };
 
@@ -1885,115 +1894,125 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
 
     // 1. Process all Vertex deltas and store all operations that create vertices
     // and modify vertex data.
-    for (const auto &delta : transaction.deltas) {
-      auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-        switch (action) {
-          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-          case Delta::Action::DELETE_OBJECT:
-          case Delta::Action::SET_PROPERTY:
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-            return true;
+    if (transaction.has_vertex_modifying_deltas) {
+      for (const auto &delta : transaction.deltas) {
+        auto prev = delta.prev.Get();
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+        if (prev.type != PreviousPtr::Type::VERTEX) continue;
+        find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+          switch (action) {
+            case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+            case Delta::Action::DELETE_OBJECT:
+            case Delta::Action::SET_PROPERTY:
+            case Delta::Action::ADD_LABEL:
+            case Delta::Action::REMOVE_LABEL:
+              return true;
 
-          case Delta::Action::RECREATE_OBJECT:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::ADD_OUT_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::REMOVE_OUT_EDGE:
-            return false;
-        }
-      });
+            case Delta::Action::RECREATE_OBJECT:
+            case Delta::Action::ADD_IN_EDGE:
+            case Delta::Action::ADD_OUT_EDGE:
+            case Delta::Action::REMOVE_IN_EDGE:
+            case Delta::Action::REMOVE_OUT_EDGE:
+              return false;
+          }
+        });
+      }
     }
     // 2. Process all Vertex deltas and store all operations that create edges.
-    for (const auto &delta : transaction.deltas) {
-      auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-        switch (action) {
-          case Delta::Action::REMOVE_OUT_EDGE:
-            return true;
-          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-          case Delta::Action::DELETE_OBJECT:
-          case Delta::Action::RECREATE_OBJECT:
-          case Delta::Action::SET_PROPERTY:
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::ADD_OUT_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-            return false;
-        }
-      });
+    if (transaction.has_edge_creating_deltas) {
+      for (const auto &delta : transaction.deltas) {
+        auto prev = delta.prev.Get();
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+        if (prev.type != PreviousPtr::Type::VERTEX) continue;
+        find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+          switch (action) {
+            case Delta::Action::REMOVE_OUT_EDGE:
+              return true;
+            case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+            case Delta::Action::DELETE_OBJECT:
+            case Delta::Action::RECREATE_OBJECT:
+            case Delta::Action::SET_PROPERTY:
+            case Delta::Action::ADD_LABEL:
+            case Delta::Action::REMOVE_LABEL:
+            case Delta::Action::ADD_IN_EDGE:
+            case Delta::Action::ADD_OUT_EDGE:
+            case Delta::Action::REMOVE_IN_EDGE:
+              return false;
+          }
+        });
+      }
     }
     // 3. Process all Edge deltas and store all operations that modify edge data.
-    for (const auto &delta : transaction.deltas) {
-      auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::EDGE) continue;
-      find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
-        switch (action) {
-          case Delta::Action::SET_PROPERTY:
-            return true;
-          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-          case Delta::Action::DELETE_OBJECT:
-          case Delta::Action::RECREATE_OBJECT:
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::ADD_OUT_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::REMOVE_OUT_EDGE:
-            return false;
-        }
-      });
+    if (transaction.has_edge_modifying_deltas) {
+      for (const auto &delta : transaction.deltas) {
+        auto prev = delta.prev.Get();
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+        if (prev.type != PreviousPtr::Type::EDGE) continue;
+        find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
+          switch (action) {
+            case Delta::Action::SET_PROPERTY:
+              return true;
+            case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+            case Delta::Action::DELETE_OBJECT:
+            case Delta::Action::RECREATE_OBJECT:
+            case Delta::Action::ADD_LABEL:
+            case Delta::Action::REMOVE_LABEL:
+            case Delta::Action::ADD_IN_EDGE:
+            case Delta::Action::ADD_OUT_EDGE:
+            case Delta::Action::REMOVE_IN_EDGE:
+            case Delta::Action::REMOVE_OUT_EDGE:
+              return false;
+          }
+        });
+      }
     }
     // 4. Process all Vertex deltas and store all operations that delete edges.
-    for (const auto &delta : transaction.deltas) {
-      auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-        switch (action) {
-          case Delta::Action::ADD_OUT_EDGE:
-            return true;
-          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-          case Delta::Action::DELETE_OBJECT:
-          case Delta::Action::RECREATE_OBJECT:
-          case Delta::Action::SET_PROPERTY:
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::REMOVE_OUT_EDGE:
-            return false;
-        }
-      });
+    if (transaction.has_edge_deleting_deltas) {
+      for (const auto &delta : transaction.deltas) {
+        auto prev = delta.prev.Get();
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+        if (prev.type != PreviousPtr::Type::VERTEX) continue;
+        find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+          switch (action) {
+            case Delta::Action::ADD_OUT_EDGE:
+              return true;
+            case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+            case Delta::Action::DELETE_OBJECT:
+            case Delta::Action::RECREATE_OBJECT:
+            case Delta::Action::SET_PROPERTY:
+            case Delta::Action::ADD_LABEL:
+            case Delta::Action::REMOVE_LABEL:
+            case Delta::Action::ADD_IN_EDGE:
+            case Delta::Action::REMOVE_IN_EDGE:
+            case Delta::Action::REMOVE_OUT_EDGE:
+              return false;
+          }
+        });
+      }
     }
     // 5. Process all Vertex deltas and store all operations that delete vertices.
-    for (const auto &delta : transaction.deltas) {
-      auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::VERTEX) continue;
-      find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-        switch (action) {
-          case Delta::Action::RECREATE_OBJECT:
-            return true;
-          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-          case Delta::Action::DELETE_OBJECT:
-          case Delta::Action::SET_PROPERTY:
-          case Delta::Action::ADD_LABEL:
-          case Delta::Action::REMOVE_LABEL:
-          case Delta::Action::ADD_IN_EDGE:
-          case Delta::Action::ADD_OUT_EDGE:
-          case Delta::Action::REMOVE_IN_EDGE:
-          case Delta::Action::REMOVE_OUT_EDGE:
-            return false;
-        }
-      });
+    if (transaction.has_vertex_deleting_deltas) {
+      for (const auto &delta : transaction.deltas) {
+        auto prev = delta.prev.Get();
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+        if (prev.type != PreviousPtr::Type::VERTEX) continue;
+        find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+          switch (action) {
+            case Delta::Action::RECREATE_OBJECT:
+              return true;
+            case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+            case Delta::Action::DELETE_OBJECT:
+            case Delta::Action::SET_PROPERTY:
+            case Delta::Action::ADD_LABEL:
+            case Delta::Action::REMOVE_LABEL:
+            case Delta::Action::ADD_IN_EDGE:
+            case Delta::Action::ADD_OUT_EDGE:
+            case Delta::Action::REMOVE_IN_EDGE:
+            case Delta::Action::REMOVE_OUT_EDGE:
+              return false;
+          }
+        });
+      }
     }
   };
 
@@ -2004,6 +2023,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
       repl_storage_state_.AppendDelta(delta, parent, timestamp);
     });
   }
+
+  spdlog::debug("Number of iterations done: {}", i);
 
   // Handle metadata deltas
   for (const auto &md_delta : transaction.md_deltas) {

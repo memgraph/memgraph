@@ -90,6 +90,11 @@ struct Transaction {
 
   std::deque<Delta> deltas;
   utils::pmr::list<MetadataDelta> md_deltas;
+  bool has_vertex_modifying_deltas{false};
+  bool has_edge_creating_deltas{false};
+  bool has_edge_modifying_deltas{false};
+  bool has_edge_deleting_deltas{false};
+  bool has_vertex_deleting_deltas{false};
   bool must_abort{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};

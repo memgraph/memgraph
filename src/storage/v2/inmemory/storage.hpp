@@ -182,7 +182,8 @@ class InMemoryStorage final : public Storage {
     bool DeleteLabelIndexStats(const storage::LabelId &label) override;
 
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
-        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
+        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach,
+        bool fast = false) override;
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;

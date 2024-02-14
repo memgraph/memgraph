@@ -189,6 +189,36 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   // modification is being done, everybody else will wait until we are fully
   // done with our modification before they read the object's delta value.
   object->delta = delta;
+
+  auto pointer_type = object->delta->prev.Get().type;
+  if (pointer_type == PreviousPtr::Type::VERTEX) {
+    switch (delta->action) {
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT:
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+        transaction->has_vertex_modifying_deltas = true;
+        break;
+      case Delta::Action::ADD_OUT_EDGE:
+        transaction->has_edge_deleting_deltas = true;
+        break;
+      case Delta::Action::REMOVE_OUT_EDGE:
+        transaction->has_edge_creating_deltas = true;
+        break;
+      case Delta::Action::RECREATE_OBJECT:
+        transaction->has_vertex_deleting_deltas = true;
+      default:
+        break;
+    }
+  } else if (pointer_type == PreviousPtr::Type::EDGE) {
+    switch (delta->action) {
+      case Delta::Action::SET_PROPERTY:
+        transaction->has_edge_modifying_deltas = true;
+      default:
+        break;
+    }
+  }
 }
 
 }  // namespace memgraph::storage

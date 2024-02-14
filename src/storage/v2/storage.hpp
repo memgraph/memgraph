@@ -178,7 +178,7 @@ class Storage {
         VertexAccessor *vertex);
 
     virtual Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
-        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach);
+        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach, bool fast = false);
 
     virtual uint64_t ApproximateVertexCount() const = 0;
 
@@ -289,6 +289,8 @@ class Storage {
     bool is_transaction_active_;
 
     // Detach delete private methods
+    Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DeleteVerticesFast(
+        const std::vector<VertexAccessor *> &vertices);
     Result<std::optional<std::unordered_set<Vertex *>>> PrepareDeletableNodes(
         const std::vector<VertexAccessor *> &vertices);
     EdgeInfoForDeletion PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,

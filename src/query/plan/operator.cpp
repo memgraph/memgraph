@@ -2790,7 +2790,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   auto &dba = *context.db_accessor;
-  auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_);
+  auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_, true);
   if (res.HasError()) {
     switch (res.GetError()) {
       case storage::Error::SERIALIZATION_ERROR:
