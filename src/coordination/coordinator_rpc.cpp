@@ -68,6 +68,18 @@ void UnregisterReplicaRes::Load(UnregisterReplicaRes *self, memgraph::slk::Reade
   memgraph::slk::Load(self, reader);
 }
 
+void EnableWritingOnMainRes::Save(EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void EnableWritingOnMainRes::Load(EnableWritingOnMainRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void EnableWritingOnMainReq::Save(EnableWritingOnMainReq const &self, memgraph::slk::Builder *builder) {}
+
+void EnableWritingOnMainReq::Load(EnableWritingOnMainReq *self, memgraph::slk::Reader *reader) {}
+
 }  // namespace coordination
 
 constexpr utils::TypeInfo coordination::PromoteReplicaToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ,
@@ -88,6 +100,12 @@ constexpr utils::TypeInfo coordination::UnregisterReplicaReq::kType{utils::TypeI
 
 constexpr utils::TypeInfo coordination::UnregisterReplicaRes::kType{utils::TypeId::COORD_UNREGISTER_REPLICA_RES,
                                                                     "UnregisterReplicaRes", nullptr};
+
+constexpr utils::TypeInfo coordination::EnableWritingOnMainReq::kType{utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_REQ,
+                                                                      "CoordEnableWritingOnMainReq", nullptr};
+
+constexpr utils::TypeInfo coordination::EnableWritingOnMainRes::kType{utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_RES,
+                                                                      "CoordEnableWritingOnMainRes", nullptr};
 
 namespace slk {
 
@@ -138,6 +156,14 @@ void Save(memgraph::coordination::UnregisterReplicaRes const &self, memgraph::sl
 }
 
 void Load(memgraph::coordination::UnregisterReplicaRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->success, reader);
+}
+
+void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.success, builder);
+}
+
+void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
 }
 

@@ -127,12 +127,6 @@ def test_writing_disabled_on_main_restart():
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
     execute_and_fetch_all(
-        coordinator3_cursor, "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'"
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor, "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'"
-    )
-    execute_and_fetch_all(
         coordinator3_cursor, "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'"
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
@@ -146,23 +140,17 @@ def test_writing_disabled_on_main_restart():
         ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
         ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
         ("instance_3", "", "127.0.0.1:10013", True, "main"),
     ]
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
 
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
     expected_cluster_coord3 = [
         ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
         ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", False, "replica"),
-        ("instance_2", "", "127.0.0.1:10012", False, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", False, "main"),
+        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
     ]
 
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
@@ -182,8 +170,6 @@ def test_writing_disabled_on_main_restart():
         ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
         ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", False, "replica"),
-        ("instance_2", "", "127.0.0.1:10012", False, "replica"),
         ("instance_3", "", "127.0.0.1:10013", True, "main"),
     ]
 

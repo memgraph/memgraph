@@ -65,6 +65,8 @@ class ReplicationInstance {
   // TODO: (andi) Inconsistent API
   auto GetClient() -> CoordinatorClient &;
 
+  auto EnableWritingOnMain() -> bool;
+
   auto SetNewMainUUID(utils::UUID const &main_uuid) -> void;
   auto ResetMainUUID() -> void;
   auto GetMainUUID() const -> const std::optional<utils::UUID> &;

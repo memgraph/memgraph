@@ -99,6 +99,14 @@ struct ReplicationState {
     return false;
   }
 
+  auto EnableWritingOnMain() -> bool {
+    if (auto *main = std::get_if<RoleMainData>(&replication_data_)) {
+      main->writing_enabled_ = true;
+      return true;
+    }
+    return false;
+  }
+
   bool HasDurability() const { return nullptr != durability_; }
 
   bool TryPersistRoleMain(std::string new_epoch, utils::UUID main_uuid);

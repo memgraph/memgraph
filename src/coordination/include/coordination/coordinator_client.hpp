@@ -54,6 +54,8 @@ class CoordinatorClient {
 
   auto SendUnregisterReplicaRpc(std::string const &instance_name) const -> bool;
 
+  auto SendEnableWritingOnMainRpc() const -> bool;
+
   auto ReplicationClientInfo() const -> ReplClientInfo;
 
   auto SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCallback fail_cb) -> void;

@@ -88,6 +88,11 @@ CoordinatorInstance::CoordinatorInstance()
 
     auto const curr_main_uuid = self->GetMainUUID();
     if (curr_main_uuid == repl_instance_uuid.value()) {
+      if (!repl_instance.EnableWritingOnMain()) {
+        spdlog::error("Failed to enable writing on main instance {}", repl_instance_name);
+        return;
+      }
+
       repl_instance.OnSuccessPing();
       return;
     }

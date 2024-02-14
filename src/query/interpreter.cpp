@@ -4408,7 +4408,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw QueryException("Write query forbidden on the replica!");
       }
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_server_port && interpreter_context_->repl_state->IsMainWriteable()) {
+      if (FLAGS_coordinator_server_port && !interpreter_context_->repl_state->IsMainWriteable()) {
         query_execution = nullptr;
         throw QueryException(
             "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.");
