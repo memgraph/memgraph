@@ -34,9 +34,8 @@ auto ReplicationInstance::OnSuccessPing() -> void {
 }
 
 auto ReplicationInstance::OnFailPing() -> bool {
-  is_alive_ =
-      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_response_time_).count() <
-      CoordinatorClusterConfig::alive_response_time_difference_sec_;
+  auto elapsed_time = std::chrono::system_clock::now() - last_response_time_;
+  is_alive_ = elapsed_time < client_.InstanceDownTimeoutSec();
   return is_alive_;
 }
 
@@ -86,9 +85,10 @@ auto ReplicationInstance::ReplicationClientInfo() const -> CoordinatorClientConf
 }
 
 auto ReplicationInstance::GetClient() -> CoordinatorClient & { return client_; }
+
 auto ReplicationInstance::SetNewMainUUID(utils::UUID const &main_uuid) -> void { main_uuid_ = main_uuid; }
 auto ReplicationInstance::ResetMainUUID() -> void { main_uuid_ = std::nullopt; }
-auto ReplicationInstance::GetMainUUID() -> const std::optional<utils::UUID> & { return main_uuid_; }
+auto ReplicationInstance::GetMainUUID() const -> std::optional<utils::UUID> const & { return main_uuid_; }
 
 auto ReplicationInstance::EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool {
   if (!main_uuid_ || *main_uuid_ != curr_main_uuid) {

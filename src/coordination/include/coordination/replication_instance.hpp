@@ -14,7 +14,6 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_client.hpp"
-#include "coordination/coordinator_cluster_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "replication_coordination_glue/role.hpp"
 
@@ -68,7 +67,7 @@ class ReplicationInstance {
 
   auto SetNewMainUUID(utils::UUID const &main_uuid) -> void;
   auto ResetMainUUID() -> void;
-  auto GetMainUUID() -> const std::optional<utils::UUID> &;
+  auto GetMainUUID() const -> const std::optional<utils::UUID> &;
 
  private:
   CoordinatorClient client_;
