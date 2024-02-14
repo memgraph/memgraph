@@ -15,6 +15,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_config.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 
@@ -161,6 +162,35 @@ struct GetInstanceUUIDRes {
 
 using GetInstanceUUIDRpc = rpc::RequestResponse<GetInstanceUUIDReq, GetInstanceUUIDRes>;
 
+struct GetInstanceTimestampsReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(GetInstanceTimestampsReq *self, memgraph::slk::Reader *reader);
+  static void Save(const GetInstanceTimestampsReq &self, memgraph::slk::Builder *builder);
+
+  GetInstanceTimestampsReq() = default;
+
+  bool success;
+};
+
+struct GetInstanceTimestampsRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(GetInstanceTimestampsRes *self, memgraph::slk::Reader *reader);
+  static void Save(const GetInstanceTimestampsRes &self, memgraph::slk::Builder *builder);
+
+  explicit GetInstanceTimestampsRes(
+      const std::vector<replication_coordination_glue::ReplicationTimestampResult> &replica_timestamps)
+      : replica_timestamps(replica_timestamps) {}
+  GetInstanceTimestampsRes() = default;
+
+  std::vector<replication_coordination_glue::ReplicationTimestampResult> replica_timestamps;
+};
+
+using GetInstanceTimestampsRpc = rpc::RequestResponse<GetInstanceTimestampsReq, GetInstanceTimestampsRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -191,6 +221,12 @@ void Load(memgraph::coordination::UnregisterReplicaReq *self, memgraph::slk::Rea
 
 void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
+
+// GetInstanceTimestampsRpc
+void Save(const memgraph::coordination::GetInstanceTimestampsReq &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::GetInstanceTimestampsReq *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::GetInstanceTimestampsRes &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::GetInstanceTimestampsRes *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

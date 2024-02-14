@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_config.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "rpc/client.hpp"
 #include "rpc_errors.hpp"
 #include "utils/result.hpp"
@@ -63,6 +64,10 @@ class CoordinatorClient {
   auto ReplicationClientInfo() const -> ReplClientInfo;
 
   auto SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCallback fail_cb) -> void;
+
+  auto SendGetInstanceTimestampsRpc() const
+      -> utils::BasicResult<GetInstanceUUIDError,
+                            std::vector<replication_coordination_glue::ReplicationTimestampResult>>;
 
   auto RpcClient() -> rpc::Client & { return rpc_client_; }
 

@@ -167,6 +167,20 @@ auto CoordinatorInstance::TryFailover() -> void {
   }
 
   // TODO: Smarter choice
+  {
+    // for each DB we get one ReplicationTimestampResult, that is why we have vector here
+    using ReplicaTimestampsRes = std::vector<replication_coordination_glue::ReplicationTimestampResult>;
+    std::unordered_map<std::string, ReplicaTimestampsRes> instance_replica_timestamps_res;
+    std::for_each(alive_replicas.begin(), alive_replicas.end(),
+                  [&instance_replica_timestamps_res](ReplicationInstance &replica) {
+                    auto res = replica.GetClient().SendGetInstanceTimestampsRpc();
+                    if (res.HasError()) {
+                      return;
+                    }
+
+                    instance_replica_timestamps_res.emplace(replica.InstanceName(), std::move(res.GetValue()));
+                  });
+  }
   auto new_main = ranges::begin(alive_replicas);
 
   new_main->PauseFrequentCheck();

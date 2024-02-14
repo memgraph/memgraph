@@ -57,6 +57,20 @@ void CoordinatorHandlers::Register(memgraph::coordination::CoordinatorServer &se
         spdlog::info("Received GetInstanceUUIDRpc on coordinator server");
         CoordinatorHandlers::GetInstanceUUIDHandler(replication_handler, req_reader, res_builder);
       });
+
+  server.Register<coordination::GetInstanceTimestampsRpc>(
+      [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+        spdlog::info("Received GetInstanceTimestampsRpc on coordinator server");
+        CoordinatorHandlers::GetInstanceTimestampsHandler(replication_handler, req_reader, res_builder);
+      });
+}
+
+void CoordinatorHandlers::GetInstanceTimestampsHandler(replication::ReplicationHandler &replication_handler,
+                                                       slk::Reader *req_reader, slk::Builder *res_builder) {
+  coordination::GetInstanceTimestampsReq req;
+  slk::Load(&req, req_reader);
+
+  slk::Save(coordination::GetInstanceTimestampsRes{replication_handler.GetTimestampsForEachDb()}, res_builder);
 }
 
 void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,

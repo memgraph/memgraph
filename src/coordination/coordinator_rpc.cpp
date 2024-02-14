@@ -97,6 +97,23 @@ void GetInstanceUUIDRes::Load(GetInstanceUUIDRes *self, memgraph::slk::Reader *r
   memgraph::slk::Load(self, reader);
 }
 
+// GetInstanceUUID
+void GetInstanceTimestampsReq::Save(const GetInstanceTimestampsReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void GetInstanceTimestampsReq::Load(GetInstanceTimestampsReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void GetInstanceTimestampsRes::Save(const GetInstanceTimestampsRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void GetInstanceTimestampsRes::Load(GetInstanceTimestampsRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 }  // namespace coordination
 
 constexpr utils::TypeInfo coordination::PromoteReplicaToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ,
@@ -129,6 +146,12 @@ constexpr utils::TypeInfo coordination::GetInstanceUUIDReq::kType{utils::TypeId:
 
 constexpr utils::TypeInfo coordination::GetInstanceUUIDRes::kType{utils::TypeId::COORD_GET_UUID_RES, "CoordGetUUIDRes",
                                                                   nullptr};
+
+constexpr utils::TypeInfo coordination::GetInstanceTimestampsReq::kType{
+    utils::TypeId::COORD_GET_INSTANCE_TIMESTAMPS_REQ, "GetInstanceTimestampsReq", nullptr};
+
+constexpr utils::TypeInfo coordination::GetInstanceTimestampsRes::kType{
+    utils::TypeId::COORD_GET_INSTANCE_TIMESTAMPS_RES, "GetInstanceTimestampsRes", nullptr};
 
 namespace slk {
 
@@ -211,6 +234,24 @@ void Save(const memgraph::coordination::GetInstanceUUIDRes &self, memgraph::slk:
 
 void Load(memgraph::coordination::GetInstanceUUIDRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->uuid, reader);
+}
+
+// GetInstanceTimestampsReq
+
+void Save(const memgraph::coordination::GetInstanceTimestampsReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
+  /* nothing to serialize*/
+}
+
+void Load(memgraph::coordination::GetInstanceTimestampsReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
+  /* nothing to serialize*/
+}
+
+void Save(const memgraph::coordination::GetInstanceTimestampsRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.replica_timestamps, builder);
+}
+
+void Load(memgraph::coordination::GetInstanceTimestampsRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->replica_timestamps, reader);
 }
 
 }  // namespace slk
