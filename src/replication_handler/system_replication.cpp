@@ -15,6 +15,7 @@
 
 #include "auth/replication_handlers.hpp"
 #include "dbms/replication_handlers.hpp"
+#include "flags/experimental.hpp"
 #include "license/license.hpp"
 #include "replication_handler/system_rpc.hpp"
 
@@ -56,9 +57,23 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   memgraph::replication::SystemRecoveryReq req;
   memgraph::slk::Load(&req, req_reader);
 
+  using enum memgraph::flags::Experiments;
+  auto experimental_system_replication = flags::AreExperimentsEnabled(SYSTEM_REPLICATION);
+
+  // validate
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, SystemRecoveryReq::kType.name);
     return;
+  }
+  if (!experimental_system_replication) {
+    if (req.database_configs.size() != 1 && req.database_configs[0].name != dbms::kDefaultDB) {
+      // a partial system recovery should be only be updating the default database uuid
+      return;  // Failure sent on exit
+    }
+    if (!req.users.empty() || !req.roles.empty()) {
+      // a partial system recovery should not be updating any users or roles
+      return;  // Failure sent on exit
+    }
   }
 
   /*
@@ -69,7 +84,9 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   /*
    * AUTH
    */
-  if (!auth::SystemRecoveryHandler(auth, req.auth_config, req.users, req.roles)) return;  // Failure sent on exit
+  if (experimental_system_replication) {
+    if (!auth::SystemRecoveryHandler(auth, req.auth_config, req.users, req.roles)) return;  // Failure sent on exit
+  }
 
   /*
    * SUCCESSFUL RECOVERY
@@ -79,35 +96,44 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   res = SystemRecoveryRes(SystemRecoveryRes::Result::SUCCESS);
 }
 
-void Register(replication::RoleReplicaData const &data, dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth) {
+void Register(replication::RoleReplicaData const &data, system::System &system, dbms::DbmsHandler &dbms_handler,
+              auth::SynchedAuth &auth) {
   // NOTE: Register even without license as the user could add a license at run-time
-  // TODO: fix Register when system is removed from DbmsHandler
 
-  auto system_state_access = dbms_handler.system_->CreateSystemStateAccess();
+  auto system_state_access = system.CreateSystemStateAccess();
+
+  using enum memgraph::flags::Experiments;
+  auto experimental_system_replication = flags::AreExperimentsEnabled(SYSTEM_REPLICATION);
 
   // System
-  // TODO: remove, as this is not used
-  data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
-      [&data, system_state_access](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received SystemHeartbeatRpc");
-        SystemHeartbeatHandler(system_state_access.LastCommitedTS(), data.uuid_, req_reader, res_builder);
-      });
+  if (experimental_system_replication) {
+    data.server->rpc_server_.Register<replication::SystemHeartbeatRpc>(
+        [&data, system_state_access](auto *req_reader, auto *res_builder) {
+          spdlog::debug("Received SystemHeartbeatRpc");
+          SystemHeartbeatHandler(system_state_access.LastCommitedTS(), data.uuid_, req_reader, res_builder);
+        });
+  }
+  // Needed even with experimental_system_replication=false becasue
+  // need to tell REPLICA the uuid to use for "memgraph" default database
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
       [&data, system_state_access, &dbms_handler, &auth](auto *req_reader, auto *res_builder) mutable {
         spdlog::debug("Received SystemRecoveryRpc");
         SystemRecoveryHandler(system_state_access, data.uuid_, dbms_handler, auth, req_reader, res_builder);
       });
 
-  // DBMS
-  dbms::Register(data, system_state_access, dbms_handler);
+  if (experimental_system_replication) {
+    // DBMS
+    dbms::Register(data, system_state_access, dbms_handler);
 
-  // Auth
-  auth::Register(data, system_state_access, auth);
+    // Auth
+    auth::Register(data, system_state_access, auth);
+  }
 }
 #endif
 
 #ifdef MG_ENTERPRISE
-bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data, auth::SynchedAuth &auth) {
+bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data, auth::SynchedAuth &auth,
+                    system::System &system) {
 #else
 bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data) {
 #endif
@@ -115,7 +141,7 @@ bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaDat
   dbms::InMemoryReplicationHandlers::Register(&dbms_handler, data);
 #ifdef MG_ENTERPRISE
   // Register system handlers
-  Register(data, dbms_handler, auth);
+  Register(data, system, dbms_handler, auth);
 #endif
   // Start server
   if (!data.server->Start()) {

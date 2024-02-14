@@ -8,16 +8,25 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
 #pragma once
 
-#include "flags/audit.hpp"
-#include "flags/bolt.hpp"
-#include "flags/experimental.hpp"
-#include "flags/general.hpp"
-#include "flags/isolation_level.hpp"
-#include "flags/log_level.hpp"
-#include "flags/memory_limit.hpp"
-#include "flags/query.hpp"
-#include "flags/replication.hpp"
-#include "flags/run_time_configurable.hpp"
-#include "flags/storage_mode.hpp"
+#include "gflags/gflags.h"
+
+// Short help flag.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(experimental_enabled);
+
+namespace memgraph::flags {
+
+// Each bit is an enabled experiment
+// old experiments can be reused once code cleanup has happened
+enum class Experiments : uint8_t {
+  SYSTEM_REPLICATION = 1 << 0,
+};
+
+bool AreExperimentsEnabled(Experiments experiments);
+
+void InitializeExperimental();
+
+}  // namespace memgraph::flags

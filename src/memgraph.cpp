@@ -134,6 +134,7 @@ int main(int argc, char **argv) {
   }
 
   memgraph::flags::InitializeLogger();
+  memgraph::flags::InitializeExperimental();
 
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
@@ -396,7 +397,7 @@ int main(int argc, char **argv) {
   memgraph::coordination::CoordinatorState coordinator_state;
 #endif
 
-  memgraph::dbms::DbmsHandler dbms_handler(db_config, system, repl_state
+  memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
 #ifdef MG_ENTERPRISE
                                            ,
                                            auth_, FLAGS_data_recovery_on_startup
@@ -409,7 +410,7 @@ int main(int argc, char **argv) {
   auto replication_handler = memgraph::replication::ReplicationHandler{repl_state, dbms_handler
 #ifdef MG_ENTERPRISE
                                                                        ,
-                                                                       &system, auth_
+                                                                       system, auth_
 #endif
   };
 

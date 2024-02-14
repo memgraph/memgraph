@@ -16,6 +16,7 @@
 
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
+#include "flags/experimental.hpp"
 #include "spdlog/spdlog.h"
 #include "system/include/system/system.hpp"
 #include "utils/exceptions.hpp"
@@ -158,9 +159,9 @@ struct Durability {
   }
 };
 
-DbmsHandler::DbmsHandler(storage::Config config, memgraph::system::System &system,
-                         replication::ReplicationState &repl_state, auth::SynchedAuth &auth, bool recovery_on_startup)
-    : default_config_{std::move(config)}, auth_{auth}, repl_state_{repl_state}, system_{&system} {
+DbmsHandler::DbmsHandler(storage::Config config, replication::ReplicationState &repl_state, auth::SynchedAuth &auth,
+                         bool recovery_on_startup)
+    : default_config_{std::move(config)}, auth_{auth}, repl_state_{repl_state} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
 
@@ -419,7 +420,10 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
 #endif
 
 void DbmsHandler::RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data) {
-  if (allow_mt_repl || db_acc->name() == dbms::kDefaultDB) {
+  using enum memgraph::flags::Experiments;
+  auto const is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
+  auto experimental_system_replication = flags::AreExperimentsEnabled(SYSTEM_REPLICATION);
+  if ((is_enterprise && experimental_system_replication) || db_acc->name() == dbms::kDefaultDB) {
     // Handle global replication state
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
     // RECOVER REPLICA CONNECTIONS

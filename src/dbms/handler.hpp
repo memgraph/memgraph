@@ -144,6 +144,8 @@ class Handler {
   auto cbegin() const { return items_.cbegin(); }
   auto cend() const { return items_.cend(); }
 
+  auto size() const { return items_.size(); }
+
   struct string_hash {
     using is_transparent = void;
     [[nodiscard]] size_t operator()(const char *s) const { return std::hash<std::string_view>{}(s); }
