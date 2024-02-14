@@ -138,7 +138,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   auto GetReplState() -> memgraph::replication::ReplicationState &;
 
  private:
-  template <bool HandleFailure>
+  template <bool AllowReplicaToDivergeFromMain>
   auto RegisterReplica_(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
       -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
     MG_ASSERT(repl_state_.IsMain(), "Only main instance can register a replica!");
@@ -200,13 +200,15 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
           [storage, &instance_client_ptr, db_acc = std::move(db_acc),
            main_uuid](auto &storage_clients) mutable {  // NOLINT
             auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
-            // All good, start replica client
             client->Start(storage, std::move(db_acc));
-            // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
-            // MAYBE_BEHIND isn't a statement of the current state, this is the default value
-            // Failed to start due an error like branching of MAIN and REPLICA
-            const bool success = client->State() != storage::replication::ReplicaState::MAYBE_BEHIND;
-            if (HandleFailure || success) {
+            bool const success = std::invoke([state = client->State()]() {
+              if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
+                return AllowReplicaToDivergeFromMain;
+              }
+              return state != storage::replication::ReplicaState::MAYBE_BEHIND;
+            });
+
+            if (success) {
               storage_clients.push_back(std::move(client));
             }
             return success;
@@ -214,7 +216,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
     });
 
     // NOTE Currently if any databases fails, we revert back
-    if (!HandleFailure && !all_clients_good) {
+    if (!all_clients_good) {
       spdlog::error("Failed to register all databases on the REPLICA \"{}\"", config.name);
       UnregisterReplica(config.name);
       return memgraph::query::RegisterReplicaError::CONNECTION_FAILED;
