@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,11 +12,31 @@
 #pragma once
 
 #include <atomic>
+#include <optional>
+#include <string>
 #include <type_traits>
 
 #include "utils/exceptions.hpp"
 
 namespace memgraph::utils {
+
+struct MemoryTrackerStatus {
+  struct data {
+    int64_t size;
+    int64_t will_be;
+    int64_t hard_limit;
+  };
+
+  // DEVNOTE: Do not call from within allocator, will cause another allocation
+  auto msg() -> std::optional<std::string>;
+
+  void set(data d) { data_ = d; }
+
+ private:
+  std::optional<data> data_;
+};
+
+auto MemoryErrorStatus() -> MemoryTrackerStatus &;
 
 class OutOfMemoryException : public utils::BasicException {
  public:
@@ -47,7 +67,7 @@ class MemoryTracker final {
 
   MemoryTracker &operator=(MemoryTracker &&) = delete;
 
-  void Alloc(int64_t size);
+  bool Alloc(int64_t size);
   void Free(int64_t size);
   void DoCheck();
 

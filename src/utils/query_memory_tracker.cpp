@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,18 +17,20 @@
 
 namespace memgraph::utils {
 
-void QueryMemoryTracker::TrackAlloc(size_t size) {
+bool QueryMemoryTracker::TrackAlloc(size_t size) {
   if (query_tracker_.has_value()) [[likely]] {
-    query_tracker_->Alloc(static_cast<int64_t>(size));
+    bool ok = query_tracker_->Alloc(static_cast<int64_t>(size));
+    if (!ok) return false;
   }
 
   auto *proc_tracker = GetActiveProc();
 
   if (proc_tracker == nullptr) {
-    return;
+    return true;
   }
 
-  proc_tracker->Alloc(static_cast<int64_t>(size));
+  bool ok = proc_tracker->Alloc(static_cast<int64_t>(size));
+  return ok;
 }
 void QueryMemoryTracker::TrackFree(size_t size) {
   if (query_tracker_.has_value()) [[likely]] {
