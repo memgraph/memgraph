@@ -39,6 +39,12 @@ void CoordinatorHandlers::Register(memgraph::coordination::CoordinatorServer &se
         spdlog::info("Received SwapMainUUIDRPC on coordinator server");
         CoordinatorHandlers::SwapMainUUIDHandler(replication_handler, req_reader, res_builder);
       });
+
+  server.Register<coordination::UnregisterReplicaRpc>(
+      [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+        spdlog::info("Received UnregisterReplicaRpc on coordinator server");
+        CoordinatorHandlers::UnregisterReplicaHandler(replication_handler, req_reader, res_builder);
+      });
 }
 
 void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,
@@ -144,6 +150,38 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
   }
   spdlog::error(fmt::format("FICO : Promote replica to main was success {}", std::string(req.main_uuid_)));
   slk::Save(coordination::PromoteReplicaToMainRes{true}, res_builder);
+}
+
+void CoordinatorHandlers::UnregisterReplicaHandler(replication::ReplicationHandler &replication_handler,
+                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
+  if (!replication_handler.IsMain()) {
+    spdlog::error("Unregistering replica must be performed on main.");
+    slk::Save(coordination::UnregisterReplicaRes{false}, res_builder);
+    return;
+  }
+
+  coordination::UnregisterReplicaReq req;
+  slk::Load(&req, req_reader);
+
+  auto res = replication_handler.UnregisterReplica(req.instance_name);
+  switch (res) {
+    using enum memgraph::query::UnregisterReplicaResult;
+    case SUCCESS:
+      slk::Save(coordination::UnregisterReplicaRes{true}, res_builder);
+      break;
+    case NOT_MAIN:
+      spdlog::error("Unregistering replica must be performed on main.");
+      slk::Save(coordination::UnregisterReplicaRes{false}, res_builder);
+      break;
+    case CAN_NOT_UNREGISTER:
+      spdlog::error("Could not unregister replica.");
+      slk::Save(coordination::UnregisterReplicaRes{false}, res_builder);
+      break;
+    case COULD_NOT_BE_PERSISTED:
+      spdlog::error("Could not persist replica unregistration.");
+      slk::Save(coordination::UnregisterReplicaRes{false}, res_builder);
+      break;
+  }
 }
 
 }  // namespace memgraph::dbms

@@ -41,16 +41,21 @@ CoordinatorClient::CoordinatorClient(CoordinatorInstance *coord_instance, Coordi
 auto CoordinatorClient::InstanceName() const -> std::string { return config_.instance_name; }
 auto CoordinatorClient::SocketAddress() const -> std::string { return rpc_client_.Endpoint().SocketAddress(); }
 
+auto CoordinatorClient::InstanceDownTimeoutSec() const -> std::chrono::seconds {
+  return config_.instance_down_timeout_sec;
+}
+
 void CoordinatorClient::StartFrequentCheck() {
   if (instance_checker_.IsRunning()) {
     return;
   }
 
-  MG_ASSERT(config_.health_check_frequency_sec > std::chrono::seconds(0),
+  MG_ASSERT(config_.instance_health_check_frequency_sec > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
   instance_checker_.Run(
-      config_.instance_name, config_.health_check_frequency_sec, [this, instance_name = config_.instance_name] {
+      config_.instance_name, config_.instance_health_check_frequency_sec,
+      [this, instance_name = config_.instance_name] {
         try {
           spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
                         rpc_client_.Endpoint().SocketAddress());
@@ -117,6 +122,20 @@ auto CoordinatorClient::SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bo
     return true;
   } catch (const rpc::RpcFailedException &) {
     spdlog::error("RPC error occurred while sending swapping uuid RPC!");
+  }
+  return false;
+}
+
+auto CoordinatorClient::SendUnregisterReplicaRpc(std::string const &instance_name) const -> bool {
+  try {
+    auto stream{rpc_client_.Stream<UnregisterReplicaRpc>(instance_name)};
+    if (!stream.AwaitResponse().success) {
+      spdlog::error("Failed to receive successful RPC response for unregistering replica!");
+      return false;
+    }
+    return true;
+  } catch (rpc::RpcFailedException const &) {
+    spdlog::error("Failed to unregister replica!");
   }
   return false;
 }

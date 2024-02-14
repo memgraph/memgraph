@@ -69,6 +69,8 @@ startup_config_dict = {
     "coordinator_server_port": ("0", "0", "Port on which coordinator servers will be started."),
     "raft_server_port": ("0", "0", "Port on which raft servers will be started."),
     "raft_server_id": ("0", "0", "Unique ID of the raft server."),
+    "instance_down_timeout_sec": ("5", "5", "Time duration after which an instance is considered down."),
+    "instance_health_check_frequency_sec": ("1", "1", "The time duration between two health checks/pings."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_recovery_on_startup": (
         "false",
