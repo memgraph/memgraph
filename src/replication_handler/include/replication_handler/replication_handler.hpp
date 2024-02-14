@@ -137,7 +137,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       }
       repl_state_.SetReplicationRoleReplica(config, main_uuid);
 #ifdef MG_ENTERPRISE
-      return StartRpcServer(dbms_handler_, replica_data, auth_);
+      return StartRpcServer(dbms_handler_, replica_data, auth_, system_);
 #else
       return StartRpcServer(dbms_handler_, replica_data);
 #endif
@@ -157,18 +157,19 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
     repl_state_.SetReplicationRoleReplica(config, main_uuid);
 
     // Start
-    const auto success = std::visit(memgraph::utils::Overloaded{[](memgraph::replication::RoleMainData &) {
-                                                                  // ASSERT
-                                                                  return false;
-                                                                },
-                                                                [this](memgraph::replication::RoleReplicaData &data) {
+    const auto success =
+        std::visit(memgraph::utils::Overloaded{[](memgraph::replication::RoleMainData &) {
+                                                 // ASSERT
+                                                 return false;
+                                               },
+                                               [this](memgraph::replication::RoleReplicaData &data) {
 #ifdef MG_ENTERPRISE
-                                                                  return StartRpcServer(dbms_handler_, data, auth_);
+                                                 return StartRpcServer(dbms_handler_, data, auth_, system_);
 #else
-                                                                  return StartRpcServer(dbms_handler_, data);
+                                                 return StartRpcServer(dbms_handler_, data);
 #endif
-                                                                }},
-                                    repl_state_.ReplicationData());
+                                               }},
+                   repl_state_.ReplicationData());
     // TODO Handle error (restore to main?)
     return success;
   }

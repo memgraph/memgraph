@@ -42,7 +42,7 @@ auto ReplicationInstance::OnFailPing() -> bool {
 
 auto ReplicationInstance::IsReadyForUUIDPing() -> bool {
   return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_check_of_uuid_)
-             .count() > CoordinatorClusterConfig::replica_uuid_last_check_time_difference_sec_;
+      .count();
 }
 
 auto ReplicationInstance::InstanceName() const -> std::string { return client_.InstanceName(); }
