@@ -10,7 +10,9 @@ on:
         options:
           - Release
           - RelWithDebInfo
-
+  push:
+    branches:
+      - "release/**"
   schedule:
     - cron: "0 22 * * *"
 
