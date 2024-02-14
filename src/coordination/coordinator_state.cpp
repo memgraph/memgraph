@@ -56,6 +56,20 @@ auto CoordinatorState::RegisterReplicationInstance(CoordinatorClientConfig confi
       data_);
 }
 
+auto CoordinatorState::UnregisterReplicationInstance(std::string instance_name) -> UnregisterInstanceCoordinatorStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot unregister instance since variant holds wrong alternative");
+
+  return std::visit(
+      memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+                                    return UnregisterInstanceCoordinatorStatus::NOT_COORDINATOR;
+                                  },
+                                  [&instance_name](CoordinatorInstance &coordinator_instance) {
+                                    return coordinator_instance.UnregisterReplicationInstance(instance_name);
+                                  }},
+      data_);
+}
+
 auto CoordinatorState::SetReplicationInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");

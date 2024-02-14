@@ -461,11 +461,32 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
       : coordinator_handler_(coordinator_state) {}
 
-  /// @throw QueryRuntimeException if an error ocurred.
-  void RegisterReplicationInstance(const std::string &coordinator_socket_address,
-                                   const std::string &replication_socket_address,
-                                   const std::chrono::seconds instance_check_frequency,
-                                   const std::string &instance_name, CoordinatorQuery::SyncMode sync_mode) override {
+  void UnregisterInstance(std::string const &instance_name) override {
+    auto status = coordinator_handler_.UnregisterReplicationInstance(instance_name);
+    switch (status) {
+      using enum memgraph::coordination::UnregisterInstanceCoordinatorStatus;
+      case NO_INSTANCE_WITH_NAME:
+        throw QueryRuntimeException("No instance with such name!");
+      case IS_MAIN:
+        throw QueryRuntimeException(
+            "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!");
+      case NOT_COORDINATOR:
+        throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
+      case NOT_LEADER:
+        throw QueryRuntimeException("Couldn't unregister replica instance since coordinator is not a leader!");
+      case RPC_FAILED:
+        throw QueryRuntimeException(
+            "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
+      case SUCCESS:
+        break;
+    }
+  }
+
+  void RegisterReplicationInstance(std::string const &coordinator_socket_address,
+                                   std::string const &replication_socket_address,
+                                   std::chrono::seconds const &instance_check_frequency,
+                                   std::chrono::seconds const &instance_down_timeout, std::string const &instance_name,
+                                   CoordinatorQuery::SyncMode sync_mode) override {
     const auto maybe_replication_ip_port =
         io::network::Endpoint::ParseSocketOrAddress(replication_socket_address, std::nullopt);
     if (!maybe_replication_ip_port) {
@@ -490,7 +511,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         coordination::CoordinatorClientConfig{.instance_name = instance_name,
                                               .ip_address = coordinator_server_ip,
                                               .port = coordinator_server_port,
-                                              .health_check_frequency_sec = instance_check_frequency,
+                                              .instance_health_check_frequency_sec = instance_check_frequency,
+                                              .instance_down_timeout_sec = instance_down_timeout,
                                               .replication_client_info = repl_config,
                                               .ssl = std::nullopt};
 
@@ -1158,12 +1180,15 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       auto coordinator_socket_address_tv = coordinator_query->coordinator_socket_address_->Accept(evaluator);
       auto replication_socket_address_tv = coordinator_query->replication_socket_address_->Accept(evaluator);
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coordinator_socket_address_tv,
-                     replication_socket_address_tv, main_check_frequency = config.replication_replica_check_frequency,
+                     replication_socket_address_tv,
+                     instance_health_check_frequency_sec = config.instance_health_check_frequency_sec,
                      instance_name = coordinator_query->instance_name_,
+                     instance_down_timeout_sec = config.instance_down_timeout_sec,
                      sync_mode = coordinator_query->sync_mode_]() mutable {
         handler.RegisterReplicationInstance(std::string(coordinator_socket_address_tv.ValueString()),
                                             std::string(replication_socket_address_tv.ValueString()),
-                                            main_check_frequency, instance_name, sync_mode);
+                                            instance_health_check_frequency_sec, instance_down_timeout_sec,
+                                            instance_name, sync_mode);
         return std::vector<std::vector<TypedValue>>();
       };
 
@@ -1173,6 +1198,30 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                       coordinator_socket_address_tv.ValueString(), coordinator_query->instance_name_));
       return callback;
     }
+    case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryException("Trying to use enterprise feature without a valid license.");
+      }
+
+      if constexpr (!coordination::allow_ha) {
+        throw QueryRuntimeException(
+            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
+            "be able to use this functionality.");
+      }
+      if (!FLAGS_raft_server_id) {
+        throw QueryRuntimeException("Only coordinator can register coordinator server!");
+      }
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
+                     instance_name = coordinator_query->instance_name_]() mutable {
+        handler.UnregisterInstance(instance_name);
+        return std::vector<std::vector<TypedValue>>();
+      };
+      notifications->emplace_back(
+          SeverityLevel::INFO, NotificationCode::UNREGISTER_INSTANCE,
+          fmt::format("Coordinator has unregistered instance {}.", coordinator_query->instance_name_));
+
+      return callback;
+
     case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN: {
       if (!license::global_license_checker.IsEnterpriseValidFast()) {
         throw QueryException("Trying to use enterprise feature without a valid license.");

@@ -122,11 +122,6 @@ CoordinatorInstance::CoordinatorInstance()
   };
 }
 
-auto CoordinatorInstance::ClusterHasAliveMain_() const -> bool {
-  auto const alive_main = [](ReplicationInstance const &instance) { return instance.IsMain() && instance.IsAlive(); };
-  return std::ranges::any_of(repl_instances_, alive_main);
-}
-
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   auto const coord_instances = raft_state_.GetAllCoordinators();
 
@@ -306,6 +301,35 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
 
   spdlog::info("Instance {} registered", instance_name);
   return RegisterInstanceCoordinatorStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::UnregisterReplicationInstance(std::string instance_name)
+    -> UnregisterInstanceCoordinatorStatus {
+  auto lock = std::lock_guard{coord_instance_lock_};
+
+  auto const name_matches = [&instance_name](ReplicationInstance const &instance) {
+    return instance.InstanceName() == instance_name;
+  };
+
+  auto inst_to_remove = std::ranges::find_if(repl_instances_, name_matches);
+  if (inst_to_remove == repl_instances_.end()) {
+    return UnregisterInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
+  }
+
+  if (inst_to_remove->IsMain() && inst_to_remove->IsAlive()) {
+    return UnregisterInstanceCoordinatorStatus::IS_MAIN;
+  }
+
+  inst_to_remove->StopFrequentCheck();
+  auto curr_main = std::ranges::find_if(repl_instances_, &ReplicationInstance::IsMain);
+  MG_ASSERT(curr_main != repl_instances_.end(), "There must be a main instance when unregistering a replica");
+  if (!curr_main->SendUnregisterReplicaRpc(instance_name)) {
+    inst_to_remove->StartFrequentCheck();
+    return UnregisterInstanceCoordinatorStatus::RPC_FAILED;
+  }
+  std::erase_if(repl_instances_, name_matches);
+
+  return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
 
 auto CoordinatorInstance::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)

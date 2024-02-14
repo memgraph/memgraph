@@ -28,8 +28,12 @@ class CoordinatorHandler {
  public:
   explicit CoordinatorHandler(coordination::CoordinatorState &coordinator_state);
 
+  // TODO: (andi) When moving coordinator state on same instances, rename from RegisterReplicationInstance to
+  // RegisterInstance
   auto RegisterReplicationInstance(coordination::CoordinatorClientConfig config)
       -> coordination::RegisterInstanceCoordinatorStatus;
+
+  auto UnregisterReplicationInstance(std::string instance_name) -> coordination::UnregisterInstanceCoordinatorStatus;
 
   auto SetReplicationInstanceToMain(std::string instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
 
