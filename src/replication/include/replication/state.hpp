@@ -39,7 +39,8 @@ enum class RegisterReplicaError : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD_
 
 struct RoleMainData {
   RoleMainData() = default;
-  explicit RoleMainData(ReplicationEpoch e, std::optional<utils::UUID> uuid = std::nullopt) : epoch_(std::move(e)) {
+  explicit RoleMainData(ReplicationEpoch e, bool writing_enabled, std::optional<utils::UUID> uuid = std::nullopt)
+      : epoch_(std::move(e)), writing_enabled_(writing_enabled) {
     if (uuid) {
       uuid_ = *uuid;
     }
@@ -54,6 +55,7 @@ struct RoleMainData {
   ReplicationEpoch epoch_;
   std::list<ReplicationClient> registered_replicas_{};  // TODO: data race issues
   utils::UUID uuid_;
+  bool writing_enabled_{false};
 };
 
 struct RoleReplicaData {
@@ -89,6 +91,13 @@ struct ReplicationState {
   }
   bool IsMain() const { return GetRole() == replication_coordination_glue::ReplicationRole::MAIN; }
   bool IsReplica() const { return GetRole() == replication_coordination_glue::ReplicationRole::REPLICA; }
+
+  auto IsMainWriteable() const -> bool {
+    if (auto const *main = std::get_if<RoleMainData>(&replication_data_)) {
+      return main->writing_enabled_;
+    }
+    return false;
+  }
 
   bool HasDurability() const { return nullptr != durability_; }
 

@@ -4401,9 +4401,19 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     UpdateTypeCount(rw_type);
 
-    if (interpreter_context_->repl_state->IsReplica() && IsQueryWrite(rw_type)) {
-      query_execution = nullptr;
-      throw QueryException("Write query forbidden on the replica!");
+    bool const write_query = IsQueryWrite(rw_type);
+    if (write_query) {
+      if (interpreter_context_->repl_state->IsReplica()) {
+        query_execution = nullptr;
+        throw QueryException("Write query forbidden on the replica!");
+      }
+#ifdef MG_ENTERPRISE
+      if (FLAGS_coordinator_server_port && interpreter_context_->repl_state->IsMainWriteable()) {
+        query_execution = nullptr;
+        throw QueryException(
+            "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.");
+      }
+#endif
     }
 
     // Set the target db to the current db (some queries have different target from the current db)
