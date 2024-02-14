@@ -40,6 +40,33 @@ DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
                        "response from the auth module.",
                        FLAG_IN_RANGE(100, 1800000));
 
+// DEPRECATED FLAGS
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_VALIDATED_HIDDEN_bool(auth_module_create_missing_user, true,
+                             "Set to false to disable creation of missing users.", {
+                               spdlog::warn(
+                                   "auth_module_create_missing_user flag is deprecated. It not possible to create "
+                                   "users through the module anymore.");
+                               return true;
+                             });
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_VALIDATED_HIDDEN_bool(auth_module_create_missing_role, true,
+                             "Set to false to disable creation of missing roles.", {
+                               spdlog::warn(
+                                   "auth_module_create_missing_role flag is deprecated. It not possible to create "
+                                   "roles through the module anymore.");
+                               return true;
+                             });
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_VALIDATED_HIDDEN_bool(
+    auth_module_manage_roles, true, "Set to false to disable management of roles through the auth module.", {
+      spdlog::warn(
+          "auth_module_manage_roles flag is deprecated. It not possible to create roles through the module anymore.");
+      return true;
+    });
+
 namespace memgraph::auth {
 
 const Auth::Epoch Auth::kStartEpoch = 1;

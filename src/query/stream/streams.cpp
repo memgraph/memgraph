@@ -164,7 +164,7 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
   if (const auto &owner = data.at(kOwner); !owner.is_null()) {
     status.owner = owner.get<typename decltype(status.owner)::value_type>();
     if (const auto &owner_role = data.at(kOwnerRole); !owner_role.is_null()) {
-      status.owner_role = owner_role.get<typename decltype(status.owner_role)::value_type>();
+      owner_role.get_to(status.owner_role);
     } else {
       status.owner_role = {};
     }
@@ -510,9 +510,9 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
                             retry_interval = interpreter_context->config.stream_transaction_retry_interval](
                                const std::vector<typename TStream::Message> &messages) mutable {
     // Set interpreter's user to the stream owner
-    // NOTE: We generate an empty user to avoid interpreter's access control and rely only on the one inside the stream
-    // itself
-    // TODO: Fix
+    // NOTE: We generate an empty user to avoid generating interpreter's fine grained access control and rely only on
+    // the global auth_checker used in the stream itself
+    // TODO: Fix auth inconsistency
     interpreter->SetUser(interpreter_context->auth_checker->GenQueryUser(std::nullopt, std::nullopt));
 #ifdef MG_ENTERPRISE
     interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
