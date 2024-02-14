@@ -30,6 +30,7 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
 
 enum class UnregisterInstanceCoordinatorStatus : uint8_t {
   NO_INSTANCE_WITH_NAME,
+  IS_MAIN,
   NOT_COORDINATOR,
   NOT_LEADER,
   RPC_FAILED,

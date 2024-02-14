@@ -467,6 +467,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::UnregisterInstanceCoordinatorStatus;
       case NO_INSTANCE_WITH_NAME:
         throw QueryRuntimeException("No instance with such name!");
+      case IS_MAIN:
+        throw QueryRuntimeException(
+            "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER:

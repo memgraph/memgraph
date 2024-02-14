@@ -45,8 +45,6 @@ class CoordinatorInstance {
   auto SetMainUUID(utils::UUID new_uuid) -> void;
 
  private:
-  auto ClusterHasAliveMain_() const -> bool;
-
   HealthCheckCallback main_succ_cb_, main_fail_cb_, replica_succ_cb_, replica_fail_cb_;
 
   // NOTE: Must be std::list because we rely on pointer stability

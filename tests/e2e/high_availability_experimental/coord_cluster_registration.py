@@ -37,7 +37,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10011",
-            "--also-log-to-stderr",
         ],
         "log_file": "instance_1.log",
         "data_directory": f"{TEMP_DIR}/instance_1",
@@ -51,7 +50,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10012",
-            "--also-log-to-stderr",
         ],
         "log_file": "instance_2.log",
         "data_directory": f"{TEMP_DIR}/instance_2",
@@ -65,7 +63,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10013",
-            "--also-log-to-stderr",
         ],
         "log_file": "instance_3.log",
         "data_directory": f"{TEMP_DIR}/instance_3",
@@ -100,7 +97,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--log-level=TRACE",
             "--raft-server-id=3",
             "--raft-server-port=10113",
-            "--also-log-to-stderr",
         ],
         "log_file": "coordinator3.log",
         "setup_queries": [],
@@ -383,6 +379,25 @@ def test_unregister_main():
         ("instance_1", "", "127.0.0.1:10011", True, "replica"),
         ("instance_2", "", "127.0.0.1:10012", True, "replica"),
         ("instance_3", "", "127.0.0.1:10013", True, "main"),
+    ]
+
+    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+
+    try:
+        execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
+    except Exception as e:
+        assert (
+            str(e)
+            == "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!"
+        )
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+
+    expected_cluster = [
+        ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "main"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
     ]
 
     mg_sleep_and_assert(expected_cluster, check_coordinator3)
