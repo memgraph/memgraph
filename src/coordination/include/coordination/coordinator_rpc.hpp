@@ -111,6 +111,31 @@ struct UnregisterReplicaRes {
 
 using UnregisterReplicaRpc = rpc::RequestResponse<UnregisterReplicaReq, UnregisterReplicaRes>;
 
+struct EnableWritingOnMainReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(EnableWritingOnMainReq *self, memgraph::slk::Reader *reader);
+  static void Save(EnableWritingOnMainReq const &self, memgraph::slk::Builder *builder);
+
+  EnableWritingOnMainReq() = default;
+};
+
+struct EnableWritingOnMainRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
+  static void Save(EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
+
+  explicit EnableWritingOnMainRes(bool success) : success(success) {}
+  EnableWritingOnMainRes() = default;
+
+  bool success;
+};
+
+using EnableWritingOnMainRpc = rpc::RequestResponse<EnableWritingOnMainReq, EnableWritingOnMainRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -133,6 +158,9 @@ void Save(memgraph::coordination::UnregisterReplicaRes const &self, memgraph::sl
 void Load(memgraph::coordination::UnregisterReplicaRes *self, memgraph::slk::Reader *reader);
 void Save(memgraph::coordination::UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
+
+void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 
