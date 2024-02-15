@@ -1,4 +1,7 @@
 name: Stress test large
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
 
 on:
   workflow_dispatch:
@@ -10,7 +13,10 @@ on:
         options:
           - Release
           - RelWithDebInfo
-
+  push:
+    tags:
+      - "v*.*.*-rc*"
+      - "v*.*-rc*"
   schedule:
     - cron: "0 22 * * *"
 
