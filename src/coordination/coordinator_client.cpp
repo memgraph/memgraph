@@ -155,7 +155,6 @@ auto CoordinatorClient::SendGetInstanceUUIDRpc() const
     spdlog::error("RPC error occured while sending GetInstance UUID RPC");
     return GetInstanceUUIDError::RPC_EXCEPTION;
   }
-  return std::nullopt;
 }
 
 auto CoordinatorClient::SendEnableWritingOnMainRpc() const -> bool {
