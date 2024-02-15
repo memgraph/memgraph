@@ -42,8 +42,9 @@ class InfoTest : public testing::Test {
 
  protected:
   void SetUp() {
+    repl_state_.emplace(ReplicationStateRootPath(config));
 #ifdef MG_ENTERPRISE
-    dbms_handler_.emplace(config, &auth, false);
+    dbms_handler_.emplace(config, *repl_state_, auth_, false);
     auto db_acc = dbms_handler_->Get();  // Default db
     if (std::is_same_v<ConfigType, TenantConfig>) {
       constexpr std::string_view db_name = "test_db";
@@ -51,7 +52,7 @@ class InfoTest : public testing::Test {
       db_acc = dbms_handler_->Get(db_name);
     }
 #else
-    dbms_handler_.emplace(config);
+    dbms_handler_.emplace(config, *repl_state_);
     auto db_acc = dbms_handler_->Get();
 #endif
     MG_ASSERT(db_acc, "Failed to access db");
@@ -65,6 +66,7 @@ class InfoTest : public testing::Test {
   void TearDown() {
     db_acc_.reset();
     dbms_handler_.reset();
+    repl_state_.reset();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
@@ -74,10 +76,9 @@ class InfoTest : public testing::Test {
   StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
                                                             : StorageMode::IN_MEMORY_TRANSACTIONAL};
 
-  std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
-  std::optional<memgraph::dbms::DbmsHandler> dbms_handler_;
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth{
-      storage_directory, memgraph::auth::Auth::Config{}};
+#ifdef MG_ENTERPRISE
+  memgraph::auth::SynchedAuth auth_{storage_directory, memgraph::auth::Auth::Config {}};
+#endif
   memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
@@ -90,6 +91,9 @@ class InfoTest : public testing::Test {
         return config;
       }()  // iile
   };
+  std::optional<memgraph::replication::ReplicationState> repl_state_;
+  std::optional<memgraph::dbms::DbmsHandler> dbms_handler_;
+  std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
 };
 
 using TestTypes = ::testing::Types<std::pair<memgraph::storage::InMemoryStorage, DefaultConfig>,
