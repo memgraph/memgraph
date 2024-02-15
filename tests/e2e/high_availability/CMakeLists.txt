@@ -1,0 +1,14 @@
+find_package(gflags REQUIRED)
+
+copy_e2e_python_files(high_availability coordinator.py)
+copy_e2e_python_files(high_availability single_coordinator.py)
+copy_e2e_python_files(high_availability coord_cluster_registration.py)
+copy_e2e_python_files(high_availability distributed_coords.py)
+copy_e2e_python_files(high_availability manual_setting_replicas.py)
+copy_e2e_python_files(high_availability not_replicate_from_old_main.py)
+copy_e2e_python_files(high_availability common.py)
+copy_e2e_python_files(high_availability workloads.yaml)
+
+copy_e2e_python_files_from_parent_folder(high_availability ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(high_availability ".." interactive_mg_runner.py)
+copy_e2e_python_files_from_parent_folder(high_availability ".." mg_utils.py)

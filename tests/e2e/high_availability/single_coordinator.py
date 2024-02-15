@@ -30,6 +30,7 @@ TEMP_DIR = tempfile.TemporaryDirectory().name
 MEMGRAPH_INSTANCES_DESCRIPTION = {
     "instance_1": {
         "args": [
+            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7688",
             "--log-level",
@@ -43,6 +44,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
     "instance_2": {
         "args": [
+            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7689",
             "--log-level",
@@ -56,6 +58,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
     "instance_3": {
         "args": [
+            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7687",
             "--log-level",
@@ -68,7 +71,14 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "setup_queries": [],
     },
     "coordinator": {
-        "args": ["--bolt-port", "7690", "--log-level=TRACE", "--raft-server-id=1", "--raft-server-port=10111"],
+        "args": [
+            "--experimental-enabled=high-availability",
+            "--bolt-port",
+            "7690",
+            "--log-level=TRACE",
+            "--raft-server-id=1",
+            "--raft-server-port=10111",
+        ],
         "log_file": "coordinator.log",
         "setup_queries": [
             "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",

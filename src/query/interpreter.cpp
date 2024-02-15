@@ -109,7 +109,6 @@
 #include "utils/variant_helpers.hpp"
 
 #ifdef MG_ENTERPRISE
-#include "coordination/constants.hpp"
 #include "flags/experimental.hpp"
 #endif
 
@@ -1131,17 +1130,21 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
                                 const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
+  using enum memgraph::flags::Experiments;
+
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryRuntimeException("High availability is only available in Memgraph Enterprise.");
+  }
+
+  if (!flags::AreExperimentsEnabled(HIGH_AVAILABILITY)) {
+    throw QueryRuntimeException(
+        "High availability is experimental feature. If you want to use it, add high-availability option to the "
+        "--experimental-enabled flag.");
+  }
+
   Callback callback;
   switch (coordinator_query->action_) {
     case CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE: {
-      if (!license::global_license_checker.IsEnterpriseValidFast()) {
-        throw QueryException("Trying to use enterprise feature without a valid license.");
-      }
-      if constexpr (!coordination::allow_ha) {
-        throw QueryRuntimeException(
-            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
-            "be able to use this functionality.");
-      }
       if (!FLAGS_raft_server_id) {
         throw QueryRuntimeException("Only coordinator can add coordinator instance!");
       }
@@ -1165,15 +1168,6 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::REGISTER_INSTANCE: {
-      if (!license::global_license_checker.IsEnterpriseValidFast()) {
-        throw QueryException("Trying to use enterprise feature without a valid license.");
-      }
-
-      if constexpr (!coordination::allow_ha) {
-        throw QueryRuntimeException(
-            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
-            "be able to use this functionality.");
-      }
       if (!FLAGS_raft_server_id) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
@@ -1205,15 +1199,6 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
-      if (!license::global_license_checker.IsEnterpriseValidFast()) {
-        throw QueryException("Trying to use enterprise feature without a valid license.");
-      }
-
-      if constexpr (!coordination::allow_ha) {
-        throw QueryRuntimeException(
-            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
-            "be able to use this functionality.");
-      }
       if (!FLAGS_raft_server_id) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
@@ -1229,14 +1214,6 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
 
     case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN: {
-      if (!license::global_license_checker.IsEnterpriseValidFast()) {
-        throw QueryException("Trying to use enterprise feature without a valid license.");
-      }
-      if constexpr (!coordination::allow_ha) {
-        throw QueryRuntimeException(
-            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
-            "be able to use this functionality.");
-      }
       if (!FLAGS_raft_server_id) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
@@ -1254,14 +1231,6 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::SHOW_INSTANCES: {
-      if (!license::global_license_checker.IsEnterpriseValidFast()) {
-        throw QueryException("Trying to use enterprise feature without a valid license.");
-      }
-      if constexpr (!coordination::allow_ha) {
-        throw QueryRuntimeException(
-            "High availability is experimental feature. Please set MG_EXPERIMENTAL_HIGH_AVAILABILITY compile flag to "
-            "be able to use this functionality.");
-      }
       if (!FLAGS_raft_server_id) {
         throw QueryRuntimeException("Only coordinator can run SHOW INSTANCES.");
       }
