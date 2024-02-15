@@ -145,11 +145,10 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   auto GetReplicaUUID() -> std::optional<utils::UUID>;
 
  private:
-  template <bool AllowReplicaToDivergeFromMain>
+  template <bool ManualReplication>
   auto RegisterReplica_(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
       -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
     MG_ASSERT(repl_state_.IsMain(), "Only main instance can register a replica!");
-
     auto maybe_client = repl_state_.RegisterReplica(config);
     if (maybe_client.HasError()) {
       switch (maybe_client.GetError()) {
@@ -166,7 +165,6 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
           break;
       }
     }
-
     using enum memgraph::flags::Experiments;
     bool system_replication_enabled = flags::AreExperimentsEnabled(SYSTEM_REPLICATION);
     if (!system_replication_enabled && dbms_handler_.Count() > 1) {
@@ -174,25 +172,21 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
     }
     const auto main_uuid =
         std::get<memgraph::replication::RoleMainData>(dbms_handler_.ReplicationState().ReplicationData()).uuid_;
-
     if (send_swap_uuid) {
       if (!memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(maybe_client.GetValue()->rpc_client_,
                                                                         main_uuid)) {
         return memgraph::query::RegisterReplicaError::ERROR_ACCEPTING_MAIN;
       }
     }
-
 #ifdef MG_ENTERPRISE
     // Update system before enabling individual storage <-> replica clients
     SystemRestore(*maybe_client.GetValue(), system_, dbms_handler_, main_uuid, auth_);
 #endif
-
     const auto dbms_error = HandleRegisterReplicaStatus(maybe_client);
     if (dbms_error.has_value()) {
       return *dbms_error;
     }
     auto &instance_client_ptr = maybe_client.GetValue();
-
     bool all_clients_good = true;
     // Add database specific clients (NOTE Currently all databases are connected to each replica)
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
@@ -202,17 +196,16 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       }
       // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
       if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
-
       all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
           [storage, &instance_client_ptr, db_acc = std::move(db_acc),
            main_uuid](auto &storage_clients) mutable {  // NOLINT
             auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
             client->Start(storage, std::move(db_acc));
             bool const success = std::invoke([state = client->State()]() {
-              if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
-                return AllowReplicaToDivergeFromMain;
+              if (ManualReplication) {
+                return true;
               }
-              return state != storage::replication::ReplicaState::MAYBE_BEHIND;
+              return state != storage::replication::ReplicaState::DIVERGED_FROM_MAIN;
             });
 
             if (success) {
@@ -221,14 +214,12 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
             return success;
           });
     });
-
     // NOTE Currently if any databases fails, we revert back
     if (!all_clients_good) {
       spdlog::error("Failed to register all databases on the REPLICA \"{}\"", config.name);
       UnregisterReplica(config.name);
       return memgraph::query::RegisterReplicaError::CONNECTION_FAILED;
     }
-
     // No client error, start instance level client
 #ifdef MG_ENTERPRISE
     StartReplicaClient(*instance_client_ptr, system_, dbms_handler_, main_uuid, auth_);
