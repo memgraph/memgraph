@@ -195,6 +195,12 @@ class DatabaseContextRequiredException : public QueryRuntimeException {
   SPECIALIZE_GET_EXCEPTION_NAME(DatabaseContextRequiredException)
 };
 
+class ConcurrentSystemQueriesException : public QueryRuntimeException {
+ public:
+  using QueryRuntimeException::QueryRuntimeException;
+  SPECIALIZE_GET_EXCEPTION_NAME(ConcurrentSystemQueriesException)
+};
+
 class WriteVertexOperationInEdgeImportModeException : public QueryException {
  public:
   WriteVertexOperationInEdgeImportModeException()
@@ -251,6 +257,13 @@ class ReplicationModificationInMulticommandTxException : public QueryException {
   ReplicationModificationInMulticommandTxException()
       : QueryException("Replication clause not allowed in multicommand transactions.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReplicationModificationInMulticommandTxException)
+};
+
+class CoordinatorModificationInMulticommandTxException : public QueryException {
+ public:
+  CoordinatorModificationInMulticommandTxException()
+      : QueryException("Coordinator clause not allowed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorModificationInMulticommandTxException)
 };
 
 class ReplicationDisabledOnDiskStorage : public QueryException {

@@ -44,7 +44,7 @@ class ShowStorageInfoTest : public testing::Test {
 };
 
 TEST_F(ShowStorageInfoTest, CountOnAbort) {
-  auto acc = this->storage->Access(memgraph::replication::ReplicationRole::MAIN);
+  auto acc = this->storage->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
   auto src_vertex = acc->CreateVertex();
   auto dest_vertex = acc->CreateVertex();
   auto et = acc->NameToEdgeType("et5");

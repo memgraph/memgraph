@@ -257,7 +257,7 @@ void Filters::EraseFilter(const FilterInfo &filter) {
                      all_filters_.end());
 }
 
-void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label, std::vector<Expression *> *removed_filters) {
+void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::vector<Expression *> *removed_filters) {
   for (auto filter_it = all_filters_.begin(); filter_it != all_filters_.end();) {
     if (filter_it->type != FilterInfo::Type::Label) {
       ++filter_it;
@@ -745,10 +745,10 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
   return QueryParts{query_parts, distinct};
 }
 
-FilterInfo::~FilterInfo() = default;
-FilterInfo::FilterInfo(const FilterInfo &) = default;
-FilterInfo &FilterInfo::operator=(const FilterInfo &) = default;
-FilterInfo::FilterInfo(FilterInfo &&) noexcept = default;
-FilterInfo &FilterInfo::operator=(FilterInfo &&) noexcept = default;
+// FilterInfo::~FilterInfo() = default;
+// FilterInfo::FilterInfo(const FilterInfo &) = default;
+// FilterInfo &FilterInfo::operator=(const FilterInfo &) = default;
+// FilterInfo::FilterInfo(FilterInfo &&) noexcept = default;
+// FilterInfo &FilterInfo::operator=(FilterInfo &&) noexcept = default;
 
 }  // namespace memgraph::query::plan

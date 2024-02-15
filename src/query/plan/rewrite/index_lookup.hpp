@@ -28,6 +28,7 @@
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "storage/v2/id_types.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
@@ -57,6 +58,29 @@ struct IndexHints {
         label_property_index_hints_.emplace_back(index_hint);
       }
     }
+  }
+
+  template <class TDbAccessor>
+  bool HasLabelIndex(TDbAccessor *db, storage::LabelId label) const {
+    for (const auto &[index_type, label_hint, _] : label_index_hints_) {
+      auto label_id = db->NameToLabel(label_hint.name);
+      if (label_id == label) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  template <class TDbAccessor>
+  bool HasLabelPropertyIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
+    for (const auto &[index_type, label_hint, property_hint] : label_property_index_hints_) {
+      auto label_id = db->NameToLabel(label_hint.name);
+      auto property_id = db->NameToProperty(property_hint->name);
+      if (label_id == label && property_id == property) {
+        return true;
+      }
+    }
+    return false;
   }
 
   std::vector<IndexHint> label_index_hints_{};
@@ -631,9 +655,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
   }
 
-  storage::LabelId GetLabel(LabelIx label) { return db_->NameToLabel(label.name); }
+  storage::LabelId GetLabel(const LabelIx &label) { return db_->NameToLabel(label.name); }
 
-  storage::PropertyId GetProperty(PropertyIx prop) { return db_->NameToProperty(prop.name); }
+  storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
 
   std::optional<LabelIx> FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
     MG_ASSERT(!labels.empty(), "Trying to find the best label without any labels.");

@@ -373,17 +373,21 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool Visit(ParameterLookup &) override {
+  bool Visit(ParameterLookup & /*unused*/) override {
     has_aggregation_.emplace_back(false);
     return true;
   }
 
-  bool PostVisit(RegexMatch &regex_match) override {
+  bool PostVisit(RegexMatch & /*unused*/) override {
     MG_ASSERT(has_aggregation_.size() >= 2U, "Expected 2 has_aggregation_ flags for RegexMatch arguments");
     bool has_aggr = has_aggregation_.back();
     has_aggregation_.pop_back();
     has_aggregation_.back() |= has_aggr;
     return true;
+  }
+
+  bool PostVisit(PatternComprehension & /*unused*/) override {
+    throw utils::NotYetImplemented("Planner can not handle pattern comprehension.");
   }
 
   // Creates NamedExpression with an Identifier for each user declared symbol.

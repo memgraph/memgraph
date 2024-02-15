@@ -52,6 +52,9 @@ class SymbolTable final {
   const Symbol &at(const NamedExpression &nexpr) const { return table_.at(nexpr.symbol_pos_); }
   const Symbol &at(const Aggregation &aggr) const { return table_.at(aggr.symbol_pos_); }
   const Symbol &at(const Exists &exists) const { return table_.at(exists.symbol_pos_); }
+  const Symbol &at(const PatternComprehension &pattern_comprehension) const {
+    return table_.at(pattern_comprehension.symbol_pos_);
+  }
 
   // TODO: Remove these since members are public
   int32_t max_position() const { return static_cast<int32_t>(table_.size()); }

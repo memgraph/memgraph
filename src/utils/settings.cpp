@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,6 +27,7 @@ void Settings::Finalize() {
   std::lock_guard settings_guard{settings_lock_};
   storage_.reset();
   on_change_callbacks_.clear();
+  validations_.clear();
 }
 
 void Settings::RegisterSetting(std::string name, const std::string &default_value, OnChangeCallback callback,

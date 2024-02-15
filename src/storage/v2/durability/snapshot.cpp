@@ -222,7 +222,7 @@ std::vector<BatchInfo> ReadBatchInfos(Decoder &snapshot) {
 
 template <typename TFunc>
 void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &edges, const uint64_t from_offset,
-                      const uint64_t edges_count, const Config::Items items, TFunc get_property_from_id) {
+                      const uint64_t edges_count, const SalientConfig::Items items, TFunc get_property_from_id) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
 
@@ -420,7 +420,7 @@ template <typename TEdgeTypeFromIdFunc>
 LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::path &path,
                                                       utils::SkipList<Vertex> &vertices, utils::SkipList<Edge> &edges,
                                                       const uint64_t from_offset, const uint64_t vertices_count,
-                                                      const Config::Items items, const bool snapshot_has_edges,
+                                                      const SalientConfig::Items items, const bool snapshot_has_edges,
                                                       TEdgeTypeFromIdFunc get_edge_type_from_id) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
@@ -621,7 +621,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
                                         utils::SkipList<Edge> *edges,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                        Config::Items items) {
+                                        SalientConfig::Items items) {
   RecoveryInfo ret;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -1177,8 +1177,8 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                     const BatchInfo &batch) {
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
             LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
           },
           edge_batches);
@@ -1218,7 +1218,7 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
 
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path, vertices, edges, edge_count, items = config.items, snapshot_has_edges, &get_edge_type_from_id,
+        [path, vertices, edges, edge_count, items = config.salient.items, snapshot_has_edges, &get_edge_type_from_id,
          &highest_edge_gid, &recovery_info](const size_t batch_index, const BatchInfo &batch) {
           const auto result = LoadPartialConnectivity(path, *vertices, *edges, batch.offset, batch.count, items,
                                                       snapshot_has_edges, get_edge_type_from_id);
@@ -1391,7 +1391,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
   if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
   if (*version == 14U) {
-    return LoadSnapshotVersion14(path, vertices, edges, epoch_history, name_id_mapper, edge_count, config.items);
+    return LoadSnapshotVersion14(path, vertices, edges, epoch_history, name_id_mapper, edge_count,
+                                 config.salient.items);
   }
   if (*version == 15U) {
     return LoadSnapshotVersion15(path, vertices, edges, epoch_history, name_id_mapper, edge_count, config);
@@ -1470,8 +1471,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.items, &get_property_from_id](const size_t /*batch_index*/,
-                                                                     const BatchInfo &batch) {
+          [path, edges, items = config.salient.items, &get_property_from_id](const size_t /*batch_index*/,
+                                                                             const BatchInfo &batch) {
             LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
           },
           edge_batches);
@@ -1511,7 +1512,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path, vertices, edges, edge_count, items = config.items, snapshot_has_edges, &get_edge_type_from_id,
+        [path, vertices, edges, edge_count, items = config.salient.items, snapshot_has_edges, &get_edge_type_from_id,
          &highest_edge_gid, &recovery_info](const size_t batch_index, const BatchInfo &batch) {
           const auto result = LoadPartialConnectivity(path, *vertices, *edges, batch.offset, batch.count, items,
                                                       snapshot_has_edges, get_edge_type_from_id);
@@ -1868,7 +1869,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   auto items_in_current_batch{0UL};
   auto batch_start_offset{0UL};
   // Store all edges.
-  if (storage->config_.items.properties_on_edges) {
+  if (storage->config_.salient.items.properties_on_edges) {
     offset_edges = snapshot.GetPosition();
     batch_start_offset = offset_edges;
     auto acc = edges->access();
@@ -1982,18 +1983,34 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
           snapshot.WritePropertyValue(item.second);
         }
         const auto &in_edges = maybe_in_edges.GetValue().edges;
-        snapshot.WriteUint(in_edges.size());
-        for (const auto &item : in_edges) {
-          snapshot.WriteUint(item.Gid().AsUint());
-          snapshot.WriteUint(item.FromVertex().Gid().AsUint());
-          write_mapping(item.EdgeType());
-        }
         const auto &out_edges = maybe_out_edges.GetValue().edges;
-        snapshot.WriteUint(out_edges.size());
-        for (const auto &item : out_edges) {
-          snapshot.WriteUint(item.Gid().AsUint());
-          snapshot.WriteUint(item.ToVertex().Gid().AsUint());
-          write_mapping(item.EdgeType());
+
+        if (storage->config_.salient.items.properties_on_edges) {
+          snapshot.WriteUint(in_edges.size());
+          for (const auto &item : in_edges) {
+            snapshot.WriteUint(item.GidPropertiesOnEdges().AsUint());
+            snapshot.WriteUint(item.FromVertex().Gid().AsUint());
+            write_mapping(item.EdgeType());
+          }
+          snapshot.WriteUint(out_edges.size());
+          for (const auto &item : out_edges) {
+            snapshot.WriteUint(item.GidPropertiesOnEdges().AsUint());
+            snapshot.WriteUint(item.ToVertex().Gid().AsUint());
+            write_mapping(item.EdgeType());
+          }
+        } else {
+          snapshot.WriteUint(in_edges.size());
+          for (const auto &item : in_edges) {
+            snapshot.WriteUint(item.GidNoPropertiesOnEdges().AsUint());
+            snapshot.WriteUint(item.FromVertex().Gid().AsUint());
+            write_mapping(item.EdgeType());
+          }
+          snapshot.WriteUint(out_edges.size());
+          for (const auto &item : out_edges) {
+            snapshot.WriteUint(item.GidNoPropertiesOnEdges().AsUint());
+            snapshot.WriteUint(item.ToVertex().Gid().AsUint());
+            write_mapping(item.EdgeType());
+          }
         }
       }
 

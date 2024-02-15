@@ -43,12 +43,11 @@ class Telemetry final {
   void AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func);
 
   // Specialized collectors
-  void AddStorageCollector(
-      dbms::DbmsHandler &dbms_handler,
-      memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> &auth);
+  void AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth,
+                           memgraph::replication::ReplicationState &repl_state);
 
 #ifdef MG_ENTERPRISE
-  void AddDatabaseCollector(dbms::DbmsHandler &dbms_handler);
+  void AddDatabaseCollector(dbms::DbmsHandler &dbms_handler, replication::ReplicationState &repl_state);
 #else
   void AddDatabaseCollector() {
     AddCollector("database", []() -> nlohmann::json { return nlohmann::json::array(); });

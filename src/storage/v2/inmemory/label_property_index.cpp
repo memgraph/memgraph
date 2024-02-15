@@ -13,6 +13,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "utils/counter.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
@@ -139,10 +140,18 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndi
   return ret;
 }
 
-void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
+void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+  auto maybe_stop = utils::ResettableCounter<2048>();
+
   for (auto &[label_property, index] : index_) {
+    // before starting index, check if stop_requested
+    if (token.stop_requested()) return;
+
     auto index_acc = index.access();
     for (auto it = index_acc.begin(); it != index_acc.end();) {
+      // Hot loop, don't check stop_requested every time
+      if (maybe_stop() && token.stop_requested()) return;
+
       auto next_it = it;
       ++next_it;
 

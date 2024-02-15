@@ -72,8 +72,9 @@ class TypedValueVectorCompare final {
 
 /// Raise QueryRuntimeException if the value for symbol isn't of expected type.
 inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue::Type expected) {
-  if (value.type() != expected)
+  if (value.type() != expected) [[unlikely]] {
     throw QueryRuntimeException("Expected a {} for '{}', but got {}.", expected, symbol.name(), value.type());
+  }
 }
 
 inline void ProcessError(const storage::Error error) {

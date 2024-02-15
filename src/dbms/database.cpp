@@ -11,10 +11,7 @@
 
 #include "dbms/database.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
-#include "dbms/replication_handler.hpp"
-#include "flags/storage_mode.hpp"
 #include "storage/v2/disk/storage.hpp"
-#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
@@ -26,7 +23,7 @@ Database::Database(storage::Config config, replication::ReplicationState &repl_s
       streams_{config.durability.storage_directory / "streams"},
       plan_cache_{FLAGS_query_plan_cache_max_size},
       repl_state_(&repl_state) {
-  if (config.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
+  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
     storage_ = std::make_unique<storage::DiskStorage>(std::move(config));
   } else {

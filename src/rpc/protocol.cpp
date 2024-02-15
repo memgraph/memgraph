@@ -13,7 +13,7 @@
 
 #include <utility>
 
-#include "rpc/messages.hpp"
+#include "rpc/exceptions.hpp"
 #include "rpc/server.hpp"
 #include "rpc/version.hpp"
 #include "slk/serialization.hpp"
@@ -46,10 +46,14 @@ void Session::Execute() {
 
   // Load the request ID.
   utils::TypeId req_id{utils::TypeId::UNKNOWN};
-  slk::Load(&req_id, &req_reader);
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   rpc::Version version;
-  slk::Load(&version, &req_reader);
+  try {
+    slk::Load(&req_id, &req_reader);
+    slk::Load(&version, &req_reader);
+  } catch (const slk::SlkReaderException &) {
+    throw rpc::SlkRpcFailedException();
+  }
 
   if (version != rpc::current_version) {
     // V1 we introduced versioning with, absolutely no backwards compatibility,
@@ -76,12 +80,20 @@ void Session::Execute() {
     SPDLOG_TRACE("[RpcServer] received {}", extended_it->second.req_type.name);
     slk::Save(extended_it->second.res_type.id, &res_builder);
     slk::Save(rpc::current_version, &res_builder);
-    extended_it->second.callback(endpoint_, &req_reader, &res_builder);
+    try {
+      extended_it->second.callback(endpoint_, &req_reader, &res_builder);
+    } catch (const slk::SlkReaderException &) {
+      throw rpc::SlkRpcFailedException();
+    }
   } else {
     SPDLOG_TRACE("[RpcServer] received {}", it->second.req_type.name);
     slk::Save(it->second.res_type.id, &res_builder);
     slk::Save(rpc::current_version, &res_builder);
-    it->second.callback(&req_reader, &res_builder);
+    try {
+      it->second.callback(&req_reader, &res_builder);
+    } catch (const slk::SlkReaderException &) {
+      throw rpc::SlkRpcFailedException();
+    }
   }
 
   // Finalize the SLK streams.

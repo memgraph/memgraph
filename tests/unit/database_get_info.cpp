@@ -108,7 +108,7 @@ TYPED_TEST(InfoTest, InfoCheck) {
     auto v2 = acc->CreateVertex();
     auto v3 = acc->CreateVertex();
     auto v4 = acc->CreateVertex();
-    auto v5 = acc->CreateVertex();
+    [[maybe_unused]] auto v5 = acc->CreateVertex();
 
     ASSERT_FALSE(v2.AddLabel(lbl).HasError());
     ASSERT_FALSE(v3.AddLabel(lbl).HasError());
@@ -165,8 +165,8 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  const auto &info =
-      db_acc->GetInfo(true, memgraph::replication::ReplicationRole::MAIN);  // force to use configured directory
+  const auto &info = db_acc->GetInfo(
+      true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);  // force to use configured directory
 
   ASSERT_EQ(info.storage_info.vertex_count, 5);
   ASSERT_EQ(info.storage_info.edge_count, 2);

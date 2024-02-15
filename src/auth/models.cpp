@@ -9,7 +9,6 @@
 #include "auth/models.hpp"
 
 #include <cstdint>
-#include <regex>
 #include <utility>
 
 #include <gflags/gflags.h>
@@ -21,21 +20,25 @@
 #include "query/constants.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/cast.hpp"
-#include "utils/logging.hpp"
-#include "utils/settings.hpp"
 #include "utils/string.hpp"
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passwords.");
-
-inline constexpr std::string_view default_password_regex = ".+";
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
-              "The regular expression that should be used to match the entire "
-              "entered password to ensure its strength.");
 
 namespace memgraph::auth {
 namespace {
+
+constexpr auto kRoleName = "rolename";
+constexpr auto kPermissions = "permissions";
+constexpr auto kGrants = "grants";
+constexpr auto kDenies = "denies";
+constexpr auto kUsername = "username";
+constexpr auto kPasswordHash = "password_hash";
+
+#ifdef MG_ENTERPRISE
+constexpr auto kGlobalPermission = "global_permission";
+constexpr auto kFineGrainedAccessHandler = "fine_grained_access_handler";
+constexpr auto kAllowAll = "allow_all";
+constexpr auto kDefault = "default";
+constexpr auto kDatabases = "databases";
+#endif
 
 // Constant list of all available permissions.
 const std::vector<Permission> kPermissionsAll = {Permission::MATCH,
@@ -62,7 +65,8 @@ const std::vector<Permission> kPermissionsAll = {Permission::MATCH,
                                                  Permission::TRANSACTION_MANAGEMENT,
                                                  Permission::STORAGE_MODE,
                                                  Permission::MULTI_DATABASE_EDIT,
-                                                 Permission::MULTI_DATABASE_USE};
+                                                 Permission::MULTI_DATABASE_USE,
+                                                 Permission::COORDINATOR};
 
 }  // namespace
 
@@ -118,6 +122,8 @@ std::string PermissionToString(Permission permission) {
       return "MULTI_DATABASE_EDIT";
     case Permission::MULTI_DATABASE_USE:
       return "MULTI_DATABASE_USE";
+    case Permission::COORDINATOR:
+      return "COORDINATOR";
   }
 }
 
@@ -242,8 +248,9 @@ std::vector<Permission> Permissions::GetDenies() const {
 
 nlohmann::json Permissions::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
-  data["grants"] = grants_;
-  data["denies"] = denies_;
+
+  data[kGrants] = grants_;
+  data[kDenies] = denies_;
   return data;
 }
 
@@ -251,10 +258,10 @@ Permissions Permissions::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load permissions data!");
   }
-  if (!data["grants"].is_number_unsigned() || !data["denies"].is_number_unsigned()) {
+  if (!data[kGrants].is_number_unsigned() || !data[kDenies].is_number_unsigned()) {
     throw AuthException("Couldn't load permissions data!");
   }
-  return Permissions{data["grants"], data["denies"]};
+  return Permissions{data[kGrants], data[kDenies]};
 }
 
 uint64_t Permissions::grants() const { return grants_; }
@@ -316,8 +323,8 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
     return {};
   }
   nlohmann::json data = nlohmann::json::object();
-  data["permissions"] = permissions_;
-  data["global_permission"] = global_permission_.has_value() ? global_permission_.value() : -1;
+  data[kPermissions] = permissions_;
+  data[kGlobalPermission] = global_permission_.has_value() ? global_permission_.value() : -1;
   return data;
 }
 
@@ -330,13 +337,13 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   }
   std::optional<uint64_t> global_permission;
 
-  if (data["global_permission"].empty() || data["global_permission"] == -1) {
+  if (data[kGlobalPermission].empty() || data[kGlobalPermission] == -1) {
     global_permission = std::nullopt;
   } else {
-    global_permission = data["global_permission"];
+    global_permission = data[kGlobalPermission];
   }
 
-  return FineGrainedAccessPermissions(data["permissions"], global_permission);
+  return FineGrainedAccessPermissions(data[kPermissions], global_permission);
 }
 
 const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::GetPermissions() const {
@@ -442,13 +449,13 @@ const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermission
 
 nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
-  data["rolename"] = rolename_;
-  data["permissions"] = permissions_.Serialize();
+  data[kRoleName] = rolename_;
+  data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    data["fine_grained_access_handler"] = fine_grained_access_handler_.Serialize();
+    data[kFineGrainedAccessHandler] = fine_grained_access_handler_.Serialize();
   } else {
-    data["fine_grained_access_handler"] = {};
+    data[kFineGrainedAccessHandler] = {};
   }
 #endif
   return data;
@@ -458,21 +465,21 @@ Role Role::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load role data!");
   }
-  if (!data["rolename"].is_string() || !data["permissions"].is_object()) {
+  if (!data[kRoleName].is_string() || !data[kPermissions].is_object()) {
     throw AuthException("Couldn't load role data!");
   }
-  auto permissions = Permissions::Deserialize(data["permissions"]);
+  auto permissions = Permissions::Deserialize(data[kPermissions]);
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     FineGrainedAccessHandler fine_grained_access_handler;
     // We can have an empty fine_grained if the user was created without a valid license
-    if (data["fine_grained_access_handler"].is_object()) {
-      fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
+    if (data[kFineGrainedAccessHandler].is_object()) {
+      fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
     }
-    return {data["rolename"], permissions, std::move(fine_grained_access_handler)};
+    return {data[kRoleName], permissions, std::move(fine_grained_access_handler)};
   }
 #endif
-  return {data["rolename"], permissions};
+  return {data[kRoleName], permissions};
 }
 
 bool operator==(const Role &first, const Role &second) {
@@ -486,13 +493,13 @@ bool operator==(const Role &first, const Role &second) {
 }
 
 #ifdef MG_ENTERPRISE
-void Databases::Add(const std::string &db) {
+void Databases::Add(std::string_view db) {
   if (allow_all_) {
     grants_dbs_.clear();
     allow_all_ = false;
   }
   grants_dbs_.emplace(db);
-  denies_dbs_.erase(db);
+  denies_dbs_.erase(std::string{db});  // TODO: C++23 use transparent key compare
 }
 
 void Databases::Remove(const std::string &db) {
@@ -523,13 +530,13 @@ void Databases::DenyAll() {
   denies_dbs_.clear();
 }
 
-bool Databases::SetDefault(const std::string &db) {
+bool Databases::SetDefault(std::string_view db) {
   if (!Contains(db)) return false;
   default_db_ = db;
   return true;
 }
 
-[[nodiscard]] bool Databases::Contains(const std::string &db) const {
+[[nodiscard]] bool Databases::Contains(std::string_view db) const {
   return !denies_dbs_.contains(db) && (allow_all_ || grants_dbs_.contains(db));
 }
 
@@ -542,10 +549,10 @@ const std::string &Databases::GetDefault() const {
 
 nlohmann::json Databases::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
-  data["grants"] = grants_dbs_;
-  data["denies"] = denies_dbs_;
-  data["allow_all"] = allow_all_;
-  data["default"] = default_db_;
+  data[kGrants] = grants_dbs_;
+  data[kDenies] = denies_dbs_;
+  data[kAllowAll] = allow_all_;
+  data[kDefault] = default_db_;
   return data;
 }
 
@@ -553,22 +560,22 @@ Databases Databases::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load database data!");
   }
-  if (!data["grants"].is_structured() || !data["denies"].is_structured() || !data["allow_all"].is_boolean() ||
-      !data["default"].is_string()) {
+  if (!data[kGrants].is_structured() || !data[kDenies].is_structured() || !data[kAllowAll].is_boolean() ||
+      !data[kDefault].is_string()) {
     throw AuthException("Couldn't load database data!");
   }
-  return {data["allow_all"], data["grants"], data["denies"], data["default"]};
+  return {data[kAllowAll], data[kGrants], data[kDenies], data[kDefault]};
 }
 #endif
 
 User::User() = default;
 
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
-User::User(const std::string &username, std::string password_hash, const Permissions &permissions)
+User::User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions)
     : username_(utils::ToLowerCase(username)), password_hash_(std::move(password_hash)), permissions_(permissions) {}
 
 #ifdef MG_ENTERPRISE
-User::User(const std::string &username, std::string password_hash, const Permissions &permissions,
+User::User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
            FineGrainedAccessHandler fine_grained_access_handler, Databases db_access)
     : username_(utils::ToLowerCase(username)),
       password_hash_(std::move(password_hash)),
@@ -578,38 +585,16 @@ User::User(const std::string &username, std::string password_hash, const Permiss
 #endif
 
 bool User::CheckPassword(const std::string &password) {
-  if (password_hash_.empty()) return true;
-  return VerifyPassword(password, password_hash_);
+  return password_hash_ ? password_hash_->VerifyPassword(password) : true;
 }
 
-void User::UpdatePassword(const std::optional<std::string> &password) {
+void User::UpdatePassword(const std::optional<std::string> &password,
+                          std::optional<PasswordHashAlgorithm> algo_override) {
   if (!password) {
-    if (!FLAGS_auth_password_permit_null) {
-      throw AuthException("Null passwords aren't permitted!");
-    }
-    password_hash_ = "";
+    password_hash_.reset();
     return;
   }
-
-  if (FLAGS_auth_password_strength_regex != default_password_regex) {
-    if (const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
-        license_check_result.HasError()) {
-      throw AuthException(
-          "Custom password regex is a Memgraph Enterprise feature. Please set the config "
-          "(\"--auth-password-strength-regex\") to its default value (\"{}\") or remove the flag.\n{}",
-          default_password_regex,
-          license::LicenseCheckErrorToString(license_check_result.GetError(), "password regex"));
-    }
-  }
-  std::regex re(FLAGS_auth_password_strength_regex);
-  if (!std::regex_match(*password, re)) {
-    throw AuthException(
-        "The user password doesn't conform to the required strength! Regex: "
-        "\"{}\"",
-        FLAGS_auth_password_strength_regex);
-  }
-
-  password_hash_ = EncryptPassword(*password);
+  password_hash_ = HashPassword(*password, algo_override);
 }
 
 void User::SetRole(const Role &role) { role_.emplace(role); }
@@ -626,27 +611,49 @@ Permissions User::GetPermissions() const {
 
 #ifdef MG_ENTERPRISE
 FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions() const {
+  return Merge(GetUserFineGrainedAccessLabelPermissions(), GetRoleFineGrainedAccessLabelPermissions());
+}
+
+FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions() const {
+  return Merge(GetUserFineGrainedAccessEdgeTypePermissions(), GetRoleFineGrainedAccessEdgeTypePermissions());
+}
+
+FineGrainedAccessPermissions User::GetUserFineGrainedAccessEdgeTypePermissions() const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
 
-  if (role_) {
-    return Merge(role()->fine_grained_access_handler().label_permissions(),
-                 fine_grained_access_handler_.label_permissions());
+  return fine_grained_access_handler_.edge_type_permissions();
+}
+
+FineGrainedAccessPermissions User::GetUserFineGrainedAccessLabelPermissions() const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return FineGrainedAccessPermissions{};
   }
 
   return fine_grained_access_handler_.label_permissions();
 }
 
-FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions() const {
+FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions() const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
+
   if (role_) {
-    return Merge(role()->fine_grained_access_handler().edge_type_permissions(),
-                 fine_grained_access_handler_.edge_type_permissions());
+    return role()->fine_grained_access_handler().edge_type_permissions();
   }
-  return fine_grained_access_handler_.edge_type_permissions();
+  return FineGrainedAccessPermissions{};
+}
+
+FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions() const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return FineGrainedAccessPermissions{};
+  }
+
+  if (role_) {
+    return role()->fine_grained_access_handler().label_permissions();
+  }
+  return FineGrainedAccessPermissions{};
 }
 #endif
 
@@ -668,16 +675,20 @@ const Role *User::role() const {
 
 nlohmann::json User::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
-  data["username"] = username_;
-  data["password_hash"] = password_hash_;
-  data["permissions"] = permissions_.Serialize();
+  data[kUsername] = username_;
+  if (password_hash_.has_value()) {
+    data[kPasswordHash] = *password_hash_;
+  } else {
+    data[kPasswordHash] = nullptr;
+  }
+  data[kPermissions] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    data["fine_grained_access_handler"] = fine_grained_access_handler_.Serialize();
-    data["databases"] = database_access_.Serialize();
+    data[kFineGrainedAccessHandler] = fine_grained_access_handler_.Serialize();
+    data[kDatabases] = database_access_.Serialize();
   } else {
-    data["fine_grained_access_handler"] = {};
-    data["databases"] = {};
+    data[kFineGrainedAccessHandler] = {};
+    data[kDatabases] = {};
   }
 #endif
   // The role shouldn't be serialized here, it is stored as a foreign key.
@@ -688,15 +699,23 @@ User User::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load user data!");
   }
-  if (!data["username"].is_string() || !data["password_hash"].is_string() || !data["permissions"].is_object()) {
+  auto password_hash_json = data[kPasswordHash];
+  if (!data[kUsername].is_string() || !(password_hash_json.is_object() || password_hash_json.is_null()) ||
+      !data[kPermissions].is_object()) {
     throw AuthException("Couldn't load user data!");
   }
-  auto permissions = Permissions::Deserialize(data["permissions"]);
+
+  std::optional<HashedPassword> password_hash{};
+  if (password_hash_json.is_object()) {
+    password_hash = password_hash_json.get<HashedPassword>();
+  }
+
+  auto permissions = Permissions::Deserialize(data[kPermissions]);
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     Databases db_access;
-    if (data["databases"].is_structured()) {
-      db_access = Databases::Deserialize(data["databases"]);
+    if (data[kDatabases].is_structured()) {
+      db_access = Databases::Deserialize(data[kDatabases]);
     } else {
       // Back-compatibility
       spdlog::warn("User without specified database access. Given access to the default database.");
@@ -705,13 +724,13 @@ User User::Deserialize(const nlohmann::json &data) {
     }
     FineGrainedAccessHandler fine_grained_access_handler;
     // We can have an empty fine_grained if the user was created without a valid license
-    if (data["fine_grained_access_handler"].is_object()) {
-      fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
+    if (data[kFineGrainedAccessHandler].is_object()) {
+      fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
     }
-    return {data["username"], data["password_hash"], permissions, std::move(fine_grained_access_handler), db_access};
+    return {data[kUsername], std::move(password_hash), permissions, std::move(fine_grained_access_handler), db_access};
   }
 #endif
-  return {data["username"], data["password_hash"], permissions};
+  return {data[kUsername], std::move(password_hash), permissions};
 }
 
 bool operator==(const User &first, const User &second) {

@@ -68,7 +68,16 @@ class TransactionQueueMultipleTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::query::InterpreterContext interpreter_context{{}, nullptr, &repl_state};
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
+                                                          &repl_state,
+                                                          system_state
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr
+#endif
+  };
   InterpreterFaker main_interpreter{&interpreter_context, db};
   std::vector<InterpreterFaker *> running_interpreters;
 

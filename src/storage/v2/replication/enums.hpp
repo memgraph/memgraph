@@ -14,6 +14,6 @@
 
 namespace memgraph::storage::replication {
 
-enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, MAYBE_BEHIND };
+enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, MAYBE_BEHIND, DIVERGED_FROM_MAIN };
 
 }  // namespace memgraph::storage::replication

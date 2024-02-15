@@ -60,7 +60,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
   void AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                     uint64_t exact_start_timestamp);

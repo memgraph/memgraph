@@ -6,3 +6,5 @@ target_link_libraries(memgraph__e2e__server_connection mgclient mg-utils gflags)
 
 add_executable(memgraph__e2e__server_ssl_connection server_ssl_connection.cpp)
 target_link_libraries(memgraph__e2e__server_ssl_connection mgclient mg-utils gflags)
+
+copy_e2e_files(server workloads.yaml)

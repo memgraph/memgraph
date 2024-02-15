@@ -11,3 +11,5 @@ copy_lba_procedures_e2e_python_files(read_permission_queries.py)
 copy_lba_procedures_e2e_python_files(update_permission_queries.py)
 
 add_subdirectory(procedures)
+
+copy_e2e_files(lba_procedures workloads.yaml)

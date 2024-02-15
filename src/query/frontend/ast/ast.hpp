@@ -1209,7 +1209,8 @@ class PropertyLookup : public memgraph::query::Expression {
   }
 
  protected:
-  PropertyLookup(Expression *expression, PropertyIx property) : expression_(expression), property_(property) {}
+  PropertyLookup(Expression *expression, PropertyIx property)
+      : expression_(expression), property_(std::move(property)) {}
 
  private:
   friend class AstStorage;
@@ -1805,9 +1806,9 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Type { SINGLE, DEPTH_FIRST, BREADTH_FIRST, WEIGHTED_SHORTEST_PATH, ALL_SHORTEST_PATHS };
+  enum class Type : uint8_t { SINGLE, DEPTH_FIRST, BREADTH_FIRST, WEIGHTED_SHORTEST_PATH, ALL_SHORTEST_PATHS };
 
-  enum class Direction { IN, OUT, BOTH };
+  enum class Direction : uint8_t { IN, OUT, BOTH };
 
   /// Lambda for use in filtering or weight calculation during variable expand.
   struct Lambda {
@@ -2216,7 +2217,7 @@ class IndexQuery : public memgraph::query::Query {
 
  protected:
   IndexQuery(Action action, LabelIx label, std::vector<PropertyIx> properties)
-      : action_(action), label_(label), properties_(properties) {}
+      : action_(action), label_(std::move(label)), properties_(std::move(properties)) {}
 
  private:
   friend class AstStorage;
@@ -2849,6 +2850,7 @@ class AuthQuery : public memgraph::query::Query {
     TRANSACTION_MANAGEMENT,
     MULTI_DATABASE_EDIT,
     MULTI_DATABASE_USE,
+    COORDINATOR
   };
 
   enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE_DELETE };
@@ -2927,7 +2929,8 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {AuthQuery::Privilege::
                                                           AuthQuery::Privilege::TRANSACTION_MANAGEMENT,
                                                           AuthQuery::Privilege::STORAGE_MODE,
                                                           AuthQuery::Privilege::MULTI_DATABASE_EDIT,
-                                                          AuthQuery::Privilege::MULTI_DATABASE_USE};
+                                                          AuthQuery::Privilege::MULTI_DATABASE_USE,
+                                                          AuthQuery::Privilege::COORDINATOR};
 
 class DatabaseInfoQuery : public memgraph::query::Query {
  public:
@@ -3031,7 +3034,7 @@ class ReplicationQuery : public memgraph::query::Query {
 
   enum class SyncMode { SYNC, ASYNC };
 
-  enum class ReplicaState { READY, REPLICATING, RECOVERY, MAYBE_BEHIND };
+  enum class ReplicaState { READY, REPLICATING, RECOVERY, MAYBE_BEHIND, DIVERGED_FROM_MAIN };
 
   ReplicationQuery() = default;
 
@@ -3039,8 +3042,9 @@ class ReplicationQuery : public memgraph::query::Query {
 
   memgraph::query::ReplicationQuery::Action action_;
   memgraph::query::ReplicationQuery::ReplicationRole role_;
-  std::string replica_name_;
+  std::string instance_name_;
   memgraph::query::Expression *socket_address_{nullptr};
+  memgraph::query::Expression *coordinator_socket_address_{nullptr};
   memgraph::query::Expression *port_{nullptr};
   memgraph::query::ReplicationQuery::SyncMode sync_mode_;
 
@@ -3048,10 +3052,59 @@ class ReplicationQuery : public memgraph::query::Query {
     ReplicationQuery *object = storage->Create<ReplicationQuery>();
     object->action_ = action_;
     object->role_ = role_;
-    object->replica_name_ = replica_name_;
+    object->instance_name_ = instance_name_;
     object->socket_address_ = socket_address_ ? socket_address_->Clone(storage) : nullptr;
     object->port_ = port_ ? port_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
+    object->coordinator_socket_address_ =
+        coordinator_socket_address_ ? coordinator_socket_address_->Clone(storage) : nullptr;
+
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class CoordinatorQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action {
+    REGISTER_INSTANCE,
+    UNREGISTER_INSTANCE,
+    SET_INSTANCE_TO_MAIN,
+    SHOW_INSTANCES,
+    ADD_COORDINATOR_INSTANCE
+  };
+
+  enum class SyncMode { SYNC, ASYNC };
+
+  CoordinatorQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::CoordinatorQuery::Action action_;
+  std::string instance_name_;
+  memgraph::query::Expression *replication_socket_address_{nullptr};
+  memgraph::query::Expression *coordinator_socket_address_{nullptr};
+  memgraph::query::Expression *raft_socket_address_{nullptr};
+  memgraph::query::Expression *raft_server_id_{nullptr};
+  memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
+
+  CoordinatorQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<CoordinatorQuery>();
+    object->action_ = action_;
+    object->instance_name_ = instance_name_;
+    object->replication_socket_address_ =
+        replication_socket_address_ ? replication_socket_address_->Clone(storage) : nullptr;
+    object->sync_mode_ = sync_mode_;
+    object->coordinator_socket_address_ =
+        coordinator_socket_address_ ? coordinator_socket_address_->Clone(storage) : nullptr;
+    object->raft_socket_address_ = raft_socket_address_ ? raft_socket_address_->Clone(storage) : nullptr;
+    object->raft_server_id_ = raft_server_id_ ? raft_server_id_->Clone(storage) : nullptr;
+
     return object;
   }
 
@@ -3520,6 +3573,65 @@ class Exists : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
+class PatternComprehension : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  PatternComprehension() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      if (variable_) {
+        variable_->Accept(visitor);
+      }
+      pattern_->Accept(visitor);
+      if (filter_) {
+        filter_->Accept(visitor);
+      }
+      resultExpr_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  PatternComprehension *MapTo(const Symbol &symbol) {
+    symbol_pos_ = symbol.position();
+    return this;
+  }
+
+  // The variable name.
+  Identifier *variable_{nullptr};
+  // The pattern to match.
+  Pattern *pattern_{nullptr};
+  // Optional WHERE clause for filtering.
+  Where *filter_{nullptr};
+  // The projection expression.
+  Expression *resultExpr_{nullptr};
+
+  /// Symbol table position of the symbol this Aggregation is mapped to.
+  int32_t symbol_pos_{-1};
+
+  PatternComprehension *Clone(AstStorage *storage) const override {
+    PatternComprehension *object = storage->Create<PatternComprehension>();
+    object->pattern_ = pattern_ ? pattern_->Clone(storage) : nullptr;
+    object->filter_ = filter_ ? filter_->Clone(storage) : nullptr;
+    object->resultExpr_ = resultExpr_ ? resultExpr_->Clone(storage) : nullptr;
+
+    object->symbol_pos_ = symbol_pos_;
+    return object;
+  }
+
+ protected:
+  PatternComprehension(Identifier *variable, Pattern *pattern) : variable_(variable), pattern_(pattern) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class CallSubquery : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
@@ -3553,7 +3665,7 @@ class MultiDatabaseQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  enum class Action { CREATE, USE, DROP };
+  enum class Action { CREATE, USE, DROP, SHOW };
 
   memgraph::query::MultiDatabaseQuery::Action action_;
   std::string db_name_;

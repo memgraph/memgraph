@@ -143,7 +143,7 @@ order : ORDER BY sortItem ( ',' sortItem )* ;
 
 skip : L_SKIP expression ;
 
-limit : LIMIT expression ;
+limit : LIMIT ( expression | parameter ) ;
 
 sortItem : expression ( ASCENDING | ASC | DESCENDING | DESC )? ;
 
@@ -193,7 +193,7 @@ nodeLabels : nodeLabel ( nodeLabel )* ;
 
 nodeLabel : ':' labelName ;
 
-labelName : symbolicName ;
+labelName : symbolicName | parameter;
 
 relTypeName : symbolicName ;
 
@@ -296,7 +296,7 @@ functionName : symbolicName ( '.' symbolicName )* ;
 
 listComprehension : '[' filterExpression ( '|' expression )? ']' ;
 
-patternComprehension : '[' ( variable '=' )? relationshipsPattern ( WHERE expression )? '|' expression ']' ;
+patternComprehension : '[' ( variable '=' )? relationshipsPattern ( where )? '|' resultExpr=expression ']' ;
 
 propertyLookup : '.' ( propertyKeyName ) ;
 

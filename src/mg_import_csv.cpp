@@ -32,7 +32,7 @@
 #include "utils/timer.hpp"
 #include "version.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 bool ValidateControlCharacter(const char *flagname, const std::string &value) {
   if (value.empty()) {
@@ -712,12 +712,11 @@ int main(int argc, char *argv[]) {
 
   std::unordered_map<NodeId, memgraph::storage::Gid> node_id_map;
   memgraph::storage::Config config{
-
-      .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
       .durability = {.storage_directory = FLAGS_data_directory,
                      .recover_on_startup = false,
                      .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED,
                      .snapshot_on_exit = true},
+      .salient = {.items = {.properties_on_edges = FLAGS_storage_properties_on_edges}},
   };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   auto store = memgraph::dbms::CreateInMemoryStorage(config, repl_state);

@@ -52,7 +52,7 @@ Feature: Parameters
             |   [1, 2, 3]    |
 
     Scenario: Parameters in match:
-	Given an empty graph
+	    Given an empty graph
         And having executed:
             """
             CREATE (a {x : 10})
@@ -66,3 +66,107 @@ Feature: Parameters
         Then the result should be:
             | a.x |
             | 10  |
+
+    Scenario: Label parameters in match:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Label1 {x : 10})
+            """
+        And parameters are:
+            | a     | 10     |
+            | label | Label1 |
+        When executing query:
+            """
+            MATCH (a:$label {x : $a}) RETURN a
+            """
+        Then the result should be:
+            | a                |
+            | (:Label1{x: 10}) |
+
+    Scenario: Label parameters in create and match
+        Given an empty graph
+        And parameters are:
+            | a     | 10     |
+            | label | Label1 |
+        When executing query:
+            """
+            CREATE (a:$label {x: $a})
+            """
+        When executing query:
+            """
+            MATCH (a:$label {x: $a}) RETURN a
+            """
+        Then the result should be:
+            | a                |
+            | (:Label1{x: 10}) |
+
+    Scenario: Label parameters in merge
+        Given an empty graph
+        And parameters are:
+            | a     | 10     |
+            | label | Label1 |
+        When executing query:
+            """
+            MERGE (a:$label {x: $a}) RETURN a
+            """
+        Then the result should be:
+            | a                |
+            | (:Label1{x: 10}) |
+
+    Scenario: Label parameters in set label
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Label1 {x : 10})
+            """
+        And parameters are:
+            | new_label | Label2 |
+        When executing query:
+            """
+            MATCH (a:Label1 {x: 10}) SET a:$new_label
+            """
+        When executing query:
+            """
+            MATCH (a:Label1:Label1 {x: 10}) RETURN a
+            """
+        Then the result should be:
+            | a                        |
+            | (:Label1:Label2 {x: 10}) |
+
+    Scenario: Label parameters in remove label
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Label1:LabelToRemove {x : 10})
+            """
+        And parameters are:
+            | label_to_remove | LabelToRemove |
+        When executing query:
+            """
+            MATCH (a {x: 10}) REMOVE a:$label_to_remove
+            """
+        When executing query:
+            """
+            MATCH (a {x: 10}) RETURN a
+            """
+        Then the result should be:
+            | a                 |
+            | (:Label1 {x: 10}) |
+
+    Scenario: Parameters for limit in return returnBody
+        Given an empty graph
+        And having executed:
+            """
+            FOREACH (id IN range(1, 10) | CREATE (:Node {id: id}))
+            """
+        And parameters are:
+            | limit | 2 |
+        When executing query:
+            """
+            MATCH (n) RETURN n LIMIT $limit
+            """
+        Then the result should be:
+            | n               |
+            | (:Node {id: 1}) |
+            | (:Node {id: 2}) |

@@ -122,7 +122,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 
   /// GC method that removes outdated entries from constraints' storages.
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
   void Clear() override;
 

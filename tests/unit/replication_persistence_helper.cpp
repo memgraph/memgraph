@@ -13,6 +13,7 @@
 #include "replication/state.hpp"
 #include "replication/status.hpp"
 #include "utils/logging.hpp"
+#include "utils/uuid.hpp"
 
 #include <gtest/gtest.h>
 #include <fstream>
@@ -22,12 +23,7 @@
 
 using namespace memgraph::replication::durability;
 using namespace memgraph::replication;
-
-static_assert(sizeof(ReplicationRoleEntry) == 168,
-              "Most likely you modified ReplicationRoleEntry without updating the tests. ");
-
-static_assert(sizeof(ReplicationReplicaEntry) == 160,
-              "Most likely you modified ReplicationReplicaEntry without updating the tests.");
+using namespace memgraph::replication_coordination_glue;
 
 TEST(ReplicationDurability, V1Main) {
   auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V1,
@@ -53,6 +49,17 @@ TEST(ReplicationDurability, V2Main) {
   ASSERT_EQ(role_entry, deser);
 }
 
+TEST(ReplicationDurability, V3Main) {
+  auto const role_entry = ReplicationRoleEntry{
+      .version = DurabilityVersion::V3,
+      .role = MainRole{.epoch = ReplicationEpoch{"TEST_STRING"}, .main_uuid = memgraph::utils::UUID{}}};
+  nlohmann::json j;
+  to_json(j, role_entry);
+  ReplicationRoleEntry deser;
+  from_json(j, deser);
+  ASSERT_EQ(role_entry, deser);
+}
+
 TEST(ReplicationDurability, V1Replica) {
   auto const role_entry =
       ReplicationRoleEntry{.version = DurabilityVersion::V1,
@@ -71,6 +78,33 @@ TEST(ReplicationDurability, V2Replica) {
       ReplicationRoleEntry{.version = DurabilityVersion::V2,
                            .role = ReplicaRole{
                                .config = ReplicationServerConfig{.ip_address = "000.123.456.789", .port = 2023},
+                           }};
+  nlohmann::json j;
+  to_json(j, role_entry);
+  ReplicationRoleEntry deser;
+  from_json(j, deser);
+  ASSERT_EQ(role_entry, deser);
+}
+
+TEST(ReplicationDurability, V3ReplicaNoMain) {
+  auto const role_entry =
+      ReplicationRoleEntry{.version = DurabilityVersion::V3,
+                           .role = ReplicaRole{
+                               .config = ReplicationServerConfig{.ip_address = "000.123.456.789", .port = 2023},
+                           }};
+  nlohmann::json j;
+  to_json(j, role_entry);
+  ReplicationRoleEntry deser;
+  from_json(j, deser);
+  ASSERT_EQ(role_entry, deser);
+}
+
+TEST(ReplicationDurability, V3ReplicaMain) {
+  auto const role_entry =
+      ReplicationRoleEntry{.version = DurabilityVersion::V2,
+                           .role = ReplicaRole{
+                               .config = ReplicationServerConfig{.ip_address = "000.123.456.789", .port = 2023},
+                               .main_uuid = memgraph::utils::UUID{},
                            }};
   nlohmann::json j;
   to_json(j, role_entry);

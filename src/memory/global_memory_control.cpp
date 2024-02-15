@@ -60,10 +60,11 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
                unsigned arena_ind) {
   // This needs to be before, to throw exception in case of too big alloc
   if (*commit) [[likely]] {
-    memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
     if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
       GetQueriesMemoryControl().TrackAllocOnCurrentThread(size);
     }
+    // This needs to be here so it doesn't get incremented in case the first TrackAlloc throws an exception
+    memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
   }
 
   auto *ptr = old_hooks->alloc(extent_hooks, new_addr, size, alignment, zero, commit, arena_ind);
@@ -117,10 +118,10 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
     return err;
   }
 
-  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
   if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
-    GetQueriesMemoryControl().TrackAllocOnCurrentThread(size);
+    GetQueriesMemoryControl().TrackAllocOnCurrentThread(length);
   }
+  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
 
   return false;
 }

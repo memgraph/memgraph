@@ -49,7 +49,7 @@ int main(int argc, char **argv) {
         const auto label_name = (*data)[0][1].ValueString();
         const auto property_name = (*data)[0][2].ValueList()[0].ValueString();
         if (label_name != "Node" || property_name != "id") {
-          LOG_FATAL("{} does NOT hava valid constraint created.", database_endpoint.SocketAddress());
+          LOG_FATAL("{} does NOT have a valid constraint created.", database_endpoint.SocketAddress());
         }
       } else {
         LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint.SocketAddress());

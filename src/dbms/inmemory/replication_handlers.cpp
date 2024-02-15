@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "dbms/inmemory/replication_handlers.hpp"
+#include <chrono>
 #include <optional>
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
@@ -23,7 +24,7 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Delta;
 using memgraph::storage::EdgeAccessor;
 using memgraph::storage::EdgeRef;
@@ -50,83 +51,142 @@ std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *de
   }
 };
 
-std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handler, std::string_view db_name) {
+std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handler, const utils::UUID &uuid) {
   try {
 #ifdef MG_ENTERPRISE
-    auto acc = dbms_handler->Get(db_name);
-#else
-    if (db_name != dbms::kDefaultDB) {
-      spdlog::warn("Trying to replicate a non-default database on a community replica.");
-      return std::nullopt;
-    }
-    auto acc = dbms_handler->Get();
-#endif
+    auto acc = dbms_handler->Get(uuid);
     if (!acc) {
-      spdlog::error("Failed to get access to ", db_name);
+      spdlog::error("Failed to get access to UUID ", std::string{uuid});
       return std::nullopt;
     }
+#else
+    auto acc = dbms_handler->Get();
+    if (!acc) {
+      spdlog::warn("Failed to get access to the default db.");
+      return std::nullopt;
+    }
+#endif
     auto *inmem_storage = dynamic_cast<storage::InMemoryStorage *>(acc.get()->storage());
     if (!inmem_storage || inmem_storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-      spdlog::error("Database \"{}\" is not IN_MEMORY_TRANSACTIONAL.", db_name);
+      spdlog::error("Database is not IN_MEMORY_TRANSACTIONAL.");
       return std::nullopt;
     }
     return std::optional{std::move(acc)};
   } catch (const dbms::UnknownDatabaseException &e) {
-    spdlog::warn("No database \"{}\" on replica!", db_name);
+    spdlog::warn("No database with UUID \"{}\" on replica!", std::string{uuid});
     return std::nullopt;
   }
 }
+
+void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
+                  std::string_view rpc_req) {
+  spdlog::error("Received {} with main_id: {} != current_main_uuid: {}", rpc_req, std::string(main_req_id),
+                current_main_uuid.has_value() ? std::string(current_main_uuid.value()) : "");
+}
 }  // namespace
 
-void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::ReplicationServer &server) {
-  server.rpc_server_.Register<storage::replication::HeartbeatRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received HeartbeatRpc");
-    InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, req_reader, res_builder);
-  });
-  server.rpc_server_.Register<storage::replication::AppendDeltasRpc>(
-      [dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received AppendDeltasRpc");
-        InMemoryReplicationHandlers::AppendDeltasHandler(dbms_handler, req_reader, res_builder);
+void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
+  auto &server = *data.server;
+  server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received HeartbeatRpc");
+        InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
-  server.rpc_server_.Register<storage::replication::SnapshotRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received SnapshotRpc");
-    InMemoryReplicationHandlers::SnapshotHandler(dbms_handler, req_reader, res_builder);
-  });
-  server.rpc_server_.Register<storage::replication::WalFilesRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received WalFilesRpc");
-    InMemoryReplicationHandlers::WalFilesHandler(dbms_handler, req_reader, res_builder);
-  });
-  server.rpc_server_.Register<storage::replication::CurrentWalRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received CurrentWalRpc");
-    InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, req_reader, res_builder);
-  });
-  server.rpc_server_.Register<storage::replication::TimestampRpc>([dbms_handler](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received TimestampRpc");
-    InMemoryReplicationHandlers::TimestampHandler(dbms_handler, req_reader, res_builder);
-  });
+  server.rpc_server_.Register<storage::replication::AppendDeltasRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received AppendDeltasRpc");
+        InMemoryReplicationHandlers::AppendDeltasHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<storage::replication::SnapshotRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received SnapshotRpc");
+        InMemoryReplicationHandlers::SnapshotHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<storage::replication::WalFilesRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received WalFilesRpc");
+        InMemoryReplicationHandlers::WalFilesHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<storage::replication::CurrentWalRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received CurrentWalRpc");
+        InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<storage::replication::TimestampRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received TimestampRpc");
+        InMemoryReplicationHandlers::TimestampHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received SwapMainUUIDHandler");
+        InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, req_reader, res_builder);
+      });
 }
 
-void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                   slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler,
+                                                      replication::RoleReplicaData &role_replica_data,
+                                                      slk::Reader *req_reader, slk::Builder *res_builder) {
+  if (!dbms_handler->IsReplica()) {
+    spdlog::error("Setting main uuid must be performed on replica.");
+    slk::Save(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
+    return;
+  }
+
+  replication_coordination_glue::SwapMainUUIDReq req;
+  slk::Load(&req, req_reader);
+  spdlog::info(fmt::format("Set replica data UUID  to main uuid {}", std::string(req.uuid)));
+  dbms_handler->ReplicationState().TryPersistRoleReplica(role_replica_data.config, req.uuid);
+  role_replica_data.uuid_ = req.uuid;
+
+  slk::Save(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
+}
+
+void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handler,
+                                                   const std::optional<utils::UUID> &current_main_uuid,
+                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
-  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
-  if (!db_acc) return;
+  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
 
+  if (!current_main_uuid.has_value() || req.main_uuid != *current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
+    storage::replication::HeartbeatRes res{false, 0, ""};
+    slk::Save(res, res_builder);
+    return;
+  }
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
+  if (!db_acc.has_value()) {
+    spdlog::warn("No database accessor");
+    storage::replication::HeartbeatRes res{false, 0, ""};
+    slk::Save(res, res_builder);
+    return;
+  }
   auto const *storage = db_acc->get()->storage();
-  storage::replication::HeartbeatRes res{storage->id(), true,
-                                         storage->repl_storage_state_.last_commit_timestamp_.load(),
+  storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load(),
                                          std::string{storage->repl_storage_state_.epoch_.id()}};
   slk::Save(res, res_builder);
 }
 
-void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                      slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler,
+                                                      const std::optional<utils::UUID> &current_main_uuid,
+                                                      slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::AppendDeltasReq req;
   slk::Load(&req, req_reader);
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
-  if (!db_acc) return;
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::AppendDeltasReq::kType.name);
+    storage::replication::AppendDeltasRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  if (!db_acc) {
+    storage::replication::AppendDeltasRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   storage::replication::Decoder decoder(req_reader);
 
@@ -166,7 +226,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
           storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
     }
 
-    storage::replication::AppendDeltasRes res{storage->id(), false, repl_storage_state.last_commit_timestamp_.load()};
+    storage::replication::AppendDeltasRes res{false, repl_storage_state.last_commit_timestamp_.load()};
     slk::Save(res, res_builder);
     return;
   }
@@ -175,17 +235,28 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
       storage, &decoder,
       storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
 
-  storage::replication::AppendDeltasRes res{storage->id(), true, repl_storage_state.last_commit_timestamp_.load()};
+  storage::replication::AppendDeltasRes res{true, repl_storage_state.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
 
-void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                  slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handler,
+                                                  const std::optional<utils::UUID> &current_main_uuid,
+                                                  slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
   slk::Load(&req, req_reader);
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
-  if (!db_acc) return;
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  if (!db_acc) {
+    storage::replication::SnapshotRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
+    storage::replication::SnapshotRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   storage::replication::Decoder decoder(req_reader);
 
@@ -233,8 +304,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   }
   storage_guard.unlock();
 
-  storage::replication::SnapshotRes res{storage->id(), true,
-                                        storage->repl_storage_state_.last_commit_timestamp_.load()};
+  storage::replication::SnapshotRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
@@ -260,12 +330,23 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   spdlog::debug("Replication recovery from snapshot finished!");
 }
 
-void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                  slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
+                                                  const std::optional<utils::UUID> &current_main_uuid,
+                                                  slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::WalFilesReq req;
   slk::Load(&req, req_reader);
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
-  if (!db_acc) return;
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  if (!db_acc) {
+    storage::replication::WalFilesRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
+    storage::replication::WalFilesRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   const auto wal_file_number = req.file_number;
   spdlog::debug("Received WAL files: {}", wal_file_number);
@@ -279,18 +360,29 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
     LoadWal(storage, &decoder);
   }
 
-  storage::replication::WalFilesRes res{storage->id(), true,
-                                        storage->repl_storage_state_.last_commit_timestamp_.load()};
+  storage::replication::WalFilesRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
 }
 
-void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                    slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_handler,
+                                                    const std::optional<utils::UUID> &current_main_uuid,
+                                                    slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::CurrentWalReq req;
   slk::Load(&req, req_reader);
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
-  if (!db_acc) return;
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  if (!db_acc) {
+    storage::replication::CurrentWalRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
+    storage::replication::CurrentWalRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   storage::replication::Decoder decoder(req_reader);
 
@@ -299,8 +391,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   LoadWal(storage, &decoder);
 
-  storage::replication::CurrentWalRes res{storage->id(), true,
-                                          storage->repl_storage_state_.last_commit_timestamp_.load()};
+  storage::replication::CurrentWalRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
 }
@@ -319,6 +410,8 @@ void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
     }
     auto &replica_epoch = storage->repl_storage_state_.epoch_;
     if (wal_info.epoch_id != replica_epoch.id()) {
+      // questionable behaviour, we trust that any change in epoch implies change in who is MAIN
+      // when we use high availability, this assumption need to be checked.
       auto prev_epoch = replica_epoch.SetEpoch(wal_info.epoch_id);
       storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
     }
@@ -352,17 +445,28 @@ void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
   }
 }
 
-void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handler, slk::Reader *req_reader,
-                                                   slk::Builder *res_builder) {
+void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handler,
+                                                   const std::optional<utils::UUID> &current_main_uuid,
+                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::TimestampReq req;
   slk::Load(&req, req_reader);
-  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.db_name);
-  if (!db_acc) return;
+  auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  if (!db_acc) {
+    storage::replication::TimestampRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::TimestampReq::kType.name);
+    storage::replication::CurrentWalRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();
-  storage::replication::TimestampRes res{storage->id(), true,
-                                         storage->repl_storage_state_.last_commit_timestamp_.load()};
+  storage::replication::TimestampRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 }
 
@@ -506,7 +610,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
       case WalDeltaData::Type::EDGE_SET_PROPERTY: {
         spdlog::trace("       Edge {} set property {} to {}", delta.vertex_edge_set_property.gid.AsUint(),
                       delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
-        if (!storage->config_.items.properties_on_edges)
+        if (!storage->config_.salient.items.properties_on_edges)
           throw utils::BasicException(
               "Can't set properties on edges because properties on edges "
               "are disabled!");
@@ -573,8 +677,8 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         spdlog::trace("       Transaction end");
         if (!commit_timestamp_and_accessor || commit_timestamp_and_accessor->first != timestamp)
           throw utils::BasicException("Invalid commit data!");
-        auto ret =
-            commit_timestamp_and_accessor->second.Commit(commit_timestamp_and_accessor->first, false /* not main */);
+        auto ret = commit_timestamp_and_accessor->second.Commit(
+            {.desired_commit_timestamp = commit_timestamp_and_accessor->first, .is_main = false});
         if (ret.HasError())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         commit_timestamp_and_accessor = std::nullopt;

@@ -12,10 +12,12 @@
 
 #include "flags/audit.hpp"
 #include "flags/bolt.hpp"
+#include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/isolation_level.hpp"
 #include "flags/log_level.hpp"
 #include "flags/memory_limit.hpp"
 #include "flags/query.hpp"
+#include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "flags/storage_mode.hpp"

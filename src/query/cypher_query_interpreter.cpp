@@ -12,7 +12,6 @@
 #include "query/cypher_query_interpreter.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "utils/synchronized.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
@@ -80,7 +79,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     // Convert the ANTLR4 parse tree into an AST.
     AstStorage ast_storage;
     frontend::ParsingContext context{.is_query_cached = true};
-    frontend::CypherMainVisitor visitor(context, &ast_storage);
+    frontend::CypherMainVisitor visitor(context, &ast_storage, &parameters);
 
     visitor.visit(parser->tree());
 

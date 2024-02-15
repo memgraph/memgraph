@@ -235,6 +235,7 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(ParameterLookup &op) override{};
   void Visit(NamedExpression &op) override{};
   void Visit(RegexMatch &op) override{};
+  void Visit(PatternComprehension &op) override{};
 
   std::vector<FilterMatching> getMatchings();
 
@@ -305,11 +306,11 @@ struct FilterInfo {
   // TODO(gitbuda): What's the best solution for FilterInfo -> full constructor in c++?
   //   * If no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
   //   * If any user-declared constructor -> non-aggregate type -> no designated initializers
-  ~FilterInfo();
-  FilterInfo(const FilterInfo &);
-  FilterInfo &operator=(const FilterInfo &);
-  FilterInfo(FilterInfo &&) noexcept;
-  FilterInfo &operator=(FilterInfo &&) noexcept;
+  // ~FilterInfo();
+  // FilterInfo(const FilterInfo &);
+  // FilterInfo &operator=(const FilterInfo &);
+  // FilterInfo(FilterInfo &&) noexcept;
+  // FilterInfo &operator=(FilterInfo &&) noexcept;
 
   Type type{Type::Generic};
   /// The original filter expression which must be satisfied.
@@ -343,34 +344,15 @@ class Filters final {
 
   auto empty() const { return all_filters_.empty(); }
 
-  auto erase(iterator pos) { return all_filters_.erase(pos); }
-  auto erase(const_iterator pos) { return all_filters_.erase(pos); }
-  auto erase(iterator first, iterator last) { return all_filters_.erase(first, last); }
-  auto erase(const_iterator first, const_iterator last) { return all_filters_.erase(first, last); }
+  auto erase(iterator pos) -> iterator;
+  auto erase(const_iterator pos) -> iterator;
+  auto erase(iterator first, iterator last) -> iterator;
+  auto erase(const_iterator first, const_iterator last) -> iterator;
 
   void SetFilters(std::vector<FilterInfo> &&all_filters) { all_filters_ = std::move(all_filters); }
 
-  auto FilteredLabels(const Symbol &symbol) const {
-    std::unordered_set<LabelIx> labels;
-    for (const auto &filter : all_filters_) {
-      if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
-        MG_ASSERT(filter.used_symbols.size() == 1U, "Expected a single used symbol for label filter");
-        labels.insert(filter.labels.begin(), filter.labels.end());
-      }
-    }
-    return labels;
-  }
-
-  auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx> {
-    std::unordered_set<PropertyIx> properties;
-
-    for (const auto &filter : all_filters_) {
-      if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
-        properties.insert(filter.property_filter->property_);
-      }
-    }
-    return properties;
-  }
+  auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
+  auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx>;
 
   /// Remove a filter; may invalidate iterators.
   /// Removal is done by comparing only the expression, so that multiple
@@ -380,29 +362,14 @@ class Filters final {
   /// Remove a label filter for symbol; may invalidate iterators.
   /// If removed_filters is not nullptr, fills the vector with original
   /// `Expression *` which are now completely removed.
-  void EraseLabelFilter(const Symbol &, LabelIx, std::vector<Expression *> *removed_filters = nullptr);
+  void EraseLabelFilter(const Symbol &symbol, const LabelIx &label,
+                        std::vector<Expression *> *removed_filters = nullptr);
 
   /// Returns a vector of FilterInfo for properties.
-  auto PropertyFilters(const Symbol &symbol) const {
-    std::vector<FilterInfo> filters;
-    for (const auto &filter : all_filters_) {
-      if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
-        filters.push_back(filter);
-      }
-    }
-    return filters;
-  }
+  auto PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
 
   /// Return a vector of FilterInfo for ID equality filtering.
-  auto IdFilters(const Symbol &symbol) const {
-    std::vector<FilterInfo> filters;
-    for (const auto &filter : all_filters_) {
-      if (filter.type == FilterInfo::Type::Id && filter.id_filter->symbol_ == symbol) {
-        filters.push_back(filter);
-      }
-    }
-    return filters;
-  }
+  auto IdFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
 
   /// Collects filtering information from a pattern.
   ///
@@ -471,6 +438,57 @@ struct FilterMatching : Matching {
   /// Symbol for the filter expression
   std::optional<Symbol> symbol;
 };
+
+inline auto Filters::erase(Filters::iterator pos) -> iterator { return all_filters_.erase(pos); }
+inline auto Filters::erase(Filters::const_iterator pos) -> iterator { return all_filters_.erase(pos); }
+inline auto Filters::erase(Filters::iterator first, Filters::iterator last) -> iterator {
+  return all_filters_.erase(first, last);
+}
+inline auto Filters::erase(Filters::const_iterator first, Filters::const_iterator last) -> iterator {
+  return all_filters_.erase(first, last);
+}
+
+inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx> {
+  std::unordered_set<LabelIx> labels;
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
+      MG_ASSERT(filter.used_symbols.size() == 1U, "Expected a single used symbol for label filter");
+      labels.insert(filter.labels.begin(), filter.labels.end());
+    }
+  }
+  return labels;
+}
+
+inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx> {
+  std::unordered_set<PropertyIx> properties;
+
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
+      properties.insert(filter.property_filter->property_);
+    }
+  }
+  return properties;
+}
+
+inline auto Filters::PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
+  std::vector<FilterInfo> filters;
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
+      filters.push_back(filter);
+    }
+  }
+  return filters;
+}
+
+inline auto Filters::IdFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
+  std::vector<FilterInfo> filters;
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Id && filter.id_filter->symbol_ == symbol) {
+      filters.push_back(filter);
+    }
+  }
+  return filters;
+}
 
 /// @brief Represents a read (+ write) part of a query. Parts are split on
 /// `WITH` clauses.

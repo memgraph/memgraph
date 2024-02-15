@@ -8,14 +8,4 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-
-#pragma once
-
-#include "dbms/dbms_handler.hpp"
-#include "replication/replication_client.hpp"
-
-namespace memgraph::dbms {
-
-void StartReplicaClient(DbmsHandler &dbms_handler, replication::ReplicationClient &client);
-
-}  // namespace memgraph::dbms
+#include "system/include/system/action.hpp"

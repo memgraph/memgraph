@@ -23,6 +23,7 @@
 // variable of the same name, EOF.
 // This hides the definition of the macro which causes
 // the compilation to fail.
+#include "query/parameters.hpp"
 #include "query/plan/planner.hpp"
 //////////////////////////////////////////////////////
 #include "communication/result_stream_faker.hpp"
@@ -32,7 +33,7 @@
 #include "query/interpreter.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 // The following classes are wrappers for memgraph::utils::MemoryResource, so that we can
 // use BENCHMARK_TEMPLATE
@@ -119,10 +120,11 @@ static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
 static memgraph::query::CypherQuery *ParseCypherQuery(const std::string &query_string,
                                                       memgraph::query::AstStorage *ast) {
   memgraph::query::frontend::ParsingContext parsing_context;
+  memgraph::query::Parameters parameters;
   parsing_context.is_query_cached = false;
   memgraph::query::frontend::opencypher::Parser parser(query_string);
   // Convert antlr4 AST into Memgraph AST.
-  memgraph::query::frontend::CypherMainVisitor cypher_visitor(parsing_context, ast);
+  memgraph::query::frontend::CypherMainVisitor cypher_visitor(parsing_context, ast, &parameters);
   cypher_visitor.visit(parser.tree());
   return memgraph::utils::Downcast<memgraph::query::CypherQuery>(cypher_visitor.query());
 };

@@ -80,7 +80,7 @@ std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::De
   std::vector<memgraph::communication::bolt::Value> decoded_values;
   decoded_values.reserve(values.size());
   for (const auto &v : values) {
-    auto maybe_value = memgraph::glue::ToBoltValue(v, *storage_, memgraph::storage::View::NEW);
+    auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -112,14 +112,14 @@ std::string SessionHL::GetDefaultDB() {
   if (user_.has_value()) {
     return user_->db_access().GetDefault();
   }
-  return memgraph::dbms::kDefaultDB;
+  return std::string{memgraph::dbms::kDefaultDB};
 }
 #endif
 
 std::string SessionHL::GetCurrentDB() const {
   if (!interpreter_.current_db_.db_acc_) return "";
   const auto *db = interpreter_.current_db_.db_acc_->get();
-  return db->id();
+  return db->name();
 }
 
 std::optional<std::string> SessionHL::GetServerNameForInit() {
@@ -167,10 +167,10 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Discard(s
 std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(SessionHL::TEncoder *encoder,
                                                                             std::optional<int> n,
                                                                             std::optional<int> qid) {
-  // TODO: Update once interpreter can handle non-database queries (db_acc will be nullopt)
-  auto *db = interpreter_.current_db_.db_acc_->get();
   try {
-    TypedValueResultStream<TEncoder> stream(encoder, db->storage());
+    auto &db = interpreter_.current_db_.db_acc_;
+    auto *storage = db ? db->get()->storage() : nullptr;
+    TypedValueResultStream<TEncoder> stream(encoder, storage);
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     // Count the number of specific exceptions thrown
@@ -193,17 +193,17 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
   for (const auto &[key, bolt_param] : params) {
     params_pv.emplace(key, ToPropertyValue(bolt_param));
   }
+
+#ifdef MG_ENTERPRISE
   const std::string *username{nullptr};
   if (user_) {
     username = &user_->username();
   }
 
-#ifdef MG_ENTERPRISE
-  // TODO: Update once interpreter can handle non-database queries (db_acc will be nullopt)
-  auto *db = interpreter_.current_db_.db_acc_->get();
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    auto &db = interpreter_.current_db_.db_acc_;
     audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                       memgraph::storage::PropertyValue(params_pv), db->id());
+                       memgraph::storage::PropertyValue(params_pv), db ? db->get()->name() : "no known database");
   }
 #endif
   try {
@@ -319,8 +319,7 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
 SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
                      memgraph::communication::v2::ServerEndpoint endpoint,
                      memgraph::communication::v2::InputStream *input_stream,
-                     memgraph::communication::v2::OutputStream *output_stream,
-                     memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
+                     memgraph::communication::v2::OutputStream *output_stream, memgraph::auth::SynchedAuth *auth
 #ifdef MG_ENTERPRISE
                      ,
                      memgraph::audit::Log *audit_log
@@ -351,11 +350,11 @@ SessionHL::~SessionHL() {
 
 std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSummary(
     const std::map<std::string, memgraph::query::TypedValue> &summary) {
-  // TODO: Update once interpreter can handle non-database queries (db_acc will be nullopt)
-  auto *db = interpreter_.current_db_.db_acc_->get();
+  auto &db_acc = interpreter_.current_db_.db_acc_;
+  auto *storage = db_acc ? db_acc->get()->storage() : nullptr;
   std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
   for (const auto &kv : summary) {
-    auto maybe_value = ToBoltValue(kv.second, *db->storage(), memgraph::storage::View::NEW);
+    auto maybe_value = ToBoltValue(kv.second, storage, memgraph::storage::View::NEW);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:

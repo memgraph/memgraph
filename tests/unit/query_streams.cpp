@@ -104,7 +104,14 @@ class StreamsTestFixture : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
-  memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{}, nullptr, &repl_state};
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{}, nullptr, &repl_state,
+                                                           system_state
+#ifdef MG_ENTERPRISE
+                                                           ,
+                                                           nullptr
+#endif
+  };
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<StreamsTest> proxyStreams_;
 

@@ -105,11 +105,15 @@ class Client {
       utils::OnScopeExit res_cleanup([&, response_data_size] { self_->client_->ShiftData(response_data_size); });
 
       utils::TypeId res_id{utils::TypeId::UNKNOWN};
-      slk::Load(&res_id, &res_reader);
-
       // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
       rpc::Version version;
-      slk::Load(&version, &res_reader);
+
+      try {
+        slk::Load(&res_id, &res_reader);
+        slk::Load(&version, &res_reader);
+      } catch (const slk::SlkReaderException &) {
+        throw SlkRpcFailedException();
+      }
 
       if (version != rpc::current_version) {
         // V1 we introduced versioning with, absolutely no backwards compatibility,
@@ -210,7 +214,6 @@ class Client {
     // Build and send the request.
     slk::Save(req_type.id, handler.GetBuilder());
     slk::Save(rpc::current_version, handler.GetBuilder());
-
     TRequestResponse::Request::Save(request, handler.GetBuilder());
 
     // Return the handler to the user.

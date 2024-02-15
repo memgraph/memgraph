@@ -504,7 +504,7 @@ void OutputFile::Close() noexcept {
 void OutputFile::FlushBuffer(bool force_flush) {
   MG_ASSERT(IsOpen(), "Flushing an unopend file.");
 
-  if (!force_flush && buffer_position_.load() < kFileBufferSize) return;
+  if (!force_flush && buffer_position_ < kFileBufferSize) return;
 
   std::unique_lock flush_guard(flush_lock_);
   FlushBufferInternal();

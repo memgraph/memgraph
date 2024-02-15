@@ -85,6 +85,8 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
+  auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
+  auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
   Gid Gid() const noexcept;
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }

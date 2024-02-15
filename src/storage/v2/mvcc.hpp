@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -114,8 +114,8 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
     return nullptr;
   }
   transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.use().emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
-                                                 transaction->command_id);
+  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
+                                           transaction->command_id);
 }
 
 inline Delta *CreateDeleteObjectDelta(Transaction *transaction, std::list<Delta> *deltas) {
@@ -133,19 +133,19 @@ inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std:
   transaction->EnsureCommitTimestampExists();
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
-  return &transaction->deltas.use().emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, old_disk_key);
+  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
 }
 
 inline Delta *CreateDeleteDeserializedObjectDelta(std::list<Delta> *deltas, std::optional<std::string> old_disk_key,
                                                   std::string &&ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
-  return &deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, old_disk_key);
+  return &deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
 }
 
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
                                                        std::optional<std::string> old_disk_key, const uint64_t ts) {
-  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts, old_disk_key);
+  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts, std::move(old_disk_key));
 }
 
 /// TODO: what if in-memory analytical
@@ -165,8 +165,8 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
     return;
   }
   transaction->EnsureCommitTimestampExists();
-  auto delta = &transaction->deltas.use().emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
-                                                       transaction->command_id);
+  auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
+                                                 transaction->command_id);
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times

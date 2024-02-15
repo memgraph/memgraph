@@ -84,10 +84,6 @@ DECLARE_bool(storage_parallel_schema_recovery);
 DECLARE_uint64(storage_recovery_thread_count);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_enable_schema_metadata);
-#ifdef MG_ENTERPRISE
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(storage_delete_on_drop);
-#endif
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(telemetry_enabled);
@@ -117,13 +113,12 @@ auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
 }  // namespace memgraph::flags
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_uint64(replication_replica_check_frequency_sec);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(replication_restore_state_on_startup);
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(license_key);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(organization_name);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(auth_user_or_role_name_regex);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(auth_password_permit_null);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(auth_password_strength_regex);

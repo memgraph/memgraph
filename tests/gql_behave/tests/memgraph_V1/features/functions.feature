@@ -64,7 +64,7 @@ Feature: Functions
         Given an empty graph
         And having executed
             """
-            CREATE (:Node {prop: ToBoolean("t")});
+            CREATE (:Node {prop: TOBOOLEAN("t")});
             """
         When executing query:
             """
@@ -74,11 +74,11 @@ Feature: Functions
             | n.prop |
             | true   |
 
-    Scenario: ToBoolean test 03:
+    Scenario: ToBoolean test 04:
         Given an empty graph
         And having executed
             """
-            CREATE (:Node {prop: ToBoolean("f")});
+            CREATE (:Node {prop: TOBOOLEAN("f")});
             """
         When executing query:
             """
