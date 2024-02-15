@@ -26,7 +26,15 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 
 MEMGRAPH_INSTANCES_DESCRIPTION = {
     "instance_3": {
-        "args": ["--bolt-port", "7687", "--log-level", "TRACE", "--coordinator-server-port", "10013"],
+        "args": [
+            "--experimental-enabled=high-availability",
+            "--bolt-port",
+            "7687",
+            "--log-level",
+            "TRACE",
+            "--coordinator-server-port",
+            "10013",
+        ],
         "log_file": "main.log",
         "setup_queries": [],
     },
