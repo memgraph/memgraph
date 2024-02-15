@@ -1,4 +1,7 @@
 name: Release Debian 10
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
 
 on:
   workflow_dispatch:
@@ -13,6 +16,9 @@ on:
   push:
     branches:
       - "release/**"
+    tags:
+      - "v*.*.*-rc*"
+      - "v*.*-rc*"
   schedule:
     - cron: "0 22 * * *"
 
