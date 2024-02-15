@@ -140,5 +140,19 @@ auto CoordinatorClient::SendUnregisterReplicaRpc(std::string const &instance_nam
   return false;
 }
 
+auto CoordinatorClient::SendEnableWritingOnMainRpc() const -> bool {
+  try {
+    auto stream{rpc_client_.Stream<EnableWritingOnMainRpc>()};
+    if (!stream.AwaitResponse().success) {
+      spdlog::error("Failed to receive successful RPC response for enabling writing on main!");
+      return false;
+    }
+    return true;
+  } catch (rpc::RpcFailedException const &) {
+    spdlog::error("Failed to enable writing on main!");
+  }
+  return false;
+}
+
 }  // namespace memgraph::coordination
 #endif
