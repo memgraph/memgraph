@@ -97,11 +97,8 @@ void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHan
 }
 
 void CoordinatorHandlers::GetInstanceUUIDHandler(replication::ReplicationHandler &replication_handler,
-                                                 slk::Reader *req_reader, slk::Builder *res_builder) {
+                                                 slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
   spdlog::info("Executing GetInstanceUUIDHandler");
-
-  coordination::GetInstanceUUIDReq req;
-  slk::Load(&req, req_reader);
 
   slk::Save(coordination::GetInstanceUUIDRes{replication_handler.GetReplicaUUID()}, res_builder);
 }
