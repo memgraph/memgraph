@@ -122,58 +122,6 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   bool TrySetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
                                     const std::optional<utils::UUID> &main_uuid) override;
 
-  // as MAIN, become REPLICA
-  template <bool HandleIdempotency>
-  bool SetReplicationRoleReplica_(const memgraph::replication::ReplicationServerConfig &config,
-                                  const std::optional<utils::UUID> &main_uuid) {
-    if (!HandleIdempotency && repl_state_.IsReplica()) {
-      return false;
-    }
-    if (HandleIdempotency && repl_state_.IsReplica()) {
-      // We don't want to restart the server if we're already a REPLICA with correct config
-      auto &replica_data = std::get<memgraph::replication::RoleReplicaData>(repl_state_.ReplicationData());
-      if (replica_data.config == config) {
-        return true;
-      }
-      repl_state_.SetReplicationRoleReplica(config, main_uuid);
-#ifdef MG_ENTERPRISE
-      return StartRpcServer(dbms_handler_, replica_data, auth_, system_);
-#else
-      return StartRpcServer(dbms_handler_, replica_data);
-#endif
-    }
-
-    // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
-    //      deleting the replica.
-    // Remove database specific clients
-    dbms_handler_.ForEach([&](memgraph::dbms::DatabaseAccess db_acc) {
-      auto *storage = db_acc->storage();
-      storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
-    });
-    // Remove instance level clients
-    std::get<memgraph::replication::RoleMainData>(repl_state_.ReplicationData()).registered_replicas_.clear();
-
-    // Creates the server
-    repl_state_.SetReplicationRoleReplica(config, main_uuid);
-
-    // Start
-    const auto success =
-        std::visit(memgraph::utils::Overloaded{[](memgraph::replication::RoleMainData &) {
-                                                 // ASSERT
-                                                 return false;
-                                               },
-                                               [this](memgraph::replication::RoleReplicaData &data) {
-#ifdef MG_ENTERPRISE
-                                                 return StartRpcServer(dbms_handler_, data, auth_, system_);
-#else
-                                                 return StartRpcServer(dbms_handler_, data);
-#endif
-                                               }},
-                   repl_state_.ReplicationData());
-    // TODO Handle error (restore to main?)
-    return success;
-  }
-
   // as MAIN, define and connect to REPLICAs
   auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
       -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> override;
@@ -288,6 +236,57 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
     StartReplicaClient(*instance_client_ptr, dbms_handler_, main_uuid);
 #endif
     return {};
+  }
+
+  template <bool AllowIdempotency>
+  bool SetReplicationRoleReplica_(const memgraph::replication::ReplicationServerConfig &config,
+                                  const std::optional<utils::UUID> &main_uuid) {
+    if (repl_state_.IsReplica()) {
+      if (!AllowIdempotency) {
+        return false;
+      }
+      // We don't want to restart the server if we're already a REPLICA with correct config
+      auto &replica_data = std::get<memgraph::replication::RoleReplicaData>(repl_state_.ReplicationData());
+      if (replica_data.config == config) {
+        return true;
+      }
+      repl_state_.SetReplicationRoleReplica(config, main_uuid);
+#ifdef MG_ENTERPRISE
+      return StartRpcServer(dbms_handler_, replica_data, auth_, system_);
+#else
+      return StartRpcServer(dbms_handler_, replica_data);
+#endif
+    }
+
+    // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
+    //      deleting the replica.
+    // Remove database specific clients
+    dbms_handler_.ForEach([&](memgraph::dbms::DatabaseAccess db_acc) {
+      auto *storage = db_acc->storage();
+      storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+    });
+    // Remove instance level clients
+    std::get<memgraph::replication::RoleMainData>(repl_state_.ReplicationData()).registered_replicas_.clear();
+
+    // Creates the server
+    repl_state_.SetReplicationRoleReplica(config, main_uuid);
+
+    // Start
+    const auto success =
+        std::visit(memgraph::utils::Overloaded{[](memgraph::replication::RoleMainData &) {
+                                                 // ASSERT
+                                                 return false;
+                                               },
+                                               [this](memgraph::replication::RoleReplicaData &data) {
+#ifdef MG_ENTERPRISE
+                                                 return StartRpcServer(dbms_handler_, data, auth_, system_);
+#else
+                                                 return StartRpcServer(dbms_handler_, data);
+#endif
+                                               }},
+                   repl_state_.ReplicationData());
+    // TODO Handle error (restore to main?)
+    return success;
   }
 
   memgraph::replication::ReplicationState &repl_state_;

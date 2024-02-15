@@ -46,6 +46,10 @@ auto CoordinatorClient::InstanceDownTimeoutSec() const -> std::chrono::seconds {
   return config_.instance_down_timeout_sec;
 }
 
+auto CoordinatorClient::InstanceGetUUIDFrequencySec() const -> std::chrono::seconds {
+  return config_.instance_get_uuid_frequency_sec;
+}
+
 void CoordinatorClient::StartFrequentCheck() {
   if (instance_checker_.IsRunning()) {
     return;
@@ -141,7 +145,7 @@ auto CoordinatorClient::SendUnregisterReplicaRpc(std::string const &instance_nam
   return false;
 }
 
-auto CoordinatorClient::SendGetInstanceUUID() const
+auto CoordinatorClient::SendGetInstanceUUIDRpc() const
     -> utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>> {
   std::optional<utils::UUID> instance_uuid;
   try {

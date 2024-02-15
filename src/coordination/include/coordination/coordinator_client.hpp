@@ -58,7 +58,7 @@ class CoordinatorClient {
 
   auto SendEnableWritingOnMainRpc() const -> bool;
 
-  auto SendGetInstanceUUID() const -> memgraph::utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>>;
+  auto SendGetInstanceUUIDRpc() const -> memgraph::utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>>;
 
   auto ReplicationClientInfo() const -> ReplClientInfo;
 
@@ -67,6 +67,8 @@ class CoordinatorClient {
   auto RpcClient() -> rpc::Client & { return rpc_client_; }
 
   auto InstanceDownTimeoutSec() const -> std::chrono::seconds;
+
+  auto InstanceGetUUIDFrequencySec() const -> std::chrono::seconds;
 
   friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
     return first.config_ == second.config_;

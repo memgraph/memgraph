@@ -53,8 +53,7 @@ CoordinatorInstance::CoordinatorInstance()
     // We need to get id of main replica is listening to
     // and swap if necessary
     if (!repl_instance.EnsureReplicaHasCorrectMainUUID(self->GetMainUUID())) {
-      spdlog::error(
-          fmt::format("Failed to swap uuid for replica instance {} which is alive", repl_instance.InstanceName()));
+      spdlog::error("Failed to swap uuid for replica instance {} which is alive", repl_instance.InstanceName());
       return;
     }
 

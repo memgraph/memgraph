@@ -41,8 +41,8 @@ auto ReplicationInstance::OnFailPing() -> bool {
 }
 
 auto ReplicationInstance::IsReadyForUUIDPing() -> bool {
-  return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_check_of_uuid_)
-      .count();
+  return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_check_of_uuid_) >
+         client_.InstanceGetUUIDFrequencySec();
 }
 
 auto ReplicationInstance::InstanceName() const -> std::string { return client_.InstanceName(); }
@@ -129,7 +129,7 @@ auto ReplicationInstance::EnableWritingOnMain() -> bool { return client_.SendEna
 
 auto ReplicationInstance::SendGetInstanceUUID()
     -> utils::BasicResult<coordination::GetInstanceUUIDError, std::optional<utils::UUID>> {
-  return client_.SendGetInstanceUUID();
+  return client_.SendGetInstanceUUIDRpc();
 }
 
 void ReplicationInstance::UpdateReplicaLastResponseUUID() { last_check_of_uuid_ = std::chrono::system_clock::now(); }

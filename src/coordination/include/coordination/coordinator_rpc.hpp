@@ -144,8 +144,6 @@ struct GetInstanceUUIDReq {
   static void Save(const GetInstanceUUIDReq &self, memgraph::slk::Builder *builder);
 
   GetInstanceUUIDReq() = default;
-
-  bool success;
 };
 
 struct GetInstanceUUIDRes {
