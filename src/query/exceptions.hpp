@@ -433,4 +433,11 @@ class MultiDatabaseQueryInMulticommandTxException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(MultiDatabaseQueryInMulticommandTxException)
 };
 
+class DropGraphInMulticommandTxException : public QueryException {
+ public:
+  DropGraphInMulticommandTxException()
+      : QueryException("Drop graph can not be executed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(DropGraphInMulticommandTxException)
+};
+
 }  // namespace memgraph::query

@@ -295,6 +295,8 @@ class InMemoryStorage final : public Storage {
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
 
+    void DropGraph() override;
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc
@@ -349,6 +351,8 @@ class InMemoryStorage final : public Storage {
   void SetStorageMode(StorageMode storage_mode);
 
   const durability::Recovery &GetRecovery() const noexcept { return recovery_; }
+
+  void DropGraph();
 
  private:
   /// The force parameter determines the behaviour of the garbage collector.

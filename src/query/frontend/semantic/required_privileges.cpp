@@ -97,6 +97,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(EdgeImportModeQuery & /*edge_import_mode_query*/) override {}
 
+  void Visit(DropGraphQuery & /*drop_graph_query*/) override {}
+
   void Visit(VersionQuery & /*version_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 
   void Visit(MultiDatabaseQuery &query) override {

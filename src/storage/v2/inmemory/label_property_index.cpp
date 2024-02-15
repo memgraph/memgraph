@@ -495,4 +495,11 @@ void InMemoryLabelPropertyIndex::AbortEntries(LabelId label,
     }
   }
 }
+
+void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
+  for (auto &[label_prop, storage] : index_) {
+    storage.clear();
+  }
+}
+
 }  // namespace memgraph::storage

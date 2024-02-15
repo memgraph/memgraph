@@ -2164,6 +2164,68 @@ void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guar
   edges_.run_gc();
 }
 
+void InMemoryStorage::DropGraph() {
+  std::unique_lock main_guard{main_lock_};
+
+  auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
+    for (auto &delta : deltas) {
+      auto prev = delta.prev.Get();
+      switch (prev.type) {
+        case PreviousPtr::Type::NULLPTR:
+        case PreviousPtr::Type::DELTA:
+          break;
+        case PreviousPtr::Type::VERTEX: {
+          // safe because no other txn can be reading this while we have engine lock
+          auto &vertex = *prev.vertex;
+          vertex.delta = nullptr;
+          if (vertex.deleted) {
+            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+          }
+          break;
+        }
+        case PreviousPtr::Type::EDGE: {
+          // safe because no other txn can be reading this while we have engine lock
+          auto &edge = *prev.edge;
+          edge.delta = nullptr;
+          if (edge.deleted) {
+            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+          }
+          break;
+        }
+      }
+    }
+    // delete deltas
+    deltas.clear();
+  };
+
+  // STEP 1) ensure everything in GC is gone
+
+  // 1.a) old garbage_undo_buffers are safe to remove
+  //      we are the only transaction, no one is reading those unlinked deltas
+  garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
+
+  // 1.b.0) old committed_transactions_ need mininal unlinking + remove + clear
+  //      must be done before this transactions delta unlinking
+  auto linked_undo_buffers = std::list<GCDeltas>{};
+  committed_transactions_.WithLock(
+      [&](auto &committed_transactions) { committed_transactions.swap(linked_undo_buffers); });
+
+  // 1.b.1) unlink, gathering the removals
+  for (auto &gc_deltas : linked_undo_buffers) {
+    unlink_remove_clear(gc_deltas.deltas_);
+  }
+  // 1.b.2) clear the list of deltas deques
+  linked_undo_buffers.clear();
+
+  indices_.DropGraphClearIndices();
+  constraints_.DropGraphClearConstraints();
+
+  vertices_.clear();
+  edges_.clear();
+
+  memory::PurgeUnusedMemory();
+}
+
 uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
   if (!desired_commit_timestamp) {
     return timestamp_++;
@@ -2284,6 +2346,11 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryStorage::InMemoryAccessor::D
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()), label);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
   return res;
+}
+
+void InMemoryStorage::InMemoryAccessor::DropGraph() {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  mem_storage->DropGraph();
 }
 
 }  // namespace memgraph::storage

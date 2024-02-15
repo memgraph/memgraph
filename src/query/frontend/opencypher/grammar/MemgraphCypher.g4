@@ -157,6 +157,7 @@ query : cypherQuery
       | showDatabases
       | edgeImportModeQuery
       | coordinatorQuery
+      | dropGraphQuery
       ;
 
 cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -521,3 +522,5 @@ showDatabase : SHOW DATABASE ;
 showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
+
+dropGraphQuery : DROP GRAPH ;

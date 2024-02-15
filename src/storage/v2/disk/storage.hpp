@@ -173,6 +173,8 @@ class DiskStorage final : public Storage {
 
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
+
+    void DropGraph() override{};
   };
 
   using Storage::Access;

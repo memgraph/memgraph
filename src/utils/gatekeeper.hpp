@@ -104,7 +104,8 @@ struct Gatekeeper {
     friend Gatekeeper;
 
    private:
-    explicit Accessor(Gatekeeper *owner) : owner_{owner->pimpl_.get()} { ++owner_->count_; }
+    explicit Accessor(Gatekeeper *owner) : owner_{owner->pimpl_.get()} { (++owner_->count_;
+    }
 
    public:
     Accessor(Accessor const &other) : owner_{other.owner_} {
