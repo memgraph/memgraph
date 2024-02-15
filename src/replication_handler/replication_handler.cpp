@@ -192,12 +192,12 @@ bool ReplicationHandler::SetReplicationRoleMain() {
 
 bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
                                                    const std::optional<utils::UUID> &main_uuid) {
-  return SetReplicationRoleReplica_<true>(config, main_uuid);
+  return SetReplicationRoleReplica_<false>(config, main_uuid);
 }
 
 bool ReplicationHandler::TrySetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
                                                       const std::optional<utils::UUID> &main_uuid) {
-  return SetReplicationRoleReplica_<false>(config, main_uuid);
+  return SetReplicationRoleReplica_<true>(config, main_uuid);
 }
 
 bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) {

@@ -145,7 +145,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   auto GetReplicaUUID() -> std::optional<utils::UUID>;
 
  private:
-  template <bool ManualReplication>
+  template <bool AllowRPCFailure>
   auto RegisterReplica_(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
       -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
     MG_ASSERT(repl_state_.IsMain(), "Only main instance can register a replica!");
@@ -202,10 +202,13 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
             auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
             client->Start(storage, std::move(db_acc));
             bool const success = std::invoke([state = client->State()]() {
-              if (ManualReplication) {
-                return true;
+              if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
+                return false;
               }
-              return state != storage::replication::ReplicaState::DIVERGED_FROM_MAIN;
+              if (state == storage::replication::ReplicaState::MAYBE_BEHIND) {
+                return AllowRPCFailure;
+              }
+              return true;
             });
 
             if (success) {
