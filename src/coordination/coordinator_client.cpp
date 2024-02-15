@@ -147,20 +147,15 @@ auto CoordinatorClient::SendUnregisterReplicaRpc(std::string const &instance_nam
 
 auto CoordinatorClient::SendGetInstanceUUIDRpc() const
     -> utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>> {
-  std::optional<utils::UUID> instance_uuid;
   try {
     auto stream{rpc_client_.Stream<GetInstanceUUIDRpc>()};
     auto res = stream.AwaitResponse();
-    if (!res.uuid) {
-      return instance_uuid;
-    }
-    instance_uuid = res.uuid;
-
+    return res.uuid;
   } catch (const rpc::RpcFailedException &) {
     spdlog::error("RPC error occured while sending GetInstance UUID RPC");
     return GetInstanceUUIDError::RPC_EXCEPTION;
   }
-  return instance_uuid;
+  return std::nullopt;
 }
 
 auto CoordinatorClient::SendEnableWritingOnMainRpc() const -> bool {
