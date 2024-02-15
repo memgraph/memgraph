@@ -15,8 +15,6 @@
 
 #include <flags/replication.hpp>
 
-#include <optional>
-
 #include <libnuraft/nuraft.hxx>
 
 namespace memgraph::coordination {

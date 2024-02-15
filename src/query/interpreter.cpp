@@ -93,6 +93,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/functional.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -1264,17 +1265,13 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      replica_nfields = callback.header.size()]() mutable {
         auto const instances = handler.ShowInstances();
-        std::vector<std::vector<TypedValue>> result{};
-        result.reserve(result.size());
+        auto const converter = [](const auto &status) -> std::vector<TypedValue> {
+          return {TypedValue{status.instance_name}, TypedValue{status.raft_socket_address},
+                  TypedValue{status.coord_socket_address}, TypedValue{status.is_alive},
+                  TypedValue{status.cluster_role}};
+        };
 
-        std::ranges::transform(instances, std::back_inserter(result),
-                               [](const auto &status) -> std::vector<TypedValue> {
-                                 return {TypedValue{status.instance_name}, TypedValue{status.raft_socket_address},
-                                         TypedValue{status.coord_socket_address}, TypedValue{status.is_alive},
-                                         TypedValue{status.cluster_role}};
-                               });
-
-        return result;
+        return utils::fmap(converter, instances);
       };
       return callback;
     }
@@ -4404,9 +4401,19 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     UpdateTypeCount(rw_type);
 
-    if (interpreter_context_->repl_state->IsReplica() && IsQueryWrite(rw_type)) {
-      query_execution = nullptr;
-      throw QueryException("Write query forbidden on the replica!");
+    bool const write_query = IsQueryWrite(rw_type);
+    if (write_query) {
+      if (interpreter_context_->repl_state->IsReplica()) {
+        query_execution = nullptr;
+        throw QueryException("Write query forbidden on the replica!");
+      }
+#ifdef MG_ENTERPRISE
+      if (FLAGS_coordinator_server_port && !interpreter_context_->repl_state->IsMainWriteable()) {
+        query_execution = nullptr;
+        throw QueryException(
+            "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.");
+      }
+#endif
     }
 
     // Set the target db to the current db (some queries have different target from the current db)

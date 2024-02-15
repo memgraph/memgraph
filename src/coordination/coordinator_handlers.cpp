@@ -45,6 +45,12 @@ void CoordinatorHandlers::Register(memgraph::coordination::CoordinatorServer &se
         spdlog::info("Received UnregisterReplicaRpc on coordinator server");
         CoordinatorHandlers::UnregisterReplicaHandler(replication_handler, req_reader, res_builder);
       });
+
+  server.Register<coordination::EnableWritingOnMainRpc>(
+      [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+        spdlog::info("Received EnableWritingOnMainRpc on coordinator server");
+        CoordinatorHandlers::EnableWritingOnMainHandler(replication_handler, req_reader, res_builder);
+      });
 }
 
 void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,
@@ -148,7 +154,7 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
       }
     }
   }
-  spdlog::error(fmt::format("FICO : Promote replica to main was success {}", std::string(req.main_uuid_)));
+  spdlog::info("Promote replica to main was success {}", std::string(req.main_uuid_));
   slk::Save(coordination::PromoteReplicaToMainRes{true}, res_builder);
 }
 
@@ -182,6 +188,23 @@ void CoordinatorHandlers::UnregisterReplicaHandler(replication::ReplicationHandl
       slk::Save(coordination::UnregisterReplicaRes{false}, res_builder);
       break;
   }
+}
+
+void CoordinatorHandlers::EnableWritingOnMainHandler(replication::ReplicationHandler &replication_handler,
+                                                     slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
+  if (!replication_handler.IsMain()) {
+    spdlog::error("Enable writing on main must be performed on main!");
+    slk::Save(coordination::EnableWritingOnMainRes{false}, res_builder);
+    return;
+  }
+
+  if (!replication_handler.GetReplState().EnableWritingOnMain()) {
+    spdlog::error("Enabling writing on main failed!");
+    slk::Save(coordination::EnableWritingOnMainRes{false}, res_builder);
+    return;
+  }
+
+  slk::Save(coordination::EnableWritingOnMainRes{true}, res_builder);
 }
 
 }  // namespace memgraph::dbms
