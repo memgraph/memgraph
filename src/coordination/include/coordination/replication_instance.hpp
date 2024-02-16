@@ -69,7 +69,7 @@ class ReplicationInstance {
 
   auto EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool;
 
-  auto SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid) -> bool;
+  auto SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool;
   auto SendUnregisterReplicaRpc(std::string const &instance_name) -> bool;
 
   auto SendGetInstanceUUID() -> utils::BasicResult<coordination::GetInstanceUUIDError, std::optional<utils::UUID>>;
@@ -78,7 +78,8 @@ class ReplicationInstance {
   auto EnableWritingOnMain() -> bool;
 
   auto SetNewMainUUID(utils::UUID const &main_uuid) -> void;
-  auto GetMainUUID() const -> const std::optional<utils::UUID> &;
+  auto ResetMainUUID() -> void;
+  auto GetMainUUID() const -> std::optional<utils::UUID> const &;
 
   auto GetSuccessCallback() -> HealthCheckInstanceCallback &;
   auto GetFailCallback() -> HealthCheckInstanceCallback &;

@@ -131,8 +131,24 @@ auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 auto RaftState::RequestLeadership() -> bool { return raft_server_->is_leader() || raft_server_->request_leadership(); }
 
-auto RaftState::AppendRegisterReplicationInstance(std::string const &instance) -> ptr<raft_result> {
-  auto new_log = CoordinatorStateMachine::EncodeRegisterReplicationInstance(instance);
+auto RaftState::AppendRegisterReplicationInstance(std::string const &instance_name) -> ptr<raft_result> {
+  auto new_log = CoordinatorStateMachine::EncodeLogAction(instance_name, RaftLogAction::REGISTER_REPLICATION_INSTANCE);
+  return raft_server_->append_entries({new_log});
+}
+
+auto RaftState::AppendUnregisterReplicationInstance(std::string const &instance_name) -> ptr<raft_result> {
+  auto new_log =
+      CoordinatorStateMachine::EncodeLogAction(instance_name, RaftLogAction::UNREGISTER_REPLICATION_INSTANCE);
+  return raft_server_->append_entries({new_log});
+}
+
+auto RaftState::AppendSetInstanceAsMain(std::string const &instance_name) -> ptr<raft_result> {
+  auto new_log = CoordinatorStateMachine::EncodeLogAction(instance_name, RaftLogAction::SET_INSTANCE_AS_MAIN);
+  return raft_server_->append_entries({new_log});
+}
+
+auto RaftState::AppendSetInstanceAsReplica(std::string const &instance_name) -> ptr<raft_result> {
+  auto new_log = CoordinatorStateMachine::EncodeLogAction(instance_name, RaftLogAction::SET_INSTANCE_AS_REPLICA);
   return raft_server_->append_entries({new_log});
 }
 

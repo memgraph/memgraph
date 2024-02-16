@@ -252,6 +252,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
     return RegisterInstanceCoordinatorStatus::RAFT_COULD_NOT_ACCEPT;
   }
 
+  // TODO: (andi) I think this should be part of Raft state machine
   spdlog::info("Request for registering instance {} accepted", instance_name);
   try {
     repl_instances_.emplace_back(this, std::move(config), client_succ_cb_, client_fail_cb_,

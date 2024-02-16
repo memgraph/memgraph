@@ -58,7 +58,10 @@ class RaftState {
   auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
 
-  auto AppendRegisterReplicationInstance(std::string const &instance) -> ptr<raft_result>;
+  auto AppendRegisterReplicationInstance(std::string const &instance_name) -> ptr<raft_result>;
+  auto AppendUnregisterReplicationInstance(std::string const &instance_name) -> ptr<raft_result>;
+  auto AppendSetInstanceAsMain(std::string const &instance_name) -> ptr<raft_result>;
+  auto AppendSetInstanceAsReplica(std::string const &instance_name) -> ptr<raft_result>;
 
   // TODO: (andi) I think variables below can be abstracted
   uint32_t raft_server_id_;

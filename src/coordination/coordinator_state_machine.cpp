@@ -15,26 +15,34 @@
 
 namespace memgraph::coordination {
 
-auto CoordinatorStateMachine::EncodeRegisterReplicationInstance(const std::string &name) -> ptr<buffer> {
-  std::string str_log = name + "_replica";
+auto CoordinatorStateMachine::EncodeLogAction(std::string const &name, RaftLogAction log_action) -> ptr<buffer> {
+  auto const str_log = [&name, log_action] {
+    switch (log_action) {
+      case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
+        return "register_" + name;
+      case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
+        return "unregister_" + name;
+      case RaftLogAction::SET_INSTANCE_AS_MAIN:
+        return "set_main_" + name;
+      case RaftLogAction::SET_INSTANCE_AS_REPLICA:
+        return "set_replica_" + name;
+    }
+  }();
+
   ptr<buffer> log = buffer::alloc(sizeof(uint32_t) + str_log.size());
   buffer_serializer bs(log);
   bs.put_str(str_log);
   return log;
 }
 
-auto CoordinatorStateMachine::DecodeRegisterReplicationInstance(buffer &data) -> std::string {
+auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<std::string, RaftLogAction> {
   buffer_serializer bs(data);
-  return bs.get_str();
+  auto const log_str = bs.get_str();
+  spdlog::info("Received log in DecodeLog: {}", log_str);
+  return {};
 }
 
-auto CoordinatorStateMachine::pre_commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
-  buffer_serializer bs(data);
-  std::string str = bs.get_str();
-
-  spdlog::info("pre_commit {} : {}", log_idx, str);
-  return nullptr;
-}
+auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*data*/) -> ptr<buffer> { return nullptr; }
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
   buffer_serializer bs(data);

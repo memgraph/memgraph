@@ -13,6 +13,8 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "nuraft/coordinator_cluster_state.hpp"
+
 #include <spdlog/spdlog.h>
 #include <libnuraft/nuraft.hxx>
 
@@ -27,6 +29,13 @@ using nuraft::ptr;
 using nuraft::snapshot;
 using nuraft::state_machine;
 
+enum class RaftLogAction : uint8_t {
+  REGISTER_REPLICATION_INSTANCE,
+  UNREGISTER_REPLICATION_INSTANCE,
+  SET_INSTANCE_AS_MAIN,
+  SET_INSTANCE_AS_REPLICA
+};
+
 class CoordinatorStateMachine : public state_machine {
  public:
   CoordinatorStateMachine() = default;
@@ -36,9 +45,9 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
   ~CoordinatorStateMachine() override {}
 
-  static auto EncodeRegisterReplicationInstance(const std::string &name) -> ptr<buffer>;
+  static auto EncodeLogAction(std::string const &instance_name, RaftLogAction log_action) -> ptr<buffer>;
 
-  static auto DecodeRegisterReplicationInstance(buffer &data) -> std::string;
+  static auto DecodeLog(buffer &data) -> std::pair<std::string, RaftLogAction>;
 
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
@@ -65,10 +74,12 @@ class CoordinatorStateMachine : public state_machine {
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
  private:
+  CoordinatorClusterState cluster_state_;
+  mutable utils::RWLock lock{utils::RWLock::Priority::READ};
+
   std::atomic<uint64_t> last_committed_idx_{0};
 
   ptr<snapshot> last_snapshot_;
-
   std::mutex last_snapshot_lock_;
 };
 
