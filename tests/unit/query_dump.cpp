@@ -198,8 +198,8 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     for (const auto &item : info.label_property) {
       label_property_indices.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
     }
-    for (const auto &item : info.text) {
-      text_indices.insert({item.first, dba->PropertyToName(item.second)});
+    for (const auto &item : info.text_indices) {
+      text_indices.insert({item.first, dba->LabelToName(item.second)});
     }
   }
 
