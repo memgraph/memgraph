@@ -6,7 +6,7 @@ target_include_directories(global_memory_limit_proc PRIVATE ${CMAKE_SOURCE_DIR}/
 
 add_library(query_memory_limit_proc_multi_thread SHARED query_memory_limit_proc_multi_thread.cpp)
 target_include_directories(query_memory_limit_proc_multi_thread PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(query_memory_limit_proc_multi_thread mg-utils)
+target_link_libraries(query_memory_limit_proc_multi_thread mg-utils )
 
 add_library(query_memory_limit_proc SHARED query_memory_limit_proc.cpp)
 target_include_directories(query_memory_limit_proc PRIVATE ${CMAKE_SOURCE_DIR}/include)
@@ -15,10 +15,6 @@ target_link_libraries(query_memory_limit_proc mg-utils)
 add_library(global_memory_limit_thread_proc SHARED global_memory_limit_thread_proc.cpp)
 target_include_directories(global_memory_limit_thread_proc PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(global_memory_limit_thread_proc mg-utils)
-
-add_library(global_memory_limit_multi_thread_create_proc SHARED global_memory_limit_multi_thread_create_proc.cpp)
-target_include_directories(global_memory_limit_multi_thread_create_proc PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(global_memory_limit_multi_thread_create_proc mg-utils)
 
 add_library(proc_memory_limit SHARED proc_memory_limit.cpp)
 target_include_directories(proc_memory_limit PRIVATE ${CMAKE_SOURCE_DIR}/include)
