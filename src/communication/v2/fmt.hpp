@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,10 @@
 
 #pragma once
 
+#if FMT_VERSION > 90000
 #include <fmt/ostream.h>
 #include <boost/asio/ip/tcp.hpp>
 
-#if FMT_VERSION > 90000
 template <>
 class fmt::formatter<boost::asio::ip::tcp::endpoint> : public ostream_formatter {};
 #endif

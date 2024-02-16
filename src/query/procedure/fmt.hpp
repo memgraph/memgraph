@@ -11,6 +11,7 @@
 
 #pragma once
 
+#if FMT_VERSION > 90000
 #include <fmt/ostream.h>
 
 #include "mg_procedure.h"
@@ -77,3 +78,4 @@ class fmt::formatter<mgp_error> {
     LOG_FATAL("Format of a wrong mgp_error -> check missing switch case");
   }
 };
+#endif

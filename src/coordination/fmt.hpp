@@ -11,6 +11,7 @@
 
 #pragma once
 
+#if FMT_VERSION > 90000
 #include <fmt/ostream.h>
 
 #include <libnuraft/nuraft.hxx>
@@ -55,3 +56,4 @@ class fmt::formatter<nuraft::cmd_result_code> {
     LOG_FATAL("Format of a wrong nuraft::cmd_result_code -> check missing switch case");
   }
 };
+#endif
