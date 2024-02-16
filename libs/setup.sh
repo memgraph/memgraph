@@ -127,6 +127,7 @@ declare -A primary_urls=(
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["range-v3"]="http://$local_cache_host/git/range-v3.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
+  ["zstd"]="http://$local_cache_host/git/zstd.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -157,6 +158,7 @@ declare -A secondary_urls=(
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["range-v3"]="https://github.com/ericniebler/range-v3.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
+  ["zstd"]="https://github.com/facebook/zstd.git"
 )
 
 # antlr
@@ -288,3 +290,7 @@ repo_clone_try_double "${primary_urls[nuraft]}" "${secondary_urls[nuraft]}" "nur
 pushd nuraft
 ./prepare.sh
 popd
+
+# zstd
+zstd_tag="v1.5.5"
+repo_clone_try_double "${primary_urls[zstd]}" "${secondary_urls[zstd]}" "zstd" "$zstd_tag" true
