@@ -62,8 +62,9 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   }
 #endif
   if (std::holds_alternative<RoleReplicaData>(replication_data)) {
-    spdlog::trace("Recovered main's uuid for replica {}",
-                  std::string(std::get<RoleReplicaData>(replication_data).uuid_.value()));
+    auto &replica_uuid = std::get<RoleReplicaData>(replication_data).uuid_;
+    std::string uuid = replica_uuid.has_value() ? std::string(replica_uuid.value()) : "";
+    spdlog::trace("Recovered main's uuid for replica {}", uuid);
   } else {
     spdlog::trace("Recovered uuid for main {}", std::string(std::get<RoleMainData>(replication_data).uuid_));
   }
