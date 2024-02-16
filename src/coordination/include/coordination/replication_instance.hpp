@@ -18,6 +18,7 @@
 #include "replication_coordination_glue/role.hpp"
 
 #include <libnuraft/nuraft.hxx>
+#include "utils/result.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
@@ -37,6 +38,9 @@ class ReplicationInstance {
 
   auto OnSuccessPing() -> void;
   auto OnFailPing() -> bool;
+  auto IsReadyForUUIDPing() -> bool;
+
+  void UpdateReplicaLastResponseUUID();
 
   auto IsAlive() const -> bool;
 
@@ -62,7 +66,8 @@ class ReplicationInstance {
   auto SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid) -> bool;
   auto SendUnregisterReplicaRpc(std::string const &instance_name) -> bool;
 
-  // TODO: (andi) Inconsistent API
+
+  auto SendGetInstanceUUID() -> utils::BasicResult<coordination::GetInstanceUUIDError, std::optional<utils::UUID>>;
   auto GetClient() -> CoordinatorClient &;
 
   auto EnableWritingOnMain() -> bool;
@@ -76,6 +81,7 @@ class ReplicationInstance {
   replication_coordination_glue::ReplicationRole replication_role_;
   std::chrono::system_clock::time_point last_response_time_{};
   bool is_alive_{false};
+  std::chrono::system_clock::time_point last_check_of_uuid_{};
 
   // for replica this is main uuid of current main
   // for "main" main this same as in CoordinatorData
