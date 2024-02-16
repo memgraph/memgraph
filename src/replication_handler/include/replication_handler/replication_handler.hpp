@@ -139,6 +139,9 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   bool IsMain() const override;
   bool IsReplica() const override;
 
+  auto ShowReplicas() const
+      -> utils::BasicResult<memgraph::query::ShowReplicaError, memgraph::query::ReplicasInfos> override;
+
   auto GetReplState() const -> const memgraph::replication::ReplicationState &;
   auto GetReplState() -> memgraph::replication::ReplicationState &;
 

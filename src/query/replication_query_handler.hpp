@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
@@ -31,11 +32,45 @@ enum class RegisterReplicaError : uint8_t {
   COULD_NOT_BE_PERSISTED,
   ERROR_ACCEPTING_MAIN
 };
+
 enum class UnregisterReplicaResult : uint8_t {
   NOT_MAIN,
   COULD_NOT_BE_PERSISTED,
   CAN_NOT_UNREGISTER,
   SUCCESS,
+};
+
+enum class ShowReplicaError : uint8_t {
+  NOT_MAIN,
+};
+
+struct ReplicaInfoState {
+  ReplicaInfoState(uint64_t ts, uint64_t behind, storage::replication::ReplicaState state)
+      : ts_(ts), behind_(behind), state_(state) {}
+
+  uint64_t ts_;
+  uint64_t behind_;
+  storage::replication::ReplicaState state_;
+};
+
+struct ReplicasInfo {
+  ReplicasInfo(std::string name, std::string socket_address, replication_coordination_glue::ReplicationMode sync_mode,
+               std::map<std::string, ReplicaInfoState> data_info)
+      : name_(std::move(name)),
+        socket_address_(std::move(socket_address)),
+        sync_mode_(sync_mode),
+        data_info_(std::move(data_info)) {}
+
+  std::string name_;
+  std::string socket_address_;
+  memgraph::replication_coordination_glue::ReplicationMode sync_mode_;
+  std::map<std::string, ReplicaInfoState> data_info_;
+};
+
+struct ReplicasInfos {
+  explicit ReplicasInfos(std::vector<ReplicasInfo> entries) : entries_(std::move(entries)) {}
+
+  std::vector<ReplicasInfo> entries_;
 };
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
@@ -66,6 +101,8 @@ struct ReplicationQueryHandler {
   virtual auto GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole = 0;
   virtual bool IsMain() const = 0;
   virtual bool IsReplica() const = 0;
+
+  virtual auto ShowReplicas() const -> utils::BasicResult<ShowReplicaError, ReplicasInfos> = 0;
 };
 
 }  // namespace memgraph::query

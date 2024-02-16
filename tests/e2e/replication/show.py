@@ -10,12 +10,11 @@
 # licenses/APL.txt.
 
 import sys
-
-import pytest
 import time
 
+import pytest
 from common import execute_and_fetch_all
-from mg_utils import mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert_collection
 
 
 @pytest.mark.parametrize(
@@ -31,25 +30,23 @@ def test_show_replication_role(port, role, connection):
 
 def test_show_replicas(connection):
     cursor = connection(7687, "main").cursor()
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
     expected_column_names = {
         "name",
         "socket_address",
         "sync_mode",
-        "current_timestamp_of_replica",
-        "number_of_timestamp_behind_master",
-        "state",
+        "data_info",
     }
     actual_column_names = {x.name for x in cursor.description}
     assert actual_column_names == expected_column_names
 
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
-    }
-    assert actual_data == expected_data
+    expected_data = [
+        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+    ]
+    assert all([x in actual_data for x in expected_data])
 
 
 def test_show_replicas_while_inserting_data(connection):
@@ -62,49 +59,47 @@ def test_show_replicas_while_inserting_data(connection):
 
     # 0/
     cursor = connection(7687, "main").cursor()
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
     expected_column_names = {
         "name",
         "socket_address",
         "sync_mode",
-        "current_timestamp_of_replica",
-        "number_of_timestamp_behind_master",
-        "state",
+        "data_info",
     }
     actual_column_names = {x.name for x in cursor.description}
     assert actual_column_names == expected_column_names
 
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
-    }
-    assert actual_data == expected_data
+    expected_data = [
+        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+    ]
+    assert all([x in actual_data for x in expected_data])
 
     # 1/
     execute_and_fetch_all(cursor, "CREATE (n1:Number {name: 'forty_two', value:42});")
 
     # 2/
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 4, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 4, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 4, 0, "ready"),
-    }
+    expected_data = [
+        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}}),
+        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}}),
+        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}}),
+    ]
 
     def retrieve_data():
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+        return execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 3/
     res = execute_and_fetch_all(cursor, "MATCH (node) return node;")
     assert len(res) == 1
 
     # 4/
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    assert actual_data == expected_data
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+    assert all([x in actual_data for x in expected_data])
 
 
 if __name__ == "__main__":

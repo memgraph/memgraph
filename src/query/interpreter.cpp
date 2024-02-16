@@ -296,16 +296,6 @@ inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode
 
 class ReplQueryHandler {
  public:
-  struct ReplicaInfo {
-    std::string name;
-    std::string socket_address;
-    ReplicationQuery::SyncMode sync_mode;
-    std::optional<double> timeout;
-    uint64_t current_timestamp_of_replica;
-    uint64_t current_number_of_timestamp_behind_master;
-    ReplicationQuery::ReplicaState state;
-  };
-
   explicit ReplQueryHandler(query::ReplicationQueryHandler &replication_query_handler)
       : handler_{&replication_query_handler} {}
 
@@ -396,58 +386,16 @@ class ReplQueryHandler {
     }
   }
 
-  std::vector<ReplicaInfo> ShowReplicas(const dbms::Database &db) const {
-    if (handler_->IsReplica()) {
-      // replica can't show registered replicas (it shouldn't have any)
-      throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
+  std::vector<ReplicasInfo> ShowReplicas() const {
+    auto info = handler_->ShowReplicas();
+    if (info.HasError()) {
+      switch (info.GetError()) {
+        case ShowReplicaError::NOT_MAIN:
+          throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
+      }
     }
 
-    // TODO: Combine results? Have a single place with clients???
-    //       Also authentication checks (replica + database visibility)
-    const auto repl_infos = db.storage()->ReplicasInfo();
-    std::vector<ReplicaInfo> replicas;
-    replicas.reserve(repl_infos.size());
-
-    const auto from_info = [](const auto &repl_info) -> ReplicaInfo {
-      ReplicaInfo replica;
-      replica.name = repl_info.name;
-      replica.socket_address = repl_info.endpoint.SocketAddress();
-      switch (repl_info.mode) {
-        case replication_coordination_glue::ReplicationMode::SYNC:
-          replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
-          break;
-        case replication_coordination_glue::ReplicationMode::ASYNC:
-          replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
-          break;
-      }
-
-      replica.current_timestamp_of_replica = repl_info.timestamp_info.current_timestamp_of_replica;
-      replica.current_number_of_timestamp_behind_master =
-          repl_info.timestamp_info.current_number_of_timestamp_behind_master;
-
-      switch (repl_info.state) {
-        case storage::replication::ReplicaState::READY:
-          replica.state = ReplicationQuery::ReplicaState::READY;
-          break;
-        case storage::replication::ReplicaState::REPLICATING:
-          replica.state = ReplicationQuery::ReplicaState::REPLICATING;
-          break;
-        case storage::replication::ReplicaState::RECOVERY:
-          replica.state = ReplicationQuery::ReplicaState::RECOVERY;
-          break;
-        case storage::replication::ReplicaState::MAYBE_BEHIND:
-          replica.state = ReplicationQuery::ReplicaState::MAYBE_BEHIND;
-          break;
-        case storage::replication::ReplicaState::DIVERGED_FROM_MAIN:
-          replica.state = ReplicationQuery::ReplicaState::DIVERGED_FROM_MAIN;
-          break;
-      }
-
-      return replica;
-    };
-
-    std::transform(repl_infos.begin(), repl_infos.end(), std::back_inserter(replicas), from_info);
-    return replicas;
+    return info.GetValue().entries_;
   }
 
  private:
@@ -1072,50 +1020,65 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       }
 #endif
 
-      callback.header = {
-          "name", "socket_address", "sync_mode", "current_timestamp_of_replica", "number_of_timestamp_behind_master",
-          "state"};
-      callback.fn = [handler = ReplQueryHandler{replication_query_handler}, replica_nfields = callback.header.size(),
-                     db_acc = current_db.db_acc_] {
-        const auto &replicas = handler.ShowReplicas(*db_acc->get());
+      callback.header = {"name", "socket_address", "sync_mode", /*"system_info",*/ "data_info"};
+
+      callback.fn = [handler = ReplQueryHandler{replication_query_handler}, replica_nfields = callback.header.size()] {
+        auto const sync_mode_to_tv = [](memgraph::replication_coordination_glue::ReplicationMode sync_mode) {
+          using namespace std::string_view_literals;
+          switch (sync_mode) {
+            using enum memgraph::replication_coordination_glue::ReplicationMode;
+            case SYNC:
+              return TypedValue{"sync"sv};
+            case ASYNC:
+              return TypedValue{"async"sv};
+          }
+        };
+
+        auto const replica_state_to_tv = [](memgraph::storage::replication::ReplicaState state) {
+          using namespace std::string_view_literals;
+          switch (state) {
+            using enum memgraph::storage::replication::ReplicaState;
+            case READY:
+              return TypedValue{"ready"sv};
+            case REPLICATING:
+              return TypedValue{"replicating"sv};
+            case RECOVERY:
+              return TypedValue{"recovery"sv};
+            case MAYBE_BEHIND:
+              return TypedValue{"invalid"sv};
+            case DIVERGED_FROM_MAIN:
+              return TypedValue{"diverged"sv};
+          }
+        };
+
+        auto const info_to_tv = [&](ReplicaInfoState orig) {
+          auto info = std::map<std::string, TypedValue>{};
+          info.emplace("ts", TypedValue{static_cast<int64_t>(orig.ts_)});
+          info.emplace("behind", TypedValue{static_cast<int64_t>(orig.behind_)});
+          info.emplace("status", replica_state_to_tv(orig.state_));
+          return TypedValue{std::move(info)};
+        };
+
+        auto const data_info_to_tv = [&](std::map<std::string, ReplicaInfoState> orig) {
+          auto data_info = std::map<std::string, TypedValue>{};
+          for (auto &[name, info] : orig) {
+            data_info.emplace(name, info_to_tv(info));
+          }
+          return TypedValue{std::move(data_info)};
+        };
+
+        auto replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
-        for (const auto &replica : replicas) {
+        for (auto &replica : replicas) {
           std::vector<TypedValue> typed_replica;
           typed_replica.reserve(replica_nfields);
 
-          typed_replica.emplace_back(replica.name);
-          typed_replica.emplace_back(replica.socket_address);
-
-          switch (replica.sync_mode) {
-            case ReplicationQuery::SyncMode::SYNC:
-              typed_replica.emplace_back("sync");
-              break;
-            case ReplicationQuery::SyncMode::ASYNC:
-              typed_replica.emplace_back("async");
-              break;
-          }
-
-          typed_replica.emplace_back(static_cast<int64_t>(replica.current_timestamp_of_replica));
-          typed_replica.emplace_back(static_cast<int64_t>(replica.current_number_of_timestamp_behind_master));
-
-          switch (replica.state) {
-            case ReplicationQuery::ReplicaState::READY:
-              typed_replica.emplace_back("ready");
-              break;
-            case ReplicationQuery::ReplicaState::REPLICATING:
-              typed_replica.emplace_back("replicating");
-              break;
-            case ReplicationQuery::ReplicaState::RECOVERY:
-              typed_replica.emplace_back("recovery");
-              break;
-            case ReplicationQuery::ReplicaState::MAYBE_BEHIND:
-              typed_replica.emplace_back("invalid");
-              break;
-            case ReplicationQuery::ReplicaState::DIVERGED_FROM_MAIN:
-              typed_replica.emplace_back("diverged");
-              break;
-          }
+          typed_replica.emplace_back(replica.name_);
+          typed_replica.emplace_back(replica.socket_address_);
+          typed_replica.emplace_back(sync_mode_to_tv(replica.sync_mode_));
+          typed_replica.emplace_back(data_info_to_tv(replica.data_info_));
+          // TODO: sys_info
 
           typed_replicas.emplace_back(std::move(typed_replica));
         }

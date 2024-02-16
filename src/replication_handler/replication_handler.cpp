@@ -152,10 +152,10 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
     // Check if any database has been left behind
     dbms_handler.ForEach([&name = client.name_, reconnect](dbms::DatabaseAccess db_acc) {
       // Specific database <-> replica client
-      db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient *client) {
-        if (reconnect || client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
+      db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
+        if (reconnect || client.State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
           // Database <-> replica might be behind, check and recover
-          client->TryCheckReplicaStateAsync(db_acc->storage(), db_acc);
+          client.TryCheckReplicaStateAsync(db_acc->storage(), db_acc);
         }
       });
     });
@@ -278,5 +278,45 @@ auto ReplicationHandler::GetReplState() -> memgraph::replication::ReplicationSta
 bool ReplicationHandler::IsMain() const { return repl_state_.IsMain(); }
 
 bool ReplicationHandler::IsReplica() const { return repl_state_.IsReplica(); }
+auto ReplicationHandler::ShowReplicas() const
+    -> utils::BasicResult<memgraph::query::ShowReplicaError, memgraph::query::ReplicasInfos> {
+  using namespace memgraph::query;
+
+  using res_t = utils::BasicResult<ShowReplicaError, ReplicasInfos>;
+  auto main = [this](RoleMainData const &main) -> res_t {
+    auto entries = std::vector<ReplicasInfo>{};
+    entries.reserve(main.registered_replicas_.size());
+
+    for (auto const &replica : main.registered_replicas_) {
+      // STEP 1: data_info
+      auto data_info = std::map<std::string, ReplicaInfoState>{};
+      this->dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
+        auto *storage = db_acc->storage();
+        // ATM we only support IN_MEMORY_TRANSACTIONAL
+        if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
+
+        auto ok =
+            storage->repl_storage_state_.WithClient(replica.name_, [&](storage::ReplicationStorageClient &client) {
+              auto ts_info = client.GetTimestampInfo(storage);
+              auto state = client.State();
+
+              data_info.emplace(storage->name(),
+                                ReplicaInfoState{ts_info.current_timestamp_of_replica,
+                                                 ts_info.current_number_of_timestamp_behind_main, state});
+            });
+        DMG_ASSERT(ok);
+      });
+
+      // STEP 2: system_info
+
+      // STEP 3: add entry
+      entries.emplace_back(replica.name_, replica.rpc_client_.Endpoint().SocketAddress(), replica.mode_, data_info);
+    }
+    return ReplicasInfos{std::move(entries)};
+  };
+  auto replica = [](RoleReplicaData const &) -> res_t { return ShowReplicaError::NOT_MAIN; };
+
+  return std::visit(utils::Overloaded{main, replica}, repl_state_.ReplicationData());
+}
 
 }  // namespace memgraph::replication

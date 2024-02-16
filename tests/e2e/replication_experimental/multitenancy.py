@@ -22,7 +22,7 @@ import interactive_mg_runner
 import mgclient
 import pytest
 from common import execute_and_fetch_all
-from mg_utils import mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -33,6 +33,10 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 
 BOLT_PORTS = {"main": 7687, "replica_1": 7688, "replica_2": 7689}
 REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
+
+
+def set_eq(actual, expected):
+    return len(actual) == len(expected) and all([x in actual for x in expected])
 
 
 def create_memgraph_instances_with_role_recovery(data_directory: Any) -> Dict[str, Any]:
@@ -174,10 +178,9 @@ def setup_main(main_cursor):
     execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'B'});")
 
 
-def show_replicas_func(cursor, db_name):
+def show_replicas_func(cursor):
     def func():
-        execute_and_fetch_all(cursor, f"USE DATABASE {db_name};")
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+        return execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
     return func
 
@@ -271,17 +274,29 @@ def test_manual_databases_create_multitenancy_replication(connection):
     execute_and_fetch_all(cursor, "CREATE ()-[:EDGE]->();")
 
     # 2/
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 1, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "A"))
-
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 1, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "B"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {
+                "A": {"ts": 1, "behind": 0, "status": "ready"},
+                "B": {"ts": 1, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {
+                "A": {"ts": 1, "behind": 0, "status": "ready"},
+                "B": {"ts": 1, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(cursor))
 
     cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     assert get_number_of_nodes_func(cursor_replica, "A")() == 1
@@ -523,11 +538,21 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
 
     # 2/
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 0, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 0, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"A": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"A": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
 
     databases_on_main = show_databases_func(main_cursor)()
 
@@ -567,17 +592,29 @@ def test_automatic_databases_create_multitenancy_replication(connection):
     execute_and_fetch_all(main_cursor, "CREATE (:Node)-[:EDGE]->(:Node)")
 
     # 3/
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 7, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 7, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 0, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 0, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {
+                "A": {"ts": 7, "behind": 0, "status": "ready"},
+                "B": {"ts": 0, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {
+                "A": {"ts": 7, "behind": 0, "status": "ready"},
+                "B": {"ts": 0, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
 
     cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     assert get_number_of_nodes_func(cursor_replica, "A")() == 7
@@ -640,19 +677,25 @@ def test_automatic_databases_multitenancy_replication_predefined(connection):
     execute_and_fetch_all(cursor, "CREATE ()-[:EDGE]->();")
 
     # 2/
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "A"))
-
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "B"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {
+                "A": {"ts": 1, "behind": 0, "status": "ready"},
+                "B": {"ts": 1, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(cursor))
 
     cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     assert get_number_of_nodes_func(cursor_replica, "A")() == 1
     assert get_number_of_edges_func(cursor_replica, "A")() == 0
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
+    assert get_number_of_edges_func(cursor_replica, "B")() == 1
 
 
 def test_automatic_databases_create_multitenancy_replication_dirty_main(connection):
@@ -698,10 +741,15 @@ def test_automatic_databases_create_multitenancy_replication_dirty_main(connecti
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(cursor, "A"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"A": {"ts": 1, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(cursor))
 
     cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     execute_and_fetch_all(cursor_replica, "USE DATABASE A;")
@@ -740,31 +788,79 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
     time.sleep(3)  # In order for the frequent check to run
     # Check that the FC did invalidate
     expected_data = {
-        "replica_1": {
-            ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 0, 0, "invalid"),
-            ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 7, 0, "ready"),
-        },
-        "replica_2": {
-            ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 7, 0, "ready"),
-            ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 0, 0, "invalid"),
-        },
+        "replica_1": [
+            (
+                "replica_1",
+                f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+                "sync",
+                {
+                    "A": {"ts": 0, "behind": 0, "status": "invalid"},
+                    "B": {"ts": 0, "behind": 0, "status": "invalid"},
+                    "memgraph": {"ts": 0, "behind": 0, "status": "invalid"},
+                },
+            ),
+            (
+                "replica_2",
+                f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+                "async",
+                {
+                    "A": {"ts": 7, "behind": 0, "status": "ready"},
+                    "B": {"ts": 3, "behind": 0, "status": "ready"},
+                    "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+                },
+            ),
+        ],
+        "replica_2": [
+            (
+                "replica_1",
+                f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+                "sync",
+                {
+                    "A": {"ts": 7, "behind": 0, "status": "ready"},
+                    "B": {"ts": 3, "behind": 0, "status": "ready"},
+                    "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+                },
+            ),
+            (
+                "replica_2",
+                f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+                "async",
+                {
+                    "A": {"ts": 0, "behind": 0, "status": "invalid"},
+                    "B": {"ts": 0, "behind": 0, "status": "invalid"},
+                    "memgraph": {"ts": 0, "behind": 0, "status": "invalid"},
+                },
+            ),
+        ],
     }
-    assert expected_data[replica_name] == show_replicas_func(main_cursor, "A")()
+    assert set_eq(expected_data[replica_name], show_replicas_func(main_cursor)())
     # Restart
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
 
     # 4/
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 7, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 7, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 3, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 3, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {
+                "A": {"ts": 7, "behind": 0, "status": "ready"},
+                "B": {"ts": 3, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {
+                "A": {"ts": 7, "behind": 0, "status": "ready"},
+                "B": {"ts": 3, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
 
     cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
 
@@ -805,19 +901,31 @@ def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
 
     # 4/
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 7, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 7, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {
+                "A": {"ts": 7, "behind": 0, "status": "ready"},
+                "B": {"ts": 3, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {
+                "A": {"ts": 7, "behind": 0, "status": "ready"},
+                "B": {"ts": 3, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
 
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 3, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 3, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
-
-    cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
+    cursor_replica = connection(BOLT_PORTS[replica_name], replica_name).cursor()
     assert get_number_of_nodes_func(cursor_replica, "A")() == 7
     assert get_number_of_edges_func(cursor_replica, "A")() == 3
     assert get_number_of_nodes_func(cursor_replica, "B")() == 2
@@ -899,17 +1007,28 @@ def test_multitenancy_replication_drop_replica(connection, replica_name):
     )
 
     # 4/
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 7, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 7, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 3, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 3, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {
+                "A": {"ts": 7, "behind": 0, "status": "ready"},
+                "B": {"ts": 3, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {
+                "A": {"ts": 7, "behind": 0, "status": "ready"},
+                "B": {"ts": 3, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+    ]
 
     cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
     assert get_number_of_nodes_func(cursor_replica, "A")() == 7
@@ -993,17 +1112,29 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
     execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
 
     # 3/
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 1, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
-
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 0, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 0, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {
+                "A": {"ts": 1, "behind": 0, "status": "ready"},
+                "B": {"ts": 0, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {
+                "A": {"ts": 1, "behind": 0, "status": "ready"},
+                "B": {"ts": 0, "behind": 0, "status": "ready"},
+                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
+            },
+        ),
+    ]
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor))
 
     # 4/
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
@@ -1088,11 +1219,21 @@ def test_multitenancy_drop_while_replica_using(connection):
     execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
 
     # 3/
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 1, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"A": {"ts": 1, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"A": {"ts": 1, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
 
     # 4/
     replica1_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
@@ -1110,11 +1251,21 @@ def test_multitenancy_drop_while_replica_using(connection):
     execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
     execute_and_fetch_all(main_cursor, "USE DATABASE B;")
 
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 0, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 0, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "B"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"B": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"B": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor))
 
     # 6/
     assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 1
@@ -1163,11 +1314,21 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
     execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
 
     # 3/
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 1, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 1, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"A": {"ts": 1, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"A": {"ts": 1, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
 
     # 4/
     replica1_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
@@ -1184,11 +1345,21 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
     execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
     execute_and_fetch_all(main_cursor, "USE DATABASE A;")
 
-    expected_data = {
-        ("replica_1", f"127.0.0.1:{REPLICATION_PORTS['replica_1']}", "sync", 0, 0, "ready"),
-        ("replica_2", f"127.0.0.1:{REPLICATION_PORTS['replica_2']}", "async", 0, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor, "A"))
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"A": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"A": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert(expected_data, show_replicas_func(main_cursor))
 
     # 6/
     assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 1
