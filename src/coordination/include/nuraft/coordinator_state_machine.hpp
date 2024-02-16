@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_cluster_state.hpp"
+#include "nuraft/raft_log_action.hpp"
 
 #include <spdlog/spdlog.h>
 #include <libnuraft/nuraft.hxx>
@@ -28,13 +29,6 @@ using nuraft::int32;
 using nuraft::ptr;
 using nuraft::snapshot;
 using nuraft::state_machine;
-
-enum class RaftLogAction : uint8_t {
-  REGISTER_REPLICATION_INSTANCE,
-  UNREGISTER_REPLICATION_INSTANCE,
-  SET_INSTANCE_AS_MAIN,
-  SET_INSTANCE_AS_REPLICA
-};
 
 class CoordinatorStateMachine : public state_machine {
  public:
@@ -74,10 +68,24 @@ class CoordinatorStateMachine : public state_machine {
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
  private:
+  struct SnapshotCtx {
+    SnapshotCtx(ptr<snapshot> &snapshot, CoordinatorClusterState const &cluster_state)
+        : snapshot_(snapshot), cluster_state_(cluster_state) {}
+
+    ptr<snapshot> snapshot_;
+    CoordinatorClusterState cluster_state_;
+  };
+
+  auto create_snapshot_internal(ptr<snapshot> snapshot) -> void;
+
   CoordinatorClusterState cluster_state_;
   mutable utils::RWLock lock{utils::RWLock::Priority::READ};
 
   std::atomic<uint64_t> last_committed_idx_{0};
+
+  // TODO: (andi) Maybe not needed, remove it
+  std::map<uint64_t, ptr<SnapshotCtx>> snapshots_;
+  std::mutex snapshots_lock_;
 
   ptr<snapshot> last_snapshot_;
   std::mutex last_snapshot_lock_;
