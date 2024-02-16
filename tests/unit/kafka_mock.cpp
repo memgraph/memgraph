@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -76,10 +76,6 @@ void KafkaClusterMock::CreateTopic(const std::string &topic_name) {
   if (RD_KAFKA_RESP_ERR_NO_ERROR != topic_err) {
     throw std::runtime_error("Failed to create the mock topic (" + topic_name + "): " + rd_kafka_err2str(topic_err));
   }
-}
-
-void KafkaClusterMock::SeedTopic(const std::string &topic_name, std::string_view message) {
-  SeedTopic(topic_name, std::span{message.data(), message.size()});
 }
 
 void KafkaClusterMock::SeedTopic(const std::string &topic_name, std::span<const char> message) {
