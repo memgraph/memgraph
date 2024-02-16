@@ -515,5 +515,20 @@ def test_automatic_failover_main_back_as_main():
     mg_sleep_and_assert([("main",)], retrieve_data_show_repl_role_instance3)
 
 
+def test_disable_multiple_mains():
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    coord_cursor = connect(host="localhost", port=7690).cursor()
+
+    try:
+        execute_and_fetch_all(
+            coord_cursor,
+            "SET INSTANCE instance_1 TO MAIN;",
+        )
+    except Exception as e:
+        assert str(e) == "Couldn't set instance to main since there is already a main instance in cluster!"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
