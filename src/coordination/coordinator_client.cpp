@@ -17,6 +17,7 @@
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/messages.hpp"
+#include "utils/result.hpp"
 
 namespace memgraph::coordination {
 
@@ -43,6 +44,10 @@ auto CoordinatorClient::SocketAddress() const -> std::string { return rpc_client
 
 auto CoordinatorClient::InstanceDownTimeoutSec() const -> std::chrono::seconds {
   return config_.instance_down_timeout_sec;
+}
+
+auto CoordinatorClient::InstanceGetUUIDFrequencySec() const -> std::chrono::seconds {
+  return config_.instance_get_uuid_frequency_sec;
 }
 
 void CoordinatorClient::StartFrequentCheck() {
@@ -138,6 +143,18 @@ auto CoordinatorClient::SendUnregisterReplicaRpc(std::string const &instance_nam
     spdlog::error("Failed to unregister replica!");
   }
   return false;
+}
+
+auto CoordinatorClient::SendGetInstanceUUIDRpc() const
+    -> utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>> {
+  try {
+    auto stream{rpc_client_.Stream<GetInstanceUUIDRpc>()};
+    auto res = stream.AwaitResponse();
+    return res.uuid;
+  } catch (const rpc::RpcFailedException &) {
+    spdlog::error("RPC error occured while sending GetInstance UUID RPC");
+    return GetInstanceUUIDError::RPC_EXCEPTION;
+  }
 }
 
 auto CoordinatorClient::SendEnableWritingOnMainRpc() const -> bool {

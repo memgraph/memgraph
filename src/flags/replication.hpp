@@ -24,6 +24,8 @@ DECLARE_uint32(raft_server_id);
 DECLARE_uint32(instance_down_timeout_sec);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint32(instance_health_check_frequency_sec);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint32(instance_get_uuid_frequency_sec);
 #endif
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
