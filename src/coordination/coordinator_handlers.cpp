@@ -51,6 +51,12 @@ void CoordinatorHandlers::Register(memgraph::coordination::CoordinatorServer &se
         spdlog::info("Received EnableWritingOnMainRpc on coordinator server");
         CoordinatorHandlers::EnableWritingOnMainHandler(replication_handler, req_reader, res_builder);
       });
+
+  server.Register<coordination::GetInstanceUUIDRpc>(
+      [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+        spdlog::info("Received GetInstanceUUIDRpc on coordinator server");
+        CoordinatorHandlers::GetInstanceUUIDHandler(replication_handler, req_reader, res_builder);
+      });
 }
 
 void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,
@@ -74,12 +80,6 @@ void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHan
                                                      slk::Reader *req_reader, slk::Builder *res_builder) {
   spdlog::info("Executing DemoteMainToReplicaHandler");
 
-  if (!replication_handler.IsMain()) {
-    spdlog::error("Setting to replica must be performed on main.");
-    slk::Save(coordination::DemoteMainToReplicaRes{false}, res_builder);
-    return;
-  }
-
   coordination::DemoteMainToReplicaReq req;
   slk::Load(&req, req_reader);
 
@@ -89,11 +89,18 @@ void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHan
 
   if (!replication_handler.SetReplicationRoleReplica(clients_config, std::nullopt)) {
     spdlog::error("Demoting main to replica failed!");
-    slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
+    slk::Save(coordination::DemoteMainToReplicaRes{false}, res_builder);
     return;
   }
 
-  slk::Save(coordination::PromoteReplicaToMainRes{true}, res_builder);
+  slk::Save(coordination::DemoteMainToReplicaRes{true}, res_builder);
+}
+
+void CoordinatorHandlers::GetInstanceUUIDHandler(replication::ReplicationHandler &replication_handler,
+                                                 slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
+  spdlog::info("Executing GetInstanceUUIDHandler");
+
+  slk::Save(coordination::GetInstanceUUIDRes{replication_handler.GetReplicaUUID()}, res_builder);
 }
 
 void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHandler &replication_handler,

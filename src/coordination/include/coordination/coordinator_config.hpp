@@ -30,6 +30,7 @@ struct CoordinatorClientConfig {
   uint16_t port{};
   std::chrono::seconds instance_health_check_frequency_sec{1};
   std::chrono::seconds instance_down_timeout_sec{5};
+  std::chrono::seconds instance_get_uuid_frequency_sec{10};
 
   auto SocketAddress() const -> std::string { return ip_address + ":" + std::to_string(port); }
 
