@@ -206,6 +206,10 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string instance_name
     -> SetInstanceToMainCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
 
+  if (std::ranges::any_of(repl_instances_, &ReplicationInstance::IsMain)) {
+    return SetInstanceToMainCoordinatorStatus::MAIN_ALREADY_EXISTS;
+  }
+
   auto const is_new_main = [&instance_name](ReplicationInstance const &instance) {
     return instance.InstanceName() == instance_name;
   };
