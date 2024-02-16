@@ -53,14 +53,16 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 #endif
 
   std::optional<uint64_t> branching_point;
+  // different epoch id, replica was main
   if (replica.epoch_id != replStorageState.epoch_.id() && replica.current_commit_timestamp != kTimestampInitialId) {
     auto const &history = replStorageState.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
       return main_epoch_info.first == replica.epoch_id;
     });
+    // main didn't have that epoch, but why is here branching point
     if (epoch_info_iter == history.crend()) {
       branching_point = 0;
-    } else if (epoch_info_iter->second != replica.current_commit_timestamp) {
+    } else if (epoch_info_iter->second != replica.current_commit_timestamp) {  // check for < if we support that
       branching_point = epoch_info_iter->second;
     }
   }

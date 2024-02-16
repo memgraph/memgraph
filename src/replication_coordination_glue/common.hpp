@@ -26,6 +26,7 @@ struct ReplicationTimestampResult {
   std::vector<std::pair<std::string, uint64_t>> history;
   uint64_t last_commit_timestamp;
   std::string epoch_id;
+  std::string name;
 };
 
 }  // namespace memgraph::replication_coordination_glue

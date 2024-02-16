@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/fmt.hpp"
+#include "dbms/constants.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
 #include "utils/counter.hpp"
@@ -167,7 +168,11 @@ auto CoordinatorInstance::TryFailover() -> void {
   }
 
   // TODO: Smarter choice
+  std::string most_up_to_date_instance;
+
   {
+    std::optional<uint64_t> latest_commit_timestamp;
+    std::optional<std::string> latest_epoch;
     // for each DB we get one ReplicationTimestampResult, that is why we have vector here
     using ReplicaTimestampsRes = std::vector<replication_coordination_glue::ReplicationTimestampResult>;
     std::unordered_map<std::string, ReplicaTimestampsRes> instance_replica_timestamps_res;
@@ -180,8 +185,79 @@ auto CoordinatorInstance::TryFailover() -> void {
 
                     instance_replica_timestamps_res.emplace(replica.InstanceName(), std::move(res.GetValue()));
                   });
+
+    std::for_each(instance_replica_timestamps_res.begin(), instance_replica_timestamps_res.end(),
+                  [&latest_epoch, &latest_commit_timestamp, &most_up_to_date_instance](
+                      const std::pair<const std::basic_string<char>,
+                                      std::vector<replication_coordination_glue::ReplicationTimestampResult>>
+                          &instance_res_pair) {
+                    const auto &[instance_name, instance_per_db_history] = instance_res_pair;
+                    auto default_db_history_data = std::find_if(
+                        instance_per_db_history.begin(), instance_per_db_history.end(),
+                        [default_db = memgraph::dbms::kDefaultDB](
+                            const replication_coordination_glue::ReplicationTimestampResult &db_timestamps) {
+                          return db_timestamps.name == default_db;
+                        });
+
+                    MG_ASSERT(default_db_history_data != instance_per_db_history.end(), "No default DB for instance");
+
+                    // get latest epoch
+                    // get latest timestamp
+
+                    // if current history is none, I am first one
+                    // if there is some kind history recorded, check that I am older
+                    if (!latest_epoch) {
+                      const auto it = default_db_history_data->history.crbegin();
+                      const auto &[epoch, timestamp] = *it;
+                      latest_epoch.emplace(epoch);
+                      latest_commit_timestamp.emplace(timestamp);
+                      return;
+                    }
+
+                    bool is_newer{false};
+
+                    for (auto it = default_db_history_data->history.rbegin();
+                         it != default_db_history_data->history.rend(); ++it) {
+                      const auto &[epoch, timestamp] = *it;
+
+                      // we found point at which they were same
+                      if (epoch == *latest_epoch) {
+                        // if this is the latest history, compare timestamps
+                        if (it == default_db_history_data->history.rbegin()) {
+                          if (*latest_commit_timestamp < timestamp) {
+                            latest_commit_timestamp.emplace(timestamp);
+                            is_newer = true;
+                          }
+                        } else {
+                          is_newer = true;
+                          latest_epoch.emplace(default_db_history_data->history.rbegin()->first);
+                          latest_commit_timestamp.emplace(default_db_history_data->history.rbegin()->second);
+                        }
+                        break;
+                      }
+                    }
+
+                    if (is_newer) {
+                      most_up_to_date_instance = instance_name;
+                    }
+                  });
   }
-  auto new_main = ranges::begin(alive_replicas);
+
+  auto find_repl_instance = [](CoordinatorInstance *self,
+                               std::string_view repl_instance_name) -> ReplicationInstance & {
+    auto repl_instance =
+        std::ranges::find_if(self->repl_instances_, [repl_instance_name](ReplicationInstance const &instance) {
+          return instance.InstanceName() == repl_instance_name;
+        });
+
+    MG_ASSERT(repl_instance != self->repl_instances_.end(), "Instance {} not found during callback!",
+              repl_instance_name);
+    return *repl_instance;
+  };
+
+  auto &new_repl_instance = find_repl_instance(this, most_up_to_date_instance);
+  // auto new_main = ranges::begin(alive_replicas);
+  auto *new_main = &new_repl_instance;
 
   new_main->PauseFrequentCheck();
   utils::OnScopeExit scope_exit{[&new_main] { new_main->ResumeFrequentCheck(); }};

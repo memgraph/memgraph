@@ -280,7 +280,8 @@ auto ReplicationHandler::GetTimestampsForEachDb()
         .db_uuid = db_acc->storage()->uuid(),
         .history = history,
         .last_commit_timestamp = repl_storage_state.last_commit_timestamp_.load(),
-        .epoch_id = std::string(repl_storage_state.epoch_.id())};
+        .epoch_id = std::string(repl_storage_state.epoch_.id()),
+        .name = db_acc->name()};
     results.emplace_back(repl);
   });
 
