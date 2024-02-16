@@ -29,8 +29,7 @@ bool QueryMemoryTracker::TrackAlloc(size_t size) {
     return true;
   }
 
-  bool ok = proc_tracker->Alloc(static_cast<int64_t>(size));
-  return ok;
+  return proc_tracker->Alloc(static_cast<int64_t>(size));
 }
 void QueryMemoryTracker::TrackFree(size_t size) {
   if (query_tracker_.has_value()) [[likely]] {

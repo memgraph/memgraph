@@ -40,7 +40,7 @@ auto MemoryErrorStatus() -> MemoryTrackerStatus &;
 
 class OutOfMemoryException : public utils::BasicException {
  public:
-  explicit OutOfMemoryException(const std::string &msg) : utils::BasicException(msg) {}
+  explicit OutOfMemoryException(std::string msg) : utils::BasicException(std::move(msg)) {}
   SPECIALIZE_GET_EXCEPTION_NAME(OutOfMemoryException)
 };
 

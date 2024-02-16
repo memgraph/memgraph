@@ -94,7 +94,6 @@ void DualThread(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, m
   try {
     auto futures = std::vector<std::future<result_t>>{};
     futures.reserve(N_THREADS);
-    // change communication between threads with feature and promise
     std::latch start_latch{N_THREADS};
     {
       auto threads = std::vector<std::jthread>{};

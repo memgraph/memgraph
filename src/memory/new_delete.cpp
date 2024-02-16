@@ -31,7 +31,7 @@ void *newImpl(const std::size_t size) {
   [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
   auto maybe_msg = memgraph::utils::MemoryErrorStatus().msg();
   if (maybe_msg) {
-    throw memgraph::utils::OutOfMemoryException{*maybe_msg};
+    throw memgraph::utils::OutOfMemoryException{std::move(*maybe_msg)};
   }
 
   throw std::bad_alloc{};
@@ -46,7 +46,7 @@ void *newImpl(const std::size_t size, const std::align_val_t align) {
   [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
   auto maybe_msg = memgraph::utils::MemoryErrorStatus().msg();
   if (maybe_msg) {
-    throw memgraph::utils::OutOfMemoryException{*maybe_msg};
+    throw memgraph::utils::OutOfMemoryException{std::move(*maybe_msg)};
   }
 
   throw std::bad_alloc{};
