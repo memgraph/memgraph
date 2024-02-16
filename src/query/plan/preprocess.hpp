@@ -303,14 +303,19 @@ struct FilterInfo {
   /// elements.
   enum class Type { Generic, Label, Property, Id, Pattern };
 
-  // TODO(gitbuda): What's the best solution for FilterInfo -> full constructor in c++?
-  //   * If no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
-  //   * If any user-declared constructor -> non-aggregate type -> no designated initializers
-  // ~FilterInfo();
-  // FilterInfo(const FilterInfo &);
-  // FilterInfo &operator=(const FilterInfo &);
-  // FilterInfo(FilterInfo &&) noexcept;
-  // FilterInfo &operator=(FilterInfo &&) noexcept;
+  // FilterInfo is tricky because FilterMatching is not yet defined:
+  //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
+  //   * if any user-declared constructor -> non-aggregate type -> no designated initializers are possible
+  //   * IMPORTANT: Matchings will always be initialized to an empty container.
+  explicit FilterInfo(Type type = Type::Generic, Expression *expression = nullptr,
+                      std::unordered_set<Symbol> &&used_symbols = {},
+                      std::optional<PropertyFilter> property_filter = {}, std::optional<IdFilter> id_filter = {});
+  // All other constructors are defaulted in the cpp file.
+  ~FilterInfo();
+  FilterInfo(const FilterInfo &);
+  FilterInfo &operator=(const FilterInfo &);
+  FilterInfo(FilterInfo &&) noexcept;
+  FilterInfo &operator=(FilterInfo &&) noexcept;
 
   Type type{Type::Generic};
   /// The original filter expression which must be satisfied.
