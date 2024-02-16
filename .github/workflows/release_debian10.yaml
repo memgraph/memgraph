@@ -1,4 +1,7 @@
 name: Release Debian 10
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
 
 on:
   workflow_dispatch:
@@ -10,7 +13,12 @@ on:
         options:
           - Release
           - RelWithDebInfo
-
+  push:
+    branches:
+      - "release/**"
+    tags:
+      - "v*.*.*-rc*"
+      - "v*.*-rc*"
   schedule:
     - cron: "0 22 * * *"
 
@@ -321,7 +329,6 @@ jobs:
             --no-strict
 
   release_e2e_test:
-    if: false
     name: "Release End-to-end Test"
     runs-on: [self-hosted, Linux, X64, Debian10]
     timeout-minutes: 60

@@ -109,5 +109,7 @@ auto ReplicationInstance::SendUnregisterReplicaRpc(std::string const &instance_n
   return client_.SendUnregisterReplicaRpc(instance_name);
 }
 
+auto ReplicationInstance::EnableWritingOnMain() -> bool { return client_.SendEnableWritingOnMainRpc(); }
+
 }  // namespace memgraph::coordination
 #endif

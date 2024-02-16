@@ -36,6 +36,8 @@ class CoordinatorHandlers {
 
   static void UnregisterReplicaHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
                                        slk::Builder *res_builder);
+  static void EnableWritingOnMainHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
+                                         slk::Builder *res_builder);
 };
 
 }  // namespace memgraph::dbms

@@ -16,7 +16,7 @@ import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, safe_execute
+from common import add_coordinator, connect, execute_and_fetch_all, safe_execute
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -102,17 +102,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "setup_queries": [],
     },
 }
-
-
-# NOTE: Repeated execution because it can fail if Raft server is not up
-def add_coordinator(cursor, query):
-    for _ in range(10):
-        try:
-            execute_and_fetch_all(cursor, query)
-            return True
-        except Exception:
-            pass
-    return False
 
 
 def test_register_repl_instances_then_coordinators():
