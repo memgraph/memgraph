@@ -39,6 +39,7 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
 
 enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   NO_INSTANCE_WITH_NAME,
+  MAIN_ALREADY_EXISTS,
   NOT_COORDINATOR,
   SUCCESS,
   COULD_NOT_PROMOTE_TO_MAIN,
