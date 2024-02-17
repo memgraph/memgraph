@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -65,7 +65,7 @@ storage::Result<std::map<std::string, communication::bolt::Value>> ToBoltGraph(c
 /// @param storage::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
-storage::Result<communication::bolt::Value> ToBoltValue(const query::TypedValue &value, const storage::Storage &db,
+storage::Result<communication::bolt::Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db,
                                                         storage::View view);
 
 query::TypedValue ToTypedValue(const communication::bolt::Value &value);

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,8 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 const int kNumThreads = 8;
 
@@ -34,7 +36,7 @@ class StorageUniqueConstraints : public ::testing::Test {
 
   void SetUp() override {
     // Create initial vertices.
-    auto acc = storage->Access();
+    auto acc = storage->Access(ReplicationRole::MAIN);
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->CreateVertex();
@@ -55,7 +57,7 @@ void SetProperties(memgraph::storage::Storage *storage, memgraph::storage::Gid g
                    const std::vector<PropertyId> &properties, const std::vector<PropertyValue> &values,
                    bool *commit_status) {
   ASSERT_EQ(properties.size(), values.size());
-  auto acc = storage->Access();
+  auto acc = storage->Access(ReplicationRole::MAIN);
   auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
   ASSERT_TRUE(vertex);
   int value = 0;
@@ -71,7 +73,7 @@ void SetProperties(memgraph::storage::Storage *storage, memgraph::storage::Gid g
 }
 
 void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, LabelId label, bool *commit_status) {
-  auto acc = storage->Access();
+  auto acc = storage->Access(ReplicationRole::MAIN);
   auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
   ASSERT_TRUE(vertex);
   for (int iter = 0; iter < 40000; ++iter) {
@@ -84,7 +86,7 @@ void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, L
 
 TEST_F(StorageUniqueConstraints, ChangeProperties) {
   {
-    auto unique_acc = storage->UniqueAccess();
+    auto unique_acc = storage->UniqueAccess(ReplicationRole::MAIN);
     auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
@@ -92,7 +94,7 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
   }
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(ReplicationRole::MAIN);
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
@@ -168,7 +170,7 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
 
 TEST_F(StorageUniqueConstraints, ChangeLabels) {
   {
-    auto unique_acc = storage->UniqueAccess();
+    auto unique_acc = storage->UniqueAccess(ReplicationRole::MAIN);
     auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
@@ -181,7 +183,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   // succeed, as the others should result with constraint violation.
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(ReplicationRole::MAIN);
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
@@ -196,7 +198,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   for (int iter = 0; iter < 20; ++iter) {
     // Clear labels.
     {
-      auto acc = storage->Access();
+      auto acc = storage->Access(ReplicationRole::MAIN);
       // NOLINTNEXTLINE(modernize-loop-convert)
       for (int i = 0; i < kNumThreads; ++i) {
         auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
@@ -227,7 +229,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   // should succeed.
 
   {
-    auto acc = storage->Access();
+    auto acc = storage->Access(ReplicationRole::MAIN);
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
@@ -242,7 +244,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   for (int iter = 0; iter < 20; ++iter) {
     // Clear labels.
     {
-      auto acc = storage->Access();
+      auto acc = storage->Access(ReplicationRole::MAIN);
       // NOLINTNEXTLINE(modernize-loop-convert)
       for (int i = 0; i < kNumThreads; ++i) {
         auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);

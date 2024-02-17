@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@
 template <typename StorageType>
 struct CppApiTestFixture : public ::testing::Test {
  protected:
-  virtual void SetUp() override { mgp::mrd.Register(&memory); }
+  void SetUp() override { mgp::mrd.Register(&memory); }
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -38,11 +38,13 @@ struct CppApiTestFixture : public ::testing::Test {
 
   mgp_graph CreateGraph(const memgraph::storage::View view = memgraph::storage::View::NEW) {
     // the execution context can be null as it shouldn't be used in these tests
-    return mgp_graph{&CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION), view, ctx_.get()};
+    return mgp_graph{&CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION), view, ctx_.get(),
+                     memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   }
 
   memgraph::query::DbAccessor &CreateDbAccessor(const memgraph::storage::IsolationLevel isolationLevel) {
-    accessors_.push_back(storage->Access(isolationLevel));
+    accessors_.push_back(
+        storage->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN, isolationLevel));
     db_accessors_.emplace_back(accessors_.back().get());
     return db_accessors_.back();
   }
@@ -499,6 +501,7 @@ TYPED_TEST(CppApiTestFixture, TestValueOperatorLessThan) {
   ASSERT_THROW(list_test < map_test, mgp::ValueException);
   ASSERT_THROW(list_test < list_test, mgp::ValueException);
 }
+
 TYPED_TEST(CppApiTestFixture, TestNumberEquality) {
   mgp::Value double_1{1.0};
   mgp::Value int_1{static_cast<int64_t>(1)};
@@ -694,6 +697,7 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestRelationshipChangeFrom) {
+  // Changing Relationship end vertex is not implemented for ondisk storage yet.
   if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
     return;
   }
@@ -706,6 +710,8 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipChangeFrom) {
   auto node_3 = graph.CreateNode();
 
   auto relationship = graph.CreateRelationship(node_1, node_2, "Edge");
+  relationship.SetProperty("property", mgp::Value(true));
+  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
 
   ASSERT_EQ(relationship.From().Id(), node_1.Id());
   graph.SetFrom(relationship, node_3);
@@ -713,9 +719,11 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipChangeFrom) {
   ASSERT_EQ(std::string(relationship.Type()), "Edge");
   ASSERT_EQ(relationship.From().Id(), node_3.Id());
   ASSERT_EQ(relationship.To().Id(), node_2.Id());
+  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
 }
 
 TYPED_TEST(CppApiTestFixture, TestRelationshipChangeTo) {
+  // Changing Relationship start vertex is not implemented for ondisk storage yet.
   if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
     return;
   }
@@ -728,6 +736,8 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipChangeTo) {
   auto node_3 = graph.CreateNode();
 
   auto relationship = graph.CreateRelationship(node_1, node_2, "Edge");
+  relationship.SetProperty("property", mgp::Value(true));
+  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
 
   ASSERT_EQ(relationship.To().Id(), node_2.Id());
   graph.SetTo(relationship, node_3);
@@ -735,6 +745,7 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipChangeTo) {
   ASSERT_EQ(std::string(relationship.Type()), "Edge");
   ASSERT_EQ(relationship.From().Id(), node_1.Id());
   ASSERT_EQ(relationship.To().Id(), node_3.Id());
+  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
 }
 
 TYPED_TEST(CppApiTestFixture, TestInAndOutDegrees) {
@@ -757,4 +768,35 @@ TYPED_TEST(CppApiTestFixture, TestInAndOutDegrees) {
   ASSERT_EQ(node_1.InDegree(), 0);
   ASSERT_EQ(node_2.OutDegree(), 0);
   ASSERT_EQ(node_3.OutDegree(), 0);
+}
+
+TYPED_TEST(CppApiTestFixture, TestChangeRelationshipType) {
+  // Changing relationship types is not implemented for ondisk storage yet.
+  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
+    return;
+  }
+
+  mgp_graph raw_graph = this->CreateGraph();
+  auto graph = mgp::Graph(&raw_graph);
+
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
+
+  auto relationship = graph.CreateRelationship(node_1, node_2, "Type");
+  relationship.SetProperty("property", mgp::Value(true));
+  ASSERT_EQ(relationship.Type(), "Type");
+  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
+
+  graph.ChangeType(relationship, "NewType");
+  ASSERT_EQ(relationship.Type(), "NewType");
+  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
+}
+
+TYPED_TEST(CppApiTestFixture, TestMapKeyExist) {
+  mgp::Map map = mgp::Map();
+  map.Insert("key", mgp::Value("string"));
+  ASSERT_EQ(true, map.KeyExists("key"));
+  ASSERT_EQ(false, map.KeyExists("no_existo"));
+  map.Insert("null_key", mgp::Value());
+  ASSERT_EQ(true, map.KeyExists("null_key"));
 }

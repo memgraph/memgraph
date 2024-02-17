@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -59,7 +59,7 @@ jobs:
           source ve3/bin/activate
           pip install -r requirements.txt
           ./main.py --benchmark-name "macro_benchmark" \
-                    --benchmark-results-path "../../tests/macro_benchmark/.harness_summary" \
+                    --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
@@ -73,6 +73,8 @@ jobs:
 
           ./benchmark.py vendor-native --num-workers-for-benchmark 1 --export-results benchmark_high_write_set_property.json high_write_set_property
 
+          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results cartesian.json cartesian
+
       - name: Upload mgbench results
         run: |
           cd tools/bench-graph-client
@@ -80,19 +82,25 @@ jobs:
           source ve3/bin/activate
           pip install -r requirements.txt
           ./main.py --benchmark-name "mgbench" \
-                    --benchmark-results-path "../../tests/mgbench/benchmark_pokec.json" \
+                    --benchmark-results "../../tests/mgbench/benchmark_pokec.json" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
 
           ./main.py --benchmark-name "supernode" \
-                    --benchmark-results-path "../../tests/mgbench/benchmark_supernode.json" \
+                    --benchmark-results "../../tests/mgbench/benchmark_supernode.json" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"
 
           ./main.py --benchmark-name "high_write_set_property" \
-                    --benchmark-results-path "../../tests/mgbench/benchmark_high_write_set_property.json" \
+                    --benchmark-results "../../tests/mgbench/benchmark_high_write_set_property.json" \
+                    --github-run-id "${{ github.run_id }}" \
+                    --github-run-number "${{ github.run_number }}" \
+                    --head-branch-name "${{ env.BRANCH_NAME }}"
+
+          ./main.py --benchmark-name "cartesian" \
+                    --benchmark-results "../../tests/mgbench/cartesian.json" \
                     --github-run-id "${{ github.run_id }}" \
                     --github-run-number "${{ github.run_number }}" \
                     --head-branch-name "${{ env.BRANCH_NAME }}"

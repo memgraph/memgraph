@@ -11,6 +11,7 @@
 
 import copy
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -21,6 +22,7 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
+SIGNAL_SIGTERM = 15
 
 
 def wait_for_server(port, delay=0.01):
@@ -55,19 +57,27 @@ def replace_paths(path):
 
 
 class MemgraphInstanceRunner:
-    def __init__(self, binary_path=MEMGRAPH_BINARY, use_ssl=False):
+    def __init__(self, binary_path=MEMGRAPH_BINARY, use_ssl=False, delete_on_stop=None, username=None, password=None):
         self.host = "127.0.0.1"
         self.bolt_port = None
         self.binary_path = binary_path
         self.args = None
         self.proc_mg = None
         self.ssl = use_ssl
+        self.delete_on_stop = delete_on_stop
+        self.username = username
+        self.password = password
 
     def execute_setup_queries(self, setup_queries):
         if setup_queries is None:
             return
-        # An assumption being database instance is fresh, no need for the auth.
-        conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)
+        conn = mgclient.connect(
+            host=self.host,
+            port=self.bolt_port,
+            sslmode=self.ssl,
+            username=(self.username or ""),
+            password=(self.password or ""),
+        )
         conn.autocommit = True
         cursor = conn.cursor()
         for query_coll in setup_queries:
@@ -127,16 +137,31 @@ class MemgraphInstanceRunner:
             return False
         return True
 
-    def stop(self):
+    def stop(self, keep_directories=False):
         if not self.is_running():
             return
-        self.proc_mg.terminate()
-        code = self.proc_mg.wait()
-        assert code == 0, "The Memgraph process exited with non-zero!"
 
-    def kill(self):
+        pid = self.proc_mg.pid
+        try:
+            os.kill(pid, SIGNAL_SIGTERM)
+        except os.OSError:
+            assert False
+
+        time.sleep(1)
+
+        if not keep_directories:
+            for folder in self.delete_on_stop or {}:
+                try:
+                    shutil.rmtree(folder)
+                except Exception as e:
+                    pass  # couldn't delete folder, skip
+
+    def kill(self, keep_directories=False):
         if not self.is_running():
             return
         self.proc_mg.kill()
         code = self.proc_mg.wait()
+        if not keep_directories:
+            for folder in self.delete_on_stop or {}:
+                shutil.rmtree(folder)
         assert code == -9, "The killed Memgraph process exited with non-nine!"

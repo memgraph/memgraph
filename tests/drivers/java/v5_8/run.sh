@@ -9,8 +9,8 @@ fi
 if [ -d "/usr/lib/jvm/java-17-openjdk-amd64" ]; then
   export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
 fi
-if [ -d "/opt/apache-maven-3.9.2" ]; then
-  export M2_HOME="/opt/apache-maven-3.9.2"
+if [ -d "/opt/apache-maven-3.9.3" ]; then
+  export M2_HOME="/opt/apache-maven-3.9.3"
 fi
 export PATH="$JAVA_HOME/bin:$M2_HOME/bin:$PATH"
 
@@ -36,3 +36,4 @@ mvn clean package
 java -jar target/DocsHowToQuery.jar
 java -jar target/MaxQueryLength.jar
 java -jar target/Transactions.jar
+# java -jar target/ParallelEdgeImport.jar

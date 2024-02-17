@@ -15,11 +15,16 @@
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
+#include "storage/v2/storage_mode.hpp"
 #include "utils/pmr/unordered_set.hpp"
 
 namespace memgraph::query {
 SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor db_accessor, Graph *graph)
     : db_accessor_(db_accessor), graph_(graph) {}
+
+void SubgraphDbAccessor::TrackCurrentThreadAllocations() { return db_accessor_.TrackCurrentThreadAllocations(); }
+
+void SubgraphDbAccessor::UntrackCurrentThreadAllocations() { return db_accessor_.TrackCurrentThreadAllocations(); }
 
 storage::PropertyId SubgraphDbAccessor::NameToProperty(const std::string_view name) {
   return db_accessor_.NameToProperty(name);
@@ -94,6 +99,14 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeSetTo(EdgeAccessor *edge, 
   return result;
 }
 
+storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeChangeType(EdgeAccessor *edge,
+                                                                 storage::EdgeTypeId new_edge_type) {
+  if (!this->graph_->ContainsEdge(*edge)) {
+    throw std::logic_error{"Projected graph must contain edge!"};
+  }
+  return db_accessor_.EdgeChangeType(edge, new_edge_type);
+}
+
 storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
     SubgraphVertexAccessor *subgraphvertex_accessor) {
   VertexAccessor *vertex_accessor = &subgraphvertex_accessor->impl_;
@@ -126,6 +139,10 @@ std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, s
 }
 
 query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
+
+storage::StorageMode SubgraphDbAccessor::GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }
+
+DbAccessor *SubgraphDbAccessor::GetAccessor() { return &db_accessor_; }
 
 VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_; }
 

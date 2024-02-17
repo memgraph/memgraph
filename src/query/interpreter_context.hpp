@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,18 +20,23 @@
 
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
+#include "query/replication_query_handler.hpp"
 #include "query/typed_value.hpp"
+#include "replication/state.hpp"
+#include "storage/v2/config.hpp"
+#include "storage/v2/transaction.hpp"
+#include "system/state.hpp"
+#include "system/system.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+#ifdef MG_ENTERPRISE
+#include "coordination/coordinator_state.hpp"
+#endif
 
 namespace memgraph::dbms {
-#ifdef MG_ENTERPRISE
 class DbmsHandler;
-#else
-class Database;
-#endif
 }  // namespace memgraph::dbms
 
 namespace memgraph::query {
@@ -48,20 +53,15 @@ class Interpreter;
  *
  */
 struct InterpreterContext {
+  InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
+                     replication::ReplicationState *rs, memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
-  InterpreterContext(InterpreterConfig interpreter_config, memgraph::dbms::DbmsHandler *db_handler,
-                     AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr);
-#else
-  InterpreterContext(InterpreterConfig interpreter_config,
-                     memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper,
-                     query::AuthQueryHandler *ah = nullptr, query::AuthChecker *ac = nullptr);
+                     memgraph::coordination::CoordinatorState *coordinator_state,
 #endif
+                     AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
+                     ReplicationQueryHandler *replication_handler = nullptr);
 
-#ifdef MG_ENTERPRISE
-  memgraph::dbms::DbmsHandler *db_handler;
-#else
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> *db_gatekeeper;
-#endif
+  memgraph::dbms::DbmsHandler *dbms_handler;
 
   // Internal
   const InterpreterConfig config;
@@ -69,8 +69,15 @@ struct InterpreterContext {
   memgraph::utils::SkipList<QueryCacheEntry> ast_cache;
 
   // GLOBAL
+  memgraph::replication::ReplicationState *repl_state;
+#ifdef MG_ENTERPRISE
+  memgraph::coordination::CoordinatorState *coordinator_state_;
+#endif
+
   AuthQueryHandler *auth;
   AuthChecker *auth_checker;
+  ReplicationQueryHandler *replication_handler_;
+  system::System *system_;
 
   // Used to check active transactions
   // TODO: Have a way to read the current database

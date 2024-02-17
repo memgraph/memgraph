@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "query/auth_query_handler.hpp"
+#include "replication/state.hpp"
+#include "storage/v2/config.hpp"
 #ifdef MG_ENTERPRISE
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -24,10 +26,27 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 
+namespace {
+std::set<std::string> GetDirs(auto path) {
+  std::set<std::string> dirs;
+  // Clean the unused directories
+  for (const auto &entry : std::filesystem::directory_iterator(path)) {
+    const auto &name = entry.path().filename().string();
+    if (entry.is_directory() && !name.empty() && name.front() != '.') {
+      dirs.emplace(name);
+    }
+  }
+  return dirs;
+}
+}  // namespace
+
 // Global
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_handler"};
+std::filesystem::path db_dir{storage_directory / "databases"};
 static memgraph::storage::Config storage_conf;
-std::unique_ptr<memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>> auth;
+std::unique_ptr<memgraph::auth::SynchedAuth> auth;
+std::unique_ptr<memgraph::system::System> system_state;
+std::unique_ptr<memgraph::replication::ReplicationState> repl_state;
 
 // Let this be global so we can test it different states throughout
 
@@ -48,15 +67,19 @@ class TestEnvironment : public ::testing::Environment {
         std::filesystem::remove_all(storage_directory);
       }
     }
-    auth =
-        std::make_unique<memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>>(
-            storage_directory / "auth");
-    ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, auth.get(), false, true);
+    auth = std::make_unique<memgraph::auth::SynchedAuth>(storage_directory / "auth",
+                                                         memgraph::auth::Auth::Config{/* default */});
+    system_state = std::make_unique<memgraph::system::System>();
+    repl_state = std::make_unique<memgraph::replication::ReplicationState>(ReplicationStateRootPath(storage_conf));
+    ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, *repl_state.get(), *auth.get(), false);
   }
 
   void TearDown() override {
     ptr_.reset();
+    repl_state.reset();
+    system_state.reset();
     auth.reset();
+    std::filesystem::remove_all(storage_directory);
   }
 
   static std::unique_ptr<memgraph::dbms::DbmsHandler> ptr_;
@@ -72,7 +95,7 @@ TEST(DBMS_Handler, Init) {
   std::vector<std::string> dirs = {"snapshots", "streams", "triggers", "wal"};
   for (const auto &dir : dirs)
     ASSERT_TRUE(std::filesystem::exists(storage_directory / dir)) << (storage_directory / dir);
-  const auto db_path = storage_directory / "databases" / memgraph::dbms::kDefaultDB;
+  const auto db_path = db_dir / memgraph::dbms::kDefaultDB;
   ASSERT_TRUE(std::filesystem::exists(db_path));
   for (const auto &dir : dirs) {
     std::error_code ec;
@@ -90,10 +113,14 @@ TEST(DBMS_Handler, New) {
     ASSERT_EQ(all[0], memgraph::dbms::kDefaultDB);
   }
   {
+    const auto dirs = GetDirs(db_dir);
     auto db1 = dbms.New("db1");
     ASSERT_TRUE(db1.HasValue());
     ASSERT_TRUE(db1.GetValue());
-    ASSERT_TRUE(std::filesystem::exists(storage_directory / "databases" / "db1"));
+    // New flow doesn't make db named directories
+    ASSERT_FALSE(std::filesystem::exists(db_dir / "db1"));
+    const auto dirs_w_db1 = GetDirs(db_dir);
+    ASSERT_EQ(dirs_w_db1.size(), dirs.size() + 1);
     ASSERT_TRUE(db1.GetValue()->storage() != nullptr);
     ASSERT_TRUE(db1.GetValue()->streams() != nullptr);
     ASSERT_TRUE(db1.GetValue()->trigger_store() != nullptr);
@@ -109,9 +136,13 @@ TEST(DBMS_Handler, New) {
     ASSERT_TRUE(db2.HasError() && db2.GetError() == memgraph::dbms::NewError::EXISTS);
   }
   {
+    const auto dirs = GetDirs(db_dir);
     auto db3 = dbms.New("db3");
     ASSERT_TRUE(db3.HasValue());
-    ASSERT_TRUE(std::filesystem::exists(storage_directory / "databases" / "db3"));
+    // New flow doesn't make db named directories
+    ASSERT_FALSE(std::filesystem::exists(db_dir / "db3"));
+    const auto dirs_w_db3 = GetDirs(db_dir);
+    ASSERT_EQ(dirs_w_db3.size(), dirs.size() + 1);
     ASSERT_TRUE(db3.GetValue()->storage() != nullptr);
     ASSERT_TRUE(db3.GetValue()->streams() != nullptr);
     ASSERT_TRUE(db3.GetValue()->trigger_store() != nullptr);
@@ -154,16 +185,16 @@ TEST(DBMS_Handler, Delete) {
   auto db1_acc = dbms.Get("db1");  // Holds access to database
 
   {
-    auto del = dbms.Delete(memgraph::dbms::kDefaultDB);
+    auto del = dbms.TryDelete(memgraph::dbms::kDefaultDB);
     ASSERT_TRUE(del.HasError() && del.GetError() == memgraph::dbms::DeleteError::DEFAULT_DB);
   }
   {
-    auto del = dbms.Delete("non-existent");
+    auto del = dbms.TryDelete("non-existent");
     ASSERT_TRUE(del.HasError() && del.GetError() == memgraph::dbms::DeleteError::NON_EXISTENT);
   }
   {
     // db1_acc is using db1
-    auto del = dbms.Delete("db1");
+    auto del = dbms.TryDelete("db1");
     ASSERT_TRUE(del.HasError());
     ASSERT_TRUE(del.GetError() == memgraph::dbms::DeleteError::USING);
   }
@@ -171,15 +202,17 @@ TEST(DBMS_Handler, Delete) {
     // Reset db1_acc (releases access) so delete will succeed
     db1_acc.reset();
     ASSERT_FALSE(db1_acc);
-    auto del = dbms.Delete("db1");
+    auto del = dbms.TryDelete("db1");
     ASSERT_FALSE(del.HasError()) << (int)del.GetError();
-    auto del2 = dbms.Delete("db1");
+    auto del2 = dbms.TryDelete("db1");
     ASSERT_TRUE(del2.HasError() && del2.GetError() == memgraph::dbms::DeleteError::NON_EXISTENT);
   }
   {
-    auto del = dbms.Delete("db3");
+    const auto dirs = GetDirs(db_dir);
+    auto del = dbms.TryDelete("db3");
     ASSERT_FALSE(del.HasError());
-    ASSERT_FALSE(std::filesystem::exists(storage_directory / "databases" / "db3"));
+    const auto dirs_wo_db3 = GetDirs(db_dir);
+    ASSERT_EQ(dirs_wo_db3.size(), dirs.size() - 1);
   }
 }
 

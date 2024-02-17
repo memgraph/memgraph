@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,7 +41,7 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b);
 /// the define how respective elements compare.
 class TypedValueVectorCompare final {
  public:
-  TypedValueVectorCompare() {}
+  TypedValueVectorCompare() = default;
   explicit TypedValueVectorCompare(const std::vector<Ordering> &ordering) : ordering_(ordering) {}
 
   template <class TAllocator>
@@ -72,8 +72,9 @@ class TypedValueVectorCompare final {
 
 /// Raise QueryRuntimeException if the value for symbol isn't of expected type.
 inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue::Type expected) {
-  if (value.type() != expected)
+  if (value.type() != expected) [[unlikely]] {
     throw QueryRuntimeException("Expected a {} for '{}', but got {}.", expected, symbol.name(), value.type());
+  }
 }
 
 inline void ProcessError(const storage::Error error) {
@@ -147,8 +148,8 @@ concept AccessorWithUpdateProperties = requires(T accessor,
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithUpdateProperties T>
-auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) ->
-    typename std::remove_reference<decltype(record->UpdateProperties(properties).GetValue())>::type {
+auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties)
+    -> std::remove_reference_t<decltype(record->UpdateProperties(properties).GetValue())> {
   try {
     auto maybe_values = record->UpdateProperties(properties);
     if (maybe_values.HasError()) {

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include <map>
 #include <optional>
 #include <regex>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -28,8 +29,10 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
@@ -98,6 +101,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(ParameterLookup);
   UNSUCCESSFUL_VISIT(RegexMatch);
   UNSUCCESSFUL_VISIT(Exists);
+  UNSUCCESSFUL_VISIT(PatternComprehension);
 
 #undef UNSUCCESSFUL_VISIT
 
@@ -167,6 +171,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(Identifier)
   INVALID_VISIT(RegexMatch)
   INVALID_VISIT(Exists)
+  INVALID_VISIT(PatternComprehension)
 
 #undef INVALID_VISIT
  private:
@@ -186,6 +191,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   using ExpressionVisitor<TypedValue>::Visit;
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
+
+  void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
 
   TypedValue Visit(NamedExpression &named_expression) override {
     const auto &symbol = symbol_table_->at(named_expression);
@@ -270,36 +277,33 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(InListOperator &in_list) override {
-    TypedValue *_list_ptr = nullptr;
-    TypedValue _list;
     auto literal = in_list.expression1_->Accept(*this);
 
-    auto get_list_literal = [this, &in_list, &_list, &_list_ptr]() -> void {
+    auto get_list_literal = [this, &in_list]() -> TypedValue {
       ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
-      _list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
-      if (nullptr == _list_ptr) {
-        _list = in_list.expression2_->Accept(*this);
-        _list_ptr = &_list;
+      auto *list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
+      if (nullptr == list_ptr) {
+        return in_list.expression2_->Accept(*this);
       }
+      return *list_ptr;
     };
 
-    auto do_list_literal_checks = [this, &literal, &_list_ptr]() -> std::optional<TypedValue> {
-      MG_ASSERT(_list_ptr, "List literal should have been defined");
-      if (_list_ptr->IsNull()) {
+    auto do_list_literal_checks = [this, &literal](const TypedValue &list) -> std::optional<TypedValue> {
+      if (list.IsNull()) {
         return TypedValue(ctx_->memory);
       }
       // Exceptions have higher priority than returning nulls when list expression
       // is not null.
-      if (_list_ptr->type() != TypedValue::Type::List) {
-        throw QueryRuntimeException("IN expected a list, got {}.", _list_ptr->type());
+      if (list.type() != TypedValue::Type::List) {
+        throw QueryRuntimeException("IN expected a list, got {}.", list.type());
       }
-      const auto &list = _list_ptr->ValueList();
+      const auto &list_value = list.ValueList();
 
       // If literal is NULL there is no need to try to compare it with every
       // element in the list since result of every comparison will be NULL. There
       // is one special case that we must test explicitly: if list is empty then
       // result is false since no comparison will be performed.
-      if (list.empty()) return TypedValue(false, ctx_->memory);
+      if (list_value.empty()) return TypedValue(false, ctx_->memory);
       if (literal.IsNull()) return TypedValue(ctx_->memory);
       return {};
     };
@@ -312,14 +316,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!frame_change_collector_->IsKeyValueCached(*cached_id)) {
         // Check only first time if everything is okay, later when we use
         // cache there is no need to check again as we did check first time
-        get_list_literal();
-        auto preoperational_checks = do_list_literal_checks();
+        auto list = get_list_literal();
+        auto preoperational_checks = do_list_literal_checks(list);
         if (preoperational_checks) {
           return std::move(*preoperational_checks);
         }
         auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
-        cached_value.CacheValue(*_list_ptr);
-        spdlog::trace("Value cached {}", *cached_id);
+        // Don't move here because we don't want to remove the element from the frame
+        cached_value.CacheValue(list);
       }
       const auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
 
@@ -334,16 +338,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     // When caching is not an option, we need to evaluate list literal every time
     // and do the checks
-    get_list_literal();
-    auto preoperational_checks = do_list_literal_checks();
+    const auto list = get_list_literal();
+    auto preoperational_checks = do_list_literal_checks(list);
     if (preoperational_checks) {
       return std::move(*preoperational_checks);
     }
 
-    const auto &list = _list.ValueList();
-    spdlog::trace("Not using cache on IN LIST operator");
+    const auto &list_value = list.ValueList();
     auto has_null = false;
-    for (const auto &element : list) {
+    for (const auto &element : list_value) {
       auto result = literal == element;
       if (result.IsNull()) {
         has_null = true;
@@ -548,13 +551,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Vertex:
         if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
           auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-          if (!ctx_->property_lookups_cache.contains(symbol_pos)) {
-            ctx_->property_lookups_cache.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueVertex()));
+          if (!property_lookup_cache_.contains(symbol_pos)) {
+            property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueVertex()));
           }
 
           auto property_id = ctx_->properties[property_lookup.property_.ix];
-          if (ctx_->property_lookups_cache[symbol_pos].contains(property_id)) {
-            return TypedValue(ctx_->property_lookups_cache[symbol_pos][property_id], ctx_->memory);
+          if (property_lookup_cache_[symbol_pos].contains(property_id)) {
+            return TypedValue(property_lookup_cache_[symbol_pos][property_id], ctx_->memory);
           }
           return TypedValue(ctx_->memory);
         } else {
@@ -563,13 +566,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Edge:
         if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
           auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-          if (!ctx_->property_lookups_cache.contains(symbol_pos)) {
-            ctx_->property_lookups_cache.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueEdge()));
+          if (!property_lookup_cache_.contains(symbol_pos)) {
+            property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueEdge()));
           }
 
           auto property_id = ctx_->properties[property_lookup.property_.ix];
-          if (ctx_->property_lookups_cache[symbol_pos].contains(property_id)) {
-            return TypedValue(ctx_->property_lookups_cache[symbol_pos][property_id], ctx_->memory);
+          if (property_lookup_cache_[symbol_pos].contains(property_id)) {
+            return TypedValue(property_lookup_cache_[symbol_pos][property_id], ctx_->memory);
           }
           return TypedValue(ctx_->memory);
         } else {
@@ -784,10 +787,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       result.emplace(pair.first.name, pair.second->Accept(*this));
     }
 
-    ctx_->property_lookups_cache.clear();
-    // TODO Don’t clear the cache if there are remaining MapLiterals with PropertyLookups that read the same properties
-    // from the same variable (symbol & value)
-
     return TypedValue(result, ctx_->memory);
   }
 
@@ -833,8 +832,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       throw QueryRuntimeException("'coalesce' requires at least one argument.");
     }
 
-    for (int64_t i = 0; i < exprs.size(); ++i) {
-      TypedValue val(exprs[i]->Accept(*this), ctx_->memory);
+    for (auto &expr : exprs) {
+      TypedValue val(expr->Accept(*this), ctx_->memory);
       if (!val.IsNull()) {
         return val;
       }
@@ -845,6 +844,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(Function &function) override {
     FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_};
+    bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
+    TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       TypedValue arguments[8] = {TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
@@ -853,19 +854,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       for (size_t i = 0; i < function.arguments_.size(); ++i) {
         arguments[i] = function.arguments_[i]->Accept(*this);
       }
-      auto res = function.function_(arguments, function.arguments_.size(), function_ctx);
-      MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
-      return res;
+      res = function.function_(arguments, function.arguments_.size(), function_ctx);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      auto res = function.function_(arguments.data(), arguments.size(), function_ctx);
-      MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
-      return res;
+      res = function.function_(arguments.data(), arguments.size(), function_ctx);
     }
+    MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
+    if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
+      return TypedValue(ctx_->memory);
+    }
+    return res;
   }
 
   TypedValue Visit(Reduce &reduce) override {
@@ -911,7 +913,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(std::move(result), ctx_->memory);
   }
 
-  TypedValue Visit(Exists &exists) override { return TypedValue{frame_->at(symbol_table_->at(exists)), ctx_->memory}; }
+  TypedValue Visit(Exists &exists) override {
+    TypedValue &frame_exists_value = frame_->at(symbol_table_->at(exists));
+    if (!frame_exists_value.IsFunction()) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
+          frame_exists_value.type());
+    }
+    TypedValue result{ctx_->memory};
+    frame_exists_value.ValueFunction()(&result);
+    return result;
+  }
 
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);
@@ -1080,6 +1092,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
   }
 
+  TypedValue Visit(PatternComprehension & /*pattern_comprehension*/) override {
+    throw utils::NotYetImplemented("Expression evaluator can not handle pattern comprehension.");
+  }
+
  private:
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
@@ -1105,11 +1121,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           throw QueryRuntimeException("Unexpected error when getting properties.");
       }
     }
-    return *maybe_props;
+    return *std::move(maybe_props);
   }
 
   template <class TRecordAccessor>
-  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
+  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
     if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE work.
@@ -1132,7 +1148,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           throw QueryRuntimeException("Unexpected error when getting a property.");
       }
     }
-    return *maybe_prop;
+    return *std::move(maybe_prop);
   }
 
   template <class TRecordAccessor>
@@ -1162,7 +1178,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *maybe_prop;
   }
 
-  storage::LabelId GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }
+  storage::LabelId GetLabel(const LabelIx &label) { return ctx_->labels[label.ix]; }
 
   Frame *frame_;
   const SymbolTable *symbol_table_;
@@ -1171,6 +1187,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   // which switching approach should be used when evaluating
   storage::View view_;
   FrameChangeCollector *frame_change_collector_;
+  /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
+  mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.

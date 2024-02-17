@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -179,7 +179,7 @@ class Writer {
  public:
   class MetadataHandle {
    public:
-    MetadataHandle() {}
+    MetadataHandle() = default;
 
     explicit MetadataHandle(uint8_t *value) : value_(value) {}
 
@@ -195,7 +195,7 @@ class Writer {
     uint8_t *value_{nullptr};
   };
 
-  Writer() {}
+  Writer() = default;
 
   Writer(uint8_t *data, uint64_t size) : data_(data), size_(size) {}
 
@@ -1050,14 +1050,11 @@ bool PropertyStore::HasProperty(PropertyId property) const {
   return ExistsSpecificProperty(&reader, property) == ExpectedPropertyStatus::EQUAL;
 }
 
-/// TODO: andi write a unit test for it
 bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) const {
   return std::all_of(properties.begin(), properties.end(), [this](const auto &prop) { return HasProperty(prop); });
 }
 
-/// TODO: andi write a unit test for it
 bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const {
-  /// TODO: andi extract this into a private method
   auto property_map = Properties();
   std::vector<PropertyValue> all_property_values;
   transform(property_map.begin(), property_map.end(), back_inserter(all_property_values),
@@ -1311,7 +1308,7 @@ std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore:
   id_old_new_change.reserve(properties.size() + old_properties.size());
   for (const auto &[prop_id, new_value] : properties) {
     if (!old_properties.contains(prop_id)) {
-      id_old_new_change.emplace_back(std::make_tuple(prop_id, PropertyValue(), new_value));
+      id_old_new_change.emplace_back(prop_id, PropertyValue(), new_value);
     }
   }
 
@@ -1319,7 +1316,7 @@ std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore:
     auto [it, inserted] = properties.emplace(old_key, old_value);
     if (!inserted) {
       auto &new_value = it->second;
-      id_old_new_change.emplace_back(std::make_tuple(it->first, old_value, new_value));
+      id_old_new_change.emplace_back(it->first, old_value, new_value);
     }
   }
 

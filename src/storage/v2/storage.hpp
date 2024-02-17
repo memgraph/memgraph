@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,8 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
+#include <optional>
 #include <semaphore>
 #include <span>
 #include <thread>
@@ -20,9 +22,11 @@
 #include "kvstore/kvstore.hpp"
 #include "query/exceptions.hpp"
 #include "replication/config.hpp"
+#include "replication/replication_server.hpp"
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/database_access.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -30,7 +34,6 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
-#include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -40,6 +43,7 @@
 #include "utils/event_histogram.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/synchronized_metadata_store.hpp"
 #include "utils/timer.hpp"
 #include "utils/uuid.hpp"
 
@@ -51,7 +55,6 @@ extern const Event ActiveLabelPropertyIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
-
 struct Transaction;
 class EdgeAccessor;
 
@@ -69,7 +72,7 @@ struct StorageInfo {
   uint64_t vertex_count;
   uint64_t edge_count;
   double average_degree;
-  uint64_t memory_usage;
+  uint64_t memory_res;
   uint64_t disk_usage;
   uint64_t label_indices;
   uint64_t label_property_indices;
@@ -86,7 +89,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
 
   res["edges"] = info.edge_count;
   res["vertices"] = info.vertex_count;
-  res["memory"] = info.memory_usage;
+  res["memory"] = info.memory_res;
   res["disk"] = info.disk_usage;
   res["label_indices"] = info.label_indices;
   res["label_prop_indices"] = info.label_property_indices;
@@ -107,9 +110,18 @@ struct EdgeInfoForDeletion {
   std::unordered_set<Vertex *> partial_dest_vertices{};
 };
 
+struct CommitReplArgs {
+  // REPLICA on recipt of Deltas will have a desired commit timestamp
+  std::optional<uint64_t> desired_commit_timestamp = std::nullopt;
+
+  bool is_main = true;
+
+  bool IsMain() { return is_main; }
+};
+
 class Storage {
   friend class ReplicationServer;
-  friend class ReplicationClient;
+  friend class ReplicationStorageClient;
 
  public:
   Storage(Config config, StorageMode storage_mode);
@@ -121,7 +133,9 @@ class Storage {
 
   virtual ~Storage() = default;
 
-  const std::string &id() const { return id_; }
+  const std::string &name() const { return config_.salient.name; }
+
+  const utils::UUID &uuid() const { return config_.salient.uuid; }
 
   class Accessor {
    public:
@@ -130,15 +144,17 @@ class Storage {
     static constexpr struct UniqueAccess {
     } unique_access;
 
-    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
-    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+             memgraph::replication_coordination_glue::ReplicationRole replication_role);
+    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
+             memgraph::replication_coordination_glue::ReplicationRole replication_role);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;
 
     Accessor(Accessor &&other) noexcept;
 
-    virtual ~Accessor() {}
+    virtual ~Accessor() = default;
 
     virtual VertexAccessor CreateVertex() = 0;
 
@@ -193,9 +209,14 @@ class Storage {
 
     virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;
 
+    virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
+                                                 VertexAccessor *to_vertex) = 0;
+
     virtual Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) = 0;
 
     virtual Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) = 0;
+
+    virtual Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, EdgeTypeId new_edge_type) = 0;
 
     virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
 
@@ -208,8 +229,8 @@ class Storage {
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {}) = 0;
+    virtual utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
+                                                                      DatabaseAccessProtector db_acc = {}) = 0;
 
     virtual void Abort() = 0;
 
@@ -231,9 +252,13 @@ class Storage {
 
     EdgeTypeId NameToEdgeType(std::string_view name) { return storage_->NameToEdgeType(name); }
 
-    StorageMode GetCreationStorageMode() const;
+    StorageMode GetCreationStorageMode() const noexcept;
 
-    const std::string &id() const { return storage_->id(); }
+    const std::string &id() const { return storage_->name(); }
+
+    std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
+
+    std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
 
@@ -297,19 +322,25 @@ class Storage {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
 
-  void SetStorageMode(StorageMode storage_mode);
-
-  StorageMode GetStorageMode() const;
+  StorageMode GetStorageMode() const noexcept;
 
   virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) = 0;
 
   void FreeMemory() { FreeMemory({}); }
 
-  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
-  std::unique_ptr<Accessor> Access() { return Access(std::optional<IsolationLevel>{}); }
+  virtual std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role,
+                                           std::optional<IsolationLevel> override_isolation_level) = 0;
 
-  virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) = 0;
-  std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess(std::optional<IsolationLevel>{}); }
+  std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+    return Access(replication_role, {});
+  }
+
+  virtual std::unique_ptr<Accessor> UniqueAccess(
+      memgraph::replication_coordination_glue::ReplicationRole replication_role,
+      std::optional<IsolationLevel> override_isolation_level) = 0;
+  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+    return UniqueAccess(replication_role, {});
+  }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
@@ -326,33 +357,20 @@ class Storage {
     return GetBaseInfo(force_dir);
   }
 
-  virtual StorageInfo GetInfo(bool force_directory) = 0;
-  StorageInfo GetInfo() {
-#if MG_ENTERPRISE
-    const bool force_dir = false;
-#else
-    const bool force_dir = true;  //!< Use the configured directory (multi-tenancy reroutes to another dir)
-#endif
-    return GetInfo(force_dir);
-  }
+  virtual StorageInfo GetInfo(bool force_directory,
+                              memgraph::replication_coordination_glue::ReplicationRole replication_role) = 0;
 
-  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
+  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
+                                        memgraph::replication_coordination_glue::ReplicationRole replication_role) = 0;
 
-  virtual void PrepareForNewEpoch(std::string prev_epoch) = 0;
+  virtual void PrepareForNewEpoch() = 0;
 
-  virtual auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
-      -> std::unique_ptr<ReplicationClient> = 0;
-
-  virtual auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
-      -> std::unique_ptr<ReplicationServer> = 0;
-
-  auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(); }
+  auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(this); }
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
   }
 
   // TODO: make non-public
-  memgraph::replication::ReplicationState repl_state_;
   ReplicationStorageState repl_storage_state_;
 
   // Main storage lock.
@@ -372,7 +390,7 @@ class Storage {
   Config config_;
 
   // Transaction engine
-  utils::SpinLock engine_lock_;
+  mutable utils::SpinLock engine_lock_;
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
@@ -382,9 +400,20 @@ class Storage {
   Indices indices_;
   Constraints constraints_;
 
+  // Datastructures to provide fast retrieval of node-label and
+  // edge-type related metadata.
+  // Currently we should not remove any node-labels or edge-types even
+  // if the set of given types are currently not present in the
+  // database. This metadata is usually used by client side
+  // applications that want to be aware of the kind of data that *may*
+  // be present in the database.
+
+  // TODO(gvolfing): check if this would be faster with flat_maps.
+  utils::SynchronizedMetaDataStore<LabelId> stored_node_labels_;
+  utils::SynchronizedMetaDataStore<EdgeTypeId> stored_edge_types_;
+
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
-  const std::string id_;  //!< High-level assigned ID
 };
 
 }  // namespace memgraph::storage

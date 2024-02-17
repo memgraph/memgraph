@@ -60,6 +60,34 @@ Feature: Functions
             | false |
             | true  |
 
+    Scenario: ToBoolean test 03:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {prop: TOBOOLEAN("t")});
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.prop;
+            """
+        Then the result should be:
+            | n.prop |
+            | true   |
+
+    Scenario: ToBoolean test 04:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {prop: TOBOOLEAN("f")});
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.prop;
+            """
+        Then the result should be:
+            | n.prop |
+            | false  |
+
     Scenario: ToInteger test 01:
         Given an empty graph
         And having executed
@@ -1158,3 +1186,15 @@ Feature: Functions
         Then the result should be:
             | A_COUNT | B_COUNT |
             | 3       | 15      |
+
+    Scenario: Exists is forbidden within reduce:
+      Given an empty graph
+      And having executed:
+        """
+        CREATE ()
+        """
+      When executing query:
+        """
+        MATCH () WHERE reduce(a=exists(()),b in []|a) RETURN 1;
+        """
+      Then an error should be raised

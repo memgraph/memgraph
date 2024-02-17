@@ -73,6 +73,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(ParameterLookup &op) override;
   void Visit(NamedExpression &op) override;
   void Visit(RegexMatch &op) override;
+  void Visit(PatternComprehension &op) override;
 
  private:
   std::ostream *out_;
@@ -105,7 +106,7 @@ void PrintObject(std::ostream *out, const std::map<K, V> &map);
 
 template <typename T>
 void PrintObject(std::ostream *out, const T &arg) {
-  static_assert(!std::is_convertible<T, Expression *>::value,
+  static_assert(!std::is_convertible_v<T, Expression *>,
                 "This overload shouldn't be called with pointers convertible "
                 "to Expression *. This means your other PrintObject overloads aren't "
                 "being called for certain AST nodes when they should (or perhaps such "
@@ -322,6 +323,10 @@ void ExpressionPrettyPrinter::Visit(NamedExpression &op) {
 }
 
 void ExpressionPrettyPrinter::Visit(RegexMatch &op) { PrintOperator(out_, "=~", op.string_expr_, op.regex_); }
+
+void ExpressionPrettyPrinter::Visit(PatternComprehension &op) {
+  PrintOperator(out_, "Pattern Comprehension", op.variable_, op.pattern_, op.filter_, op.resultExpr_);
+}
 
 }  // namespace
 

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include "disk_test_utils.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan/preprocess.hpp"
 #include "query/plan/pretty_print.hpp"
 
 #include "query_common.hpp"
@@ -36,10 +37,10 @@ class OperatorToStringTest : public ::testing::Test {
   OperatorToStringTest()
       : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
         db(new StorageType(config)),
-        dba_storage(db->Access()),
+        dba_storage(db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)),
         dba(dba_storage.get()) {}
 
-  ~OperatorToStringTest() {
+  ~OperatorToStringTest() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
@@ -209,12 +210,38 @@ TYPED_TEST(OperatorToStringTest, ConstructNamedPath) {
 }
 
 TYPED_TEST(OperatorToStringTest, Filter) {
-  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node1"));
-  last_op =
-      std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
-                               EQ(PROPERTY_LOOKUP(this->dba, "node1", this->dba.NameToProperty("prop")), LITERAL(5)));
+  auto node = this->GetSymbol("person");
+  auto node_ident = IDENT("person");
+  auto property = this->dba.NameToProperty("name");
+  auto property_ix = this->storage.GetPropertyIx("name");
 
-  std::string expected_string{"Filter"};
+  FilterInfo generic_filter_info = {.type = FilterInfo::Type::Generic, .used_symbols = {node}};
+
+  auto id_filter = IdFilter(this->symbol_table, node, LITERAL(42));
+  FilterInfo id_filter_info = {.type = FilterInfo::Type::Id, .id_filter = id_filter};
+
+  std::vector<LabelIx> labels{this->storage.GetLabelIx("Customer"), this->storage.GetLabelIx("Visitor")};
+  auto labels_test = LABELS_TEST(node_ident, labels);
+  FilterInfo label_filter_info = {.type = FilterInfo::Type::Label, .expression = labels_test};
+
+  auto labels_test_2 = LABELS_TEST(PROPERTY_LOOKUP(this->dba, "person", property), labels);
+  FilterInfo label_filter_2_info = {.type = FilterInfo::Type::Label, .expression = labels_test_2};
+
+  auto property_filter = PropertyFilter(node, property_ix, PropertyFilter::Type::EQUAL);
+  FilterInfo property_filter_info = {.type = FilterInfo::Type::Property, .property_filter = property_filter};
+
+  FilterInfo pattern_filter_info = {.type = FilterInfo::Type::Pattern};
+
+  Filters filters;
+  filters.SetFilters({generic_filter_info, id_filter_info, label_filter_info, label_filter_2_info, property_filter_info,
+                      pattern_filter_info});
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
+                                     EQ(PROPERTY_LOOKUP(this->dba, "person", property), LITERAL(5)), filters);
+
+  std::string expected_string{
+      "Filter (:Customer:Visitor), (person :Customer:Visitor), Generic {person}, Pattern, id(person), {person.name}"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 
@@ -310,7 +337,7 @@ TYPED_TEST(OperatorToStringTest, EdgeUniquenessFilter) {
                                      std::vector<memgraph::storage::EdgeTypeId>{}, false, memgraph::storage::View::OLD);
   last_op = std::make_shared<EdgeUniquenessFilter>(last_op, edge2_sym, std::vector<Symbol>{edge1_sym});
 
-  std::string expected_string{"EdgeUniquenessFilter"};
+  std::string expected_string{"EdgeUniquenessFilter {edge1 : edge2}"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 
@@ -494,4 +521,17 @@ TYPED_TEST(OperatorToStringTest, Apply) {
 
   std::string expected_string{"Apply"};
   EXPECT_EQ(last_op.ToString(), expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, HashJoin) {
+  Symbol lhs_sym = this->GetSymbol("node1");
+  Symbol rhs_sym = this->GetSymbol("node2");
+
+  std::shared_ptr<LogicalOperator> lhs_match = std::make_shared<ScanAll>(nullptr, lhs_sym);
+  std::shared_ptr<LogicalOperator> rhs_match = std::make_shared<ScanAll>(nullptr, rhs_sym);
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<HashJoin>(
+      lhs_match, std::vector<Symbol>{lhs_sym}, rhs_match, std::vector<Symbol>{rhs_sym}, nullptr);
+
+  std::string expected_string{"HashJoin {node1 : node2}"};
+  EXPECT_EQ(last_op->ToString(), expected_string);
 }

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -121,9 +121,14 @@ class DiskStorage final : public Storage {
 
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
+    std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
+                                         VertexAccessor *to_vertex) override;
+
     Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) override;
 
     Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) override;
+
+    Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, EdgeTypeId new_edge_type) override;
 
     bool LabelIndexExists(LabelId label) const override {
       auto *disk_storage = static_cast<DiskStorage *>(storage_);
@@ -140,8 +145,8 @@ class DiskStorage final : public Storage {
     ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {}) override;
+    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
+                                                              DatabaseAccessProtector db_acc = {}) override;
 
     void UpdateObjectsCountOnAbort();
 
@@ -170,9 +175,13 @@ class DiskStorage final : public Storage {
                                                            const std::set<PropertyId> &properties) override;
   };
 
-  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
+  using Storage::Access;
+  std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role,
+                                   std::optional<IsolationLevel> override_isolation_level) override;
 
-  std::unique_ptr<Storage::Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
+  using Storage::UniqueAccess;
+  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role,
+                                         std::optional<IsolationLevel> override_isolation_level) override;
 
   /// Flushing methods
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache(Transaction *transaction);
@@ -275,7 +284,8 @@ class DiskStorage final : public Storage {
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
+                                memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
   void SetEdgeImportMode(EdgeImportMode edge_import_status);
 
@@ -298,25 +308,14 @@ class DiskStorage final : public Storage {
                                                                                           PropertyId property);
 
   StorageInfo GetBaseInfo(bool force_directory) override;
-  StorageInfo GetInfo(bool force_directory) override;
+  StorageInfo GetInfo(bool force_directory,
+                      memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
 
-  void PrepareForNewEpoch(std::string /*prev_epoch*/) override {
-    throw utils::BasicException("Disk storage mode does not support replication.");
-  }
+  void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
-
-  auto CreateReplicationClient(const memgraph::replication::ReplicationClientConfig & /*config*/)
-      -> std::unique_ptr<ReplicationClient> override {
-    throw utils::BasicException("Disk storage mode does not support replication.");
-  }
-
-  auto CreateReplicationServer(const memgraph::replication::ReplicationServerConfig & /*config*/)
-      -> std::unique_ptr<ReplicationServer> override {
-    throw utils::BasicException("Disk storage mode does not support replication.");
-  }
 
   std::unique_ptr<RocksDBStorage> kvstore_;
   DurableMetadata durable_metadata_;

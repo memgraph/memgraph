@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,12 +17,13 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan/rewrite/index_lookup.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
-
+using memgraph::replication_coordination_glue::ReplicationRole;
 using CardParam = CostEstimator<memgraph::query::DbAccessor>::CardParam;
 using CostParam = CostEstimator<memgraph::query::DbAccessor>::CostParam;
 using MiscParam = CostEstimator<memgraph::query::DbAccessor>::MiscParam;
@@ -49,18 +50,18 @@ class QueryCostEstimator : public ::testing::Test {
   Parameters parameters_;
   int symbol_count = 0;
 
-  void SetUp() {
+  void SetUp() override {
     {
-      auto unique_acc = db->UniqueAccess();
+      auto unique_acc = db->UniqueAccess(ReplicationRole::MAIN);
       ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto unique_acc = db->UniqueAccess();
+      auto unique_acc = db->UniqueAccess(ReplicationRole::MAIN);
       ASSERT_FALSE(unique_acc->CreateIndex(label, property).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
-    storage_dba.emplace(db->Access());
+    storage_dba.emplace(db->Access(ReplicationRole::MAIN));
     dba.emplace(storage_dba->get());
   }
 
@@ -83,7 +84,8 @@ class QueryCostEstimator : public ::testing::Test {
   }
 
   auto Cost() {
-    CostEstimator<memgraph::query::DbAccessor> cost_estimator(&*dba, symbol_table_, parameters_);
+    CostEstimator<memgraph::query::DbAccessor> cost_estimator(&*dba, symbol_table_, parameters_,
+                                                              memgraph::query::plan::IndexHints());
     last_op_->Accept(cost_estimator);
     return cost_estimator.cost();
   }
@@ -131,7 +133,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelCardinality) {
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
   AddVertices(100, 30, 20);
-  for (auto const_val : {Literal(12), Parameter(12)}) {
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
     MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property, "property", const_val);
     EXPECT_COST(1 * CostParam::MakeScanAllByLabelPropertyValue);
   }
@@ -139,7 +141,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstExpr) {
   AddVertices(100, 30, 20);
-  for (auto const_val : {Literal(12), Parameter(12)}) {
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
     MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property, "property",
                                         // once we make expression const-folding this test case will fail
                                         storage_.Create<UnaryPlusOperator>(const_val));
@@ -149,7 +151,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstExpr) {
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeUpperConstant) {
   AddVertices(100, 30, 20);
-  for (auto const_val : {Literal(12), Parameter(12)}) {
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", nullopt,
                                         InclusiveBound(const_val));
     // cardinality estimation is exact for very small indexes
@@ -159,7 +161,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeUpperConstant) {
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeLowerConstant) {
   AddVertices(100, 30, 20);
-  for (auto const_val : {Literal(17), Parameter(17)}) {
+  for (auto *const_val : {Literal(17), Parameter(17)}) {
     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", InclusiveBound(const_val),
                                         nullopt);
     // cardinality estimation is exact for very small indexes
@@ -169,7 +171,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeLowerConstant) {
 
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
   AddVertices(100, 30, 20);
-  for (auto const_val : {Literal(12), Parameter(12)}) {
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
     auto bound = std::make_optional(
         memgraph::utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
     MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", bound, nullopt);

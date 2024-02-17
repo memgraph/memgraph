@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cmath>
+#include <utility>
 
 #include "utils/logging.hpp"
 
@@ -73,7 +74,9 @@ class Histogram {
     percentiles_ = {0, 25, 50, 75, 90, 100};
   }
 
-  explicit Histogram(std::vector<uint8_t> percentiles) : percentiles_(percentiles) { samples_.resize(kSampleLimit, 0); }
+  explicit Histogram(std::vector<uint8_t> percentiles) : percentiles_(std::move(percentiles)) {
+    samples_.resize(kSampleLimit, 0);
+  }
 
   uint64_t Count() const { return count_.load(std::memory_order_relaxed); }
 
@@ -104,7 +107,7 @@ class Histogram {
     percentile_yield.reserve(percentiles_.size());
 
     for (const auto percentile : percentiles_) {
-      percentile_yield.emplace_back(std::make_pair(percentile, Percentile(percentile)));
+      percentile_yield.emplace_back(percentile, Percentile(percentile));
     }
 
     return percentile_yield;

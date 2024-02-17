@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,6 +48,15 @@ struct ResourceLock {
     }
     return false;
   }
+
+  template <class Rep, class Period>
+  bool try_lock_for(const std::chrono::duration<Rep, Period> &timeout_duration) {
+    auto lock = std::unique_lock{mtx};
+    if (!cv.wait_for(lock, timeout_duration, [this] { return state == UNLOCKED; })) return false;
+    state = UNIQUE;
+    return true;
+  }
+
   bool try_lock_shared() {
     auto lock = std::unique_lock{mtx};
     if (state != UNIQUE) {
@@ -71,11 +80,69 @@ struct ResourceLock {
     }
   }
 
+  void upgrade_to_unique() {
+    auto lock = std::unique_lock{mtx};
+    cv.wait(lock, [this] { return count == 1; });
+    state = UNIQUE;
+    count = 0;
+  }
+
+  template <class Rep, class Period>
+  bool try_upgrade_to_unique(const std::chrono::duration<Rep, Period> &timeout_duration) {
+    auto lock = std::unique_lock{mtx};
+    if (!cv.wait_for(lock, timeout_duration, [this] { return count == 1; })) return false;
+    state = UNIQUE;
+    count = 0;
+    return true;
+  }
+
  private:
   std::mutex mtx;
   std::condition_variable cv;
   states state = UNLOCKED;
   uint64_t count = 0;
+};
+
+struct ResourceLockGuard {
+ private:
+  enum states { UNIQUE, SHARED };
+
+ public:
+  explicit ResourceLockGuard(ResourceLock &thing)
+      : ptr{&thing}, state{[this]() {
+          ptr->lock_shared();
+          return SHARED;
+        }()} {}
+
+  void upgrade_to_unique() {
+    if (state == SHARED) {
+      ptr->upgrade_to_unique();
+      state = UNIQUE;
+    }
+  }
+
+  template <class Rep, class Period>
+  bool try_upgrade_to_unique(const std::chrono::duration<Rep, Period> &timeout_duration) {
+    if (state != SHARED) return true;                                 // already locked
+    if (!ptr->try_upgrade_to_unique(timeout_duration)) return false;  // timeout
+    state = UNIQUE;
+    return true;
+  }
+
+  ~ResourceLockGuard() {
+    switch (state) {
+      case UNIQUE:
+        ptr->unlock();
+        break;
+      case SHARED:
+        ptr->unlock_shared();
+        break;
+    }
+  }
+
+ private:
+  ResourceLock *ptr;
+  states state;
 };
 
 }  // namespace memgraph::utils

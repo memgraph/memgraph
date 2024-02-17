@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <functional>
 #include <iostream>
 #include <optional>
+#include <utility>
 
 #include "io/network/endpoint.hpp"
 
@@ -149,7 +150,7 @@ class Socket {
    *             false if write failed
    */
   bool Write(const uint8_t *data, size_t len, bool have_more = false);
-  bool Write(const std::string &s, bool have_more = false);
+  bool Write(std::string_view s, bool have_more = false);
 
   /**
    * Read data from the socket.
@@ -201,7 +202,7 @@ class Socket {
   bool WaitForReadyWrite();
 
  private:
-  Socket(int fd, const Endpoint &endpoint) : socket_(fd), endpoint_(endpoint) {}
+  Socket(int fd, Endpoint endpoint) : socket_(fd), endpoint_(std::move(endpoint)) {}
 
   int socket_ = -1;
   Endpoint endpoint_;

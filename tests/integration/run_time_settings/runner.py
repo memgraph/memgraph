@@ -23,6 +23,7 @@ from typing import List
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
+SIGNAL_SIGTERM = 15
 
 
 def wait_for_server(port: int, delay: float = 0.1) -> float:
@@ -84,10 +85,19 @@ def check_flag(tester_binary: str, flag: str, value: str) -> None:
     subprocess.run(args).check_returncode()
 
 
+def check_config(tester_binary: str, flag: str, value: str) -> None:
+    args = [tester_binary, "--config", flag, "--value", value]
+    subprocess.run(args).check_returncode()
+
+
 def cleanup(memgraph: subprocess):
     if memgraph.poll() is None:
-        memgraph.terminate()
-    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+        pid = memgraph.pid
+        try:
+            os.kill(pid, SIGNAL_SIGTERM)
+        except os.OSError:
+            assert False, "Memgraph process didn't exit cleanly!"
+        time.sleep(1)
 
 
 def run_test(tester_binary: str, memgraph_args: List[str], server_name: str, query_tx: str):
@@ -156,7 +166,22 @@ def run_log_test(tester_binary: str, memgraph_args: List[str], executor_binary: 
     atexit.unregister(cleanup)
 
 
-def execute_test(memgraph_binary: str, tester_binary: str, flag_tester_binary: str, executor_binary: str) -> None:
+def run_check_config(tester_binary: str, memgraph_args: List[str], executor_binary: str):
+    memgraph = start_memgraph(memgraph_args)
+    atexit.register(cleanup, memgraph)
+    execute_query(executor_binary, ["SET DATABASE SETTING 'server.name' TO 'New Name';"])
+    execute_query(executor_binary, ["SET DATABASE SETTING 'query.timeout' TO '123';"])
+    execute_query(executor_binary, ["SET DATABASE SETTING 'log.level' TO 'CRITICAL';"])
+    check_config(tester_binary, "bolt_server_name_for_init", "New Name")
+    check_config(tester_binary, "query_execution_timeout_sec", "123")
+    check_config(tester_binary, "log_level", "CRITICAL")
+    cleanup(memgraph)
+    atexit.unregister(cleanup)
+
+
+def execute_test(
+    memgraph_binary: str, tester_binary: str, flag_tester_binary: str, executor_binary: str, test_config_binary: str
+) -> None:
     storage_directory = tempfile.TemporaryDirectory()
     memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name]
 
@@ -181,6 +206,10 @@ def execute_test(memgraph_binary: str, tester_binary: str, flag_tester_binary: s
     # Check log settings
     run_log_test(tester_binary, memgraph_args, executor_binary)
 
+    print("\033[1;34m~~ check show config ~~\033[0m")
+    # Check log settings
+    run_check_config(test_config_binary, memgraph_args, executor_binary)
+
     print("\033[1;36m~~ Finished run-time settings check test ~~\033[0m")
 
 
@@ -189,14 +218,18 @@ if __name__ == "__main__":
     tester_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "run_time_settings", "tester")
     flag_tester_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "run_time_settings", "flag_tester")
     executor_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "run_time_settings", "executor")
+    config_checker_binary = os.path.join(
+        PROJECT_DIR, "build", "tests", "integration", "run_time_settings", "config_checker"
+    )
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--memgraph", default=memgraph_binary)
     parser.add_argument("--tester", default=tester_binary)
     parser.add_argument("--flag_tester", default=flag_tester_binary)
     parser.add_argument("--executor", default=executor_binary)
+    parser.add_argument("--config_checker", default=config_checker_binary)
     args = parser.parse_args()
 
-    execute_test(args.memgraph, args.tester, args.flag_tester, args.executor)
+    execute_test(args.memgraph, args.tester, args.flag_tester, args.executor, args.config_checker)
 
     sys.exit(0)

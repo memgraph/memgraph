@@ -20,6 +20,7 @@ options { tokenVocab=MemgraphCypherLexer; }
 import Cypher ;
 
 memgraphCypherKeyword : cypherKeyword
+                      | ADD
                       | ACTIVE
                       | AFTER
                       | ALTER
@@ -48,10 +49,12 @@ memgraphCypherKeyword : cypherKeyword
                       | DATABASE
                       | DENY
                       | DROP
+                      | DO
                       | DUMP
                       | EDGE
                       | EDGE_TYPES
                       | EXECUTE
+                      | FAILOVER
                       | FOR
                       | FOREACH
                       | FREE
@@ -61,6 +64,9 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANT
                       | HEADER
                       | IDENTIFIED
+                      | INSTANCE
+                      | INSTANCES
+                      | NODE_LABELS
                       | NULLIF
                       | IMPORT
                       | INACTIVE
@@ -114,6 +120,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USE
                       | USER
                       | USERS
+                      | USING
                       | VERSION
                       | TERMINATE
                       | TRANSACTIONS
@@ -149,7 +156,10 @@ query : cypherQuery
       | multiDatabaseQuery
       | showDatabases
       | edgeImportModeQuery
+      | coordinatorQuery
       ;
+
+cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -177,6 +187,13 @@ replicationQuery : setReplicationRole
                  | registerReplica
                  | dropReplica
                  | showReplicas
+                 ;
+
+coordinatorQuery : registerInstanceOnCoordinator
+                 | unregisterInstanceOnCoordinator
+                 | setInstanceToMain
+                 | showInstances
+                 | addCoordinatorInstance
                  ;
 
 triggerQuery : createTrigger
@@ -208,6 +225,10 @@ updateClause : set
              ;
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
+
+indexHints: USING INDEX indexHint ( ',' indexHint )* ;
+
+indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
 callSubquery : CALL '{' cypherQuery '}' ;
 
@@ -245,7 +266,7 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( NULLIF nullif ) ?
          AS rowVar ;
 
-csvFile : literal ;
+csvFile : literal | parameter ;
 
 delimiter : literal ;
 
@@ -259,9 +280,9 @@ userOrRoleName : symbolicName ;
 
 createRole : CREATE ROLE role=userOrRoleName ;
 
-dropRole   : DROP ROLE role=userOrRoleName ;
+dropRole : DROP ROLE role=userOrRoleName ;
 
-showRoles  : SHOW ROLES ;
+showRoles : SHOW ROLES ;
 
 createUser : CREATE USER user=userOrRoleName
              ( IDENTIFIED BY password=literal )? ;
@@ -315,6 +336,7 @@ privilege : CREATE
           | STORAGE_MODE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
+          | COORDINATOR
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -347,25 +369,41 @@ showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
 
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
-dumpQuery: DUMP DATABASE ;
+dumpQuery : DUMP DATABASE ;
 
-analyzeGraphQuery: ANALYZE GRAPH ( ON LABELS ( listOfColonSymbolicNames | ASTERISK ) ) ? ( DELETE STATISTICS ) ? ;
+analyzeGraphQuery : ANALYZE GRAPH ( ON LABELS ( listOfColonSymbolicNames | ASTERISK ) ) ? ( DELETE STATISTICS ) ? ;
 
-setReplicationRole  : SET REPLICATION ROLE TO ( MAIN | REPLICA )
+setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
                       ( WITH PORT port=literal ) ? ;
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
-replicaName : symbolicName ;
+showInstances : SHOW INSTANCES ;
+
+instanceName : symbolicName ;
 
 socketAddress : literal ;
 
-registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
+coordinatorSocketAddress : literal ;
+replicationSocketAddress : literal ;
+raftSocketAddress : literal ;
+
+registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
 
-dropReplica : DROP REPLICA replicaName ;
+registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ON coordinatorSocketAddress ( AS ASYNC ) ? WITH replicationSocketAddress ;
 
-showReplicas  : SHOW REPLICAS ;
+unregisterInstanceOnCoordinator : UNREGISTER INSTANCE instanceName ;
+
+setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
+
+raftServerId : literal ;
+
+addCoordinatorInstance : ADD COORDINATOR raftServerId ON raftSocketAddress ;
+
+dropReplica : DROP REPLICA instanceName ;
+
+showReplicas : SHOW REPLICAS ;
 
 lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY | DATA DIRECTORY LOCK STATUS;
 
@@ -402,7 +440,7 @@ streamName : symbolicName ;
 
 symbolicNameWithMinus : symbolicName ( MINUS symbolicName )* ;
 
-symbolicNameWithDotsAndMinus: symbolicNameWithMinus ( DOT symbolicNameWithMinus )* ;
+symbolicNameWithDotsAndMinus : symbolicNameWithMinus ( DOT symbolicNameWithMinus )* ;
 
 symbolicTopicNames : symbolicNameWithDotsAndMinus ( COMMA symbolicNameWithDotsAndMinus )* ;
 
@@ -472,6 +510,7 @@ transactionId : literal ;
 multiDatabaseQuery : createDatabase
                    | useDatabase
                    | dropDatabase
+                   | showDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
@@ -480,6 +519,8 @@ useDatabase : USE DATABASE databaseName ;
 
 dropDatabase : DROP DATABASE databaseName ;
 
-showDatabases: SHOW DATABASES ;
+showDatabase : SHOW DATABASE ;
+
+showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;

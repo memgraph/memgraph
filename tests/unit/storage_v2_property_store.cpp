@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -419,9 +419,9 @@ TEST(PropertyStore, IntEncoding) {
       {memgraph::storage::PropertyId::FromUint(1048576UL), memgraph::storage::PropertyValue(1048576L)},
       {memgraph::storage::PropertyId::FromUint(std::numeric_limits<uint32_t>::max()),
        memgraph::storage::PropertyValue(std::numeric_limits<int32_t>::max())},
-      {memgraph::storage::PropertyId::FromUint(4294967296UL), memgraph::storage::PropertyValue(4294967296L)},
-      {memgraph::storage::PropertyId::FromUint(137438953472UL), memgraph::storage::PropertyValue(137438953472L)},
-      {memgraph::storage::PropertyId::FromUint(std::numeric_limits<uint64_t>::max()),
+      {memgraph::storage::PropertyId::FromUint(1048577UL), memgraph::storage::PropertyValue(4294967296L)},
+      {memgraph::storage::PropertyId::FromUint(1048578UL), memgraph::storage::PropertyValue(137438953472L)},
+      {memgraph::storage::PropertyId::FromUint(std::numeric_limits<uint32_t>::max()),
        memgraph::storage::PropertyValue(std::numeric_limits<int64_t>::max())}};
 
   memgraph::storage::PropertyStore props;
@@ -670,7 +670,7 @@ TEST(PropertyStore, SetMultipleProperties) {
   const std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> data_in_map{data.begin(), data.end()};
 
   auto check_store = [data](const memgraph::storage::PropertyStore &store) {
-    for (auto &[key, value] : data) {
+    for (const auto &[key, value] : data) {
       ASSERT_TRUE(store.IsPropertyEqual(key, value));
     }
   };

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,10 @@
 
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
+#include "replication/replication_client.hpp"
+#include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
+#include "storage/v2/database_access.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
@@ -23,12 +26,17 @@
 #include "storage/v2/replication/rpc.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
+#include "utils/uuid.hpp"
 
 #include <atomic>
+#include <concepts>
+#include <functional>
 #include <optional>
 #include <set>
 #include <string>
+#include <variant>
 
 namespace memgraph::storage {
 
@@ -36,12 +44,12 @@ struct Delta;
 struct Vertex;
 struct Edge;
 class Storage;
-class ReplicationClient;
+class ReplicationStorageClient;
 
 // Handler used for transferring the current transaction.
 class ReplicaStream {
  public:
-  explicit ReplicaStream(ReplicationClient *self, uint64_t previous_commit_timestamp, uint64_t current_seq_num);
+  explicit ReplicaStream(Storage *storage, rpc::Client &rpc_client, uint64_t current_seq_num, utils::UUID main_uuid);
 
   /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
@@ -60,83 +68,144 @@ class ReplicaStream {
   /// @throw rpc::RpcFailedException
   replication::AppendDeltasRes Finalize();
 
+  bool IsDefunct() const { return stream_.IsDefunct(); }
+
  private:
-  ReplicationClient *self_;
+  Storage *storage_;
   rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
+  utils::UUID main_uuid_;
 };
 
-class ReplicationClient {
-  friend class CurrentWalHandler;
+template <typename F>
+concept InvocableWithStream = std::invocable<F, ReplicaStream &>;
+
+// TODO Rename to something without the word "client"
+class ReplicationStorageClient {
+  friend class InMemoryCurrentWalHandler;
   friend class ReplicaStream;
+  friend struct ::memgraph::replication::ReplicationClient;
 
  public:
-  ReplicationClient(Storage *storage, const memgraph::replication::ReplicationClientConfig &config,
-                    const memgraph::replication::ReplicationEpoch *epoch);
+  explicit ReplicationStorageClient(::memgraph::replication::ReplicationClient &client, utils::UUID main_uuid);
 
-  ReplicationClient(ReplicationClient const &) = delete;
-  ReplicationClient &operator=(ReplicationClient const &) = delete;
-  ReplicationClient(ReplicationClient &&) noexcept = delete;
-  ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
+  ReplicationStorageClient(ReplicationStorageClient const &) = delete;
+  ReplicationStorageClient &operator=(ReplicationStorageClient const &) = delete;
+  ReplicationStorageClient(ReplicationStorageClient &&) noexcept = delete;
+  ReplicationStorageClient &operator=(ReplicationStorageClient &&) noexcept = delete;
 
-  virtual ~ReplicationClient();
+  ~ReplicationStorageClient() = default;
 
-  auto Mode() const -> memgraph::replication::ReplicationMode { return mode_; }
-  auto Name() const -> std::string const & { return name_; }
-  auto Endpoint() const -> io::network::Endpoint const & { return rpc_client_.Endpoint(); }
-  auto State() const -> replication::ReplicaState { return replica_state_.load(); }
-  auto GetTimestampInfo() -> TimestampInfo;
+  // TODO Remove the client related functions
+  auto Mode() const -> memgraph::replication_coordination_glue::ReplicationMode { return client_.mode_; }
+  auto Name() const -> std::string const & { return client_.name_; }
+  auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
 
-  void Start();
-  void StartTransactionReplication(const uint64_t current_wal_seq_num);
+  auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
+  auto GetTimestampInfo(Storage const *storage) -> TimestampInfo;
+
+  /**
+   * @brief Check the replica state
+   *
+   * @param storage pointer to the storage associated with the client
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
+  void Start(Storage *storage, DatabaseAccessProtector db_acc);
+
+  /**
+   * @brief Start a new transaction replication (open up a stream)
+   *
+   * @param current_wal_seq_num
+   * @param storage pointer to the storage associated with the client
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
+  void StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage, DatabaseAccessProtector db_acc);
+
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
   // we want to send part of transaction and to avoid adding some GC logic this
-  // function will run a callback if, after previously callling
+  // function will run a callback if, after previously calling
   // StartTransactionReplication, stream is created.
-  void IfStreamingTransaction(const std::function<void(ReplicaStream &)> &callback);
-  // Return whether the transaction could be finalized on the replication client or not.
-  [[nodiscard]] bool FinalizeTransactionReplication();
+  template <InvocableWithStream F>
+  void IfStreamingTransaction(F &&callback) {
+    // We can only check the state because it guarantees to be only
+    // valid during a single transaction replication (if the assumption
+    // that this and other transaction replication functions can only be
+    // called from a one thread stands)
+    if (State() != replication::ReplicaState::REPLICATING) {
+      return;
+    }
+    if (!replica_stream_ || replica_stream_->IsDefunct()) {
+      replica_state_.WithLock([this](auto &state) {
+        replica_stream_.reset();
+        state = replication::ReplicaState::MAYBE_BEHIND;
+      });
+      LogRpcFailure();
+      return;
+    }
+    try {
+      callback(*replica_stream_);  // failure state what if not streaming (std::nullopt)
+    } catch (const rpc::RpcFailedException &) {
+      replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
+      LogRpcFailure();
+      return;
+    }
+  }
 
- protected:
-  virtual void RecoverReplica(uint64_t replica_commit) = 0;
+  /**
+   * @brief Return whether the transaction could be finalized on the replication client or not.
+   *
+   * @param storage pointer to the storage associated with the client
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @return true
+   * @return false
+   */
+  [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc);
 
-  auto GetStorage() -> Storage * { return storage_; }
-  auto LastCommitTimestamp() const -> uint64_t;
-  void InitializeClient();
-  void HandleRpcFailure();
-  void TryInitializeClientAsync();
-  void TryInitializeClientSync();
-  void FrequentCheck();
+  /**
+   * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
+   *
+   * @param storage pointer to the storage associated with the client
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
+  void TryCheckReplicaStateAsync(Storage *storage, DatabaseAccessProtector db_acc);  // TODO Move back to private
 
-  std::string name_;
-  communication::ClientContext rpc_context_;
-  rpc::Client rpc_client_;
-  std::chrono::seconds replica_check_frequency_;
+  auto &Client() { return client_; }
 
-  std::optional<ReplicaStream> replica_stream_;
-  memgraph::replication::ReplicationMode mode_{memgraph::replication::ReplicationMode::SYNC};
+ private:
+  /**
+   * @brief Get necessary recovery steps and execute them.
+   *
+   * @param replica_commit the commit up to which we should recover to
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
+  void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage);
 
-  utils::SpinLock client_lock_;
-  // This thread pool is used for background tasks so we don't
-  // block the main storage thread
-  // We use only 1 thread for 2 reasons:
-  //  - background tasks ALWAYS contain some kind of RPC communication.
-  //    We can't have multiple RPC communication from a same client
-  //    because that's not logically valid (e.g. you cannot send a snapshot
-  //    and WAL at a same time because WAL will arrive earlier and be applied
-  //    before the snapshot which is not correct)
-  //  - the implementation is simplified as we have a total control of what
-  //    this pool is executing. Also, we can simply queue multiple tasks
-  //    and be sure of the execution order.
-  //    Not having mulitple possible threads in the same client allows us
-  //    to ignore concurrency problems inside the client.
-  utils::ThreadPool thread_pool_{1};
-  std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::INVALID};
+  /**
+   * @brief Check replica state
+   *
+   * @param storage pointer to the storage associated with the client
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
+  void UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc);
 
-  utils::Scheduler replica_checker_;
-  Storage *storage_;
+  void LogRpcFailure();
 
-  memgraph::replication::ReplicationEpoch const *repl_epoch_;
+  /**
+   * @brief Synchronously try to check the replica state and start a recovery thread if necessary
+   *
+   * @param storage pointer to the storage associated with the client
+   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
+  void TryCheckReplicaStateSync(Storage *storage, DatabaseAccessProtector db_acc);
+
+  ::memgraph::replication::ReplicationClient &client_;
+  // TODO Do not store the stream, make is a local variable
+  std::optional<ReplicaStream>
+      replica_stream_;  // Currently active stream (nullopt if not in use), note: a single stream per rpc client
+  mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
+      replication::ReplicaState::MAYBE_BEHIND};
+
+  const utils::UUID main_uuid_;
 };
 
 }  // namespace memgraph::storage

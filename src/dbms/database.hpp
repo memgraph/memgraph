@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,8 @@
 #include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
+#include "utils/lru_cache.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::dbms {
 
@@ -46,7 +48,7 @@ class Database {
    *
    * @param config storage configuration
    */
-  explicit Database(const storage::Config &config);
+  explicit Database(storage::Config config, replication::ReplicationState &repl_state);
 
   /**
    * @brief Returns the raw storage pointer.
@@ -56,6 +58,7 @@ class Database {
    * @return storage::Storage*
    */
   storage::Storage *storage() { return storage_.get(); }
+  storage::Storage const *storage() const { return storage_.get(); }
 
   /**
    * @brief Storage's Accessor
@@ -65,12 +68,12 @@ class Database {
    */
   std::unique_ptr<storage::Storage::Accessor> Access(
       std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->Access(override_isolation_level);
+    return storage_->Access(repl_state_->GetRole(), override_isolation_level);
   }
 
   std::unique_ptr<storage::Storage::Accessor> UniqueAccess(
       std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->UniqueAccess(override_isolation_level);
+    return storage_->UniqueAccess(repl_state_->GetRole(), override_isolation_level);
   }
 
   /**
@@ -78,7 +81,14 @@ class Database {
    *
    * @return const std::string&
    */
-  const std::string &id() const { return storage_->id(); }
+  const std::string &name() const { return storage_->name(); }
+
+  /**
+   * @brief Unique storage identified (uuid)
+   *
+   * @return const utils::UUID&
+   */
+  const utils::UUID &uuid() const { return storage_->uuid(); }
 
   /**
    * @brief Returns the storage configuration
@@ -92,7 +102,7 @@ class Database {
    *
    * @return storage::StorageMode
    */
-  storage::StorageMode GetStorageMode() const { return storage_->GetStorageMode(); }
+  storage::StorageMode GetStorageMode() const noexcept { return storage_->GetStorageMode(); }
 
   /**
    * @brief Get the storage info
@@ -100,9 +110,9 @@ class Database {
    * @param force_directory Use the configured directory, do not try to decipher the multi-db version
    * @return DatabaseInfo
    */
-  DatabaseInfo GetInfo(bool force_directory = false) const {
+  DatabaseInfo GetInfo(bool force_directory, replication_coordination_glue::ReplicationRole replication_role) const {
     DatabaseInfo info;
-    info.storage_info = storage_->GetInfo(force_directory);
+    info.storage_info = storage_->GetInfo(force_directory, replication_role);
     info.triggers = trigger_store_.GetTriggerInfo().size();
     info.streams = streams_.GetStreamInfo().size();
     return info;
@@ -145,9 +155,9 @@ class Database {
   /**
    * @brief Returns the PlanCache vector raw pointer
    *
-   * @return utils::SkipList<query::PlanCacheEntry>*
+   * @return utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<PlanWrapper>>, utils::RWSpinLock>
    */
-  utils::SkipList<query::PlanCacheEntry> *plan_cache() { return &plan_cache_; }
+  query::PlanCacheLRU *plan_cache() { return &plan_cache_; }
 
  private:
   std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
@@ -156,7 +166,9 @@ class Database {
   query::stream::Streams streams_;                  //!< Streams associated with the storage
 
   // TODO: Move to a better place
-  utils::SkipList<query::PlanCacheEntry> plan_cache_;  //!< Plan cache associated with the storage
+  query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
+
+  const replication::ReplicationState *repl_state_;
 };
 
 }  // namespace memgraph::dbms

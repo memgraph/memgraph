@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -99,7 +99,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
     mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
     std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
                    [](const TMessage &message) { return mgp_message{message}; });
-    mgp_graph graph{&db_accessor, storage::View::OLD, nullptr};
+    mgp_graph graph{&db_accessor, storage::View::OLD, nullptr, db_accessor.GetStorageMode()};
     mgp_memory memory{&memory_resource};
     result.rows.clear();
     result.error_msg.reset();
@@ -642,6 +642,25 @@ void Streams::Drop(const std::string &stream_name) {
   locked_streams->erase(it);
 
   // TODO(antaljanosbenjamin) Release the transformation
+}
+
+void Streams::DropAll() {
+  streams_.WithLock([this](StreamsMap &streams) {
+    bool durability_ok = true;
+    for (auto &[name, stream] : streams) {
+      // streams_ is write locked, which means there is no access to it outside of this function, thus only the Test
+      // function can be executing with the consumer, nothing else.
+      // By acquiring the write lock here for the consumer, we make sure there is
+      // no running Test function for this consumer, therefore it can be erased.
+      std::visit([&](const auto &stream_data) { stream_data.stream_source->Lock(); }, stream);
+      if (!storage_.Delete(name)) {
+        durability_ok = false;
+      }
+    }
+
+    streams.clear();
+    return durability_ok;  // TODO: do we need special case for this cleanup if false
+  });
 }
 
 void Streams::Start(const std::string &stream_name) {

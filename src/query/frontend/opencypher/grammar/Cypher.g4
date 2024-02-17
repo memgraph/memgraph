@@ -47,9 +47,13 @@ indexInfo : INDEX INFO ;
 
 constraintInfo : CONSTRAINT INFO ;
 
+edgetypeInfo : EDGE_TYPES INFO ;
+
+nodelabelInfo : NODE_LABELS INFO ;
+
 buildInfo : BUILD INFO ;
 
-databaseInfoQuery : SHOW ( indexInfo | constraintInfo ) ;
+databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo ) ;
 
 systemInfoQuery : SHOW ( storageInfo | buildInfo ) ;
 
@@ -139,7 +143,7 @@ order : ORDER BY sortItem ( ',' sortItem )* ;
 
 skip : L_SKIP expression ;
 
-limit : LIMIT expression ;
+limit : LIMIT ( expression | parameter ) ;
 
 sortItem : expression ( ASCENDING | ASC | DESCENDING | DESC )? ;
 
@@ -175,7 +179,7 @@ relationshipDetail : '[' ( name=variable )? ( relationshipTypes )? ( variableExp
                    | '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )? relationshipLambda ( total_weight=variable )? (relationshipLambda )? ']'
                    | '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )? (properties )* ( relationshipLambda total_weight=variable )? (relationshipLambda )? ']';
 
-relationshipLambda: '(' traversed_edge=variable ',' traversed_node=variable '|' expression ')';
+relationshipLambda: '(' traversed_edge=variable ',' traversed_node=variable ( ',' accumulated_path=variable )? ( ',' accumulated_weight=variable )? '|' expression ')';
 
 variableExpansion : '*' (BFS | WSHORTEST | ALLSHORTEST)? ( expression )? ( '..' ( expression )? )? ;
 
@@ -189,7 +193,7 @@ nodeLabels : nodeLabel ( nodeLabel )* ;
 
 nodeLabel : ':' labelName ;
 
-labelName : symbolicName ;
+labelName : symbolicName | parameter;
 
 relTypeName : symbolicName ;
 
@@ -292,7 +296,7 @@ functionName : symbolicName ( '.' symbolicName )* ;
 
 listComprehension : '[' filterExpression ( '|' expression )? ']' ;
 
-patternComprehension : '[' ( variable '=' )? relationshipsPattern ( WHERE expression )? '|' expression ']' ;
+patternComprehension : '[' ( variable '=' )? relationshipsPattern ( where )? '|' resultExpr=expression ']' ;
 
 propertyLookup : '.' ( propertyKeyName ) ;
 

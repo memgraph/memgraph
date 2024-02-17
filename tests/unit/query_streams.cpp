@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,7 @@
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/stream/streams.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "test_utils.hpp"
@@ -76,7 +77,7 @@ class StreamsTestFixture : public ::testing::Test {
   // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
   // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
 
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{
+  memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
         config.durability.storage_directory = data_directory_;
@@ -88,6 +89,9 @@ class StreamsTestFixture : public ::testing::Test {
         return config;
       }()  // iile
   };
+
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db_{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -100,7 +104,14 @@ class StreamsTestFixture : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
-  memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{}, nullptr};
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{}, nullptr, &repl_state,
+                                                           system_state
+#ifdef MG_ENTERPRISE
+                                                           ,
+                                                           nullptr
+#endif
+  };
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<StreamsTest> proxyStreams_;
 

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,26 +23,26 @@
 
 namespace memgraph::storage {
 
-#define STORAGE_DEFINE_ID_TYPE(name)                                                                          \
+#define STORAGE_DEFINE_ID_TYPE(name, type_store, type_conv, parse)                                            \
   class name final {                                                                                          \
    private:                                                                                                   \
-    explicit name(uint64_t id) : id_(id) {}                                                                   \
+    explicit name(type_store id) : id_(id) {}                                                                 \
                                                                                                               \
    public:                                                                                                    \
     /* Default constructor to allow serialization or preallocation. */                                        \
     name() = default;                                                                                         \
                                                                                                               \
-    static name FromUint(uint64_t id) { return name{id}; }                                                    \
-    static name FromInt(int64_t id) { return name{utils::MemcpyCast<uint64_t>(id)}; }                         \
-    uint64_t AsUint() const { return id_; }                                                                   \
-    int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }                                         \
-    static name FromString(std::string_view id) { return name{utils::ParseStringToUint64(id)}; }              \
+    static name FromUint(type_store id) { return name{id}; }                                                  \
+    static name FromInt(type_conv id) { return name{utils::MemcpyCast<type_store>(id)}; }                     \
+    type_store AsUint() const { return id_; }                                                                 \
+    type_conv AsInt() const { return utils::MemcpyCast<type_conv>(id_); }                                     \
+    static name FromString(std::string_view id) { return name{parse(id)}; }                                   \
     std::string ToString() const { return std::to_string(id_); }                                              \
                                                                                                               \
    private:                                                                                                   \
-    uint64_t id_;                                                                                             \
+    type_store id_;                                                                                           \
   };                                                                                                          \
-  static_assert(std::is_trivially_copyable<name>::value, "storage::" #name " must be trivially copyable!");   \
+  static_assert(std::is_trivially_copyable_v<name>, "storage::" #name " must be trivially copyable!");        \
   inline bool operator==(const name &first, const name &second) { return first.AsUint() == second.AsUint(); } \
   inline bool operator!=(const name &first, const name &second) { return first.AsUint() != second.AsUint(); } \
   inline bool operator<(const name &first, const name &second) { return first.AsUint() < second.AsUint(); }   \
@@ -50,10 +50,10 @@ namespace memgraph::storage {
   inline bool operator<=(const name &first, const name &second) { return first.AsUint() <= second.AsUint(); } \
   inline bool operator>=(const name &first, const name &second) { return first.AsUint() >= second.AsUint(); }
 
-STORAGE_DEFINE_ID_TYPE(Gid);
-STORAGE_DEFINE_ID_TYPE(LabelId);
-STORAGE_DEFINE_ID_TYPE(PropertyId);
-STORAGE_DEFINE_ID_TYPE(EdgeTypeId);
+STORAGE_DEFINE_ID_TYPE(Gid, uint64_t, int64_t, utils::ParseStringToUint64);
+STORAGE_DEFINE_ID_TYPE(LabelId, uint32_t, int32_t, utils::ParseStringToUint32);
+STORAGE_DEFINE_ID_TYPE(PropertyId, uint32_t, int32_t, utils::ParseStringToUint32);
+STORAGE_DEFINE_ID_TYPE(EdgeTypeId, uint32_t, int32_t, utils::ParseStringToUint32);
 
 #undef STORAGE_DEFINE_ID_TYPE
 

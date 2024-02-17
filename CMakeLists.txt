@@ -42,10 +42,6 @@ endif()
 
 project(memgraph LANGUAGES C CXX)
 
-# NOTE: once in a while this needs to be toggled to check headers are
-#       correct and PCH isn't masking any include issues
-set(CMAKE_DISABLE_PRECOMPILE_HEADERS OFF)
-
 #TODO: upgrade to cmake 3.24 + CheckIPOSupported
 #cmake_policy(SET CMP0138 NEW)
 #include(CheckIPOSupported)
@@ -239,7 +235,6 @@ else()
 endif()
 
 # -----------------------------------------------------------------------------
-
 # default build type is debug
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug")
@@ -276,6 +271,17 @@ endif()
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)
 
+option(MG_EXPERIMENTAL_HIGH_AVAILABILITY "Feature flag for experimental high availability" OFF)
+
+if (NOT MG_ENTERPRISE AND MG_EXPERIMENTAL_HIGH_AVAILABILITY)
+    set(MG_EXPERIMENTAL_HIGH_AVAILABILITY OFF)
+    message(FATAL_ERROR "MG_EXPERIMENTAL_HIGH_AVAILABILITY can only be used with enterpise version of the code.")
+endif ()
+
+if (MG_EXPERIMENTAL_HIGH_AVAILABILITY)
+    add_compile_definitions(MG_EXPERIMENTAL_HIGH_AVAILABILITY)
+endif ()
+
 # Optional subproject configuration -------------------------------------------
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
@@ -283,6 +289,8 @@ option(QUERY_MODULES "Build query modules containing custom procedures" ON)
 option(ASAN "Build with Address Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(UBSAN "Build with Undefined Behaviour Sanitizer" OFF)
+
+# Build feature flags
 
 if (TEST_COVERAGE)
   string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
@@ -297,7 +305,7 @@ if (MG_ENTERPRISE)
   add_definitions(-DMG_ENTERPRISE)
 endif()
 
-set(ENABLE_JEMALLOC ON)
+option(ENABLE_JEMALLOC "Use jemalloc" ON)
 
 if (ASAN)
   message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")

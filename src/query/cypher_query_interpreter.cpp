@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,11 +16,11 @@
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60, "Time to live for cached query plans, in seconds.",
+DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query plans to cache.",
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace memgraph::query {
-CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
+PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config) {
@@ -79,7 +79,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     // Convert the ANTLR4 parse tree into an AST.
     AstStorage ast_storage;
     frontend::ParsingContext context{.is_query_cached = true};
-    frontend::CypherMainVisitor visitor(context, &ast_storage);
+    frontend::CypherMainVisitor visitor(context, &ast_storage, &parameters);
 
     visitor.visit(parser->tree());
 
@@ -127,28 +127,24 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
                                                  std::move(symbol_table));
 }
 
-std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                              const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
-                                              DbAccessor *db_accessor,
-                                              const std::vector<Identifier *> &predefined_identifiers) {
-  std::optional<utils::SkipList<PlanCacheEntry>::Accessor> plan_cache_access;
+std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
+                                               const Parameters &parameters, PlanCacheLRU *plan_cache,
+                                               DbAccessor *db_accessor,
+                                               const std::vector<Identifier *> &predefined_identifiers) {
   if (plan_cache) {
-    plan_cache_access.emplace(plan_cache->access());
-    auto it = plan_cache_access->find(hash);
-    if (it != plan_cache_access->end()) {
-      if (it->second->IsExpired()) {
-        plan_cache_access->remove(hash);
-      } else {
-        return it->second;
-      }
+    auto existing_plan = plan_cache->WithLock([&](auto &cache) { return cache.get(hash); });
+    if (existing_plan.has_value()) {
+      return existing_plan.value();
     }
   }
 
-  auto plan = std::make_shared<CachedPlan>(
+  auto plan = std::make_shared<PlanWrapper>(
       MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
-  if (plan_cache_access) {
-    plan_cache_access->insert({hash, plan});
+
+  if (plan_cache) {
+    plan_cache->WithLock([&](auto &cache) { cache.put(hash, plan); });
   }
+
   return plan;
 }
 }  // namespace memgraph::query

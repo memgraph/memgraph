@@ -280,8 +280,92 @@ TYPED_TEST(TestPlanner, MatchMultiPattern) {
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")), PATTERN(NODE("j"), EDGE("e"), NODE("i"))), RETURN("n")));
   // We expect the expansions after the first to have a uniqueness filter in a
   // single MATCH clause.
-  CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectExpand(), ExpectScanAll(), ExpectExpand(),
+  std::list<BaseOpChecker *> left_cartesian_ops{new ExpectScanAll(), new ExpectExpand()};
+  std::list<BaseOpChecker *> right_cartesian_ops{new ExpectScanAll(), new ExpectExpand()};
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectCartesian(left_cartesian_ops, right_cartesian_ops),
                        ExpectEdgeUniquenessFilter(), ExpectProduce());
+
+  DeleteListContent(&left_cartesian_ops);
+  DeleteListContent(&right_cartesian_ops);
+}
+
+TYPED_TEST(TestPlanner, MatchMultiPatternWithHashJoin) {
+  // Test MATCH (a:label)-[r1]->(b), (c:label)-[r2]->(d) WHERE c.id = a.id return a, b, c, d;
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto property = PROPERTY_PAIR(dba, "id");
+
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("a", label_name), EDGE("r1"), NODE("b")),
+                         PATTERN(NODE("c", label_name), EDGE("r2"), NODE("d"))),
+                   WHERE(EQ(PROPERTY_LOOKUP(dba, "c", property.second), PROPERTY_LOOKUP(dba, "a", property.second))),
+                   RETURN("a", "b", "c", "d")));
+
+  std::list<BaseOpChecker *> left_indexed_join_ops{new ExpectScanAll(), new ExpectFilter(), new ExpectExpand()};
+  std::list<BaseOpChecker *> right_indexed_join_ops{new ExpectScanAll(), new ExpectFilter(), new ExpectExpand()};
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectHashJoin(left_indexed_join_ops, right_indexed_join_ops),
+            ExpectEdgeUniquenessFilter(), ExpectProduce());
+
+  DeleteListContent(&left_indexed_join_ops);
+  DeleteListContent(&right_indexed_join_ops);
+}
+
+TYPED_TEST(TestPlanner, MatchMultiPatternWithAsymmetricHashJoin) {
+  // Test MATCH (a:label)-[r1]->(b), (c:label)-[r2]->(d) WHERE c.id = a.id2 return a, b, c, d;
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto property_1 = PROPERTY_PAIR(dba, "id");
+  const auto property_2 = PROPERTY_PAIR(dba, "id2");
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("a", label_name), EDGE("r1"), NODE("b")),
+            PATTERN(NODE("c", label_name), EDGE("r2"), NODE("d"))),
+      WHERE(EQ(PROPERTY_LOOKUP(dba, "c", property_1.second), PROPERTY_LOOKUP(dba, "a", property_2.second))),
+      RETURN("a", "b", "c", "d")));
+
+  std::list<BaseOpChecker *> left_indexed_join_ops{new ExpectScanAll(), new ExpectFilter(), new ExpectExpand()};
+  std::list<BaseOpChecker *> right_indexed_join_ops{new ExpectScanAll(), new ExpectFilter(), new ExpectExpand()};
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectHashJoin(left_indexed_join_ops, right_indexed_join_ops),
+            ExpectEdgeUniquenessFilter(), ExpectProduce());
+
+  DeleteListContent(&left_indexed_join_ops);
+  DeleteListContent(&right_indexed_join_ops);
+}
+
+TYPED_TEST(TestPlanner, MatchMultiPatternWithIndexJoin) {
+  // Test MATCH (a:label)-[r1]->(b), (c:label)-[r2]->(d) WHERE c.id = a.id return a, b, c, d;
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "id");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("a", label_name), EDGE("r1"), NODE("b")),
+                         PATTERN(NODE("c", label_name), EDGE("r2"), NODE("d"))),
+                   WHERE(EQ(PROPERTY_LOOKUP(dba, "c", property.second), PROPERTY_LOOKUP(dba, "a", property.second))),
+                   RETURN("a", "b", "c", "d")));
+
+  auto c_prop = PROPERTY_LOOKUP(dba, "c", property);
+  std::list<BaseOpChecker *> left_indexed_join_ops{new ExpectScanAllByLabel(), new ExpectExpand()};
+  std::list<BaseOpChecker *> right_indexed_join_ops{new ExpectScanAllByLabelPropertyValue(label, property, c_prop),
+                                                    new ExpectExpand()};
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectIndexedJoin(left_indexed_join_ops, right_indexed_join_ops),
+            ExpectEdgeUniquenessFilter(), ExpectProduce());
+
+  DeleteListContent(&left_indexed_join_ops);
+  DeleteListContent(&right_indexed_join_ops);
 }
 
 TYPED_TEST(TestPlanner, MatchMultiPatternSameStart) {
@@ -318,10 +402,16 @@ TYPED_TEST(TestPlanner, MultiMatch) {
                                    MATCH(PATTERN(node_j, edge_e, node_i, edge_f, node_h)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
   // Multiple MATCH clauses form a Cartesian product, so the uniqueness should
   // not cross MATCH boundaries.
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectScanAll(), ExpectExpand(),
-            ExpectExpand(), ExpectEdgeUniquenessFilter(), ExpectProduce());
+  std::list<BaseOpChecker *> left_cartesian_ops{new ExpectScanAll(), new ExpectExpand()};
+  std::list<BaseOpChecker *> right_cartesian_ops{new ExpectScanAll(), new ExpectExpand(), new ExpectExpand(),
+                                                 new ExpectEdgeUniquenessFilter()};
+  CheckPlan(planner.plan(), symbol_table, ExpectCartesian(left_cartesian_ops, right_cartesian_ops), ExpectProduce());
+
+  DeleteListContent(&left_cartesian_ops);
+  DeleteListContent(&right_cartesian_ops);
 }
 
 TYPED_TEST(TestPlanner, MultiMatchSameStart) {
@@ -690,9 +780,19 @@ TYPED_TEST(TestPlanner, MatchCrossReferenceVariable) {
   auto n_prop = PROPERTY_LOOKUP(dba, "n", prop.second);
   std::get<0>(node_m->properties_)[this->storage.GetPropertyIx(prop.first)] = n_prop;
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN("n")));
+
   // We expect both ScanAll to come before filters (2 are joined into one),
   // because they need to populate the symbol values.
-  CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectScanAll(), ExpectFilter(), ExpectProduce());
+  // They are combined in a Cartesian (rewritten to HashJoin) to generate values from both symbols respectively and
+  // independently
+  std::list<BaseOpChecker *> left_hash_join_ops{new ExpectScanAll()};
+  std::list<BaseOpChecker *> right_hash_join_ops{new ExpectScanAll()};
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectHashJoin(left_hash_join_ops, right_hash_join_ops), ExpectFilter(),
+                       ExpectProduce());
+
+  DeleteListContent(&left_hash_join_ops);
+  DeleteListContent(&right_hash_join_ops);
 }
 
 TYPED_TEST(TestPlanner, MatchWhereBeforeExpand) {
@@ -753,16 +853,41 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
   }
 }
 
+TYPED_TEST(TestPlanner, MatchFilterWhere) {
+  // Test MATCH (n)-[r]-(m) WHERE exists((n)-[]-()) and n!=n and 7!=8 RETURN n
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+      WHERE(AND(EXISTS(PATTERN(NODE("n"), EDGE("edge2", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                               NODE("node3", std::nullopt, false))),
+                AND(NEQ(IDENT("n"), IDENT("n")), NEQ(LITERAL(7), LITERAL(8))))),
+      RETURN("n")));
+
+  std::list<BaseOpChecker *> pattern_filter{new ExpectScanAll(), new ExpectExpand(), new ExpectLimit(),
+                                            new ExpectEvaluatePatternFilter()};
+  CheckPlan<TypeParam>(
+      query, this->storage,
+      ExpectFilter(),  // 7!=8
+      ExpectScanAll(),
+      ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter}),  // filter pulls from expand
+      ExpectExpand(), ExpectProduce());
+  DeleteListContent(&pattern_filter);
+}
+
 TYPED_TEST(TestPlanner, MultiMatchWhere) {
   // Test MATCH (n) -[r]- (m) MATCH (l) WHERE n.prop < 42 RETURN n
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), MATCH(PATTERN(NODE("l"))),
                                    WHERE(LESS(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(42))), RETURN("n")));
-  // Even though WHERE is in the second MATCH clause, we expect Filter to come
-  // before second ScanAll, since it only uses the value from first ScanAll.
-  CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectFilter(), ExpectExpand(), ExpectScanAll(),
-                       ExpectProduce());
+
+  // The 2 match expansions need to be separated with a cartesian so they can be generated independently
+  std::list<BaseOpChecker *> left_cartesian_ops{new ExpectScanAll(), new ExpectFilter(), new ExpectExpand()};
+  std::list<BaseOpChecker *> right_cartesian_ops{new ExpectScanAll()};
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectCartesian(left_cartesian_ops, right_cartesian_ops), ExpectProduce());
+
+  DeleteListContent(&left_cartesian_ops);
+  DeleteListContent(&right_cartesian_ops);
 }
 
 TYPED_TEST(TestPlanner, MatchOptionalMatchWhere) {
@@ -1078,8 +1203,14 @@ TYPED_TEST(TestPlanner, MultiPropertyIndexScan) {
                    RETURN("n", "m")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label1, prop1, lit_1),
-            ExpectScanAllByLabelPropertyValue(label2, prop2, lit_2), ExpectProduce());
+
+  std::list<BaseOpChecker *> left_cartesian_ops{new ExpectScanAllByLabelPropertyValue(label1, prop1, lit_1)};
+  std::list<BaseOpChecker *> right_cartesian_ops{new ExpectScanAllByLabelPropertyValue(label2, prop2, lit_2)};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectCartesian(left_cartesian_ops, right_cartesian_ops), ExpectProduce());
+
+  DeleteListContent(&left_cartesian_ops);
+  DeleteListContent(&right_cartesian_ops);
 }
 
 TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
@@ -1172,9 +1303,36 @@ TYPED_TEST(TestPlanner, SecondPropertyIndex) {
                                    WHERE(EQ(m_prop, n_prop)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
-            // Note: We are scanning for m, therefore property should equal n_prop.
-            ExpectScanAllByLabelPropertyValue(label, property, n_prop), ExpectProduce());
+
+  // Note: We are scanning for m, therefore property should equal n_prop.
+  std::list<BaseOpChecker *> left_index_join_ops{new ExpectScanAllByLabel()};
+  std::list<BaseOpChecker *> right_index_join_ops{new ExpectScanAllByLabelPropertyValue(label, property, n_prop)};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectIndexedJoin(left_index_join_ops, right_index_join_ops),
+            ExpectProduce());
+
+  DeleteListContent(&left_index_join_ops);
+  DeleteListContent(&right_index_join_ops);
+}
+
+TYPED_TEST(TestPlanner, UnableToUseSecondPropertyIndex) {
+  // Test MATCH (n :label), (m :label) WHERE m.property = n.property RETURN n
+  FakeDbAccessor dba;
+  auto property = PROPERTY_PAIR(dba, "property");
+  auto n_prop = PROPERTY_LOOKUP(dba, "n", property);
+  auto m_prop = PROPERTY_LOOKUP(dba, "m", property);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label")), PATTERN(NODE("m", "label"))),
+                                   WHERE(EQ(m_prop, n_prop)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> left_index_join_ops{new ExpectScanAll(), new ExpectFilter()};
+  std::list<BaseOpChecker *> right_index_join_ops{new ExpectScanAll(), new ExpectFilter()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectHashJoin(left_index_join_ops, right_index_join_ops), ExpectProduce());
+
+  DeleteListContent(&left_index_join_ops);
+  DeleteListContent(&right_index_join_ops);
 }
 
 TYPED_TEST(TestPlanner, ReturnSumGroupByAll) {

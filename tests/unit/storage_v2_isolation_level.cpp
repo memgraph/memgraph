@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,8 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "utils/on_scope_exit.hpp"
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 namespace {
 int64_t VerticesCount(memgraph::storage::Storage::Accessor *accessor) {
@@ -43,9 +45,9 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
   void TestVisibility(std::unique_ptr<memgraph::storage::Storage> &storage,
                       const memgraph::storage::IsolationLevel &default_isolation_level,
                       const memgraph::storage::IsolationLevel &override_isolation_level) {
-    auto creator = storage->Access();
-    auto default_isolation_level_reader = storage->Access();
-    auto override_isolation_level_reader = storage->Access(override_isolation_level);
+    auto creator = storage->Access(ReplicationRole::MAIN);
+    auto default_isolation_level_reader = storage->Access(ReplicationRole::MAIN);
+    auto override_isolation_level_reader = storage->Access(ReplicationRole::MAIN, override_isolation_level);
 
     ASSERT_EQ(VerticesCount(default_isolation_level_reader.get()), 0);
     ASSERT_EQ(VerticesCount(override_isolation_level_reader.get()), 0);
@@ -88,7 +90,7 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
     ASSERT_FALSE(override_isolation_level_reader->Commit().HasError());
 
     SCOPED_TRACE("Visibility after a new transaction is started");
-    auto verifier = storage->Access();
+    auto verifier = storage->Access(ReplicationRole::MAIN);
     ASSERT_EQ(VerticesCount(verifier.get()), iteration_count);
     ASSERT_FALSE(verifier->Commit().HasError());
   }
@@ -113,6 +115,7 @@ TEST_P(StorageIsolationLevelTest, VisibilityOnDiskStorage) {
 
   for (const auto override_isolation_level : isolation_levels) {
     std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::DiskStorage(config));
+    auto on_exit = memgraph::utils::OnScopeExit{[&]() { disk_test_utils::RemoveRocksDbDirs(testSuite); }};
     try {
       this->TestVisibility(storage, default_isolation_level, override_isolation_level);
     } catch (memgraph::utils::NotYetImplemented &) {
@@ -120,10 +123,8 @@ TEST_P(StorageIsolationLevelTest, VisibilityOnDiskStorage) {
           override_isolation_level != memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION) {
         continue;
       }
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
       throw;
     }
-    disk_test_utils::RemoveRocksDbDirs(testSuite);
   }
 }
 

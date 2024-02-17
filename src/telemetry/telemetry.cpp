@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,9 +12,11 @@
 #include "telemetry/telemetry.hpp"
 
 #include <filesystem>
+#include <utility>
 
 #include <fmt/format.h>
 
+#include "communication/bolt/metrics.hpp"
 #include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
 #include "utils/event_counter.hpp"
@@ -35,8 +37,8 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
                      bool ssl, std::filesystem::path root_directory, std::chrono::duration<int64_t> refresh_interval,
                      const uint64_t send_every_n)
     : url_(std::move(url)),
-      uuid_(uuid),
-      machine_id_(machine_id),
+      uuid_(std::move(uuid)),
+      machine_id_(std::move(machine_id)),
       ssl_(ssl),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
@@ -108,7 +110,13 @@ void Telemetry::CollectData(const std::string &event) {
   {
     std::lock_guard<std::mutex> guard(lock_);
     for (auto &collector : collectors_) {
-      data[collector.first] = collector.second();
+      try {
+        data[collector.first] = collector.second();
+      } catch (std::exception &e) {
+        spdlog::warn(fmt::format(
+            "Unknwon exception occured on in telemetry server {}, please contact support on https://memgr.ph/unknown ",
+            e.what()));
+      }
     }
   }
   if (event == "") {
@@ -141,9 +149,9 @@ void Telemetry::AddClientCollector() {
 }
 
 #ifdef MG_ENTERPRISE
-void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler) {
-  AddCollector("database", [&dbms_handler]() -> nlohmann::json {
-    const auto &infos = dbms_handler.Info();
+void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler, replication::ReplicationState &repl_state) {
+  AddCollector("database", [&dbms_handler, &repl_state]() -> nlohmann::json {
+    const auto &infos = dbms_handler.Info(repl_state.GetRole());
     auto dbs = nlohmann::json::array();
     for (const auto &db_info : infos) {
       dbs.push_back(memgraph::dbms::ToJson(db_info));
@@ -154,43 +162,14 @@ void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler) {
 #else
 #endif
 
-#ifdef MG_ENTERPRISE
-void Telemetry::AddStorageCollector(
-    dbms::DbmsHandler &dbms_handler,
-    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> &auth) {
-  AddCollector("storage", [&dbms_handler, &auth]() -> nlohmann::json {
-    auto stats = dbms_handler.Stats();
+void Telemetry::AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth,
+                                    memgraph::replication::ReplicationState &repl_state) {
+  AddCollector("storage", [&dbms_handler, &auth, &repl_state]() -> nlohmann::json {
+    auto stats = dbms_handler.Stats(repl_state.GetRole());
     stats.users = auth->AllUsers().size();
     return ToJson(stats);
   });
 }
-#else
-void Telemetry::AddStorageCollector(
-    memgraph::utils::Gatekeeper<memgraph::dbms::Database> &db_gatekeeper,
-    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> &auth) {
-  AddCollector("storage", [&db_gatekeeper, &auth]() -> nlohmann::json {
-    memgraph::dbms::Statistics stats;
-    auto db_acc_opt = db_gatekeeper.access();
-    MG_ASSERT(db_acc_opt, "Failed to get access to the default database");
-    auto &db_acc = *db_acc_opt;
-    const auto &info = db_acc->GetInfo();
-    const auto &storage_info = info.storage_info;
-    stats.num_vertex = storage_info.vertex_count;
-    stats.num_edges = storage_info.edge_count;
-    stats.triggers = info.triggers;
-    stats.streams = info.streams;
-    stats.num_databases = 1;
-    stats.indices += storage_info.label_indices + storage_info.label_property_indices;
-    stats.constraints += storage_info.existence_constraints + storage_info.unique_constraints;
-    ++stats.storage_modes[(int)storage_info.storage_mode];
-    ++stats.isolation_levels[(int)storage_info.isolation_level];
-    stats.snapshot_enabled = storage_info.durability_snapshot_enabled;
-    stats.wal_enabled = storage_info.durability_wal_enabled;
-    stats.users = auth->AllUsers().size();
-    return ToJson(stats);
-  });
-}
-#endif
 
 void Telemetry::AddExceptionCollector() {
   AddCollector("exception", []() -> nlohmann::json { return memgraph::metrics::global_counters_map.ToJson(); });

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,10 +43,10 @@ class PrintToJsonTest : public ::testing::Test {
   PrintToJsonTest()
       : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
         db(new StorageType(config)),
-        dba_storage(db->Access()),
+        dba_storage(db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)),
         dba(dba_storage.get()) {}
 
-  ~PrintToJsonTest() {
+  ~PrintToJsonTest() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }

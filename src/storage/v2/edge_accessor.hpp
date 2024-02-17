@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,6 +44,8 @@ class EdgeAccessor final {
         transaction_(transaction),
         for_deleted_(for_deleted) {}
 
+  bool IsDeleted() const;
+
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
 
@@ -83,6 +85,8 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
+  auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
+  auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
   Gid Gid() const noexcept;
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
@@ -109,6 +113,9 @@ class EdgeAccessor final {
 };
 
 }  // namespace memgraph::storage
+
+static_assert(std::is_trivially_copyable_v<memgraph::storage::EdgeAccessor>,
+              "storage::EdgeAccessor must be trivially copyable!");
 
 namespace std {
 template <>

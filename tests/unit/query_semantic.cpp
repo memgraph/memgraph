@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,8 @@ class TestSymbolGenerator : public ::testing::Test {
   const std::string testSuite = "query_semantic";
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{
+      db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
 
@@ -54,17 +55,17 @@ TYPED_TEST(TestSymbolGenerator, MatchNodeReturn) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query_ast);
   // symbols for pattern, node_atom_1 and named_expr in return
   EXPECT_EQ(symbol_table.max_position(), 3);
-  auto match = dynamic_cast<Match *>(query_ast->single_query_->clauses_[0]);
-  auto pattern = match->patterns_[0];
+  auto *match = dynamic_cast<Match *>(query_ast->single_query_->clauses_[0]);
+  auto *pattern = match->patterns_[0];
   auto pattern_sym = symbol_table.at(*pattern->identifier_);
   EXPECT_EQ(pattern_sym.type(), Symbol::Type::PATH);
   EXPECT_FALSE(pattern_sym.user_declared());
-  auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+  auto *node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
   auto node_sym = symbol_table.at(*node_atom->identifier_);
   EXPECT_EQ(node_sym.name(), "node_atom_1");
   EXPECT_EQ(node_sym.type(), Symbol::Type::VERTEX);
-  auto ret = dynamic_cast<Return *>(query_ast->single_query_->clauses_[1]);
-  auto named_expr = ret->body_.named_expressions[0];
+  auto *ret = dynamic_cast<Return *>(query_ast->single_query_->clauses_[1]);
+  auto *named_expr = ret->body_.named_expressions[0];
   auto column_sym = symbol_table.at(*named_expr);
   EXPECT_EQ(node_sym.name(), column_sym.name());
   EXPECT_NE(node_sym, column_sym);
@@ -78,8 +79,8 @@ TYPED_TEST(TestSymbolGenerator, MatchNamedPattern) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query_ast);
   // symbols for p, node_atom_1 and named_expr in return
   EXPECT_EQ(symbol_table.max_position(), 3);
-  auto match = dynamic_cast<Match *>(query_ast->single_query_->clauses_[0]);
-  auto pattern = match->patterns_[0];
+  auto *match = dynamic_cast<Match *>(query_ast->single_query_->clauses_[0]);
+  auto *pattern = match->patterns_[0];
   auto pattern_sym = symbol_table.at(*pattern->identifier_);
   EXPECT_EQ(pattern_sym.type(), Symbol::Type::PATH);
   EXPECT_EQ(pattern_sym.name(), "p");
@@ -114,14 +115,14 @@ TYPED_TEST(TestSymbolGenerator, CreateNodeReturn) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query_ast);
   // symbols for pattern, `n` and named_expr
   EXPECT_EQ(symbol_table.max_position(), 3);
-  auto create = dynamic_cast<Create *>(query_ast->single_query_->clauses_[0]);
-  auto pattern = create->patterns_[0];
-  auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+  auto *create = dynamic_cast<Create *>(query_ast->single_query_->clauses_[0]);
+  auto *pattern = create->patterns_[0];
+  auto *node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
   auto node_sym = symbol_table.at(*node_atom->identifier_);
   EXPECT_EQ(node_sym.name(), "n");
   EXPECT_EQ(node_sym.type(), Symbol::Type::VERTEX);
-  auto ret = dynamic_cast<Return *>(query_ast->single_query_->clauses_[1]);
-  auto named_expr = ret->body_.named_expressions[0];
+  auto *ret = dynamic_cast<Return *>(query_ast->single_query_->clauses_[1]);
+  auto *named_expr = ret->body_.named_expressions[0];
   auto column_sym = symbol_table.at(*named_expr);
   EXPECT_EQ(node_sym.name(), column_sym.name());
   EXPECT_NE(node_sym, column_sym);
@@ -151,7 +152,7 @@ TYPED_TEST(TestSymbolGenerator, MatchCreateRedeclareNode) {
 TYPED_TEST(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   // AST with redeclaring a match edge variable in create:
   // MATCH (n) -[r]- (m) CREATE (n) -[r :relationship]-> (l)
-  auto relationship = "relationship";
+  const auto *relationship = "relationship";
   auto query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
                          CREATE(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {relationship}), NODE("l")))));
@@ -176,8 +177,8 @@ TYPED_TEST(TestSymbolGenerator, MatchCreateTypeMismatch) {
 TYPED_TEST(TestSymbolGenerator, CreateMultipleEdgeType) {
   // Multiple edge relationship are not allowed when creating edges.
   // CREATE (n) -[r :rel1 | :rel2]-> (m)
-  auto rel1 = "rel1";
-  auto rel2 = "rel2";
+  const auto *rel1 = "rel1";
+  const auto *rel2 = "rel2";
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {rel1});
   edge->edge_types_.emplace_back(this->storage.GetEdgeTypeIx(rel2));
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m")))));
@@ -187,7 +188,7 @@ TYPED_TEST(TestSymbolGenerator, CreateMultipleEdgeType) {
 TYPED_TEST(TestSymbolGenerator, CreateBidirectionalEdge) {
   // Bidirectional relationships are not allowed when creating edges.
   // CREATE (n) -[r :rel1]- (m)
-  auto rel1 = "rel1";
+  const auto *rel1 = "rel1";
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::BOTH, {rel1}), NODE("m")))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
@@ -276,8 +277,8 @@ TYPED_TEST(TestSymbolGenerator, MatchWithWhereUnbound) {
 
 TYPED_TEST(TestSymbolGenerator, CreateMultiExpand) {
   // Test CREATE (n) -[r :r]-> (m), (n) - [p :p]-> (l)
-  auto r_type = "r";
-  auto p_type = "p";
+  const auto *r_type = "r";
+  const auto *p_type = "p";
   auto node_n1 = NODE("n");
   auto edge_r = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
   auto node_m = NODE("m");
@@ -308,8 +309,8 @@ TYPED_TEST(TestSymbolGenerator, CreateMultiExpand) {
 
 TYPED_TEST(TestSymbolGenerator, MatchCreateExpandLabel) {
   // Test MATCH (n) CREATE (m) -[r :r]-> (n:label)
-  auto r_type = "r";
-  auto label = "label";
+  const auto *r_type = "r";
+  const auto *label = "label";
   auto query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                          CREATE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), NODE("n", label)))));
@@ -318,7 +319,7 @@ TYPED_TEST(TestSymbolGenerator, MatchCreateExpandLabel) {
 
 TYPED_TEST(TestSymbolGenerator, CreateExpandProperty) {
   // Test CREATE (n) -[r :r]-> (n {prop: 42})
-  auto r_type = "r";
+  const auto *r_type = "r";
   auto n_prop = NODE("n");
   std::get<0>(n_prop->properties_)[this->storage.GetPropertyIx("prop")] = LITERAL(42);
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), n_prop))));
@@ -379,7 +380,7 @@ TYPED_TEST(TestSymbolGenerator, MatchPropCreateNodeProp) {
 
 TYPED_TEST(TestSymbolGenerator, CreateNodeEdge) {
   // Test CREATE (n), (n) -[r :r]-> (n)
-  auto r_type = "r";
+  const auto *r_type = "r";
   auto node_1 = NODE("n");
   auto node_2 = NODE("n");
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
@@ -396,7 +397,7 @@ TYPED_TEST(TestSymbolGenerator, CreateNodeEdge) {
 
 TYPED_TEST(TestSymbolGenerator, MatchWithCreate) {
   // Test MATCH (n) WITH n AS m CREATE (m) -[r :r]-> (m)
-  auto r_type = "r";
+  const auto *r_type = "r";
   auto node_1 = NODE("n");
   auto node_2 = NODE("m");
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
@@ -500,7 +501,7 @@ TYPED_TEST(TestSymbolGenerator, MergeVariableError) {
 
 TYPED_TEST(TestSymbolGenerator, MergeVariableErrorEdge) {
   // Test MATCH (n) -[r]- (m) MERGE (a) -[r :rel]- (b)
-  auto rel = "rel";
+  const auto *rel = "rel";
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
                                   MERGE(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::BOTH, {rel}), NODE("b")))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), RedeclareVariableError);
@@ -516,7 +517,7 @@ TYPED_TEST(TestSymbolGenerator, MergeEdgeWithoutType) {
 TYPED_TEST(TestSymbolGenerator, MergeOnMatchOnCreate) {
   // Test MATCH (n) MERGE (n) -[r :rel]- (m) ON MATCH SET n.prop = 42
   //      ON CREATE SET m.prop = 42 RETURN r AS r
-  auto rel = "rel";
+  const auto *rel = "rel";
   auto prop = this->dba.NameToProperty("prop");
   auto match_n = NODE("n");
   auto merge_n = NODE("n");
@@ -641,8 +642,8 @@ TYPED_TEST(TestSymbolGenerator, MatchReturnAsteriskNoUserVariables) {
 
 TYPED_TEST(TestSymbolGenerator, MatchMergeExpandLabel) {
   // Test MATCH (n) MERGE (m) -[r :r]-> (n:label)
-  auto r_type = "r";
-  auto label = "label";
+  const auto *r_type = "r";
+  const auto *label = "label";
   auto query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                          MERGE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), NODE("n", label)))));

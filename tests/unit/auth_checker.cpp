@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
-
+using memgraph::replication_coordination_glue::ReplicationRole;
 #ifdef MG_ENTERPRISE
 template <typename StorageType>
 class FineGrainedAuthCheckerFixture : public testing::Test {
@@ -31,7 +31,7 @@ class FineGrainedAuthCheckerFixture : public testing::Test {
 
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(ReplicationRole::MAIN)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
 
   // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)

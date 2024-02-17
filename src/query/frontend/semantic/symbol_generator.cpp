@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -84,6 +84,9 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   for (auto &expr : body.named_expressions) {
     expr->Accept(*this);
   }
+
+  SetEvaluationModeOnPropertyLookups(body);
+
   std::vector<Symbol> user_symbols;
   if (body.all_identifiers) {
     // Carry over user symbols because '*' appeared.
@@ -391,35 +394,24 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // can reference symbols bound later in the same MATCH. We collect them
     // here, so that they can be checked after visiting Match.
     scope.identifiers_in_match.emplace_back(&ident);
+  } else if (scope.in_call_subquery && !scope.in_with) {
+    if (!scope.symbols.contains(ident.name_) && !ConsumePredefinedIdentifier(ident.name_)) {
+      throw UnboundVariableError(ident.name_);
+    }
+    symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
   } else {
     // Everything else references a bound symbol.
-    if (!HasSymbol(ident.name_) && !ConsumePredefinedIdentifier(ident.name_)) throw UnboundVariableError(ident.name_);
+    if (!HasSymbol(ident.name_) && !ConsumePredefinedIdentifier(ident.name_)) {
+      throw UnboundVariableError(ident.name_);
+    }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
   }
   ident.MapTo(symbol);
   return true;
 }
 
-bool SymbolGenerator::PostVisit(MapLiteral &map_literal) {
-  std::unordered_map<int32_t, PropertyLookup *> property_lookups{};
-
-  for (const auto &pair : map_literal.elements_) {
-    if (pair.second->GetTypeInfo() != PropertyLookup::kType) continue;
-    auto *property_lookup = static_cast<PropertyLookup *>(pair.second);
-    if (property_lookup->expression_->GetTypeInfo() != Identifier::kType) continue;
-
-    auto symbol_pos = static_cast<Identifier *>(property_lookup->expression_)->symbol_pos_;
-    try {
-      auto *existing_property_lookup = property_lookups.at(symbol_pos);
-      // If already there (no exception), update the original and current PropertyLookups
-      existing_property_lookup->evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
-      property_lookup->evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
-    } catch (const std::out_of_range &) {
-      // Otherwise, add the PropertyLookup to the map
-      property_lookups.emplace(symbol_pos, property_lookup);
-    }
-  }
-
+bool SymbolGenerator::PreVisit(MapLiteral &map_literal) {
+  SetEvaluationModeOnPropertyLookups(map_literal);
   return true;
 }
 
@@ -495,10 +487,18 @@ bool SymbolGenerator::PreVisit(None &none) {
 }
 
 bool SymbolGenerator::PreVisit(Reduce &reduce) {
+  auto &scope = scopes_.back();
+  scope.in_reduce = true;
   reduce.initializer_->Accept(*this);
   reduce.list_->Accept(*this);
   VisitWithIdentifiers(reduce.expression_, {reduce.accumulator_, reduce.identifier_});
   return false;
+}
+
+bool SymbolGenerator::PostVisit(Reduce & /*reduce*/) {
+  auto &scope = scopes_.back();
+  scope.in_reduce = false;
+  return true;
 }
 
 bool SymbolGenerator::PreVisit(Extract &extract) {
@@ -511,15 +511,23 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
 
   if (scope.in_set_property) {
-    throw utils::NotYetImplemented("Set property can not be used with exists, but only during matching!");
+    throw utils::NotYetImplemented("Exists cannot be used within SET clause.!");
   }
 
   if (scope.in_with) {
-    throw utils::NotYetImplemented("WITH can not be used with exists, but only during matching!");
+    throw utils::NotYetImplemented("Exists cannot be used within WITH!");
   }
 
   if (scope.in_return) {
-    throw utils::NotYetImplemented("RETURN can not be used with exists, but only during matching!");
+    throw utils::NotYetImplemented("Exists cannot be used within RETURN!");
+  }
+
+  if (scope.in_reduce) {
+    throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
+  }
+
+  if (scope.num_if_operators) {
+    throw utils::NotYetImplemented("IF operator cannot be used with exists, but only during matching!");
   }
 
   scope.in_exists = true;
@@ -657,8 +665,16 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     scope.in_edge_range = false;
     scope.in_pattern = false;
     if (edge_atom.filter_lambda_.expression) {
-      VisitWithIdentifiers(edge_atom.filter_lambda_.expression,
-                           {edge_atom.filter_lambda_.inner_edge, edge_atom.filter_lambda_.inner_node});
+      std::vector<Identifier *> filter_lambda_identifiers{edge_atom.filter_lambda_.inner_edge,
+                                                          edge_atom.filter_lambda_.inner_node};
+      if (edge_atom.filter_lambda_.accumulated_path) {
+        filter_lambda_identifiers.emplace_back(edge_atom.filter_lambda_.accumulated_path);
+
+        if (edge_atom.filter_lambda_.accumulated_weight) {
+          filter_lambda_identifiers.emplace_back(edge_atom.filter_lambda_.accumulated_weight);
+        }
+      }
+      VisitWithIdentifiers(edge_atom.filter_lambda_.expression, filter_lambda_identifiers);
     } else {
       // Create inner symbols, but don't bind them in scope, since they are to
       // be used in the missing filter expression.
@@ -667,6 +683,17 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
       auto *inner_node = edge_atom.filter_lambda_.inner_node;
       inner_node->MapTo(
           symbol_table_->CreateSymbol(inner_node->name_, inner_node->user_declared_, Symbol::Type::VERTEX));
+      if (edge_atom.filter_lambda_.accumulated_path) {
+        auto *accumulated_path = edge_atom.filter_lambda_.accumulated_path;
+        accumulated_path->MapTo(
+            symbol_table_->CreateSymbol(accumulated_path->name_, accumulated_path->user_declared_, Symbol::Type::PATH));
+
+        if (edge_atom.filter_lambda_.accumulated_weight) {
+          auto *accumulated_weight = edge_atom.filter_lambda_.accumulated_weight;
+          accumulated_weight->MapTo(symbol_table_->CreateSymbol(
+              accumulated_weight->name_, accumulated_weight->user_declared_, Symbol::Type::NUMBER));
+        }
+      }
     }
     if (edge_atom.weight_lambda_.expression) {
       VisitWithIdentifiers(edge_atom.weight_lambda_.expression,
@@ -739,6 +766,33 @@ bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {
   identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
   predefined_identifiers_.erase(it);
   return true;
+}
+
+void PropertyLookupEvaluationModeVisitor::Visit(PropertyLookup &property_lookup) {
+  if (property_lookup.expression_->GetTypeInfo() != Identifier::kType) {
+    return;
+  }
+
+  auto identifier_symbol = static_cast<Identifier *>(property_lookup.expression_)->name_;
+
+  if (this->gather_property_lookup_counts) {
+    if (!property_lookup_counts_by_symbol.contains(identifier_symbol)) {
+      property_lookup_counts_by_symbol[identifier_symbol] = 0;
+    }
+
+    property_lookup_counts_by_symbol[identifier_symbol]++;
+
+    return;
+  }
+
+  if (this->assign_property_lookup_evaluations) {
+    if (property_lookup_counts_by_symbol.contains(identifier_symbol) &&
+        property_lookup_counts_by_symbol[identifier_symbol] > 1) {
+      property_lookup.evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
+    }
+
+    return;
+  }
 }
 
 }  // namespace memgraph::query

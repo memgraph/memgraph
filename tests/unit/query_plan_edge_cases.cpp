@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,20 +40,24 @@ class QueryExecution : public testing::Test {
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
-  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk{
-      [&]() {
-        memgraph::storage::Config config{};
-        config.durability.storage_directory = data_directory;
-        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-          config.force_on_disk = true;
-        }
-        return config;
-      }()  // iile
-  };
+  std::optional<memgraph::replication::ReplicationState> repl_state;
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
+  std::optional<memgraph::system::System> system_state;
 
-  void SetUp() {
+  void SetUp() override {
+    auto config = [&]() {
+      memgraph::storage::Config config{};
+      config.durability.storage_directory = data_directory;
+      config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+      if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+        config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+        config.force_on_disk = true;
+      }
+      return config;
+    }();  // iile
+
+    repl_state.emplace(memgraph::storage::ReplicationStateRootPath(config));
+    db_gk.emplace(config, *repl_state);
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;
@@ -62,16 +66,23 @@ class QueryExecution : public testing::Test {
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
               "Wrong storage mode!");
     db_acc_ = std::move(db_acc);
-
-    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr);
+    system_state.emplace();
+    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value(), *system_state
+#ifdef MG_ENTERPRISE
+                                 ,
+                                 nullptr
+#endif
+    );
     interpreter_.emplace(&*interpreter_context_, *db_acc_);
   }
 
-  void TearDown() {
+  void TearDown() override {
     interpreter_ = std::nullopt;
     interpreter_context_ = std::nullopt;
+    system_state.reset();
     db_acc_.reset();
     db_gk.reset();
+    repl_state.reset();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }

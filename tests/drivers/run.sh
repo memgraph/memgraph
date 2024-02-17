@@ -30,6 +30,7 @@ binary_dir="$DIR/../../build"
 
 # Start memgraph.
 $binary_dir/memgraph \
+    --cartesian-product-enabled=false \
     --data-directory=$tmpdir \
     --query-execution-timeout-sec=5 \
     --bolt-session-inactivity-timeout=10 \

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,11 +14,13 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <utility>
 
 #include "communication/client.hpp"
 #include "io/network/endpoint.hpp"
 #include "rpc/exceptions.hpp"
 #include "rpc/messages.hpp"
+#include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/logging.hpp"
@@ -40,21 +42,30 @@ class Client {
 
     StreamHandler(Client *self, std::unique_lock<std::mutex> &&guard,
                   std::function<typename TRequestResponse::Response(slk::Reader *)> res_load)
-        : self_(self),
-          guard_(std::move(guard)),
-          req_builder_([self](const uint8_t *data, size_t size, bool have_more) {
-            if (!self->client_->Write(data, size, have_more)) throw RpcFailedException(self->endpoint_);
-          }),
-          res_load_(res_load) {}
+        : self_(self), guard_(std::move(guard)), req_builder_(GenBuilderCallback(self, this)), res_load_(res_load) {}
 
    public:
-    StreamHandler(StreamHandler &&) noexcept = default;
-    StreamHandler &operator=(StreamHandler &&) noexcept = default;
+    StreamHandler(StreamHandler &&other) noexcept
+        : self_{std::exchange(other.self_, nullptr)},
+          defunct_{std::exchange(other.defunct_, true)},
+          guard_{std::move(other.guard_)},
+          req_builder_{std::move(other.req_builder_), GenBuilderCallback(self_, this)},
+          res_load_{std::move(other.res_load_)} {}
+    StreamHandler &operator=(StreamHandler &&other) noexcept {
+      if (&other != this) {
+        self_ = std::exchange(other.self_, nullptr);
+        defunct_ = std::exchange(other.defunct_, true);
+        guard_ = std::move(other.guard_);
+        req_builder_ = slk::Builder(std::move(other.req_builder_, GenBuilderCallback(self_, this)));
+        res_load_ = std::move(other.res_load_);
+      }
+      return *this;
+    }
 
     StreamHandler(const StreamHandler &) = delete;
     StreamHandler &operator=(const StreamHandler &) = delete;
 
-    ~StreamHandler() {}
+    ~StreamHandler() = default;
 
     slk::Builder *GetBuilder() { return &req_builder_; }
 
@@ -69,11 +80,19 @@ class Client {
       while (true) {
         auto ret = slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
         if (ret.status == slk::StreamStatus::INVALID) {
-          throw RpcFailedException(self_->endpoint_);
-        } else if (ret.status == slk::StreamStatus::PARTIAL) {
+          // Logically invalid state, connection is still up, defunct stream and release
+          defunct_ = true;
+          guard_.unlock();
+          throw GenericRpcFailedException();
+        }
+        if (ret.status == slk::StreamStatus::PARTIAL) {
           if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
                                     /* exactly_len = */ false)) {
-            throw RpcFailedException(self_->endpoint_);
+            // Failed connection, abort and let somebody retry in the future
+            defunct_ = true;
+            self_->Abort();
+            guard_.unlock();
+            throw GenericRpcFailedException();
           }
         } else {
           response_data_size = ret.stream_size;
@@ -86,13 +105,30 @@ class Client {
       utils::OnScopeExit res_cleanup([&, response_data_size] { self_->client_->ShiftData(response_data_size); });
 
       utils::TypeId res_id{utils::TypeId::UNKNOWN};
-      slk::Load(&res_id, &res_reader);
+      // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+      rpc::Version version;
+
+      try {
+        slk::Load(&res_id, &res_reader);
+        slk::Load(&version, &res_reader);
+      } catch (const slk::SlkReaderException &) {
+        throw SlkRpcFailedException();
+      }
+
+      if (version != rpc::current_version) {
+        // V1 we introduced versioning with, absolutely no backwards compatibility,
+        // because it's impossible to provide backwards compatibility with pre versioning.
+        // Future versions this may require mechanism for graceful version handling.
+        throw VersionMismatchRpcFailedException();
+      }
 
       // Check the response ID.
       if (res_id != res_type.id && res_id != utils::TypeId::UNKNOWN) {
         spdlog::error("Message response was of unexpected type");
-        self_->client_ = std::nullopt;
-        throw RpcFailedException(self_->endpoint_);
+        // Logically invalid state, connection is still up, defunct stream and release
+        defunct_ = true;
+        guard_.unlock();
+        throw GenericRpcFailedException();
       }
 
       SPDLOG_TRACE("[RpcClient] received {}", res_type.name);
@@ -100,8 +136,23 @@ class Client {
       return res_load_(&res_reader);
     }
 
+    bool IsDefunct() const { return defunct_; }
+
    private:
+    static auto GenBuilderCallback(Client *client, StreamHandler *self) {
+      return [client, self](const uint8_t *data, size_t size, bool have_more) {
+        if (self->defunct_) throw GenericRpcFailedException();
+        if (!client->client_->Write(data, size, have_more)) {
+          self->defunct_ = true;
+          client->Abort();
+          self->guard_.unlock();
+          throw GenericRpcFailedException();
+        }
+      };
+    }
+
     Client *self_;
+    bool defunct_ = false;
     std::unique_lock<std::mutex> guard_;
     slk::Builder req_builder_;
     std::function<typename TRequestResponse::Response(slk::Reader *)> res_load_;
@@ -153,7 +204,7 @@ class Client {
       if (!client_->Connect(endpoint_)) {
         SPDLOG_ERROR("Couldn't connect to remote address {}", endpoint_);
         client_ = std::nullopt;
-        throw RpcFailedException(endpoint_);
+        throw GenericRpcFailedException();
       }
     }
 
@@ -162,10 +213,11 @@ class Client {
 
     // Build and send the request.
     slk::Save(req_type.id, handler.GetBuilder());
+    slk::Save(rpc::current_version, handler.GetBuilder());
     TRequestResponse::Request::Save(request, handler.GetBuilder());
 
     // Return the handler to the user.
-    return std::move(handler);
+    return handler;
   }
 
   /// Call a previously defined and registered RPC call. This function can

@@ -148,4 +148,10 @@ constexpr utils::TypeInfo query::plan::Foreach::kType{utils::TypeId::FOREACH, "F
 
 constexpr utils::TypeInfo query::plan::Apply::kType{utils::TypeId::APPLY, "Apply",
                                                     &query::plan::LogicalOperator::kType};
+
+constexpr utils::TypeInfo query::plan::IndexedJoin::kType{utils::TypeId::INDEXED_JOIN, "IndexedJoin",
+                                                          &query::plan::LogicalOperator::kType};
+
+constexpr utils::TypeInfo query::plan::HashJoin::kType{utils::TypeId::HASH_JOIN, "HashJoin",
+                                                       &query::plan::LogicalOperator::kType};
 }  // namespace memgraph

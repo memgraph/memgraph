@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,23 +10,24 @@
 // licenses/APL.txt.
 
 #include "dbms/database.hpp"
-#include "flags/storage_mode.hpp"
+#include "dbms/inmemory/storage_helper.hpp"
 #include "storage/v2/disk/storage.hpp"
-#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
 namespace memgraph::dbms {
 
-Database::Database(const storage::Config &config)
+Database::Database(storage::Config config, replication::ReplicationState &repl_state)
     : trigger_store_(config.durability.storage_directory / "triggers"),
-      streams_{config.durability.storage_directory / "streams"} {
-  if (config.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
+      streams_{config.durability.storage_directory / "streams"},
+      plan_cache_{FLAGS_query_plan_cache_max_size},
+      repl_state_(&repl_state) {
+  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
-    storage_ = std::make_unique<storage::DiskStorage>(config);
+    storage_ = std::make_unique<storage::DiskStorage>(std::move(config));
   } else {
-    storage_ = std::make_unique<storage::InMemoryStorage>(config, config.storage_mode);
+    storage_ = dbms::CreateInMemoryStorage(std::move(config), repl_state);
   }
 }
 
