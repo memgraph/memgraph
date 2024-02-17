@@ -16,6 +16,7 @@
 #include "utils/logging.hpp"
 
 #include "communication/bolt/v1/fmt.hpp"
+#include "io/network/fmt.hpp"
 
 namespace {
 constexpr uint8_t kBoltV43Version[4] = {0x00, 0x00, 0x03, 0x04};
@@ -28,7 +29,7 @@ Client::Client(communication::ClientContext &context) : client_{&context} {}
 void Client::Connect(const io::network::Endpoint &endpoint, const std::string &username, const std::string &password,
                      const std::string &client_name) {
   if (!client_.Connect(endpoint)) {
-    throw ClientFatalException("Couldn't connect to {}!", endpoint.SocketAddress());
+    throw ClientFatalException("Couldn't connect to {}!", endpoint);
   }
 
   if (!client_.Write(kPreamble, sizeof(kPreamble), true)) {
