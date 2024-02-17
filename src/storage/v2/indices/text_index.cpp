@@ -14,7 +14,6 @@
 #include "query/db_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "text_search.hpp"
-#include "utils/string.hpp"
 
 namespace memgraph::storage {
 
@@ -33,7 +32,6 @@ void TextIndex::CreateEmptyIndex(const std::string &index_name, LabelId label) {
     nlohmann::json mappings = {};
     mappings["properties"] = {};
     mappings["properties"]["metadata"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
-    mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
     mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
 
     index_.emplace(index_name,
@@ -44,27 +42,6 @@ void TextIndex::CreateEmptyIndex(const std::string &index_name, LabelId label) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
   label_to_index_.emplace(label, index_name);
-}
-
-std::string TextIndex::PropertiesToString(const std::map<PropertyId, PropertyValue> &properties) {
-  std::vector<std::string> indexable_properties_as_string;
-  for (const auto &[_, prop_value] : properties) {
-    switch (prop_value.type()) {
-      case PropertyValue::Type::Bool:
-      case PropertyValue::Type::Int:
-      case PropertyValue::Type::Double:
-      case PropertyValue::Type::String:
-        indexable_properties_as_string.push_back(prop_value.ValueString());
-        break;
-      case PropertyValue::Type::Null:
-      case PropertyValue::Type::List:
-      case PropertyValue::Type::Map:
-      case PropertyValue::Type::TemporalData:
-      default:
-        continue;
-    }
-  }
-  return utils::Join(indexable_properties_as_string, " ");
 }
 
 template <typename T>
@@ -115,13 +92,11 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(V
 }
 
 void TextIndex::LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::json &properties,
-                                      const std::string &indexable_properties_as_string,
                                       const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
   // NOTE: Text indexes are presently all-property indices. If we allow text indexes restricted to specific properties,
   // an indexable document should be created for each applicable index.
   nlohmann::json document = {};
   document["data"] = properties;
-  document["all"] = indexable_properties_as_string;
   document["metadata"] = {};
   document["metadata"]["gid"] = gid;
   document["metadata"]["deleted"] = false;
@@ -159,7 +134,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mappe
 
   auto vertex_properties = vertex_after_update->properties.Properties();
   LoadNodeToTextIndices(vertex_after_update->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                        PropertiesToString(vertex_properties), applicable_text_indices);
+                        applicable_text_indices);
 }
 
 void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper) {
@@ -179,7 +154,8 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_ma
   }
 
   if (!removed_labels.empty()) {
-    RemoveNode(vertex_after_update, GetApplicableTextIndices(removed_labels));
+    auto indexes_to_remove_node_from = GetApplicableTextIndices(removed_labels);
+    RemoveNode(vertex_after_update, indexes_to_remove_node_from);
   }
 
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
@@ -226,7 +202,7 @@ void TextIndex::CreateIndex(const std::string &index_name, LabelId label, memgra
 
     auto vertex_properties = v.Properties(View::NEW).GetValue();
     LoadNodeToTextIndices(v.Gid().AsInt(), SerializeProperties(vertex_properties, db),
-                          PropertiesToString(vertex_properties), {&index_.at(index_name).context_});
+                          {&index_.at(index_name).context_});
   }
 
   CommitLoadedNodes(index_.at(index_name).context_);
@@ -244,7 +220,7 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
     nlohmann::json document = {};
     auto vertex_properties = v.properties.Properties();
     LoadNodeToTextIndices(v.gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                          PropertiesToString(vertex_properties), {&index_.at(index_name).context_});
+                          {&index_.at(index_name).context_});
   }
 
   CommitLoadedNodes(index_.at(index_name).context_);
@@ -286,37 +262,6 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
 
   try {
     search_results = mgcxx::text_search::search(index_.at(index_name).context_, input);
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-  for (const auto &doc : search_results.docs) {
-    // The CXX .data() method (https://cxx.rs/binding/string.html) may overestimate string length, causing JSON parsing
-    // errors downstream. We prevent this by resizing the converted string with the correctly-working .length() method.
-    std::string doc_string = doc.data.data();
-    doc_string.resize(doc.data.length());
-    auto doc_json = nlohmann::json::parse(doc_string);
-    found_nodes.push_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()));
-  }
-  return found_nodes;
-}
-
-std::vector<Gid> TextIndex::RegexSearch(const std::string &index_name, const std::string &search_query) {
-  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
-    throw query::TextSearchDisabledException();
-  }
-
-  if (!index_.contains(index_name)) {
-    throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
-  }
-
-  auto input = mgcxx::text_search::SearchInput{
-      .search_fields = {"all"}, .search_query = search_query, .return_fields = {"data", "metadata"}};
-
-  std::vector<Gid> found_nodes;
-  mgcxx::text_search::SearchOutput search_results;
-
-  try {
-    search_results = mgcxx::text_search::regex_search(index_.at(index_name).context_, input);
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }

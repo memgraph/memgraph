@@ -247,10 +247,6 @@ class Storage {
       return storage_->indices_.text_index_.Search(index_name, search_query);
     }
 
-    std::vector<Gid> TextIndexRegexSearch(const std::string &index_name, const std::string &search_query) const {
-      return storage_->indices_.text_index_.RegexSearch(index_name, search_query);
-    }
-
     virtual IndicesInfo ListAllIndices() const = 0;
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
