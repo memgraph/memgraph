@@ -11,12 +11,17 @@
 
 #pragma once
 
-#ifdef MG_ENTERPRISE
-namespace memgraph::coordination {
+#include <algorithm>
+#include <vector>
 
-struct CoordinatorClusterConfig {
-  static constexpr int alive_response_time_difference_sec_{5};
-};
+namespace memgraph::utils {
 
-}  // namespace memgraph::coordination
-#endif
+template <class F, class T, class R = typename std::result_of<F(T)>::type, class V = std::vector<R>>
+V fmap(F &&f, const std::vector<T> &v) {
+  V r;
+  r.reserve(v.size());
+  std::ranges::transform(v, std::back_inserter(r), std::forward<F>(f));
+  return r;
+}
+
+}  // namespace memgraph::utils

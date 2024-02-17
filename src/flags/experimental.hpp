@@ -10,10 +10,23 @@
 // licenses/APL.txt.
 
 #pragma once
-#include <cstdint>
 
-namespace memgraph::storage::replication {
+#include "gflags/gflags.h"
 
-enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, MAYBE_BEHIND, DIVERGED_FROM_MAIN };
+// Short help flag.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(experimental_enabled);
 
-}  // namespace memgraph::storage::replication
+namespace memgraph::flags {
+
+// Each bit is an enabled experiment
+// old experiments can be reused once code cleanup has happened
+enum class Experiments : uint8_t {
+  SYSTEM_REPLICATION = 1 << 0,
+};
+
+bool AreExperimentsEnabled(Experiments experiments);
+
+void InitializeExperimental();
+
+}  // namespace memgraph::flags

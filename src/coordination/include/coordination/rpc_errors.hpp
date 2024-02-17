@@ -9,11 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-#include <cstdint>
-
-namespace memgraph::storage::replication {
-
-enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, MAYBE_BEHIND, DIVERGED_FROM_MAIN };
-
-}  // namespace memgraph::storage::replication
+namespace memgraph::coordination {
+enum class GetInstanceUUIDError { NO_RESPONSE, RPC_EXCEPTION };
+}  // namespace memgraph::coordination

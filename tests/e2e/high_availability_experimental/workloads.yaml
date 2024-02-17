@@ -28,18 +28,26 @@ workloads:
     args: ["high_availability_experimental/coordinator.py"]
     <<: *ha_cluster
 
-  - name: "Automatic failover"
+  - name: "Single coordinator"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["high_availability_experimental/automatic_failover.py"]
+    args: ["high_availability_experimental/single_coordinator.py"]
 
   - name: "Disabled manual setting of replication cluster"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability_experimental/manual_setting_replicas.py"]
 
-  - name: "Distributed coordinators"
+  - name: "Coordinator cluster registration"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["high_availability_experimental/distributed_coordinators.py"]
+    args: ["high_availability_experimental/coord_cluster_registration.py"]
 
   - name: "Not replicate from old main"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability_experimental/not_replicate_from_old_main.py"]
+
+  - name: "Disable writing on main after restart"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability_experimental/disable_writing_on_main_after_restart.py"]
+
+  - name: "Distributed coordinators"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability_experimental/distributed_coords.py"]

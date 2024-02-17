@@ -11,23 +11,25 @@
 
 #pragma once
 
-#include "utils/uuid.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_config.hpp"
 #include "rpc/client.hpp"
+#include "rpc_errors.hpp"
+#include "utils/result.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
 
-class CoordinatorData;
-using HealthCheckCallback = std::function<void(CoordinatorData *, std::string_view)>;
+class CoordinatorInstance;
+using HealthCheckCallback = std::function<void(CoordinatorInstance *, std::string_view)>;
 using ReplicationClientsInfo = std::vector<ReplClientInfo>;
 
 class CoordinatorClient {
  public:
-  explicit CoordinatorClient(CoordinatorData *coord_data_, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
-                             HealthCheckCallback fail_cb);
+  explicit CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorClientConfig config,
+                             HealthCheckCallback succ_cb, HealthCheckCallback fail_cb);
 
   ~CoordinatorClient() = default;
 
@@ -46,16 +48,27 @@ class CoordinatorClient {
   auto SocketAddress() const -> std::string;
 
   [[nodiscard]] auto DemoteToReplica() const -> bool;
+
   auto SendPromoteReplicaToMainRpc(const utils::UUID &uuid, ReplicationClientsInfo replication_clients_info) const
       -> bool;
 
   auto SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bool;
+
+  auto SendUnregisterReplicaRpc(std::string const &instance_name) const -> bool;
+
+  auto SendEnableWritingOnMainRpc() const -> bool;
+
+  auto SendGetInstanceUUIDRpc() const -> memgraph::utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>>;
 
   auto ReplicationClientInfo() const -> ReplClientInfo;
 
   auto SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCallback fail_cb) -> void;
 
   auto RpcClient() -> rpc::Client & { return rpc_client_; }
+
+  auto InstanceDownTimeoutSec() const -> std::chrono::seconds;
+
+  auto InstanceGetUUIDFrequencySec() const -> std::chrono::seconds;
 
   friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
     return first.config_ == second.config_;
@@ -64,12 +77,11 @@ class CoordinatorClient {
  private:
   utils::Scheduler instance_checker_;
 
-  // TODO: (andi) Pimpl?
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 
   CoordinatorClientConfig config_;
-  CoordinatorData *coord_data_;
+  CoordinatorInstance *coord_instance_;
   HealthCheckCallback succ_cb_;
   HealthCheckCallback fail_cb_;
 };

@@ -71,8 +71,7 @@ class TestEnvironment : public ::testing::Environment {
                                                          memgraph::auth::Auth::Config{/* default */});
     system_state = std::make_unique<memgraph::system::System>();
     repl_state = std::make_unique<memgraph::replication::ReplicationState>(ReplicationStateRootPath(storage_conf));
-    ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, *system_state.get(), *repl_state.get(),
-                                                         *auth.get(), false);
+    ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, *repl_state.get(), *auth.get(), false);
   }
 
   void TearDown() override {

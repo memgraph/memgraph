@@ -30,3 +30,14 @@ def safe_execute(function, *args):
         function(*args)
     except:
         pass
+
+
+# NOTE: Repeated execution because it can fail if Raft server is not up
+def add_coordinator(cursor, query):
+    for _ in range(10):
+        try:
+            execute_and_fetch_all(cursor, query)
+            return True
+        except Exception:
+            pass
+    return False

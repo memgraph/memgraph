@@ -185,6 +185,20 @@ Feature: Subqueries
             """
         Then an error should be raised
 
+    Scenario: Subquery with an unbound variable
+        Given an empty graph
+        When executing query:
+        """
+        MATCH (node1)
+        CALL {
+            MATCH (node2)
+            WHERE node1.property > 0
+            return 1 as state
+        }
+        return 1
+        """
+        Then an error should be raised
+
     Scenario: Subquery returning primitive but not aliased
         Given an empty graph
         And having executed

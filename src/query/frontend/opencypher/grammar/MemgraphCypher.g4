@@ -191,6 +191,7 @@ replicationQuery : setReplicationRole
                  ;
 
 coordinatorQuery : registerInstanceOnCoordinator
+                 | unregisterInstanceOnCoordinator
                  | setInstanceToMain
                  | showInstances
                  | addCoordinatorInstance
@@ -392,6 +393,8 @@ registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
 
 registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ON coordinatorSocketAddress ( AS ASYNC ) ? WITH replicationSocketAddress ;
+
+unregisterInstanceOnCoordinator : UNREGISTER INSTANCE instanceName ;
 
 setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 
