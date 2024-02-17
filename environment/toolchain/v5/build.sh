@@ -691,7 +691,7 @@ SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
 SNAPPY_VERSION=1.1.9
 XZ_VERSION=5.2.5 # for LZMA
 ZLIB_VERSION=1.3
-ZSTD_VERSION=1.5.0
+ZSTD_VERSION=1.5.5
 
 pushd archives
 if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
@@ -1025,7 +1025,6 @@ if [ ! -d $PREFIX/include/gflags ]; then
     if [ -d gflags ]; then
         rm -rf gflags
     fi
-
     git clone https://github.com/memgraph/gflags.git gflags
     pushd gflags
     git checkout $GFLAGS_COMMIT_HASH
@@ -1034,7 +1033,7 @@ if [ ! -d $PREFIX/include/gflags ]; then
     cmake .. $COMMON_CMAKE_FLAGS \
         -DREGISTER_INSTALL_PREFIX=OFF \
         -DBUILD_gflags_nothreads_LIB=OFF \
-        -DGFLAGS_NO_FILENAMES=0
+        -DGFLAGS_NO_FILENAMES=1
     make -j$CPUS install
     popd && popd
 fi
