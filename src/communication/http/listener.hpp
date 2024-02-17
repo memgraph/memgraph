@@ -21,6 +21,7 @@
 #include <boost/beast/core.hpp>
 
 #include "communication/context.hpp"
+#include "communication/fmt.hpp"
 #include "communication/http/session.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -82,7 +83,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
       return;
     }
 
-    spdlog::info("HTTP server is listening on {}:{}", endpoint.address().to_string(), endpoint.port());
+    spdlog::info("HTTP server is listening on {}", endpoint);
   }
 
   void DoAccept() {

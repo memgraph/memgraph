@@ -16,5 +16,5 @@
 #include <boost/asio/ip/tcp.hpp>
 
 template <>
-class fmt::formatter<boost::asio::ip::tcp::endpoint> : public ostream_formatter {};
+class fmt::formatter<boost::asio::ip::tcp::endpoint> : public fmt::ostream_formatter {};
 #endif

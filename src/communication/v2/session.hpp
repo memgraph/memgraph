@@ -47,7 +47,7 @@
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
-#include "communication/v2/fmt.hpp"
+#include "communication/fmt.hpp"
 #include "dbms/global.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"

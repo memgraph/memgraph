@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,8 +26,8 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include "communication/context.hpp"
+#include "communication/fmt.hpp"
 #include "communication/init.hpp"
-#include "communication/v2/fmt.hpp"
 #include "communication/v2/listener.hpp"
 #include "communication/v2/pool.hpp"
 #include "utils/logging.hpp"

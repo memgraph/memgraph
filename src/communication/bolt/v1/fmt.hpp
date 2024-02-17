@@ -12,14 +12,16 @@
 #pragma once
 
 #if FMT_VERSION > 90000
+#include <fmt/ostream.h>
+
 #include "communication/bolt/v1/value.hpp"
 
 template <>
-class fmt::formatter<memgraph::communication::bolt::Value> : public ostream_formatter {};
+class fmt::formatter<memgraph::communication::bolt::Value> : public fmt::ostream_formatter {};
 
 template <>
-class fmt::formatter<std::vector<memgraph::communication::bolt::Value>> : public ostream_formatter {};
+class fmt::formatter<std::vector<memgraph::communication::bolt::Value>> : public fmt::ostream_formatter {};
 
 template <>
-class fmt::formatter<std::map<std::string, memgraph::communication::bolt::Value>> : public ostream_formatter {};
+class fmt::formatter<std::map<std::string, memgraph::communication::bolt::Value>> : public fmt::ostream_formatter {};
 #endif
