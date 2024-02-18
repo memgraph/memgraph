@@ -28,6 +28,10 @@ void TextIndex::CreateEmptyIndex(const std::string &index_name, LabelId label) {
     throw query::TextSearchDisabledException();
   }
 
+  if (index_.contains(index_name)) {
+    throw query::TextSearchException("Text index \"{}\" already exists.", index_name);
+  }
+
   try {
     nlohmann::json mappings = {};
     mappings["properties"] = {};
@@ -231,7 +235,9 @@ LabelId TextIndex::DropIndex(const std::string &index_name) {
     throw query::TextSearchDisabledException();
   }
 
-  // TODO antepusic check if index exists
+  if (!index_.contains(index_name)) {
+    throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
+  }
 
   try {
     mgcxx::text_search::drop_index(index_name);

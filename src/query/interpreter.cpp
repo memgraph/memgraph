@@ -2713,7 +2713,6 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     case TextIndexQuery::Action::CREATE: {
       index_notification.code = NotificationCode::CREATE_INDEX;
       index_notification.title = fmt::format("Created text index on label {}.", text_index_query->label_.name);
-
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, index_name,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
