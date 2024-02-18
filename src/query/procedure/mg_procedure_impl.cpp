@@ -2986,7 +2986,6 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
         }
         auto *vertex = std::visit(
             [=](auto *impl) { return NewRawMgpObject<mgp_vertex>(memory, impl->InsertVertex(), graph); }, graph->impl);
-        // TODO antepusic update text index
         if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH)) {
           auto v_impl = vertex->getImpl();
           vertex->graph->getImpl()->TextIndexAddVertex(&v_impl);
