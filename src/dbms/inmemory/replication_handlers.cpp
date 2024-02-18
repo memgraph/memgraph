@@ -539,7 +539,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, View::NEW);
         if (!vertex)
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
-        // NOTE: Phase 1 of the text search feature doesn't have replication in scope
+        // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
         auto ret = vertex->AddLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
         if (ret.HasError() || !ret.GetValue())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
@@ -552,7 +552,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, View::NEW);
         if (!vertex)
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
-        // NOTE: Phase 1 of the text search feature doesn't have replication in scope
+        // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
         auto ret = vertex->RemoveLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
         if (ret.HasError() || !ret.GetValue())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
@@ -767,11 +767,11 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         break;
       }
       case WalDeltaData::Type::TEXT_INDEX_CREATE: {
-        // NOTE: Phase 1 of the text search feature doesn't have replication in scope
+        // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
         break;
       }
       case WalDeltaData::Type::TEXT_INDEX_DROP: {
-        // NOTE: Phase 1 of the text search feature doesn't have replication in scope
+        // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
         break;
       }
       case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
