@@ -11,6 +11,7 @@
 
 import sys
 
+import gqlalchemy
 import mgclient
 import pytest
 from common import memgraph, memgraph_with_mixed_data, memgraph_with_text_indexed_data
@@ -34,6 +35,22 @@ def test_drop_index(memgraph):
     index_info = memgraph.execute_and_fetch("""SHOW INDEX INFO""")
 
     assert list(index_info) == []
+
+
+def test_create_existing_index(memgraph):
+    memgraph.execute("""CREATE TEXT INDEX duplicatedIndex ON :Document;""")
+    with pytest.raises(
+        gqlalchemy.exceptions.GQLAlchemyDatabaseError, match='Text index "duplicatedIndex" already exists.'
+    ) as _:
+        memgraph.execute("""CREATE TEXT INDEX duplicatedIndex ON :Document;""")
+    memgraph.execute("""DROP TEXT INDEX duplicatedIndex;""")  # cleanup
+
+
+def test_drop_nonexistent_index(memgraph):
+    with pytest.raises(
+        gqlalchemy.exceptions.GQLAlchemyDatabaseError, match='Text index "noSuchIndex" doesn’t exist.'
+    ) as _:
+        memgraph.execute("""DROP TEXT INDEX noSuchIndex;""")
 
 
 def test_text_search_given_property(memgraph_with_text_indexed_data):
