@@ -145,21 +145,23 @@ bool DurableMetadata::PersistLabelPropertyIndexAndExistenceConstraintDeletion(La
   return true;
 }
 
-bool DurableMetadata::PersistTextIndexCreation(const std::string &index_name) {
+bool DurableMetadata::PersistTextIndexCreation(const std::string &index_name, LabelId label) {
+  const std::string index_name_label_pair = index_name + "," + label.ToString();
   if (auto text_index_store = durability_kvstore_.Get(kTextIndexStr); text_index_store.has_value()) {
     std::string &value = text_index_store.value();
     value += "|";
-    value += index_name;
+    value += index_name_label_pair;
     return durability_kvstore_.Put(kTextIndexStr, value);
   }
-  return durability_kvstore_.Put(kTextIndexStr, index_name);
+  return durability_kvstore_.Put(kTextIndexStr, index_name_label_pair);
 }
 
-bool DurableMetadata::PersistTextIndexDeletion(const std::string &index_name) {
+bool DurableMetadata::PersistTextIndexDeletion(const std::string &index_name, LabelId label) {
+  const std::string index_name_label_pair = index_name + "," + label.ToString();
   if (auto text_index_store = durability_kvstore_.Get(kTextIndexStr); text_index_store.has_value()) {
     const std::string &value = text_index_store.value();
     std::vector<std::string> text_indices = utils::Split(value, "|");
-    std::erase(text_indices, index_name);
+    std::erase(text_indices, index_name_label_pair);
     if (text_indices.empty()) {
       return durability_kvstore_.Delete(kTextIndexStr);
     }

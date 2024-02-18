@@ -1657,12 +1657,14 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage.");
         } break;
         case MetadataDelta::Action::TEXT_INDEX_CREATE: {
-          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(md_delta.text_indices.index_name)) {
+          const auto &info = md_delta.text_index;
+          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(info.index_name, info.label)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
         case MetadataDelta::Action::TEXT_INDEX_DROP: {
-          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(md_delta.text_indices.index_name)) {
+          const auto &info = md_delta.text_index;
+          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(info.index_name, info.label)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
