@@ -8,6 +8,7 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+#pragma once
 
 #include <optional>
 #include <string>
@@ -18,8 +19,8 @@
 
 namespace memgraph::coordination {
 
-std::string ChooseMostUpToDateInstance(
-    const std::unordered_map<std::string, replication_coordination_glue::DatabaseHistories>
+inline std::string ChooseMostUpToDateInstance(
+    const std::vector<std::pair<std::string, replication_coordination_glue::DatabaseHistories>>
         &instance_database_histories,
     std::optional<std::string> &latest_epoch, std::optional<uint64_t> &latest_commit_timestamp) {
   std::string most_up_to_date_instance;

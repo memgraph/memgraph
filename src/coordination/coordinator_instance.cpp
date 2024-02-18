@@ -112,7 +112,7 @@ auto CoordinatorInstance::TryFailover() -> void {
   {
     // for each DB in instance we get one DatabaseHistory
     using DatabaseHistories = replication_coordination_glue::DatabaseHistories;
-    std::unordered_map<std::string, DatabaseHistories> instance_database_histories;
+    std::vector<std::pair<std::string, DatabaseHistories>> instance_database_histories;
 
     bool success{true};
     std::for_each(alive_replicas.begin(), alive_replicas.end(),
@@ -126,7 +126,7 @@ auto CoordinatorInstance::TryFailover() -> void {
                       success = false;
                       return;
                     }
-                    instance_database_histories.emplace(replica.InstanceName(), std::move(res.GetValue()));
+                    instance_database_histories.emplace_back(replica.InstanceName(), std::move(res.GetValue()));
                   });
 
     if (!success) {
