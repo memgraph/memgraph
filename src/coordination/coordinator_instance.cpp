@@ -20,6 +20,7 @@
 #include "nuraft/coordinator_state_manager.hpp"
 #include "utils/counter.hpp"
 #include "utils/functional.hpp"
+#include "utils/resource_lock.hpp"
 
 #include <range/v3/view.hpp>
 #include <shared_mutex>
@@ -33,96 +34,36 @@ CoordinatorInstance::CoordinatorInstance()
     : raft_state_(RaftState::MakeRaftState(
           [this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StartFrequentCheck); },
           [this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StopFrequentCheck); })) {
-  auto find_repl_instance = [](CoordinatorInstance *self,
-                               std::string_view repl_instance_name) -> ReplicationInstance & {
-    auto repl_instance =
-        std::ranges::find_if(self->repl_instances_, [repl_instance_name](ReplicationInstance const &instance) {
-          return instance.InstanceName() == repl_instance_name;
-        });
-
-    MG_ASSERT(repl_instance != self->repl_instances_.end(), "Instance {} not found during callback!",
-              repl_instance_name);
-    return *repl_instance;
+  client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
+    auto lock = std::unique_lock{self->coord_instance_lock_};
+    auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
+    repl_instance.GetSuccessCallback()(self, repl_instance_name, std::move(lock));
   };
 
-  replica_succ_cb_ = [find_repl_instance](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::lock_guard{self->coord_instance_lock_};
-    spdlog::trace("Instance {} performing replica successful callback", repl_instance_name);
-    auto &repl_instance = find_repl_instance(self, repl_instance_name);
-
-    // We need to get replicas UUID from time to time to ensure replica is listening to correct main
-    // and that it didn't go down for less time than we could notice
-    // We need to get id of main replica is listening to
-    // and swap if necessary
-    if (!repl_instance.EnsureReplicaHasCorrectMainUUID(self->GetMainUUID())) {
-      spdlog::error("Failed to swap uuid for replica instance {} which is alive", repl_instance.InstanceName());
-      return;
-    }
-
-    repl_instance.OnSuccessPing();
+  client_fail_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
+    auto lock = std::unique_lock{self->coord_instance_lock_};
+    auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
+    repl_instance.GetFailCallback()(self, repl_instance_name, std::move(lock));
   };
 
-  replica_fail_cb_ = [find_repl_instance](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::lock_guard{self->coord_instance_lock_};
-    spdlog::trace("Instance {} performing replica failure callback", repl_instance_name);
-    auto &repl_instance = find_repl_instance(self, repl_instance_name);
-    repl_instance.OnFailPing();
-  };
+  replica_succ_cb_ = &ReplicaSuccessCallback;
 
-  main_succ_cb_ = [find_repl_instance](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::lock_guard{self->coord_instance_lock_};
-    spdlog::trace("Instance {} performing main successful callback", repl_instance_name);
+  replica_fail_cb_ = &ReplicaFailCallback;
 
-    auto &repl_instance = find_repl_instance(self, repl_instance_name);
+  main_succ_cb_ = &MainSuccessCallback;
 
-    if (repl_instance.IsAlive()) {
-      repl_instance.OnSuccessPing();
-      return;
-    }
+  main_fail_cb_ = &MainFailCallback;
+}
 
-    const auto &repl_instance_uuid = repl_instance.GetMainUUID();
-    MG_ASSERT(repl_instance_uuid.has_value(), "Instance must have uuid set.");
+auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance & {
+  auto repl_instance =
+      std::ranges::find_if(repl_instances_, [replication_instance_name](ReplicationInstance const &instance) {
+        return instance.InstanceName() == replication_instance_name;
+      });
 
-    auto const curr_main_uuid = self->GetMainUUID();
-    if (curr_main_uuid == repl_instance_uuid.value()) {
-      if (!repl_instance.EnableWritingOnMain()) {
-        spdlog::error("Failed to enable writing on main instance {}", repl_instance_name);
-        return;
-      }
-
-      repl_instance.OnSuccessPing();
-      return;
-    }
-
-    // TODO(antoniof) make demoteToReplica idempotent since main can be demoted to replica but
-    // swapUUID can fail
-    if (repl_instance.DemoteToReplica(self->replica_succ_cb_, self->replica_fail_cb_)) {
-      repl_instance.OnSuccessPing();
-      spdlog::info("Instance {} demoted to replica", repl_instance_name);
-    } else {
-      spdlog::error("Instance {} failed to become replica", repl_instance_name);
-      return;
-    }
-
-    if (!repl_instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
-      spdlog::error(fmt::format("Failed to swap uuid for demoted main instance {}", repl_instance.InstanceName()));
-      return;
-    }
-  };
-
-  main_fail_cb_ = [find_repl_instance](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::lock_guard{self->coord_instance_lock_};
-    spdlog::trace("Instance {} performing main failure callback", repl_instance_name);
-    auto &repl_instance = find_repl_instance(self, repl_instance_name);
-    repl_instance.OnFailPing();
-    const auto &repl_instance_uuid = repl_instance.GetMainUUID();
-    MG_ASSERT(repl_instance_uuid.has_value(), "Instance must have uuid set");
-
-    if (!repl_instance.IsAlive() && self->GetMainUUID() == repl_instance_uuid.value()) {
-      spdlog::info("Cluster without main instance, trying automatic failover");
-      self->TryFailover();  // TODO: (andi) Initiate failover
-    }
-  };
+  MG_ASSERT(repl_instance != repl_instances_.end(), "Instance {} not found during callback!",
+            replication_instance_name);
+  return *repl_instance;
 }
 
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
@@ -167,12 +108,15 @@ auto CoordinatorInstance::TryFailover() -> void {
     return;
   }
 
+  // FOREACH ALIVE REPLICA STOP FREQUENT CHECKS FOR A WHILE WE DON'T FIND new main
+  // problem is if we find new main and we do a failover
+  // but then we need to perform replica callback before
+
   // TODO: Smarter choice
   std::string most_up_to_date_instance;
-
+  std::optional<uint64_t> latest_commit_timestamp;
+  std::optional<std::string> latest_epoch;
   {
-    std::optional<uint64_t> latest_commit_timestamp;
-    std::optional<std::string> latest_epoch;
     // for each DB we get one ReplicationTimestampResult, that is why we have vector here
     using ReplicaTimestampsRes = std::vector<replication_coordination_glue::ReplicationTimestampResult>;
     std::unordered_map<std::string, ReplicaTimestampsRes> instance_replica_timestamps_res;
@@ -180,82 +124,98 @@ auto CoordinatorInstance::TryFailover() -> void {
                   [&instance_replica_timestamps_res](ReplicationInstance &replica) {
                     auto res = replica.GetClient().SendGetInstanceTimestampsRpc();
                     if (res.HasError()) {
+                      spdlog::error("Could get per db history data for instance {}", replica.InstanceName());
                       return;
                     }
 
                     instance_replica_timestamps_res.emplace(replica.InstanceName(), std::move(res.GetValue()));
                   });
 
-    std::for_each(instance_replica_timestamps_res.begin(), instance_replica_timestamps_res.end(),
-                  [&latest_epoch, &latest_commit_timestamp, &most_up_to_date_instance](
-                      const std::pair<const std::basic_string<char>,
-                                      std::vector<replication_coordination_glue::ReplicationTimestampResult>>
-                          &instance_res_pair) {
-                    const auto &[instance_name, instance_per_db_history] = instance_res_pair;
-                    auto default_db_history_data = std::find_if(
-                        instance_per_db_history.begin(), instance_per_db_history.end(),
-                        [default_db = memgraph::dbms::kDefaultDB](
+    std::for_each(
+        instance_replica_timestamps_res.begin(), instance_replica_timestamps_res.end(),
+        [&latest_epoch, &latest_commit_timestamp, &most_up_to_date_instance](
+            const std::pair<const std::basic_string<char>,
+                            std::vector<replication_coordination_glue::ReplicationTimestampResult>>
+                &instance_res_pair) {
+          const auto &[instance_name, instance_db_histories] = instance_res_pair;
+
+          // Find default db for instance and its history
+          auto default_db_history_data =
+              std::find_if(instance_db_histories.begin(), instance_db_histories.end(),
+                           [default_db = memgraph::dbms::kDefaultDB](
+                               const replication_coordination_glue::ReplicationTimestampResult &db_timestamps) {
+                             return db_timestamps.name == default_db;
+                           });
+
+          // TODO remove only for logging purposes
+          std::for_each(instance_db_histories.begin(), instance_db_histories.end(),
+                        [instance_name = instance_name](
                             const replication_coordination_glue::ReplicationTimestampResult &db_timestamps) {
-                          return db_timestamps.name == default_db;
+                          spdlog::trace("  Instance {} LOG: name {}, default db {}", instance_name, db_timestamps.name,
+                                        memgraph::dbms::kDefaultDB);
                         });
 
-                    MG_ASSERT(default_db_history_data != instance_per_db_history.end(), "No default DB for instance");
+          // auto error_msg = std::string(fmt::format("No history for instance {}", instance_name));
+          MG_ASSERT(default_db_history_data != instance_db_histories.end(), "No history for instance");
 
-                    // get latest epoch
-                    // get latest timestamp
+          auto &instance_default_db_history = default_db_history_data->history;
 
-                    // if current history is none, I am first one
-                    // if there is some kind history recorded, check that I am older
-                    if (!latest_epoch) {
-                      const auto it = default_db_history_data->history.crbegin();
-                      const auto &[epoch, timestamp] = *it;
-                      latest_epoch.emplace(epoch);
-                      latest_commit_timestamp.emplace(timestamp);
-                      return;
-                    }
+          // TODO remove only for logging purposes
+          std::for_each(instance_default_db_history.rbegin(), instance_default_db_history.rend(),
+                        [instance_name = instance_name](const auto &instance_default_db_history_it) {
+                          spdlog::trace("  Instance {} LOG:  epoch {}, last_commit_timestamp: {}", instance_name,
+                                        std::get<1>(instance_default_db_history_it),
+                                        std::get<0>(instance_default_db_history_it));
+                        });
 
-                    bool is_newer{false};
+          // get latest epoch
+          // get latest timestamp
 
-                    for (auto it = default_db_history_data->history.rbegin();
-                         it != default_db_history_data->history.rend(); ++it) {
-                      const auto &[epoch, timestamp] = *it;
+          // if current history is none, I am first one
+          // if there is some kind history recorded, check that I am older
+          if (!latest_epoch) {
+            const auto it = instance_default_db_history.crbegin();
+            const auto &[epoch, timestamp] = *it;
+            latest_epoch.emplace(epoch);
+            latest_commit_timestamp.emplace(timestamp);
+            most_up_to_date_instance = instance_name;
+            spdlog::trace("Currently the most up to date instance is {} with epoch {} and {} latest commit timestamp",
+                          instance_name, epoch, timestamp);
+            return;
+          }
 
-                      // we found point at which they were same
-                      if (epoch == *latest_epoch) {
-                        // if this is the latest history, compare timestamps
-                        if (it == default_db_history_data->history.rbegin()) {
-                          if (*latest_commit_timestamp < timestamp) {
-                            latest_commit_timestamp.emplace(timestamp);
-                            is_newer = true;
-                          }
-                        } else {
-                          is_newer = true;
-                          latest_epoch.emplace(default_db_history_data->history.rbegin()->first);
-                          latest_commit_timestamp.emplace(default_db_history_data->history.rbegin()->second);
-                        }
-                        break;
-                      }
-                    }
+          for (auto it = instance_default_db_history.rbegin(); it != instance_default_db_history.rend(); ++it) {
+            const auto &[epoch, timestamp] = *it;
 
-                    if (is_newer) {
-                      most_up_to_date_instance = instance_name;
-                    }
-                  });
-  }
-
-  auto find_repl_instance = [](CoordinatorInstance *self,
-                               std::string_view repl_instance_name) -> ReplicationInstance & {
-    auto repl_instance =
-        std::ranges::find_if(self->repl_instances_, [repl_instance_name](ReplicationInstance const &instance) {
-          return instance.InstanceName() == repl_instance_name;
+            // we found point at which they were same
+            if (epoch == *latest_epoch) {
+              // if this is the latest history, compare timestamps
+              if (it == instance_default_db_history.rbegin()) {
+                if (*latest_commit_timestamp < timestamp) {
+                  latest_commit_timestamp.emplace(timestamp);
+                  most_up_to_date_instance = instance_name;
+                  spdlog::trace(
+                      "Found new the most up to date instance {} with epoch {} and {} latest commit timestamp",
+                      instance_name, epoch, timestamp);
+                }
+              } else {
+                latest_epoch.emplace(instance_default_db_history.rbegin()->first);
+                latest_commit_timestamp.emplace(instance_default_db_history.rbegin()->second);
+                most_up_to_date_instance = instance_name;
+                spdlog::trace("Found new the most up to date instance {} with epoch {} and {} latest commit timestamp",
+                              instance_name, epoch, timestamp);
+              }
+              break;
+            }
+            // else if we don't find epoch which is same, instance with current most_up_to_date_instance
+            // is ahead
+          }
         });
+  }
+  spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp",
+                most_up_to_date_instance, *latest_epoch, *latest_commit_timestamp);
 
-    MG_ASSERT(repl_instance != self->repl_instances_.end(), "Instance {} not found during callback!",
-              repl_instance_name);
-    return *repl_instance;
-  };
-
-  auto &new_repl_instance = find_repl_instance(this, most_up_to_date_instance);
+  auto &new_repl_instance = FindReplicationInstance(most_up_to_date_instance);
   // auto new_main = ranges::begin(alive_replicas);
   auto *new_main = &new_repl_instance;
 
@@ -380,7 +340,8 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
 
   spdlog::info("Request for registering instance {} accepted", instance_name);
   try {
-    repl_instances_.emplace_back(this, std::move(config), replica_succ_cb_, replica_fail_cb_);
+    repl_instances_.emplace_back(this, std::move(config), client_succ_cb_, client_fail_cb_, replica_succ_cb_,
+                                 replica_fail_cb_);
   } catch (CoordinatorRegisterInstanceException const &) {
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
   }

@@ -18,6 +18,7 @@
 #include "replication_coordination_glue/role.hpp"
 
 #include <libnuraft/nuraft.hxx>
+#include "utils/resource_lock.hpp"
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
 
@@ -25,10 +26,13 @@ namespace memgraph::coordination {
 
 class CoordinatorInstance;
 
+using HealthCheckInstanceCallback =
+    std::function<void(CoordinatorInstance *, std::string_view, std::unique_lock<utils::ResourceLock>)>;
 class ReplicationInstance {
  public:
-  ReplicationInstance(CoordinatorInstance *peer, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
-                      HealthCheckCallback fail_cb);
+  ReplicationInstance(CoordinatorInstance *peer, CoordinatorClientConfig config, HealthCheckClientCallback succ_cb,
+                      HealthCheckClientCallback fail_cb, HealthCheckInstanceCallback succ_instance_cb,
+                      HealthCheckInstanceCallback fail_instance_cb);
 
   ReplicationInstance(ReplicationInstance const &other) = delete;
   ReplicationInstance &operator=(ReplicationInstance const &other) = delete;
@@ -50,9 +54,10 @@ class ReplicationInstance {
   auto IsReplica() const -> bool;
   auto IsMain() const -> bool;
 
-  auto PromoteToMain(utils::UUID uuid, ReplicationClientsInfo repl_clients_info, HealthCheckCallback main_succ_cb,
-                     HealthCheckCallback main_fail_cb) -> bool;
-  auto DemoteToReplica(HealthCheckCallback replica_succ_cb, HealthCheckCallback replica_fail_cb) -> bool;
+  auto PromoteToMain(utils::UUID uuid, ReplicationClientsInfo repl_clients_info,
+                     HealthCheckInstanceCallback main_succ_cb, HealthCheckInstanceCallback main_fail_cb) -> bool;
+  auto DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
+      -> bool;
 
   auto StartFrequentCheck() -> void;
   auto StopFrequentCheck() -> void;
@@ -66,15 +71,16 @@ class ReplicationInstance {
   auto SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid) -> bool;
   auto SendUnregisterReplicaRpc(std::string const &instance_name) -> bool;
 
-
   auto SendGetInstanceUUID() -> utils::BasicResult<coordination::GetInstanceUUIDError, std::optional<utils::UUID>>;
   auto GetClient() -> CoordinatorClient &;
 
   auto EnableWritingOnMain() -> bool;
 
   auto SetNewMainUUID(utils::UUID const &main_uuid) -> void;
-  auto ResetMainUUID() -> void;
   auto GetMainUUID() const -> const std::optional<utils::UUID> &;
+
+  auto GetSuccessCallback() -> HealthCheckInstanceCallback &;
+  auto GetFailCallback() -> HealthCheckInstanceCallback &;
 
  private:
   CoordinatorClient client_;
@@ -89,6 +95,9 @@ class ReplicationInstance {
   // TLDR; when replica is down and comes back up we reset uuid of main replica is listening to
   // so we need to send swap uuid again
   std::optional<utils::UUID> main_uuid_;
+
+  HealthCheckInstanceCallback succ_cb_;
+  HealthCheckInstanceCallback fail_cb_;
 
   friend bool operator==(ReplicationInstance const &first, ReplicationInstance const &second) {
     return first.client_ == second.client_ && first.replication_role_ == second.replication_role_;

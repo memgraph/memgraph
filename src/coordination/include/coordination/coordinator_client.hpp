@@ -24,13 +24,13 @@
 namespace memgraph::coordination {
 
 class CoordinatorInstance;
-using HealthCheckCallback = std::function<void(CoordinatorInstance *, std::string_view)>;
+using HealthCheckClientCallback = std::function<void(CoordinatorInstance *, std::string_view)>;
 using ReplicationClientsInfo = std::vector<ReplClientInfo>;
 
 class CoordinatorClient {
  public:
   explicit CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorClientConfig config,
-                             HealthCheckCallback succ_cb, HealthCheckCallback fail_cb);
+                             HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb);
 
   ~CoordinatorClient() = default;
 
@@ -63,8 +63,6 @@ class CoordinatorClient {
 
   auto ReplicationClientInfo() const -> ReplClientInfo;
 
-  auto SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCallback fail_cb) -> void;
-
   auto SendGetInstanceTimestampsRpc() const
       -> utils::BasicResult<GetInstanceUUIDError,
                             std::vector<replication_coordination_glue::ReplicationTimestampResult>>;
@@ -87,8 +85,8 @@ class CoordinatorClient {
 
   CoordinatorClientConfig config_;
   CoordinatorInstance *coord_instance_;
-  HealthCheckCallback succ_cb_;
-  HealthCheckCallback fail_cb_;
+  HealthCheckClientCallback succ_cb_;
+  HealthCheckClientCallback fail_cb_;
 };
 
 }  // namespace memgraph::coordination

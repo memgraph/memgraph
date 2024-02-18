@@ -41,6 +41,7 @@ inline void Save(const replication_coordination_glue::ReplicationTimestampResult
   Save(obj.history, builder);
   Save(obj.last_commit_timestamp, builder);
   Save(obj.epoch_id, builder);
+  Save(obj.name, builder);
 }
 
 inline void Load(replication_coordination_glue::ReplicationTimestampResult *obj, Reader *reader) {
@@ -48,6 +49,7 @@ inline void Load(replication_coordination_glue::ReplicationTimestampResult *obj,
   Load(&obj->history, reader);
   Load(&obj->last_commit_timestamp, reader);
   Load(&obj->epoch_id, reader);
+  Load(&obj->name, reader);
 }
 
 }  // namespace memgraph::slk

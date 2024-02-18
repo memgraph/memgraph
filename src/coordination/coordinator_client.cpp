@@ -31,7 +31,7 @@ auto CreateClientContext(memgraph::coordination::CoordinatorClientConfig const &
 }  // namespace
 
 CoordinatorClient::CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorClientConfig config,
-                                     HealthCheckCallback succ_cb, HealthCheckCallback fail_cb)
+                                     HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb)
     : rpc_context_{CreateClientContext(config)},
       rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
                   &rpc_context_},
@@ -69,6 +69,10 @@ void CoordinatorClient::StartFrequentCheck() {
             auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
             stream.AwaitResponse();
           }
+          // we have here subtle race condition which we need to solve
+          // lock is acquired only in callback
+          // but we might have changed callback before this needs to execute
+          // which will crash instance
           succ_cb_(coord_instance_, instance_name);
         } catch (rpc::RpcFailedException const &) {
           fail_cb_(coord_instance_, instance_name);
@@ -79,11 +83,6 @@ void CoordinatorClient::StartFrequentCheck() {
 void CoordinatorClient::StopFrequentCheck() { instance_checker_.Stop(); }
 void CoordinatorClient::PauseFrequentCheck() { instance_checker_.Pause(); }
 void CoordinatorClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
-
-auto CoordinatorClient::SetCallbacks(HealthCheckCallback succ_cb, HealthCheckCallback fail_cb) -> void {
-  succ_cb_ = std::move(succ_cb);
-  fail_cb_ = std::move(fail_cb);
-}
 
 auto CoordinatorClient::ReplicationClientInfo() const -> ReplClientInfo { return config_.replication_client_info; }
 

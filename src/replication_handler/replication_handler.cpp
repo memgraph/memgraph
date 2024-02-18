@@ -272,16 +272,18 @@ auto ReplicationHandler::GetTimestampsForEachDb()
     auto *storage = db_acc->storage();
     auto &repl_storage_state = storage->repl_storage_state_;
     std::vector<std::pair<std::string, uint64_t>> history;
-    history.reserve(repl_storage_state.history.size());
     std::transform(repl_storage_state.history.begin(), repl_storage_state.history.end(), std::back_inserter(history),
                    [](const auto &elem) { return std::pair<std::string, uint64_t>(elem.first, elem.second); });
-
+    history.emplace_back(std::pair<std::string, uint64_t>(std::string(repl_storage_state.epoch_.id()),
+                                                          repl_storage_state.last_commit_timestamp_.load()));
     replication_coordination_glue::ReplicationTimestampResult repl{
-        .db_uuid = db_acc->storage()->uuid(),
+        .db_uuid = utils::UUID{db_acc->storage()->uuid()},
         .history = history,
+        // encoded in history - todo remove
         .last_commit_timestamp = repl_storage_state.last_commit_timestamp_.load(),
+        // encoded in history - todo remove
         .epoch_id = std::string(repl_storage_state.epoch_.id()),
-        .name = db_acc->name()};
+        .name = std::string(db_acc->name())};
     results.emplace_back(repl);
   });
 
@@ -289,7 +291,7 @@ auto ReplicationHandler::GetTimestampsForEachDb()
 }
 
 auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
-  MG_ASSERT(repl_state_.IsReplica());
+  MG_ASSERT(repl_state_.IsReplica());  // TODO DANGEROUS ASSERT HERE?
   return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
 }
 

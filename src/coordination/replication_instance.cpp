@@ -13,15 +13,21 @@
 
 #include "coordination/replication_instance.hpp"
 
+#include <utility>
+
 #include "replication_coordination_glue/handler.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::coordination {
 
 ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorClientConfig config,
-                                         HealthCheckCallback succ_cb, HealthCheckCallback fail_cb)
+                                         HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb,
+                                         HealthCheckInstanceCallback succ_instance_cb,
+                                         HealthCheckInstanceCallback fail_instance_cb)
     : client_(peer, std::move(config), std::move(succ_cb), std::move(fail_cb)),
-      replication_role_(replication_coordination_glue::ReplicationRole::REPLICA) {
+      replication_role_(replication_coordination_glue::ReplicationRole::REPLICA),
+      succ_cb_(std::move(succ_instance_cb)),
+      fail_cb_(std::move(fail_instance_cb)) {
   if (!client_.DemoteToReplica()) {
     throw CoordinatorRegisterInstanceException("Failed to demote instance {} to replica", client_.InstanceName());
   }
@@ -57,26 +63,29 @@ auto ReplicationInstance::IsMain() const -> bool {
 }
 
 auto ReplicationInstance::PromoteToMain(utils::UUID new_uuid, ReplicationClientsInfo repl_clients_info,
-                                        HealthCheckCallback main_succ_cb, HealthCheckCallback main_fail_cb) -> bool {
+                                        HealthCheckInstanceCallback main_succ_cb,
+                                        HealthCheckInstanceCallback main_fail_cb) -> bool {
   if (!client_.SendPromoteReplicaToMainRpc(new_uuid, std::move(repl_clients_info))) {
     return false;
   }
 
   replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
   main_uuid_ = new_uuid;
-  client_.SetCallbacks(std::move(main_succ_cb), std::move(main_fail_cb));
+  succ_cb_ = std::move(main_succ_cb);
+  fail_cb_ = std::move(main_fail_cb);
 
   return true;
 }
 
-auto ReplicationInstance::DemoteToReplica(HealthCheckCallback replica_succ_cb, HealthCheckCallback replica_fail_cb)
-    -> bool {
+auto ReplicationInstance::DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb,
+                                          HealthCheckInstanceCallback replica_fail_cb) -> bool {
   if (!client_.DemoteToReplica()) {
     return false;
   }
 
   replication_role_ = replication_coordination_glue::ReplicationRole::REPLICA;
-  client_.SetCallbacks(std::move(replica_succ_cb), std::move(replica_fail_cb));
+  succ_cb_ = std::move(replica_succ_cb);
+  fail_cb_ = std::move(replica_fail_cb);
 
   return true;
 }
@@ -90,10 +99,12 @@ auto ReplicationInstance::ReplicationClientInfo() const -> CoordinatorClientConf
   return client_.ReplicationClientInfo();
 }
 
+auto ReplicationInstance::GetSuccessCallback() -> HealthCheckInstanceCallback & { return succ_cb_; }
+auto ReplicationInstance::GetFailCallback() -> HealthCheckInstanceCallback & { return fail_cb_; }
+
 auto ReplicationInstance::GetClient() -> CoordinatorClient & { return client_; }
 
 auto ReplicationInstance::SetNewMainUUID(utils::UUID const &main_uuid) -> void { main_uuid_ = main_uuid; }
-auto ReplicationInstance::ResetMainUUID() -> void { main_uuid_ = std::nullopt; }
 auto ReplicationInstance::GetMainUUID() const -> std::optional<utils::UUID> const & { return main_uuid_; }
 
 auto ReplicationInstance::EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool {
