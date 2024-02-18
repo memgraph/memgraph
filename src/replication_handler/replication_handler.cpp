@@ -14,6 +14,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_client.hpp"
 #include "replication_handler/system_replication.hpp"
+#include "utils/functional.hpp"
 
 namespace memgraph::replication {
 
@@ -265,25 +266,19 @@ auto ReplicationHandler::GetRole() const -> replication_coordination_glue::Repli
   return repl_state_.GetRole();
 }
 
-auto ReplicationHandler::GetTimestampsForEachDb()
-    -> std::vector<replication_coordination_glue::ReplicationTimestampResult> {
-  std::vector<replication_coordination_glue::ReplicationTimestampResult> results;
+auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories {
+  replication_coordination_glue::DatabaseHistories results;
   dbms_handler_.ForEach([&results](memgraph::dbms::DatabaseAccess db_acc) {
     auto *storage = db_acc->storage();
     auto &repl_storage_state = storage->repl_storage_state_;
-    std::vector<std::pair<std::string, uint64_t>> history;
-    std::transform(repl_storage_state.history.begin(), repl_storage_state.history.end(), std::back_inserter(history),
-                   [](const auto &elem) { return std::pair<std::string, uint64_t>(elem.first, elem.second); });
-    history.emplace_back(std::pair<std::string, uint64_t>(std::string(repl_storage_state.epoch_.id()),
-                                                          repl_storage_state.last_commit_timestamp_.load()));
-    replication_coordination_glue::ReplicationTimestampResult repl{
-        .db_uuid = utils::UUID{db_acc->storage()->uuid()},
-        .history = history,
-        // encoded in history - todo remove
-        .last_commit_timestamp = repl_storage_state.last_commit_timestamp_.load(),
-        // encoded in history - todo remove
-        .epoch_id = std::string(repl_storage_state.epoch_.id()),
-        .name = std::string(db_acc->name())};
+
+    std::vector<std::pair<std::string, uint64_t>> history =
+        utils::fmap([](const auto &elem) { return std::pair<std::string, uint64_t>(elem.first, elem.second); },
+                    repl_storage_state.history);
+
+    history.emplace_back(std::string(repl_storage_state.epoch_.id()), repl_storage_state.last_commit_timestamp_.load());
+    replication_coordination_glue::DatabaseHistory repl{
+        .db_uuid = utils::UUID{db_acc->storage()->uuid()}, .history = history, .name = std::string(db_acc->name())};
     results.emplace_back(repl);
   });
 
@@ -291,7 +286,7 @@ auto ReplicationHandler::GetTimestampsForEachDb()
 }
 
 auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
-  MG_ASSERT(repl_state_.IsReplica());  // TODO DANGEROUS ASSERT HERE?
+  MG_ASSERT(repl_state_.IsReplica(), "Instance is not replica");
   return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
 }
 

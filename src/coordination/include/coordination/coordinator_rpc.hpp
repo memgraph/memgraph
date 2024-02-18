@@ -162,34 +162,31 @@ struct GetInstanceUUIDRes {
 
 using GetInstanceUUIDRpc = rpc::RequestResponse<GetInstanceUUIDReq, GetInstanceUUIDRes>;
 
-struct GetInstanceTimestampsReq {
+struct GetDatabaseHistoriesReq {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(GetInstanceTimestampsReq *self, memgraph::slk::Reader *reader);
-  static void Save(const GetInstanceTimestampsReq &self, memgraph::slk::Builder *builder);
+  static void Load(GetDatabaseHistoriesReq *self, memgraph::slk::Reader *reader);
+  static void Save(const GetDatabaseHistoriesReq &self, memgraph::slk::Builder *builder);
 
-  GetInstanceTimestampsReq() = default;
-
-  bool success;
+  GetDatabaseHistoriesReq() = default;
 };
 
-struct GetInstanceTimestampsRes {
+struct GetDatabaseHistoriesRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(GetInstanceTimestampsRes *self, memgraph::slk::Reader *reader);
-  static void Save(const GetInstanceTimestampsRes &self, memgraph::slk::Builder *builder);
+  static void Load(GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
+  static void Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
 
-  explicit GetInstanceTimestampsRes(
-      const std::vector<replication_coordination_glue::ReplicationTimestampResult> &replica_timestamps)
-      : replica_timestamps(replica_timestamps) {}
-  GetInstanceTimestampsRes() = default;
+  explicit GetDatabaseHistoriesRes(const replication_coordination_glue::DatabaseHistories &database_histories)
+      : database_histories(database_histories) {}
+  GetDatabaseHistoriesRes() = default;
 
-  std::vector<replication_coordination_glue::ReplicationTimestampResult> replica_timestamps;
+  replication_coordination_glue::DatabaseHistories database_histories;
 };
 
-using GetInstanceTimestampsRpc = rpc::RequestResponse<GetInstanceTimestampsReq, GetInstanceTimestampsRes>;
+using GetDatabaseHistoriesRpc = rpc::RequestResponse<GetDatabaseHistoriesReq, GetDatabaseHistoriesRes>;
 
 }  // namespace memgraph::coordination
 
@@ -223,10 +220,10 @@ void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::
 void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
 
 // GetInstanceTimestampsRpc
-void Save(const memgraph::coordination::GetInstanceTimestampsReq &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::GetInstanceTimestampsReq *self, memgraph::slk::Reader *reader);
-void Save(const memgraph::coordination::GetInstanceTimestampsRes &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::GetInstanceTimestampsRes *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::GetDatabaseHistoriesReq &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::GetDatabaseHistoriesReq *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

@@ -98,19 +98,19 @@ void GetInstanceUUIDRes::Load(GetInstanceUUIDRes *self, memgraph::slk::Reader *r
 }
 
 // GetInstanceUUID
-void GetInstanceTimestampsReq::Save(const GetInstanceTimestampsReq &self, memgraph::slk::Builder *builder) {
+void GetDatabaseHistoriesReq::Save(const GetDatabaseHistoriesReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
 
-void GetInstanceTimestampsReq::Load(GetInstanceTimestampsReq *self, memgraph::slk::Reader *reader) {
+void GetDatabaseHistoriesReq::Load(GetDatabaseHistoriesReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
-void GetInstanceTimestampsRes::Save(const GetInstanceTimestampsRes &self, memgraph::slk::Builder *builder) {
+void GetDatabaseHistoriesRes::Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
 
-void GetInstanceTimestampsRes::Load(GetInstanceTimestampsRes *self, memgraph::slk::Reader *reader) {
+void GetDatabaseHistoriesRes::Load(GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
@@ -147,11 +147,11 @@ constexpr utils::TypeInfo coordination::GetInstanceUUIDReq::kType{utils::TypeId:
 constexpr utils::TypeInfo coordination::GetInstanceUUIDRes::kType{utils::TypeId::COORD_GET_UUID_RES, "CoordGetUUIDRes",
                                                                   nullptr};
 
-constexpr utils::TypeInfo coordination::GetInstanceTimestampsReq::kType{
-    utils::TypeId::COORD_GET_INSTANCE_TIMESTAMPS_REQ, "GetInstanceTimestampsReq", nullptr};
+constexpr utils::TypeInfo coordination::GetDatabaseHistoriesReq::kType{utils::TypeId::COORD_GET_INSTANCE_DATABASES_REQ,
+                                                                       "GetInstanceDatabasesReq", nullptr};
 
-constexpr utils::TypeInfo coordination::GetInstanceTimestampsRes::kType{
-    utils::TypeId::COORD_GET_INSTANCE_TIMESTAMPS_RES, "GetInstanceTimestampsRes", nullptr};
+constexpr utils::TypeInfo coordination::GetDatabaseHistoriesRes::kType{utils::TypeId::COORD_GET_INSTANCE_DATABASES_RES,
+                                                                       "GetInstanceDatabasesRes", nullptr};
 
 namespace slk {
 
@@ -238,20 +238,20 @@ void Load(memgraph::coordination::GetInstanceUUIDRes *self, memgraph::slk::Reade
 
 // GetInstanceTimestampsReq
 
-void Save(const memgraph::coordination::GetInstanceTimestampsReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
+void Save(const memgraph::coordination::GetDatabaseHistoriesReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
   /* nothing to serialize*/
 }
 
-void Load(memgraph::coordination::GetInstanceTimestampsReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
+void Load(memgraph::coordination::GetDatabaseHistoriesReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
   /* nothing to serialize*/
 }
 
-void Save(const memgraph::coordination::GetInstanceTimestampsRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.replica_timestamps, builder);
+void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.database_histories, builder);
 }
 
-void Load(memgraph::coordination::GetInstanceTimestampsRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->replica_timestamps, reader);
+void Load(memgraph::coordination::GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->database_histories, reader);
 }
 
 }  // namespace slk

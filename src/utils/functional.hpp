@@ -23,4 +23,12 @@ auto fmap(F &&f, std::vector<T> const &v) -> std::vector<R> {
   return v | ranges::views::transform(std::forward<F>(f)) | ranges::to<std::vector<R>>();
 }
 
+template <class F, class T, class R = typename std::result_of<F(T)>::type, class V = std::vector<R>>
+V fmap(F &&f, const std::deque<T> &v) {
+  V r;
+  r.reserve(v.size());
+  std::ranges::transform(v, std::back_inserter(r), std::forward<F>(f));
+  return r;
+}
+
 }  // namespace memgraph::utils

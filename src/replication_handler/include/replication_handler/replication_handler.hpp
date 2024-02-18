@@ -150,7 +150,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 
   auto GetReplicaUUID() -> std::optional<utils::UUID>;
 
-  auto GetTimestampsForEachDb() -> std::vector<replication_coordination_glue::ReplicationTimestampResult>;
+  auto GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories;
 
  private:
   template <bool SendSwapUUID>

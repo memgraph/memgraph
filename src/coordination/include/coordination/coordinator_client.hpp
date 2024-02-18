@@ -64,8 +64,7 @@ class CoordinatorClient {
   auto ReplicationClientInfo() const -> ReplClientInfo;
 
   auto SendGetInstanceTimestampsRpc() const
-      -> utils::BasicResult<GetInstanceUUIDError,
-                            std::vector<replication_coordination_glue::ReplicationTimestampResult>>;
+      -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories>;
 
   auto RpcClient() -> rpc::Client & { return rpc_client_; }
 

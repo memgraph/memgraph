@@ -42,8 +42,8 @@ class CoordinatorHandlers {
   static void GetInstanceUUIDHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
                                      slk::Builder *res_builder);
 
-  static void GetInstanceTimestampsHandler(replication::ReplicationHandler &replication_handler,
-                                           slk::Reader *req_reader, slk::Builder *res_builder);
+  static void GetDatabaseHistoriesHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
+                                          slk::Builder *res_builder);
 };
 
 }  // namespace memgraph::dbms

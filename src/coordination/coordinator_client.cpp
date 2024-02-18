@@ -172,13 +172,12 @@ auto CoordinatorClient::SendEnableWritingOnMainRpc() const -> bool {
 }
 
 auto CoordinatorClient::SendGetInstanceTimestampsRpc() const
-    -> utils::BasicResult<GetInstanceUUIDError,
-                          std::vector<replication_coordination_glue::ReplicationTimestampResult>> {
+    -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories> {
   try {
-    auto stream{rpc_client_.Stream<coordination::GetInstanceTimestampsRpc>()};
+    auto stream{rpc_client_.Stream<coordination::GetDatabaseHistoriesRpc>()};
     auto res = stream.AwaitResponse();
 
-    return res.replica_timestamps;
+    return res.database_histories;
 
   } catch (const rpc::RpcFailedException &) {
     spdlog::error("RPC error occured while sending GetInstance UUID RPC");
