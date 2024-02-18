@@ -205,9 +205,6 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
               if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
                 return false;
               }
-              if (state == storage::replication::ReplicaState::MAYBE_BEHIND) {
-                return AllowRPCFailure;
-              }
               return true;
             });
 
