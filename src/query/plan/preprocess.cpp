@@ -313,7 +313,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
           auto *property_lookup = storage.Create<PropertyLookup>(atom->filter_lambda_.inner_edge, prop_pair.first);
           auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
           // Currently, variable expand has no gains if we set PropertyFilter.
-          all_filters_.emplace_back(FilterInfo::Type::Generic, prop_equal, std::move(collector.symbols_));
+          all_filters_.emplace_back(FilterInfo(FilterInfo::Type::Generic, prop_equal, collector.symbols_));
         }
         {
           collector.symbols_.clear();
@@ -328,9 +328,9 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
           auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
           // Currently, variable expand has no gains if we set PropertyFilter.
           all_filters_.emplace_back(
-              FilterInfo::Type::Generic,
-              storage.Create<All>(identifier, atom->identifier_, storage.Create<Where>(prop_equal)),
-              std::move(collector.symbols_));
+              FilterInfo(FilterInfo::Type::Generic,
+                         storage.Create<All>(identifier, atom->identifier_, storage.Create<Where>(prop_equal)),
+                         collector.symbols_));
         }
       }
       return;
@@ -346,7 +346,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
         collector.symbols_.clear();
         prop_equal->Accept(collector);
-        FilterInfo filter_info(FilterInfo::Type::Property, prop_equal, std::move(collector.symbols_));
+        FilterInfo filter_info(FilterInfo::Type::Property, prop_equal, collector.symbols_);
         // Store a PropertyFilter on the value of the property.
         filter_info.property_filter.emplace(symbol_table, symbol, prop_pair.first, prop_pair.second,
                                             PropertyFilter::Type::EQUAL);
@@ -398,9 +398,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   using Bound = PropertyFilter::Bound;
   UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
-  auto make_filter = [&collector, &expr](FilterInfo::Type type) {
-    return FilterInfo(type, expr, std::move(collector.symbols_));
-  };
+  auto make_filter = [&collector, &expr](FilterInfo::Type type) { return FilterInfo(type, expr, collector.symbols_); };
   auto get_property_lookup = [](auto *maybe_lookup, auto *&prop_lookup, auto *&ident) -> bool {
     return (prop_lookup = utils::Downcast<PropertyLookup>(maybe_lookup)) &&
            (ident = utils::Downcast<Identifier>(prop_lookup->expression_));
@@ -735,7 +733,7 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
   return QueryParts{query_parts, distinct};
 }
 
-FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Symbol> &&used_symbols,
+FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Symbol> used_symbols,
                        std::optional<PropertyFilter> property_filter, std::optional<IdFilter> id_filter)
     : type(type),
       expression(expression),

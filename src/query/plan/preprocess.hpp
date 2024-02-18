@@ -308,8 +308,8 @@ struct FilterInfo {
   //   * if any user-declared constructor -> non-aggregate type -> no designated initializers are possible
   //   * IMPORTANT: Matchings will always be initialized to an empty container.
   explicit FilterInfo(Type type = Type::Generic, Expression *expression = nullptr,
-                      std::unordered_set<Symbol> &&used_symbols = {},
-                      std::optional<PropertyFilter> property_filter = {}, std::optional<IdFilter> id_filter = {});
+                      std::unordered_set<Symbol> used_symbols = {}, std::optional<PropertyFilter> property_filter = {},
+                      std::optional<IdFilter> id_filter = {});
   // All other constructors are defaulted in the cpp file.
   ~FilterInfo();
   FilterInfo(const FilterInfo &);
