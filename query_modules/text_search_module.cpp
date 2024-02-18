@@ -33,14 +33,6 @@ void TextSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
   try {
     const auto *index_name = arguments[0].ValueString().data();
     const auto *search_query = arguments[1].ValueString().data();
-
-    // 1. See if the given index_name is text-indexed
-    if (!mgp::graph_has_text_index(memgraph_graph, index_name)) {
-      record_factory.SetErrorMessage(fmt::format("Text index \"{}\" doesn’t exist.", index_name));
-      return;
-    }
-
-    // 2. Run a text search of that index and return the search results
     for (const auto &node : mgp::RunTextSearchQuery(memgraph_graph, index_name, search_query)) {
       auto record = record_factory.NewRecord();
       record.Insert(TextSearch::kReturnNode.data(), node.ValueNode());
