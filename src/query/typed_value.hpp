@@ -769,10 +769,3 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b);
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type);
 
 }  // namespace memgraph::query
-
-#if FMT_VERSION > 90000
-template <>
-class fmt::formatter<memgraph::query::TypedValue> : public fmt::ostream_formatter {};
-template <>
-class fmt::formatter<memgraph::query::TypedValue::Type> : public fmt::ostream_formatter {};
-#endif

@@ -27,6 +27,8 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/typeinfo.hpp"
 
+#include "io/network/fmt.hpp"
+
 namespace memgraph::rpc {
 
 /// Client is thread safe, but it is recommended to use thread_local clients.
@@ -202,7 +204,7 @@ class Client {
     if (!client_) {
       client_.emplace(context_);
       if (!client_->Connect(endpoint_)) {
-        SPDLOG_ERROR("Couldn't connect to remote address {}", endpoint_.SocketAddress());
+        SPDLOG_ERROR("Couldn't connect to remote address {}", endpoint_);
         client_ = std::nullopt;
         throw GenericRpcFailedException();
       }

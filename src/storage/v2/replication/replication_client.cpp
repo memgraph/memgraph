@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+
 #include "replication/replication_client.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
@@ -17,7 +19,7 @@
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
 
-#include <algorithm>
+#include "io/network/fmt.hpp"
 
 namespace {
 template <typename>
@@ -133,15 +135,14 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *storage, Databa
     UpdateReplicaState(storage, std::move(db_acc));
   } catch (const rpc::VersionMismatchRpcFailedException &) {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
-    spdlog::error(utils::MessageWithLink(
-        "Failed to connect to replica {} at the endpoint {}. Because the replica "
-        "deployed is not a compatible version.",
-        client_.name_, client_.rpc_client_.Endpoint().SocketAddress(), "https://memgr.ph/replication"));
+    spdlog::error(
+        utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}. Because the replica "
+                               "deployed is not a compatible version.",
+                               client_.name_, client_.rpc_client_.Endpoint(), "https://memgr.ph/replication"));
   } catch (const rpc::RpcFailedException &) {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
     spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.", client_.name_,
-                                         client_.rpc_client_.Endpoint().SocketAddress(),
-                                         "https://memgr.ph/replication"));
+                                         client_.rpc_client_.Endpoint(), "https://memgr.ph/replication"));
   }
 }
 

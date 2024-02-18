@@ -19,6 +19,8 @@
 #include <json/json.hpp>
 
 #include "common.hpp"
+#include "io/network/endpoint.hpp"
+#include "io/network/fmt.hpp"
 #include "utils/logging.hpp"
 #include "utils/thread.hpp"
 #include "utils/timer.hpp"
@@ -54,10 +56,10 @@ int main(int argc, char **argv) {
         auto label_name = (*data)[0][1].ValueString();
         auto property_name = (*data)[0][2].ValueString();
         if (label_name != "Node" || property_name != "id") {
-          LOG_FATAL("{} does NOT have valid indexes created.", database_endpoint.SocketAddress());
+          LOG_FATAL("{} does NOT have valid indexes created.", database_endpoint);
         }
       } else {
-        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
+        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
       }
     }
     spdlog::info("All indexes are in-place.");
@@ -139,10 +141,10 @@ int main(int argc, char **argv) {
       client->Execute("SHOW INDEX INFO;");
       if (const auto data = client->FetchAll()) {
         if (!(*data).empty()) {
-          LOG_FATAL("{} still have some indexes.", database_endpoint.SocketAddress());
+          LOG_FATAL("{} still have some indexes.", database_endpoint);
         }
       } else {
-        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
+        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
       }
     }
     spdlog::info("All indexes were deleted.");

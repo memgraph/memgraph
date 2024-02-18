@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "replication/replication_client.hpp"
+#include "io/network/fmt.hpp"
 
 namespace memgraph::replication {
 
@@ -30,7 +31,7 @@ ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationCli
 ReplicationClient::~ReplicationClient() {
   try {
     auto const &endpoint = rpc_client_.Endpoint();
-    spdlog::trace("Closing replication client on {}", endpoint.SocketAddress());
+    spdlog::trace("Closing replication client on {}", endpoint);
   } catch (...) {
     // Logging can throw. Not a big deal, just ignore.
   }

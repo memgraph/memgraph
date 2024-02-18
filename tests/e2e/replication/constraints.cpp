@@ -18,6 +18,7 @@
 #include <gflags/gflags.h>
 
 #include "common.hpp"
+#include "io/network/fmt.hpp"
 #include "utils/logging.hpp"
 #include "utils/thread.hpp"
 #include "utils/timer.hpp"
@@ -49,10 +50,10 @@ int main(int argc, char **argv) {
         const auto label_name = (*data)[0][1].ValueString();
         const auto property_name = (*data)[0][2].ValueList()[0].ValueString();
         if (label_name != "Node" || property_name != "id") {
-          LOG_FATAL("{} does NOT have a valid constraint created.", database_endpoint.SocketAddress());
+          LOG_FATAL("{} does NOT have a valid constraint created.", database_endpoint);
         }
       } else {
-        LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint.SocketAddress());
+        LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint);
       }
     }
     spdlog::info("All constraints are in-place.");
@@ -133,10 +134,10 @@ int main(int argc, char **argv) {
       client->Execute("SHOW CONSTRAINT INFO;");
       if (const auto data = client->FetchAll()) {
         if (!(*data).empty()) {
-          LOG_FATAL("{} still have some constraints.", database_endpoint.SocketAddress());
+          LOG_FATAL("{} still have some constraints.", database_endpoint);
         }
       } else {
-        LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint.SocketAddress());
+        LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint);
       }
     }
     spdlog::info("All constraints were deleted.");
