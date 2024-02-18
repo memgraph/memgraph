@@ -1841,11 +1841,13 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
         std::visit([property_name](auto *impl) { return impl->NameToProperty(property_name); }, v->graph->impl);
 
     const auto result = std::visit(
-        [prop_key, property_value](auto &impl) {
-          // TODO antepusic also update text index
-          return impl.SetProperty(prop_key, ToPropertyValue(*property_value));
-        },
+        [prop_key, property_value](auto &impl) { return impl.SetProperty(prop_key, ToPropertyValue(*property_value)); },
         v->impl);
+    if (memgraph::flags::run_time::GetExperimentalTextSearchEnabled() && !result.HasError()) {
+      auto v_impl = v->getImpl();
+      v->graph->getImpl()->TextIndexUpdateVertex(&v_impl);
+    }
+
     if (result.HasError()) {
       switch (result.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -1902,7 +1904,11 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
     }
 
     const auto result = v->getImpl().UpdateProperties(props);
-    // TODO antepusic also update text index
+    if (memgraph::flags::run_time::GetExperimentalTextSearchEnabled() && !result.HasError()) {
+      auto v_impl = v->getImpl();
+      v->graph->getImpl()->TextIndexUpdateVertex(&v_impl);
+    }
+
     if (result.HasError()) {
       switch (result.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -1959,12 +1965,11 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
       throw ImmutableObjectException{"Cannot add a label to an immutable vertex!"};
     }
 
-    const auto result = std::visit(
-        [label_id](auto &impl) {
-          // TODO antepusic also update text index
-          return impl.AddLabel(label_id);
-        },
-        v->impl);
+    const auto result = std::visit([label_id](auto &impl) { return impl.AddLabel(label_id); }, v->impl);
+    if (memgraph::flags::run_time::GetExperimentalTextSearchEnabled() && !result.HasError()) {
+      auto v_impl = v->getImpl();
+      v->graph->getImpl()->TextIndexUpdateVertex(&v_impl);
+    }
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -2006,12 +2011,11 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot remove a label from an immutable vertex!"};
     }
-    const auto result = std::visit(
-        [label_id](auto &impl) {
-          // todo also remove from text index
-          return impl.RemoveLabel(label_id);
-        },
-        v->impl);
+    const auto result = std::visit([label_id](auto &impl) { return impl.RemoveLabel(label_id); }, v->impl);
+    if (memgraph::flags::run_time::GetExperimentalTextSearchEnabled() && !result.HasError()) {
+      auto v_impl = v->getImpl();
+      v->graph->getImpl()->TextIndexUpdateVertex(&v_impl, {label_id});
+    }
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -2981,6 +2985,11 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
         }
         auto *vertex = std::visit(
             [=](auto *impl) { return NewRawMgpObject<mgp_vertex>(memory, impl->InsertVertex(), graph); }, graph->impl);
+        // TODO antepusic update text index
+        if (memgraph::flags::run_time::GetExperimentalTextSearchEnabled()) {
+          auto v_impl = vertex->getImpl();
+          vertex->graph->getImpl()->TextIndexAddVertex(&v_impl);
+        }
 
         auto &ctx = graph->ctx;
         ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_NODES] += 1;

@@ -3106,7 +3106,9 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       }
 #endif
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
-      context.db_accessor->TextIndexUpdateVertex(&lhs.ValueVertex());
+      if (flags::run_time::GetExperimentalTextSearchEnabled()) {
+        context.db_accessor->TextIndexUpdateVertex(&lhs.ValueVertex());
+      }
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE

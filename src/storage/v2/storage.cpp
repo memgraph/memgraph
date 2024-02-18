@@ -149,10 +149,6 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
     return res.GetError();
   }
 
-  if (flags::run_time::GetExperimentalTextSearchEnabled()) {
-    storage_->indices_.text_index_.RemoveNode(vertex->vertex_);
-  }
-
   const auto &value = res.GetValue();
   if (!value) {
     return std::optional<VertexAccessor>{};
@@ -188,10 +184,6 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
 
   if (res.HasError()) {
     return res.GetError();
-  }
-
-  if (flags::run_time::GetExperimentalTextSearchEnabled()) {
-    storage_->indices_.text_index_.RemoveNode(vertex->vertex_);
   }
 
   auto &value = res.GetValue();
