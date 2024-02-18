@@ -369,7 +369,7 @@ class ReplQueryHandler {
                                                .replica_check_frequency = replica_check_frequency,
                                                .ssl = std::nullopt};
 
-      const auto error = handler_->TryRegisterReplica(replication_config, true).HasError();
+      const auto error = handler_->TryRegisterReplica(replication_config).HasError();
 
       if (error) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
