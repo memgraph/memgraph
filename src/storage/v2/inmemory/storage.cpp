@@ -14,6 +14,7 @@
 #include <functional>
 #include <optional>
 #include "dbms/constants.hpp"
+#include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -876,7 +877,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       return StorageManipulationError{*unique_constraint_violation};
     }
 
-    if (flags::run_time::GetExperimentalTextSearchEnabled()) {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       mem_storage->indices_.text_index_.Commit();
     }
   }
@@ -1201,7 +1202,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       for (auto const &[property, prop_vertices] : property_cleanup) {
         storage_->indices_.AbortEntries(property, prop_vertices, transaction_.start_timestamp);
       }
-      if (flags::run_time::GetExperimentalTextSearchEnabled()) {
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
         storage_->indices_.text_index_.Rollback();
       }
 

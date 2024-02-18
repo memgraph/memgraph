@@ -13,6 +13,7 @@
 
 #include <thread>
 
+#include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/exceptions.hpp"
@@ -1631,7 +1632,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     }
 
     // Recover text indices.
-    if (flags::run_time::GetExperimentalTextSearchEnabled()) {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
       spdlog::info("Recovering metadata of {} text indices.", *size);
@@ -2126,7 +2127,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     }
 
     // Write text indices.
-    if (flags::run_time::GetExperimentalTextSearchEnabled()) {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       auto text_indices = storage->indices_.text_index_.ListIndices();
       snapshot.WriteUint(text_indices.size());
       for (const auto &item : text_indices) {

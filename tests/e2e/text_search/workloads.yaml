@@ -1,7 +1,7 @@
 text_search_cluster: &text_search_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--experimental-text-search-enabled=true"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--experimental-enabled=text-search"]
       log_file: "text_search.log"
       setup_queries: []
       validation_queries: []

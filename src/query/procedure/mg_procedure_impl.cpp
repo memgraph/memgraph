@@ -23,6 +23,7 @@
 #include <utility>
 #include <variant>
 
+#include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "license/license.hpp"
 #include "mg_procedure.h"
@@ -1843,7 +1844,7 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     const auto result = std::visit(
         [prop_key, property_value](auto &impl) { return impl.SetProperty(prop_key, ToPropertyValue(*property_value)); },
         v->impl);
-    if (memgraph::flags::run_time::GetExperimentalTextSearchEnabled() && !result.HasError()) {
+    if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
       auto v_impl = v->getImpl();
       v->graph->getImpl()->TextIndexUpdateVertex(&v_impl);
     }
@@ -1904,7 +1905,7 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
     }
 
     const auto result = v->getImpl().UpdateProperties(props);
-    if (memgraph::flags::run_time::GetExperimentalTextSearchEnabled() && !result.HasError()) {
+    if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
       auto v_impl = v->getImpl();
       v->graph->getImpl()->TextIndexUpdateVertex(&v_impl);
     }
@@ -1966,7 +1967,7 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
     }
 
     const auto result = std::visit([label_id](auto &impl) { return impl.AddLabel(label_id); }, v->impl);
-    if (memgraph::flags::run_time::GetExperimentalTextSearchEnabled() && !result.HasError()) {
+    if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
       auto v_impl = v->getImpl();
       v->graph->getImpl()->TextIndexUpdateVertex(&v_impl);
     }
@@ -2012,7 +2013,7 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
       throw ImmutableObjectException{"Cannot remove a label from an immutable vertex!"};
     }
     const auto result = std::visit([label_id](auto &impl) { return impl.RemoveLabel(label_id); }, v->impl);
-    if (memgraph::flags::run_time::GetExperimentalTextSearchEnabled() && !result.HasError()) {
+    if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
       auto v_impl = v->getImpl();
       v->graph->getImpl()->TextIndexUpdateVertex(&v_impl, {label_id});
     }
@@ -2986,7 +2987,7 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
         auto *vertex = std::visit(
             [=](auto *impl) { return NewRawMgpObject<mgp_vertex>(memory, impl->InsertVertex(), graph); }, graph->impl);
         // TODO antepusic update text index
-        if (memgraph::flags::run_time::GetExperimentalTextSearchEnabled()) {
+        if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH)) {
           auto v_impl = vertex->getImpl();
           vertex->graph->getImpl()->TextIndexAddVertex(&v_impl);
         }

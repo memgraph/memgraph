@@ -42,11 +42,4 @@ double GetExecutionTimeout();
  */
 bool GetCartesianProductEnabled();
 
-/**
- * @brief Get whether text search is enabled
- *
- * @return bool
- */
-bool GetExperimentalTextSearchEnabled();
-
 }  // namespace memgraph::flags::run_time

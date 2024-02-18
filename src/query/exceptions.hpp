@@ -440,7 +440,9 @@ class TextSearchException : public QueryException {
 
 class TextSearchDisabledException : public TextSearchException {
  public:
-  TextSearchDisabledException() : TextSearchException("To use text indices, enable the text search feature.") {}
+  TextSearchDisabledException()
+      : TextSearchException(
+            "To use text indices and text search, start Memgraph with the experimental text search feature enabled.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(TextSearchDisabledException)
 };
 

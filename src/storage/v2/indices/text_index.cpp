@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/text_index.hpp"
+#include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "query/db_accessor.hpp"
 #include "storage/v2/view.hpp"
@@ -24,7 +25,7 @@ std::string GetPropertyName(PropertyId prop_id, NameIdMapper *name_id_mapper) {
 }
 
 void TextIndex::CreateEmptyIndex(const std::string &index_name, LabelId label) {
-  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
@@ -78,7 +79,7 @@ nlohmann::json TextIndex::SerializeProperties(const std::map<PropertyId, Propert
 }
 
 std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(const std::vector<LabelId> &labels) {
-  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
@@ -132,7 +133,7 @@ void TextIndex::CommitLoadedNodes(mgcxx::text_search::Context &index_context) {
 
 void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
                         const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
-  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
@@ -142,7 +143,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mappe
 }
 
 void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper) {
-  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
@@ -153,7 +154,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mappe
 
 void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
                            const std::vector<LabelId> &removed_labels) {
-  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
@@ -170,7 +171,7 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_ma
 
 void TextIndex::RemoveNode(Vertex *vertex_after_update,
                            const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
-  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
@@ -187,7 +188,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update,
 }
 
 void TextIndex::RemoveNode(Vertex *vertex_after_update) {
-  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
@@ -231,7 +232,7 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
 }
 
 LabelId TextIndex::DropIndex(const std::string &index_name) {
-  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
@@ -255,7 +256,7 @@ LabelId TextIndex::DropIndex(const std::string &index_name) {
 bool TextIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
 
 std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::string &search_query) {
-  if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 

@@ -19,13 +19,14 @@
 // Bolt server flags.
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(experimental_enabled, "",
-              "Experimental features to be used, comma seperated. Options [system-replication]");
+              "Experimental features to be used, comma-separated. Options [system-replication, text-search]");
 
 using namespace std::string_view_literals;
 
 namespace memgraph::flags {
 
-auto const mapping = std::map{std::pair{"system-replication"sv, Experiments::SYSTEM_REPLICATION}};
+auto const mapping = std::map{std::pair{"system-replication"sv, Experiments::SYSTEM_REPLICATION},
+                              std::pair{"text-search"sv, Experiments::TEXT_SEARCH}};
 
 auto ExperimentsInstance() -> Experiments & {
   static auto instance = Experiments{};
@@ -44,7 +45,7 @@ bool AreExperimentsEnabled(Experiments experiments) {
 void InitializeExperimental() {
   namespace rv = ranges::views;
 
-  auto const connonicalize_string = [](auto &&rng) {
+  auto const canonicalize_string = [](auto &&rng) {
     auto const is_space = [](auto c) { return c == ' '; };
     auto const to_lower = [](unsigned char c) { return std::tolower(c); };
 
@@ -55,7 +56,7 @@ void InitializeExperimental() {
   auto const mapping_end = mapping.cend();
   using underlying_type = std::underlying_type_t<Experiments>;
   auto to_set = underlying_type{};
-  for (auto &&experiment : FLAGS_experimental_enabled | rv::split(',') | rv::transform(connonicalize_string)) {
+  for (auto &&experiment : FLAGS_experimental_enabled | rv::split(',') | rv::transform(canonicalize_string)) {
     if (auto it = mapping.find(experiment); it != mapping_end) {
       to_set |= static_cast<underlying_type>(it->second);
     }

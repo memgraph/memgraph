@@ -13,6 +13,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "spdlog/spdlog.h"
 
+#include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/storage.hpp"
@@ -274,7 +275,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     return maybe_deleted_vertices.GetError();
   }
 
-  if (flags::run_time::GetExperimentalTextSearchEnabled()) {
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     for (auto *node : nodes_to_delete) {
       storage_->indices_.text_index_.RemoveNode(node);
     }
