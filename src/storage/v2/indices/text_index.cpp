@@ -226,18 +226,24 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
   CommitLoadedNodes(index_.at(index_name).context_);
 }
 
-void TextIndex::DropIndex(const std::string &index_name) {
+LabelId TextIndex::DropIndex(const std::string &index_name) {
   if (!flags::run_time::GetExperimentalTextSearchEnabled()) {
     throw query::TextSearchDisabledException();
   }
+
+  // TODO antepusic check if index exists
 
   try {
     mgcxx::text_search::drop_index(index_name);
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
+  auto deleted_index_label = index_.at(index_name).scope_;
+
   index_.erase(index_name);
   std::erase_if(label_to_index_, [index_name](const auto &item) { return item.second == index_name; });
+
+  return deleted_index_label;
 }
 
 bool TextIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }

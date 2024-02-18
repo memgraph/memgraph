@@ -317,8 +317,6 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
     } break;
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
-    case WalDeltaData::Type::TEXT_INDEX_CREATE:
-    case WalDeltaData::Type::TEXT_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
       if constexpr (read_data) {
@@ -371,6 +369,21 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
           if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
         }
       }
+      break;
+    }
+    case WalDeltaData::Type::TEXT_INDEX_CREATE:
+    case WalDeltaData::Type::TEXT_INDEX_DROP: {
+      if constexpr (read_data) {
+        auto index_name = decoder->ReadString();
+        if (!index_name) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_text.index_name = std::move(*index_name);
+        auto label = decoder->ReadString();
+        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_text.label = std::move(*label);
+      } else {
+        if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
     }
   }
 
@@ -519,7 +532,11 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::TEXT_INDEX_CREATE:
+      return a.operation_text.index_name == b.operation_text.index_name &&
+             a.operation_text.label == b.operation_text.label;
     case WalDeltaData::Type::TEXT_INDEX_DROP:
+      return a.operation_text.index_name == b.operation_text.index_name &&
+             a.operation_text.label == b.operation_text.label;
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
       return a.operation_label_property.label == b.operation_label_property.label &&
@@ -663,8 +680,8 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
 }
 
 void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
-                     LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
+                     const std::string &text_index_name, LabelId label, const std::set<PropertyId> &properties,
+                     const LabelIndexStats &stats, const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   switch (operation) {
@@ -689,8 +706,6 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
     }
     case StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
     case StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
-    case StorageMetadataOperation::TEXT_INDEX_CREATE:
-    case StorageMetadataOperation::TEXT_INDEX_DROP:
     case StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
     case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP: {
       MG_ASSERT(properties.size() == 1, "Invalid function call!");
@@ -715,6 +730,13 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
       for (const auto &property : properties) {
         encoder->WriteString(name_id_mapper->IdToName(property.AsUint()));
       }
+      break;
+    }
+    case StorageMetadataOperation::TEXT_INDEX_CREATE:
+    case StorageMetadataOperation::TEXT_INDEX_DROP: {
+      encoder->WriteMarker(OperationToMarker(operation));
+      encoder->WriteString(text_index_name);
+      encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
       break;
     }
   }
@@ -1109,10 +1131,11 @@ void WalFile::AppendTransactionEnd(uint64_t timestamp) {
   UpdateStats(timestamp);
 }
 
-void WalFile::AppendOperation(StorageMetadataOperation operation, LabelId label, const std::set<PropertyId> &properties,
-                              const LabelIndexStats &stats, const LabelPropertyIndexStats &property_stats,
-                              uint64_t timestamp) {
-  EncodeOperation(&wal_, name_id_mapper_, operation, label, properties, stats, property_stats, timestamp);
+void WalFile::AppendOperation(StorageMetadataOperation operation, const std::string &text_index_name, LabelId label,
+                              const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                              const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
+  EncodeOperation(&wal_, name_id_mapper_, operation, text_index_name, label, properties, stats, property_stats,
+                  timestamp);
   UpdateStats(timestamp);
 }
 

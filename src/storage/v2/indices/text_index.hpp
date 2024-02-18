@@ -77,7 +77,7 @@ class TextIndex {
   void RecoverIndex(const std::string &index_name, LabelId label, memgraph::utils::SkipList<Vertex>::Accessor vertices,
                     NameIdMapper *name_id_mapper);
 
-  void DropIndex(const std::string &index_name);
+  LabelId DropIndex(const std::string &index_name);
 
   bool IndexExists(const std::string &index_name) const;
 

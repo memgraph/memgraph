@@ -94,10 +94,10 @@ struct MetadataDelta {
       : action(Action::LABEL_PROPERTY_INDEX_STATS_CLEAR), label{label} {}
 
   MetadataDelta(TextIndexCreate /*tag*/, std::string index_name, LabelId label)
-      : action(Action::TEXT_INDEX_CREATE), text_indices{index_name, label} {}
+      : action(Action::TEXT_INDEX_CREATE), text_index{index_name, label} {}
 
   MetadataDelta(TextIndexDrop /*tag*/, std::string index_name, LabelId label)
-      : action(Action::TEXT_INDEX_DROP), text_indices{index_name, label} {}
+      : action(Action::TEXT_INDEX_DROP), text_index{index_name, label} {}
 
   MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
@@ -167,7 +167,7 @@ struct MetadataDelta {
     struct {
       std::string index_name;
       LabelId label;
-    } text_indices;
+    } text_index;
   };
 };
 
