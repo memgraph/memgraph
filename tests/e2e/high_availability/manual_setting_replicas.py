@@ -14,8 +14,7 @@ import sys
 
 import interactive_mg_runner
 import pytest
-from common import execute_and_fetch_all
-from mg_utils import mg_sleep_and_assert
+from common import connect, execute_and_fetch_all
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -41,13 +40,13 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
-def test_no_manual_setup_on_main(connection):
+def test_no_manual_setup_on_main():
     # Goal of this test is to check that all manual registration actions are disabled on instances with coordiantor server port
 
     # 1
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
-    any_main = connection(7687, "instance_3").cursor()
+    any_main = connect(host="localhost", port=7687).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(any_main, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
     assert str(e.value) == "Can't register replica manually on instance with coordinator server port."

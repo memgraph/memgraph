@@ -208,10 +208,7 @@ def test_replication_works_on_replica_instance_restart():
     instance_1_cursor = connect(host="localhost", port=7688).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE ();")
-    assert (
-        str(e.value)
-        == "Replication Exception: At least one SYNC replica has not confirmed committing last transaction. Check the status of the replicas using 'SHOW REPLICAS' query."
-    )
+    assert str(e.value) == "At least one SYNC replica has not confirmed committing last transaction."
 
     res_instance_1 = execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
     assert res_instance_1 == 1

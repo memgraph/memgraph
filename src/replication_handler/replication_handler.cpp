@@ -226,16 +226,14 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
 };
 
 // as MAIN, define and connect to REPLICAs
-auto ReplicationHandler::TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config,
-                                            bool send_swap_uuid)
+auto ReplicationHandler::TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
     -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
-  return RegisterReplica_<true>(config, send_swap_uuid);
+  return RegisterReplica_<true>(config);
 }
 
-auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config,
-                                         bool send_swap_uuid)
+auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
     -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
-  return RegisterReplica_<false>(config, send_swap_uuid);
+  return RegisterReplica_<false>(config);
 }
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> memgraph::query::UnregisterReplicaResult {
