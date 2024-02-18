@@ -3423,28 +3423,14 @@ void WrapTextSearch(std::vector<memgraph::storage::Gid> vertex_ids, std::string 
 mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
                                       mgp_memory *memory, mgp_map **result) {
   return WrapExceptions([graph, memory, index_name, search_query, result]() {
-    std::visit(memgraph::utils::Overloaded{[&](memgraph::query::DbAccessor *impl) {
-                                             std::vector<memgraph::storage::Gid> search_results;
-                                             std::string error_msg;
-                                             try {
-                                               search_results = impl->TextIndexSearch(index_name, search_query);
-                                             } catch (memgraph::query::QueryException &e) {
-                                               error_msg = e.what();
-                                             }
-                                             WrapTextSearch(search_results, error_msg, graph, memory, result);
-                                           },
-                                           [&](memgraph::query::SubgraphDbAccessor *impl) {
-                                             std::vector<memgraph::storage::Gid> search_results;
-                                             std::string error_msg;
-                                             try {
-                                               search_results =
-                                                   impl->GetAccessor()->TextIndexSearch(index_name, search_query);
-                                             } catch (memgraph::query::QueryException &e) {
-                                               error_msg = e.what();
-                                             }
-                                             WrapTextSearch(search_results, error_msg, graph, memory, result);
-                                           }},
-               graph->impl);
+    std::vector<memgraph::storage::Gid> search_results;
+    std::string error_msg;
+    try {
+      search_results = graph->getImpl()->TextIndexSearch(index_name, search_query);
+    } catch (memgraph::query::QueryException &e) {
+      error_msg = e.what();
+    }
+    WrapTextSearch(search_results, error_msg, graph, memory, result);
   });
 }
 
