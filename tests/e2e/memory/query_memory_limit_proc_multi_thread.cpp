@@ -46,21 +46,21 @@ int main(int argc, char **argv) {
   }
 
   MG_ASSERT(
-      client->Execute("CALL libquery_memory_limit_proc_multi_thread.dual_thread() YIELD allocated_all RETURN "
-                      "allocated_all QUERY MEMORY LIMIT 500MB"));
+      client->Execute("CALL libquery_memory_limit_proc_multi_thread.dual_thread() YIELD test_passed RETURN "
+                      "test_passed QUERY MEMORY LIMIT 500MB"));
   bool error{false};
   try {
     auto result_rows = client->FetchAll();
     if (result_rows) {
       auto row = *result_rows->begin();
-      error = !row[0].ValueBool();
+      MG_ASSERT(row[0].ValueBool(), "Execpected the procedure to pass");
+    } else {
+      MG_ASSERT(false, "Expected at least one row");
     }
 
   } catch (const std::exception &e) {
-    error = true;
+    MG_ASSERT(error, "This error should not have happend {}", e.what());
   }
-
-  MG_ASSERT(error, "Error should have happend");
 
   return 0;
 }

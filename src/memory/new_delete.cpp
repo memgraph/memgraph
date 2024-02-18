@@ -28,6 +28,12 @@ void *newImpl(const std::size_t size) {
     return ptr;
   }
 
+  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+  auto maybe_msg = memgraph::utils::MemoryErrorStatus().msg();
+  if (maybe_msg) {
+    throw memgraph::utils::OutOfMemoryException{std::move(*maybe_msg)};
+  }
+
   throw std::bad_alloc{};
 }
 
@@ -37,11 +43,21 @@ void *newImpl(const std::size_t size, const std::align_val_t align) {
     return ptr;
   }
 
+  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+  auto maybe_msg = memgraph::utils::MemoryErrorStatus().msg();
+  if (maybe_msg) {
+    throw memgraph::utils::OutOfMemoryException{std::move(*maybe_msg)};
+  }
+
   throw std::bad_alloc{};
 }
 
-void *newNoExcept(const std::size_t size) noexcept { return malloc(size); }
+void *newNoExcept(const std::size_t size) noexcept {
+  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+  return malloc(size);
+}
 void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept {
+  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
   return aligned_alloc(size, static_cast<std::size_t>(align));
 }
 

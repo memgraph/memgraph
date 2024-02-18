@@ -17,18 +17,19 @@
 
 namespace memgraph::utils {
 
-void QueryMemoryTracker::TrackAlloc(size_t size) {
+bool QueryMemoryTracker::TrackAlloc(size_t size) {
   if (query_tracker_.has_value()) [[likely]] {
-    query_tracker_->Alloc(static_cast<int64_t>(size));
+    bool ok = query_tracker_->Alloc(static_cast<int64_t>(size));
+    if (!ok) return false;
   }
 
   auto *proc_tracker = GetActiveProc();
 
   if (proc_tracker == nullptr) {
-    return;
+    return true;
   }
 
-  proc_tracker->Alloc(static_cast<int64_t>(size));
+  return proc_tracker->Alloc(static_cast<int64_t>(size));
 }
 void QueryMemoryTracker::TrackFree(size_t size) {
   if (query_tracker_.has_value()) [[likely]] {

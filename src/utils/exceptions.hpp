@@ -42,11 +42,25 @@ namespace memgraph::utils {
 class BasicException : public std::exception {
  public:
   /**
-   * @brief Constructor (C++ STL strings).
+   * @brief Constructor (C++ STL strings_view).
    *
    * @param message The error message.
    */
   explicit BasicException(std::string_view message) noexcept : msg_(message) {}
+
+  /**
+   * @brief Constructor (string literal).
+   *
+   * @param message The error message.
+   */
+  explicit BasicException(const char *message) noexcept : msg_(message) {}
+
+  /**
+   * @brief Constructor (C++ STL strings).
+   *
+   * @param message The error message.
+   */
+  explicit BasicException(std::string message) noexcept : msg_(std::move(message)) {}
 
   /**
    * @brief Constructor with format string (C++ STL strings).

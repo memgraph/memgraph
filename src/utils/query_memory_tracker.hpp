@@ -44,7 +44,7 @@ class QueryMemoryTracker {
   ~QueryMemoryTracker() = default;
 
   // Track allocation on query and procedure if active
-  void TrackAlloc(size_t);
+  bool TrackAlloc(size_t size);
 
   // Track Free on query and procedure if active
   void TrackFree(size_t);

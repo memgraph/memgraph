@@ -9,42 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
-
-#include <cstdint>
-
 namespace memgraph::coordination {
-
-enum class RegisterInstanceCoordinatorStatus : uint8_t {
-  NAME_EXISTS,
-  ENDPOINT_EXISTS,
-  NOT_COORDINATOR,
-  RPC_FAILED,
-  NOT_LEADER,
-  RAFT_COULD_NOT_ACCEPT,
-  RAFT_COULD_NOT_APPEND,
-  SUCCESS
-};
-
-enum class UnregisterInstanceCoordinatorStatus : uint8_t {
-  NO_INSTANCE_WITH_NAME,
-  IS_MAIN,
-  NOT_COORDINATOR,
-  NOT_LEADER,
-  RPC_FAILED,
-  SUCCESS,
-};
-
-enum class SetInstanceToMainCoordinatorStatus : uint8_t {
-  NO_INSTANCE_WITH_NAME,
-  MAIN_ALREADY_EXISTS,
-  NOT_COORDINATOR,
-  SUCCESS,
-  COULD_NOT_PROMOTE_TO_MAIN,
-  SWAP_UUID_FAILED
-};
-
+enum class GetInstanceUUIDError { NO_RESPONSE, RPC_EXCEPTION };
 }  // namespace memgraph::coordination
-#endif

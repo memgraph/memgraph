@@ -104,7 +104,7 @@ void MemoryTracker::SetMaximumHardLimit(const int64_t limit) {
   maximum_hard_limit_ = limit;
 }
 
-void MemoryTracker::Alloc(const int64_t size) {
+bool MemoryTracker::Alloc(int64_t const size) {
   MG_ASSERT(size >= 0, "Negative size passed to the MemoryTracker.");
 
   const int64_t will_be = size + amount_.fetch_add(size, std::memory_order_relaxed);
@@ -116,12 +116,13 @@ void MemoryTracker::Alloc(const int64_t size) {
 
     amount_.fetch_sub(size, std::memory_order_relaxed);
 
-    throw OutOfMemoryException(
-        fmt::format("Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
-                    "use to {}, while the maximum allowed size for allocation is set to {}.",
-                    GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(current_hard_limit)));
+    // register our error data, we will pick this up on the other side of jemalloc
+    MemoryErrorStatus().set({size, will_be, current_hard_limit});
+
+    return false;
   }
   UpdatePeak(will_be);
+  return true;
 }
 
 void MemoryTracker::DoCheck() {
@@ -138,5 +139,24 @@ void MemoryTracker::DoCheck() {
 }
 
 void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }
+
+// DEVNOTE: important that this is allocated at thread construction time
+//          otherwise subtle bug where jemalloc will try to lock an non-recursive mutex
+//          that it already owns
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+thread_local MemoryTrackerStatus status;
+auto MemoryErrorStatus() -> MemoryTrackerStatus & { return status; }
+
+auto MemoryTrackerStatus::msg() -> std::optional<std::string> {
+  if (!data_) return std::nullopt;
+
+  auto [size, will_be, hard_limit] = *data_;
+  data_.reset();
+  return fmt::format(
+      "Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
+      "use to {}, while the maximum allowed size for allocation is set to {}.",
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+      GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(hard_limit));
+}
 
 }  // namespace memgraph::utils

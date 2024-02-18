@@ -71,6 +71,7 @@ startup_config_dict = {
     "raft_server_id": ("0", "0", "Unique ID of the raft server."),
     "instance_down_timeout_sec": ("5", "5", "Time duration after which an instance is considered down."),
     "instance_health_check_frequency_sec": ("1", "1", "The time duration between two health checks/pings."),
+    "instance_get_uuid_frequency_sec": ("10", "10", "The time duration between two instance uuid checks."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_recovery_on_startup": (
         "false",

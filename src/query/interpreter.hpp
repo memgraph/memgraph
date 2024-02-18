@@ -109,6 +109,7 @@ class CoordinatorQueryHandler {
                                            std::string const &replication_socket_address,
                                            std::chrono::seconds const &instance_health_check_frequency,
                                            std::chrono::seconds const &instance_down_timeout,
+                                           std::chrono::seconds const &instance_get_uuid_frequency,
                                            std::string const &instance_name, CoordinatorQuery::SyncMode sync_mode) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.

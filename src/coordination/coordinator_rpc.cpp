@@ -80,6 +80,23 @@ void EnableWritingOnMainReq::Save(EnableWritingOnMainReq const &self, memgraph::
 
 void EnableWritingOnMainReq::Load(EnableWritingOnMainReq *self, memgraph::slk::Reader *reader) {}
 
+// GetInstanceUUID
+void GetInstanceUUIDReq::Save(const GetInstanceUUIDReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void GetInstanceUUIDReq::Load(GetInstanceUUIDReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void GetInstanceUUIDRes::Save(const GetInstanceUUIDRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void GetInstanceUUIDRes::Load(GetInstanceUUIDRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 }  // namespace coordination
 
 constexpr utils::TypeInfo coordination::PromoteReplicaToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ,
@@ -107,7 +124,15 @@ constexpr utils::TypeInfo coordination::EnableWritingOnMainReq::kType{utils::Typ
 constexpr utils::TypeInfo coordination::EnableWritingOnMainRes::kType{utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_RES,
                                                                       "CoordEnableWritingOnMainRes", nullptr};
 
+constexpr utils::TypeInfo coordination::GetInstanceUUIDReq::kType{utils::TypeId::COORD_GET_UUID_REQ, "CoordGetUUIDReq",
+                                                                  nullptr};
+
+constexpr utils::TypeInfo coordination::GetInstanceUUIDRes::kType{utils::TypeId::COORD_GET_UUID_RES, "CoordGetUUIDRes",
+                                                                  nullptr};
+
 namespace slk {
+
+// PromoteReplicaToMainRpc
 
 void Save(const memgraph::coordination::PromoteReplicaToMainRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
@@ -127,6 +152,7 @@ void Load(memgraph::coordination::PromoteReplicaToMainReq *self, memgraph::slk::
   memgraph::slk::Load(&self->replication_clients_info, reader);
 }
 
+// DemoteMainToReplicaRpc
 void Save(const memgraph::coordination::DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.replication_client_info, builder);
 }
@@ -142,6 +168,8 @@ void Save(const memgraph::coordination::DemoteMainToReplicaRes &self, memgraph::
 void Load(memgraph::coordination::DemoteMainToReplicaRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
 }
+
+// UnregisterReplicaRpc
 
 void Save(memgraph::coordination::UnregisterReplicaReq const &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.instance_name, builder);
@@ -165,6 +193,24 @@ void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::
 
 void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
+}
+
+// GetInstanceUUIDRpc
+
+void Save(const memgraph::coordination::GetInstanceUUIDReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
+  /* nothing to serialize*/
+}
+
+void Load(memgraph::coordination::GetInstanceUUIDReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
+  /* nothing to serialize*/
+}
+
+void Save(const memgraph::coordination::GetInstanceUUIDRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.uuid, builder);
+}
+
+void Load(memgraph::coordination::GetInstanceUUIDRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->uuid, reader);
 }
 
 }  // namespace slk

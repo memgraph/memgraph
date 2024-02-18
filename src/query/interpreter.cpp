@@ -329,7 +329,7 @@ class ReplQueryHandler {
           .port = static_cast<uint16_t>(*port),
       };
 
-      if (!handler_->SetReplicationRoleReplica(config, std::nullopt)) {
+      if (!handler_->TrySetReplicationRoleReplica(config, std::nullopt)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
       }
     }
@@ -486,8 +486,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   void RegisterReplicationInstance(std::string const &coordinator_socket_address,
                                    std::string const &replication_socket_address,
                                    std::chrono::seconds const &instance_check_frequency,
-                                   std::chrono::seconds const &instance_down_timeout, std::string const &instance_name,
-                                   CoordinatorQuery::SyncMode sync_mode) override {
+                                   std::chrono::seconds const &instance_down_timeout,
+                                   std::chrono::seconds const &instance_get_uuid_frequency,
+                                   std::string const &instance_name, CoordinatorQuery::SyncMode sync_mode) override {
     const auto maybe_replication_ip_port =
         io::network::Endpoint::ParseSocketOrAddress(replication_socket_address, std::nullopt);
     if (!maybe_replication_ip_port) {
@@ -514,6 +515,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                               .port = coordinator_server_port,
                                               .instance_health_check_frequency_sec = instance_check_frequency,
                                               .instance_down_timeout_sec = instance_down_timeout,
+                                              .instance_get_uuid_frequency_sec = instance_get_uuid_frequency,
                                               .replication_client_info = repl_config,
                                               .ssl = std::nullopt};
 
@@ -561,6 +563,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::SetInstanceToMainCoordinatorStatus;
       case NO_INSTANCE_WITH_NAME:
         throw QueryRuntimeException("No instance with such name!");
+      case MAIN_ALREADY_EXISTS:
+        throw QueryRuntimeException("Couldn't set instance to main since there is already a main instance in cluster!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
       case COULD_NOT_PROMOTE_TO_MAIN:
@@ -1185,11 +1189,12 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                      instance_health_check_frequency_sec = config.instance_health_check_frequency_sec,
                      instance_name = coordinator_query->instance_name_,
                      instance_down_timeout_sec = config.instance_down_timeout_sec,
+                     instance_get_uuid_frequency_sec = config.instance_get_uuid_frequency_sec,
                      sync_mode = coordinator_query->sync_mode_]() mutable {
         handler.RegisterReplicationInstance(std::string(coordinator_socket_address_tv.ValueString()),
                                             std::string(replication_socket_address_tv.ValueString()),
                                             instance_health_check_frequency_sec, instance_down_timeout_sec,
-                                            instance_name, sync_mode);
+                                            instance_get_uuid_frequency_sec, instance_name, sync_mode);
         return std::vector<std::vector<TypedValue>>();
       };
 
