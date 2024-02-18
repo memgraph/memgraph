@@ -24,7 +24,7 @@
 
 #include <fmt/format.h>
 // NOTE: fmt 9+ introduced fmt/std.h, it's important because of, e.g., std::path formatting. toolchain-v4 has fmt 8,
-// __has_include is here because of fmt 8 compatibility.
+// the guard is here because of fmt 8 compatibility.
 #if FMT_VERSION > 90000
 #include <fmt/std.h>
 #endif

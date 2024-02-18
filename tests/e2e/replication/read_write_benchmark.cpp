@@ -19,7 +19,6 @@
 #include <json/json.hpp>
 
 #include "common.hpp"
-#include "io/network/endpoint.hpp"
 #include "io/network/fmt.hpp"
 #include "utils/logging.hpp"
 #include "utils/thread.hpp"

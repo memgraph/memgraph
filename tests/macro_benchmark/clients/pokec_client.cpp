@@ -26,11 +26,11 @@
 
 #include "communication/bolt/v1/value.hpp"
 #include "io/network/utils.hpp"
+#include "long_running_common.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/timer.hpp"
 
 #include "communication/bolt/v1/fmt.hpp"
-#include "long_running_common.hpp"
 
 using memgraph::communication::bolt::Edge;
 using memgraph::communication::bolt::Value;

@@ -23,7 +23,6 @@
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
-#include "storage/v2/property_value.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Delta;

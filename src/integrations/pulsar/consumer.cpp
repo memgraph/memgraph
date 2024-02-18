@@ -15,7 +15,6 @@
 #include <chrono>
 #include <thread>
 
-#include <fmt/ostream.h>
 #include <pulsar/Client.h>
 #include <pulsar/InitialPosition.h>
 
