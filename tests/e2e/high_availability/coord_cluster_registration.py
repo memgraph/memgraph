@@ -31,6 +31,7 @@ TEMP_DIR = tempfile.TemporaryDirectory().name
 MEMGRAPH_INSTANCES_DESCRIPTION = {
     "instance_1": {
         "args": [
+            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7687",
             "--log-level",
@@ -44,6 +45,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
     "instance_2": {
         "args": [
+            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7688",
             "--log-level",
@@ -57,6 +59,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
     "instance_3": {
         "args": [
+            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7689",
             "--log-level",
@@ -70,6 +73,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
     "coordinator_1": {
         "args": [
+            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7690",
             "--log-level=TRACE",
@@ -81,6 +85,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
     "coordinator_2": {
         "args": [
+            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7691",
             "--log-level=TRACE",
@@ -92,6 +97,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
     "coordinator_3": {
         "args": [
+            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7692",
             "--log-level=TRACE",
