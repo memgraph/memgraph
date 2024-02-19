@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,19 +11,15 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
+#if FMT_VERSION > 90000
+#include <fmt/ostream.h>
 
-namespace memgraph::io::network {
+#include <librdkafka/rdkafkacpp.h>
 
-/**
- * StreamBuffer
- * Used for getting a pointer and size of a preallocated block of memory.
- * The network stack than uses this block of memory to read data from a
- * socket.
- */
-struct StreamBuffer {
-  uint8_t *data;
-  size_t len;
-};
-}  // namespace memgraph::io::network
+inline std::ostream &operator<<(std::ostream &os, const RdKafka::ErrorCode &code) {
+  os << RdKafka::err2str(code);
+  return os;
+}
+template <>
+class fmt::formatter<RdKafka::ErrorCode> : public fmt::ostream_formatter {};
+#endif
