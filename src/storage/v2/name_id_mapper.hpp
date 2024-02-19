@@ -83,6 +83,18 @@ class NameIdMapper {
     return id;
   }
 
+  /// This method unlike NameToId does not insert the new property id if not found
+  /// but just returns either std::nullopt or the value of the property id if it
+  /// finds it.
+  virtual std::optional<uint64_t> NameToIdIfExists(const std::string_view name) {
+    auto name_to_id_acc = name_to_id_.access();
+    auto found = name_to_id_acc.find(name);
+    if (found == name_to_id_acc.end()) {
+      return std::nullopt;
+    }
+    return found->id;
+  }
+
   // NOTE: Currently this function returns a `const std::string &` instead of a
   // `std::string` to avoid making unnecessary copies of the string.
   // Usually, this wouldn't be correct because the accessor to the

@@ -76,6 +76,7 @@ add_subdirectory(queries)
 add_subdirectory(query_modules_storage_modes)
 add_subdirectory(garbage_collection)
 add_subdirectory(query_planning)
+add_subdirectory(awesome_functions)
 
 if (MG_EXPERIMENTAL_HIGH_AVAILABILITY)
   add_subdirectory(high_availability_experimental)
