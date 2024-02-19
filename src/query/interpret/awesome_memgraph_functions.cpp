@@ -443,7 +443,7 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex, Edge>, Or<String>>("property_size", args, nargs);
+  FType<Or<Null, Vertex, Edge>, Or<String>>("propertySize", args, nargs);
 
   auto *dba = ctx.db_accessor;
 
@@ -451,16 +451,14 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
   const auto maybe_property_id = dba->NameToPropertyIfExists(property_name);
 
   if (!maybe_property_id) {
-    return TypedValue(0, ctx.memory);
+    return TypedValue(ctx.memory);
   }
 
   uint64_t property_size = 0;
   const auto &graph_entity = args[0];
   if (graph_entity.IsVertex()) {
     property_size = graph_entity.ValueVertex().GetPropertySize(*maybe_property_id, ctx.view).GetValue();
-  }
-
-  if (graph_entity.IsEdge()) {
+  } else if (graph_entity.IsEdge()) {
     property_size = graph_entity.ValueEdge().GetPropertySize(*maybe_property_id, ctx.view).GetValue();
   }
 
@@ -1350,7 +1348,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "PROPERTIES") return Properties;
   if (function_name == "RANDOMUUID") return RandomUuid;
   if (function_name == "SIZE") return Size;
-  if (function_name == "PROPERTY_SIZE") return PropertySize;
+  if (function_name == "PROPERTYSIZE") return PropertySize;
   if (function_name == "STARTNODE") return StartNode;
   if (function_name == "TIMESTAMP") return Timestamp;
   if (function_name == "TOBOOLEAN") return ToBoolean;

@@ -25,5 +25,5 @@ def memgraph(**kwargs) -> Memgraph:
 
 
 def get_bytes(memgraph, prop_name):
-    res = list(memgraph.execute_and_fetch(f"MATCH (n) RETURN property_size(n, '{prop_name}') AS size"))
+    res = list(memgraph.execute_and_fetch(f"MATCH (n) RETURN propertySize(n, '{prop_name}') AS size"))
     return res[0]["size"]

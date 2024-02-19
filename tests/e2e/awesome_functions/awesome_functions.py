@@ -262,7 +262,7 @@ def test_property_size_on_nonexistent_prop(memgraph):
 
     nonexistent_bytes = get_bytes(memgraph, "nonexistent_prop")
 
-    assert nonexistent_bytes == 0
+    assert nonexistent_bytes is None
 
 
 if __name__ == "__main__":
