@@ -36,9 +36,12 @@ class TextIndex {
   template <typename T>
   nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, T *name_resolver);
 
+  std::string CopyPropertyValuesToString(const std::map<PropertyId, PropertyValue> &properties);
+
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(const std::vector<LabelId> &labels);
 
   void LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::json &properties,
+                             const std::string &all_property_values_string,
                              const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
   void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
@@ -47,6 +50,12 @@ class TextIndex {
                const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
   void RemoveNode(Vertex *vertex, const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
+
+  mgcxx::text_search::SearchOutput TQLSearch(const std::string &index_name, const std::string &search_query);
+
+  mgcxx::text_search::SearchOutput RegexSearch(const std::string &index_name, const std::string &search_query);
+
+  mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &index_name, const std::string &search_query);
 
  public:
   TextIndex() = default;
@@ -76,7 +85,8 @@ class TextIndex {
 
   bool IndexExists(const std::string &index_name) const;
 
-  std::vector<Gid> Search(const std::string &index_name, const std::string &search_query);
+  std::vector<Gid> Search(const std::string &index_name, const std::string &search_query,
+                          const std::string &search_mode);
 
   void Commit();
 

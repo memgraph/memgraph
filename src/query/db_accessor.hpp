@@ -566,8 +566,9 @@ class DbAccessor final {
     accessor_->TextIndexUpdateVertex(vertex.impl_, removed_labels);
   }
 
-  std::vector<storage::Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query) const {
-    return accessor_->TextIndexSearch(index_name, search_query);
+  std::vector<storage::Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
+                                            const std::string &search_mode) const {
+    return accessor_->TextIndexSearch(index_name, search_query, search_mode);
   }
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {

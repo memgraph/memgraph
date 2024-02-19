@@ -899,7 +899,7 @@ enum mgp_error mgp_graph_has_text_index(struct mgp_graph *graph, const char *ind
 /// the given query.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate search result vertices.
 enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, const char *index_name, const char *search_query,
-                                           struct mgp_memory *memory, struct mgp_map **result);
+                                           const char *search_mode, struct mgp_memory *memory, struct mgp_map **result);
 
 /// Creates label index for given label.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.

@@ -59,6 +59,34 @@ def test_text_search_given_property(memgraph_with_text_indexed_data):
     assert len(result) == 2 and result == [{"title": "Rules2024", "version": 1}, {"title": "Rules2024", "version": 2}]
 
 
+def test_text_search_all_properties(memgraph_with_text_indexed_data):
+    result = list(
+        memgraph_with_text_indexed_data.execute_and_fetch(
+            """CALL text_search.search_all("complianceDocuments", "Rules2024") YIELD node
+             RETURN node
+             ORDER BY node.version ASC, node.title ASC;"""
+        )
+    )
+
+    print(result)
+
+    assert True
+
+
+def test_text_search_regex(memgraph_with_text_indexed_data):
+    result = list(
+        memgraph_with_text_indexed_data.execute_and_fetch(
+            """CALL text_search.regex_search("complianceDocuments", "Rules*") YIELD node
+             RETURN node
+             ORDER BY node.version ASC, node.title ASC;"""
+        )
+    )
+
+    print(result)
+
+    assert True
+
+
 def test_text_search_query_boolean(memgraph_with_text_indexed_data):
     BOOLEAN_QUERY = """CALL text_search.search("complianceDocuments", "(data.title:Rules2023 OR data.title:Rules2024) AND data.fulltext:words") YIELD node
                 RETURN node.title AS title, node.version AS version

@@ -50,7 +50,7 @@ def memgraph_with_text_indexed_data(**kwargs) -> Memgraph:
     memgraph = Memgraph()
 
     memgraph.execute(
-        """CREATE (:Document {title: "Rules2024", version: 1, fulltext: "random fulltext", date: date("2023-11-14")});"""
+        """CREATE (:Document {title: "Rules2023", version: 1, fulltext: "Rules2024", date: date("2023-11-14")});"""
     )
     memgraph.execute(
         """CREATE (:Document:Revision {title: "Rules2024", version: 2, fulltext: "random words", date: date("2023-12-15")});"""

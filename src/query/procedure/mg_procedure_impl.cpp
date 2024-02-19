@@ -3420,12 +3420,12 @@ void WrapTextSearch(std::vector<memgraph::storage::Gid> vertex_ids, std::string 
 }
 
 mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
-                                      mgp_memory *memory, mgp_map **result) {
-  return WrapExceptions([graph, memory, index_name, search_query, result]() {
+                                      const char *search_mode, mgp_memory *memory, mgp_map **result) {
+  return WrapExceptions([graph, memory, index_name, search_query, search_mode, result]() {
     std::vector<memgraph::storage::Gid> search_results;
     std::string error_msg;
     try {
-      search_results = graph->getImpl()->TextIndexSearch(index_name, search_query);
+      search_results = graph->getImpl()->TextIndexSearch(index_name, search_query, search_mode);
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
