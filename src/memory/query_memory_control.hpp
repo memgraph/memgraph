@@ -62,7 +62,7 @@ class QueriesMemoryControl {
   // Find tracker for current thread if exists, track
   // query allocation and procedure allocation if
   // necessary
-  void TrackAllocOnCurrentThread(size_t size);
+  bool TrackAllocOnCurrentThread(size_t size);
 
   // Find tracker for current thread if exists, track
   // query allocation and procedure allocation if

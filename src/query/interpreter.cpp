@@ -563,6 +563,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::SetInstanceToMainCoordinatorStatus;
       case NO_INSTANCE_WITH_NAME:
         throw QueryRuntimeException("No instance with such name!");
+      case MAIN_ALREADY_EXISTS:
+        throw QueryRuntimeException("Couldn't set instance to main since there is already a main instance in cluster!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
       case COULD_NOT_PROMOTE_TO_MAIN:
