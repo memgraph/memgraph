@@ -1020,9 +1020,15 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       }
 #endif
 
-      callback.header = {"name", "socket_address", "sync_mode", /*"system_info",*/ "data_info"};
+      bool full_info = false;
+#ifdef MG_ENTERPRISE
+      full_info = license::global_license_checker.IsEnterpriseValidFast();
+#endif
 
-      callback.fn = [handler = ReplQueryHandler{replication_query_handler}, replica_nfields = callback.header.size()] {
+      callback.header = {"name", "socket_address", "sync_mode", "system_info", "data_info"};
+
+      callback.fn = [handler = ReplQueryHandler{replication_query_handler}, replica_nfields = callback.header.size(),
+                     full_info] {
         auto const sync_mode_to_tv = [](memgraph::replication_coordination_glue::ReplicationMode sync_mode) {
           using namespace std::string_view_literals;
           switch (sync_mode) {
@@ -1032,6 +1038,28 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
             case ASYNC:
               return TypedValue{"async"sv};
           }
+        };
+
+        auto const replica_sys_state_to_tv = [](memgraph::replication::ReplicationClient::State state) {
+          using namespace std::string_view_literals;
+          switch (state) {
+            using enum memgraph::replication::ReplicationClient::State;
+            case BEHIND:
+              return TypedValue{"invalid"sv};
+            case READY:
+              return TypedValue{"ready"sv};
+            case RECOVERY:
+              return TypedValue{"recovery"sv};
+          }
+        };
+
+        auto const sys_info_to_tv = [&](ReplicaSystemInfoState orig) {
+          auto info = std::map<std::string, TypedValue>{};
+          info.emplace("ts", TypedValue{static_cast<int64_t>(orig.ts_)});
+          // TODO: behind not implemented
+          info.emplace("behind", TypedValue{/* static_cast<int64_t>(orig.behind_) */});
+          info.emplace("status", replica_sys_state_to_tv(orig.state_));
+          return TypedValue{std::move(info)};
         };
 
         auto const replica_state_to_tv = [](memgraph::storage::replication::ReplicaState state) {
@@ -1077,8 +1105,13 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
           typed_replica.emplace_back(replica.name_);
           typed_replica.emplace_back(replica.socket_address_);
           typed_replica.emplace_back(sync_mode_to_tv(replica.sync_mode_));
+          if (full_info) {
+            typed_replica.emplace_back(sys_info_to_tv(replica.system_info_));
+          } else {
+            // Set to NULL
+            typed_replica.emplace_back(TypedValue{});
+          }
           typed_replica.emplace_back(data_info_to_tv(replica.data_info_));
-          // TODO: sys_info
 
           typed_replicas.emplace_back(std::move(typed_replica));
         }

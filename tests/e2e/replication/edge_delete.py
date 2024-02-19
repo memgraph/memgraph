@@ -31,8 +31,20 @@ def test_replication_handles_delete_when_multiple_edges_of_same_type(connection)
     actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     assert all([x in actual_data for x in expected_data])
 
@@ -41,8 +53,20 @@ def test_replication_handles_delete_when_multiple_edges_of_same_type(connection)
 
     # 2/
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "async", {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
     ]
 
     def retrieve_data():

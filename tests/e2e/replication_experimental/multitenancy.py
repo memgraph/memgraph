@@ -279,6 +279,7 @@ def test_manual_databases_create_multitenancy_replication(connection):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
+            {"ts": 2, "behind": None, "status": "ready"},
             {
                 "A": {"ts": 1, "behind": 0, "status": "ready"},
                 "B": {"ts": 1, "behind": 0, "status": "ready"},
@@ -289,6 +290,7 @@ def test_manual_databases_create_multitenancy_replication(connection):
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
+            {"ts": 2, "behind": None, "status": "ready"},
             {
                 "A": {"ts": 1, "behind": 0, "status": "ready"},
                 "B": {"ts": 1, "behind": 0, "status": "ready"},
@@ -543,12 +545,14 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
+            {"ts": 3, "behind": None, "status": "ready"},
             {"A": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
+            {"ts": 3, "behind": None, "status": "ready"},
             {"A": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
@@ -597,6 +601,7 @@ def test_automatic_databases_create_multitenancy_replication(connection):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
+            {"ts": 4, "behind": None, "status": "ready"},
             {
                 "A": {"ts": 7, "behind": 0, "status": "ready"},
                 "B": {"ts": 0, "behind": 0, "status": "ready"},
@@ -607,6 +612,7 @@ def test_automatic_databases_create_multitenancy_replication(connection):
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
+            {"ts": 4, "behind": None, "status": "ready"},
             {
                 "A": {"ts": 7, "behind": 0, "status": "ready"},
                 "B": {"ts": 0, "behind": 0, "status": "ready"},
@@ -682,6 +688,7 @@ def test_automatic_databases_multitenancy_replication_predefined(connection):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
+            {"ts": 2, "behind": None, "status": "ready"},
             {
                 "A": {"ts": 1, "behind": 0, "status": "ready"},
                 "B": {"ts": 1, "behind": 0, "status": "ready"},
@@ -746,6 +753,7 @@ def test_automatic_databases_create_multitenancy_replication_dirty_main(connecti
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
+            {"ts": 1, "behind": None, "status": "ready"},
             {"A": {"ts": 1, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
@@ -793,6 +801,7 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
                 "replica_1",
                 f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
                 "sync",
+                {"ts": 4, "behind": None, "status": "ready"},
                 {
                     "A": {"ts": 0, "behind": 0, "status": "invalid"},
                     "B": {"ts": 0, "behind": 0, "status": "invalid"},
@@ -803,6 +812,7 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
                 "replica_2",
                 f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
                 "async",
+                {"ts": 4, "behind": None, "status": "ready"},
                 {
                     "A": {"ts": 7, "behind": 0, "status": "ready"},
                     "B": {"ts": 3, "behind": 0, "status": "ready"},
@@ -815,6 +825,7 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
                 "replica_1",
                 f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
                 "sync",
+                {"ts": 4, "behind": None, "status": "ready"},
                 {
                     "A": {"ts": 7, "behind": 0, "status": "ready"},
                     "B": {"ts": 3, "behind": 0, "status": "ready"},
@@ -825,6 +836,7 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
                 "replica_2",
                 f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
                 "async",
+                {"ts": 4, "behind": None, "status": "ready"},
                 {
                     "A": {"ts": 0, "behind": 0, "status": "invalid"},
                     "B": {"ts": 0, "behind": 0, "status": "invalid"},
@@ -843,6 +855,7 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
+            {"ts": 4, "behind": None, "status": "ready"},
             {
                 "A": {"ts": 7, "behind": 0, "status": "ready"},
                 "B": {"ts": 3, "behind": 0, "status": "ready"},
@@ -853,6 +866,7 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
+            {"ts": 4, "behind": None, "status": "ready"},
             {
                 "A": {"ts": 7, "behind": 0, "status": "ready"},
                 "B": {"ts": 3, "behind": 0, "status": "ready"},
@@ -906,6 +920,7 @@ def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
+            {"ts": 4, "behind": None, "status": "ready"},
             {
                 "A": {"ts": 7, "behind": 0, "status": "ready"},
                 "B": {"ts": 3, "behind": 0, "status": "ready"},
@@ -916,6 +931,7 @@ def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
+            {"ts": 4, "behind": None, "status": "ready"},
             {
                 "A": {"ts": 7, "behind": 0, "status": "ready"},
                 "B": {"ts": 3, "behind": 0, "status": "ready"},
@@ -1117,6 +1133,7 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
+            {"ts": 4, "behind": None, "status": "ready"},
             {
                 "A": {"ts": 1, "behind": 0, "status": "ready"},
                 "B": {"ts": 0, "behind": 0, "status": "ready"},
@@ -1127,6 +1144,7 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
+            {"ts": 4, "behind": None, "status": "ready"},
             {
                 "A": {"ts": 1, "behind": 0, "status": "ready"},
                 "B": {"ts": 0, "behind": 0, "status": "ready"},
@@ -1224,12 +1242,14 @@ def test_multitenancy_drop_while_replica_using(connection):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
+            {"ts": 3, "behind": None, "status": "ready"},
             {"A": {"ts": 1, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
+            {"ts": 3, "behind": None, "status": "ready"},
             {"A": {"ts": 1, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
@@ -1256,12 +1276,14 @@ def test_multitenancy_drop_while_replica_using(connection):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
+            {"ts": 8, "behind": None, "status": "ready"},
             {"B": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
+            {"ts": 8, "behind": None, "status": "ready"},
             {"B": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
@@ -1319,12 +1341,14 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
+            {"ts": 3, "behind": None, "status": "ready"},
             {"A": {"ts": 1, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
+            {"ts": 3, "behind": None, "status": "ready"},
             {"A": {"ts": 1, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
@@ -1350,12 +1374,14 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
+            {"ts": 8, "behind": None, "status": "ready"},
             {"A": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
+            {"ts": 8, "behind": None, "status": "ready"},
             {"A": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]

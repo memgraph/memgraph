@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "replication/replication_client.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/result.hpp"
@@ -44,6 +45,12 @@ enum class ShowReplicaError : uint8_t {
   NOT_MAIN,
 };
 
+struct ReplicaSystemInfoState {
+  uint64_t ts_;
+  uint64_t behind_;
+  replication::ReplicationClient::State state_;
+};
+
 struct ReplicaInfoState {
   ReplicaInfoState(uint64_t ts, uint64_t behind, storage::replication::ReplicaState state)
       : ts_(ts), behind_(behind), state_(state) {}
@@ -55,15 +62,17 @@ struct ReplicaInfoState {
 
 struct ReplicasInfo {
   ReplicasInfo(std::string name, std::string socket_address, replication_coordination_glue::ReplicationMode sync_mode,
-               std::map<std::string, ReplicaInfoState> data_info)
+               ReplicaSystemInfoState system_info, std::map<std::string, ReplicaInfoState> data_info)
       : name_(std::move(name)),
         socket_address_(std::move(socket_address)),
         sync_mode_(sync_mode),
+        system_info_(std::move(system_info)),
         data_info_(std::move(data_info)) {}
 
   std::string name_;
   std::string socket_address_;
   memgraph::replication_coordination_glue::ReplicationMode sync_mode_;
+  ReplicaSystemInfoState system_info_;
   std::map<std::string, ReplicaInfoState> data_info_;
 };
 

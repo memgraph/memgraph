@@ -36,15 +36,34 @@ def test_show_replicas(connection):
         "name",
         "socket_address",
         "sync_mode",
+        "system_info",
         "data_info",
     }
     actual_column_names = {x.name for x in cursor.description}
     assert actual_column_names == expected_column_names
 
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     assert all([x in actual_data for x in expected_data])
 
@@ -65,15 +84,34 @@ def test_show_replicas_while_inserting_data(connection):
         "name",
         "socket_address",
         "sync_mode",
+        "system_info",
         "data_info",
     }
     actual_column_names = {x.name for x in cursor.description}
     assert actual_column_names == expected_column_names
 
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     assert all([x in actual_data for x in expected_data])
 
@@ -82,9 +120,27 @@ def test_show_replicas_while_inserting_data(connection):
 
     # 2/
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
+        ),
     ]
 
     def retrieve_data():
@@ -98,6 +154,30 @@ def test_show_replicas_while_inserting_data(connection):
     assert len(res) == 1
 
     # 4/
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
+        ),
+    ]
+
     actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
     assert all([x in actual_data for x in expected_data])
 

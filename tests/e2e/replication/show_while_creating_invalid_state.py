@@ -79,6 +79,7 @@ def test_show_replicas(connection):
         "name",
         "socket_address",
         "sync_mode",
+        "system_info",
         "data_info",
     }
 
@@ -86,10 +87,34 @@ def test_show_replicas(connection):
     assert actual_column_names == EXPECTED_COLUMN_NAMES
 
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     assert all([x in actual_data for x in expected_data])
 
@@ -97,9 +122,27 @@ def test_show_replicas(connection):
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2")
     actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     assert all([x in actual_data for x in expected_data])
 
@@ -113,9 +156,27 @@ def test_show_replicas(connection):
         return execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
     ]
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
     assert all([x in actual_data for x in expected_data])
@@ -151,6 +212,7 @@ def test_drop_replicas(connection):
         "name",
         "socket_address",
         "sync_mode",
+        "system_info",
         "data_info",
     }
 
@@ -158,68 +220,188 @@ def test_drop_replicas(connection):
     assert actual_column_names == EXPECTED_COLUMN_NAMES
 
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 2/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_3")
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 3/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_3")
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 4/
     interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_4")
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
     ]
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 5/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_4")
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 6/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 7/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_1")
     expected_data = [
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 8/
     interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
     expected_data = [
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
     ]
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
@@ -240,10 +422,34 @@ def test_drop_replicas(connection):
 
     # 11/
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
@@ -376,10 +582,34 @@ def test_basic_recovery(recover_data_on_startup, connection):
 
     # 1/
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
@@ -428,9 +658,27 @@ def test_basic_recovery(recover_data_on_startup, connection):
         assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
 
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
     assert all([x in actual_data for x in expected_data])
@@ -451,10 +699,34 @@ def test_basic_recovery(recover_data_on_startup, connection):
     interactive_mg_runner.start(CONFIGURATION, "replica_3")
 
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
     ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -466,10 +738,34 @@ def test_basic_recovery(recover_data_on_startup, connection):
     # 11/
     interactive_mg_runner.kill(CONFIGURATION, "replica_1")
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
     ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -481,10 +777,34 @@ def test_basic_recovery(recover_data_on_startup, connection):
             "CREATE (p1:Number {name:'Magic_again_again', value:44})"
         )
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
     ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -495,10 +815,34 @@ def test_basic_recovery(recover_data_on_startup, connection):
 
     # 14/
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
     print("actual=", actual_data)
@@ -516,10 +860,34 @@ def test_basic_recovery(recover_data_on_startup, connection):
 
     # 16/
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}}),
-        ("replica_3", "127.0.0.1:10003", "async", {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}}),
-        ("replica_4", "127.0.0.1:10004", "async", {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
     assert all([x in actual_data for x in expected_data])
@@ -587,7 +955,13 @@ def test_replication_role_recovery(connection):
 
     # 1/
     expected_data = [
-        ("replica", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
@@ -618,7 +992,13 @@ def test_replication_role_recovery(connection):
 
     # 5/
     expected_data = [
-        ("replica", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
+        (
+            "replica",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
     ]
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
@@ -630,7 +1010,13 @@ def test_replication_role_recovery(connection):
 
     # 7/
     expected_data = [
-        ("replica", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -648,7 +1034,13 @@ def test_replication_role_recovery(connection):
     check_roles()
 
     expected_data = [
-        ("replica", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}}),
+        (
+            "replica",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
     assert all([x in actual_data for x in expected_data])
@@ -730,8 +1122,20 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down():
 
     # 1/
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
 
@@ -756,8 +1160,20 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down():
 
     # 4/
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("replica_2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
     ]
     actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
     assert all([x in actual_data for x in expected_data])
@@ -807,7 +1223,10 @@ def test_async_replication_when_main_is_killed():
 
         def retrieve_data():
             replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
-            return [(replica_name, ip, mode, info["memgraph"]["status"]) for replica_name, ip, mode, info in replicas]
+            return [
+                (replica_name, ip, mode, info["memgraph"]["status"])
+                for replica_name, ip, mode, sys_info, info in replicas
+            ]
 
         actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
         assert all([x in actual_data for x in expected_data])
@@ -935,8 +1354,20 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
 
     # 1/
     expected_data = [
-        ("async_replica1", "127.0.0.1:10001", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("async_replica2", "127.0.0.1:10002", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "async_replica1",
+            "127.0.0.1:10001",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "async_replica2",
+            "127.0.0.1:10002",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
     assert all([x in actual_data for x in expected_data])
@@ -966,7 +1397,7 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
             (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
-            for replica_name, ip, mode, info in replicas
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -1032,8 +1463,20 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
 
     # 1/
     expected_data = [
-        ("sync_replica1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("sync_replica2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "sync_replica1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "sync_replica2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
     assert all([x in actual_data for x in expected_data])
@@ -1058,7 +1501,7 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
             (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
-            for replica_name, ip, mode, info in replicas
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -1074,8 +1517,20 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
 
     # 5/
     expected_data = [
-        ("sync_replica1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
-        ("sync_replica2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 5, "behind": 0, "status": "ready"}}),
+        (
+            "sync_replica1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "sync_replica2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 5, "behind": 0, "status": "ready"}},
+        ),
     ]
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
@@ -1131,8 +1586,20 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down():
 
     # 1/
     expected_data = [
-        ("async_replica1", "127.0.0.1:10001", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("async_replica2", "127.0.0.1:10002", "async", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "async_replica1",
+            "127.0.0.1:10001",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "async_replica2",
+            "127.0.0.1:10002",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
     assert all([x in actual_data for x in expected_data])
@@ -1162,7 +1629,7 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down():
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
             (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
-            for replica_name, ip, mode, info in replicas
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -1228,8 +1695,20 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection)
 
     # 1/
     expected_data = [
-        ("sync_replica1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
-        ("sync_replica2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}}),
+        (
+            "sync_replica1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "sync_replica2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
     assert all([x in actual_data for x in expected_data])
@@ -1254,7 +1733,7 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection)
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
             (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
-            for replica_name, ip, mode, info in replicas
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -1270,8 +1749,20 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection)
 
     # 5/
     expected_data = [
-        ("sync_replica1", "127.0.0.1:10001", "sync", {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}}),
-        ("sync_replica2", "127.0.0.1:10002", "sync", {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}}),
+        (
+            "sync_replica1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "sync_replica2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
     ]
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
@@ -1382,7 +1873,7 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica(connection):
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
             (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
-            for replica_name, ip, mode, info in replicas
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -1505,7 +1996,7 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
             (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
-            for replica_name, ip, mode, info in replicas
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -1631,7 +2122,7 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection):
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
             (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
-            for replica_name, ip, mode, info in replicas
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -1756,7 +2247,7 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
             (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
-            for replica_name, ip, mode, info in replicas
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -1879,7 +2370,7 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica(connection):
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
             (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
-            for replica_name, ip, mode, info in replicas
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
@@ -1969,7 +2460,13 @@ def test_replication_not_messed_up_by_ShowIndexInfo(connection):
         return replicas
 
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "async", {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}}),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
     assert all([x in actual_data for x in expected_data])
