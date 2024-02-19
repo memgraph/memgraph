@@ -19,13 +19,14 @@
 // Bolt server flags.
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(experimental_enabled, "",
-              "Experimental features to be used, comma seperated. Options [system-replication]");
+              "Experimental features to be used, comma seperated. Options [system-replication, high-availability]");
 
 using namespace std::string_view_literals;
 
 namespace memgraph::flags {
 
-auto const mapping = std::map{std::pair{"system-replication"sv, Experiments::SYSTEM_REPLICATION}};
+auto const mapping = std::map{std::pair{"system-replication"sv, Experiments::SYSTEM_REPLICATION},
+                              std::pair{"high-availability"sv, Experiments::HIGH_AVAILABILITY}};
 
 auto ExperimentsInstance() -> Experiments & {
   static auto instance = Experiments{};

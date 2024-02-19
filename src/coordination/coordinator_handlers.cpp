@@ -132,7 +132,7 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
 
   // registering replicas
   for (auto const &config : req.replication_clients_info | ranges::views::transform(converter)) {
-    auto instance_client = replication_handler.RegisterReplica(config, false);
+    auto instance_client = replication_handler.RegisterReplica(config);
     if (instance_client.HasError()) {
       using enum memgraph::replication::RegisterReplicaError;
       switch (instance_client.GetError()) {
