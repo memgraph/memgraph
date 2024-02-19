@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+
 #include "replication/replication_client.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
@@ -17,7 +19,7 @@
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
 
-#include <algorithm>
+#include "io/network/fmt.hpp"
 
 namespace {
 template <typename>

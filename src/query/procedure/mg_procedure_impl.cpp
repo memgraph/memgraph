@@ -29,6 +29,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/procedure/cypher_types.hpp"
+#include "query/procedure/fmt.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
 #include "storage/v2/property_value.hpp"

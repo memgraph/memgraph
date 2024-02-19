@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,12 +15,12 @@
 #include <chrono>
 #include <thread>
 
-#include <fmt/format.h>
 #include <pulsar/Client.h>
 #include <pulsar/InitialPosition.h>
 
 #include "integrations/constants.hpp"
 #include "integrations/pulsar/exceptions.hpp"
+#include "integrations/pulsar/fmt.hpp"
 #include "utils/concepts.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
