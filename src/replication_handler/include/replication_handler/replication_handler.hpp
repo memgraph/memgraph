@@ -123,10 +123,10 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
                                     const std::optional<utils::UUID> &main_uuid) override;
 
   // as MAIN, define and connect to REPLICAs
-  auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
+  auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> override;
 
-  auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
+  auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> override;
 
   // as MAIN, remove a REPLICA connection
@@ -145,8 +145,8 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   auto GetReplicaUUID() -> std::optional<utils::UUID>;
 
  private:
-  template <bool AllowRPCFailure>
-  auto RegisterReplica_(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
+  template <bool SendSwapUUID>
+  auto RegisterReplica_(const memgraph::replication::ReplicationClientConfig &config)
       -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
     MG_ASSERT(repl_state_.IsMain(), "Only main instance can register a replica!");
     auto maybe_client = repl_state_.RegisterReplica(config);
@@ -172,7 +172,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
     }
     const auto main_uuid =
         std::get<memgraph::replication::RoleMainData>(dbms_handler_.ReplicationState().ReplicationData()).uuid_;
-    if (send_swap_uuid) {
+    if constexpr (SendSwapUUID) {
       if (!memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(maybe_client.GetValue()->rpc_client_,
                                                                         main_uuid)) {
         return memgraph::query::RegisterReplicaError::ERROR_ACCEPTING_MAIN;
@@ -204,9 +204,6 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
             bool const success = std::invoke([state = client->State()]() {
               if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
                 return false;
-              }
-              if (state == storage::replication::ReplicaState::MAYBE_BEHIND) {
-                return AllowRPCFailure;
               }
               return true;
             });
