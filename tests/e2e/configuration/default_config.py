@@ -228,6 +228,6 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma seperated. Options [system-replication]",
+        "Experimental features to be used, comma seperated. Options [system-replication, high-availability]",
     ),
 }

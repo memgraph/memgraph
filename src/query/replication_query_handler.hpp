@@ -53,10 +53,10 @@ struct ReplicationQueryHandler {
                                             const std::optional<utils::UUID> &main_uuid) = 0;
 
   // as MAIN, define and connect to REPLICAs
-  virtual auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
+  virtual auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterReplicaError> = 0;
 
-  virtual auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
+  virtual auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterReplicaError> = 0;
 
   // as MAIN, remove a REPLICA connection
