@@ -451,7 +451,7 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
   const auto maybe_property_id = dba->NameToPropertyIfExists(property_name);
 
   if (!maybe_property_id) {
-    return TypedValue(ctx.memory);
+    return TypedValue(0, ctx.memory);
   }
 
   uint64_t property_size = 0;

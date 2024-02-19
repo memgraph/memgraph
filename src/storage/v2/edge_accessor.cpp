@@ -266,7 +266,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
 }
 
 Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) const {
-  if (!storage_->config_.items.properties_on_edges) return 0;
+  if (!storage_->config_.salient.items.properties_on_edges) return 0;
 
   auto guard = std::shared_lock{edge_.ptr->lock};
   Delta *delta = edge_.ptr->delta;
