@@ -17,6 +17,7 @@
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
@@ -263,6 +264,27 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return *std::move(value);
 }
+
+Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) const {
+  if (!storage_->config_.salient.items.properties_on_edges) return 0;
+
+  auto guard = std::shared_lock{edge_.ptr->lock};
+  Delta *delta = edge_.ptr->delta;
+  if (!delta) {
+    return edge_.ptr->properties.PropertySize(property);
+  }
+
+  auto property_result = this->GetProperty(property, view);
+
+  if (property_result.HasError()) {
+    return property_result.GetError();
+  }
+
+  auto property_store = storage::PropertyStore();
+  property_store.SetProperty(property, *property_result);
+
+  return property_store.PropertySize(property);
+};
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
   if (!storage_->config_.salient.items.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
