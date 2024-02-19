@@ -1278,7 +1278,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 /// std::map<dst_vertex_gid, ...>
 /// Here we also do flushing of too many things, we don't need to serialize edges in read-only txn, check that...
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushModifiedEdges(
-    Transaction *transaction, auto &edges_acc) {
+    Transaction *transaction, const auto &edges_acc) {
   for (const auto &modified_edge : transaction->modified_edges_) {
     const std::string edge_gid = modified_edge.first.ToString();
     const Delta::Action root_action = modified_edge.second.delta_action;
