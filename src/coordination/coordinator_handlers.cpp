@@ -66,7 +66,7 @@ void CoordinatorHandlers::Register(memgraph::coordination::CoordinatorServer &se
 }
 
 void CoordinatorHandlers::GetDatabaseHistoriesHandler(replication::ReplicationHandler &replication_handler,
-                                                      slk::Reader *req_reader, slk::Builder *res_builder) {
+                                                      slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
   slk::Save(coordination::GetDatabaseHistoriesRes{replication_handler.GetDatabasesHistories()}, res_builder);
 }
 
