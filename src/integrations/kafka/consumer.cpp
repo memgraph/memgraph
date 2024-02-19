@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 
 #include "integrations/constants.hpp"
 #include "integrations/kafka/exceptions.hpp"
+#include "integrations/kafka/fmt.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -58,7 +59,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(RdKafka::KafkaCon
       default:
         auto error = msg->errstr();
         spdlog::warn("Unexpected error while consuming message in consumer {}, error: {} (code {})!",
-                     info.consumer_name, msg->errstr(), RdKafka::err2str(msg->err()));
+                     info.consumer_name, msg->errstr(), msg->err());
         return {std::move(error)};
     }
 
