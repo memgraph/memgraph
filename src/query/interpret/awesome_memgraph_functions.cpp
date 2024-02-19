@@ -104,6 +104,7 @@ struct Date {};
 struct LocalTime {};
 struct LocalDateTime {};
 struct Duration {};
+struct Graph {};
 
 template <class ArgType>
 bool ArgIsType(const TypedValue &arg) {
@@ -143,6 +144,8 @@ bool ArgIsType(const TypedValue &arg) {
     return arg.IsLocalDateTime();
   } else if constexpr (std::is_same_v<ArgType, Duration>) {
     return arg.IsDuration();
+  } else if constexpr (std::is_same_v<ArgType, Graph>) {
+    return arg.IsGraph();
   } else if constexpr (std::is_same_v<ArgType, void>) {
     return true;
   } else {
@@ -193,6 +196,8 @@ constexpr const char *ArgTypeName() {
     return "LocalDateTime";
   } else if constexpr (std::is_same_v<ArgType, Duration>) {
     return "Duration";
+  } else if constexpr (std::is_same_v<ArgType, Graph>) {
+    return "graph";
   } else {
     static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
   }
@@ -560,7 +565,8 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path>>("type", args, nargs);
+  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path, Date, LocalTime, LocalDateTime, Duration,
+           Graph>>("type", args, nargs);
   // The type names returned should be standardized openCypher type names.
   // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
   switch (args[0].type()) {
@@ -593,8 +599,9 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
     case TypedValue::Type::Duration:
       return TypedValue("DURATION", ctx.memory);
     case TypedValue::Type::Graph:
+      return TypedValue("GRAPH", ctx.memory);
     case TypedValue::Type::Function:
-      throw QueryRuntimeException("Cannot fetch graph as it is not standardized openCypher type name");
+      throw QueryRuntimeException("Unknown value type! Please report an issue!");
   }
 }
 
