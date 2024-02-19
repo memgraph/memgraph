@@ -641,11 +641,9 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
 
 PatternFilterVisitor::PatternFilterVisitor(SymbolTable &symbol_table, AstStorage &storage)
     : symbol_table_(symbol_table), storage_(storage) {}
-
-PatternFilterVisitor::~PatternFilterVisitor() = default;
-
 PatternFilterVisitor::PatternFilterVisitor(const PatternFilterVisitor &) = default;
 PatternFilterVisitor::PatternFilterVisitor(PatternFilterVisitor &&) noexcept = default;
+PatternFilterVisitor::~PatternFilterVisitor() = default;
 
 void PatternFilterVisitor::Visit(Exists &op) {
   std::vector<Pattern *> patterns;
@@ -738,13 +736,13 @@ FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Sym
     : type(type),
       expression(expression),
       used_symbols(std::move(used_symbols)),
-      property_filter(property_filter),
-      id_filter(id_filter),
+      property_filter(std::move(property_filter)),
+      id_filter(std::move(id_filter)),
       matchings({}) {}
-FilterInfo::~FilterInfo() = default;
 FilterInfo::FilterInfo(const FilterInfo &) = default;
 FilterInfo &FilterInfo::operator=(const FilterInfo &) = default;
 FilterInfo::FilterInfo(FilterInfo &&) noexcept = default;
 FilterInfo &FilterInfo::operator=(FilterInfo &&) noexcept = default;
+FilterInfo::~FilterInfo() = default;
 
 }  // namespace memgraph::query::plan

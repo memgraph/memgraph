@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 
 namespace memgraph::query::plan {
@@ -160,12 +161,11 @@ enum class PatternFilterType { EXISTS };
 class PatternFilterVisitor : public ExpressionVisitor<void> {
  public:
   explicit PatternFilterVisitor(SymbolTable &symbol_table, AstStorage &storage);
-  ~PatternFilterVisitor() override;
-
   PatternFilterVisitor(const PatternFilterVisitor &);
   PatternFilterVisitor &operator=(const PatternFilterVisitor &) = delete;
   PatternFilterVisitor(PatternFilterVisitor &&) noexcept;
   PatternFilterVisitor &operator=(PatternFilterVisitor &&) noexcept = delete;
+  ~PatternFilterVisitor() override;
 
   using ExpressionVisitor<void>::Visit;
 
@@ -310,12 +310,12 @@ struct FilterInfo {
   explicit FilterInfo(Type type = Type::Generic, Expression *expression = nullptr,
                       std::unordered_set<Symbol> used_symbols = {}, std::optional<PropertyFilter> property_filter = {},
                       std::optional<IdFilter> id_filter = {});
-  // All other constructors are defaulted in the cpp file.
-  ~FilterInfo();
+  // All other constructors are also defined in the cpp file because this struct is incomplete here.
   FilterInfo(const FilterInfo &);
   FilterInfo &operator=(const FilterInfo &);
   FilterInfo(FilterInfo &&) noexcept;
   FilterInfo &operator=(FilterInfo &&) noexcept;
+  ~FilterInfo();
 
   Type type{Type::Generic};
   /// The original filter expression which must be satisfied.
