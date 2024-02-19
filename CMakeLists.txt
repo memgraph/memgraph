@@ -189,7 +189,7 @@ add_custom_target(clean_all
 # is easier debugging of compilation and linker flags.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # c99-designator is disabled because of required mixture of designated and
 # non-designated initializers in Python Query Module code (`py_module.cpp`).
