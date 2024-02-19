@@ -26,8 +26,9 @@ namespace memgraph::coordination {
 
 class CoordinatorInstance;
 
-using HealthCheckInstanceCallback =
-    std::function<void(CoordinatorInstance *, std::string_view, std::unique_lock<utils::ResourceLock>)>;
+using HealthCheckInstanceCallback = void (CoordinatorInstance::*)(std::string_view,
+                                                                  std::unique_lock<utils::ResourceLock>);
+
 class ReplicationInstance {
  public:
   ReplicationInstance(CoordinatorInstance *peer, CoordinatorClientConfig config, HealthCheckClientCallback succ_cb,

@@ -69,10 +69,11 @@ void CoordinatorClient::StartFrequentCheck() {
             auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
             stream.AwaitResponse();
           }
-          // we have here subtle race condition which we need to solve
-          // lock is acquired only in callback
-          // but we might have changed callback before this needs to execute
-          // which will crash instance
+          // Subtle race condition:
+          // lock is acquired only in callback,
+          // but we might have changed which callback needs to be called
+          // (imagine case of failover where instance is promoted to MAIN)
+          // which means this instance will execute REPLICA callback instead of MAIN callback
           succ_cb_(coord_instance_, instance_name);
         } catch (rpc::RpcFailedException const &) {
           fail_cb_(coord_instance_, instance_name);

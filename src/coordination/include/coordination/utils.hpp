@@ -24,7 +24,6 @@ inline std::string ChooseMostUpToDateInstance(
         &instance_database_histories,
     std::optional<std::string> &latest_epoch, std::optional<uint64_t> &latest_commit_timestamp) {
   std::string most_up_to_date_instance;
-  // TODO isolate into function
   std::for_each(
       instance_database_histories.begin(), instance_database_histories.end(),
       [&latest_epoch, &latest_commit_timestamp, &most_up_to_date_instance](

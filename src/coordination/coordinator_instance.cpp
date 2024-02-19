@@ -38,19 +38,15 @@ CoordinatorInstance::CoordinatorInstance()
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     auto lock = std::unique_lock{self->coord_instance_lock_};
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
-    repl_instance.GetSuccessCallback()(self, repl_instance_name, std::move(lock));
+
+    std::invoke(repl_instance.GetSuccessCallback(), self, repl_instance_name, std::move(lock));
   };
 
   client_fail_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     auto lock = std::unique_lock{self->coord_instance_lock_};
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
-    repl_instance.GetFailCallback()(self, repl_instance_name, std::move(lock));
+    std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name, std::move(lock));
   };
-
-  replica_succ_cb_ = &ReplicaSuccessCallback;
-  replica_fail_cb_ = &ReplicaFailCallback;
-  main_succ_cb_ = &MainSuccessCallback;
-  main_fail_cb_ = &MainFailCallback;
 }
 
 auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance & {
@@ -165,7 +161,8 @@ auto CoordinatorInstance::TryFailover() -> void {
                            ranges::views::transform(&ReplicationInstance::ReplicationClientInfo) |
                            ranges::to<ReplicationClientsInfo>();
 
-  if (!new_main->PromoteToMain(new_main_uuid, std::move(repl_clients_info), main_succ_cb_, main_fail_cb_)) {
+  if (!new_main->PromoteToMain(new_main_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
+                               &CoordinatorInstance::MainFailCallback)) {
     spdlog::warn("Failover failed since promoting replica to main failed!");
     return;
   }
@@ -216,7 +213,8 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string instance_name
   std::ranges::transform(repl_instances_ | ranges::views::filter(is_not_new_main),
                          std::back_inserter(repl_clients_info), &ReplicationInstance::ReplicationClientInfo);
 
-  if (!new_main->PromoteToMain(new_main_uuid, std::move(repl_clients_info), main_succ_cb_, main_fail_cb_)) {
+  if (!new_main->PromoteToMain(new_main_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
+                               &CoordinatorInstance::MainFailCallback)) {
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
 
@@ -264,8 +262,9 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
 
   spdlog::info("Request for registering instance {} accepted", instance_name);
   try {
-    repl_instances_.emplace_back(this, std::move(config), client_succ_cb_, client_fail_cb_, replica_succ_cb_,
-                                 replica_fail_cb_);
+    repl_instances_.emplace_back(this, std::move(config), client_succ_cb_, client_fail_cb_,
+                                 &CoordinatorInstance::ReplicaSuccessCallback,
+                                 &CoordinatorInstance::ReplicaFailCallback);
   } catch (CoordinatorRegisterInstanceException const &) {
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
   }
@@ -277,6 +276,95 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
 
   spdlog::info("Instance {} registered", instance_name);
   return RegisterInstanceCoordinatorStatus::SUCCESS;
+}
+
+void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name,
+                                           std::unique_lock<utils::ResourceLock> lock) {
+  MG_ASSERT(lock.owns_lock(), "Callback doesn't own lock");
+  spdlog::trace("Instance {} performing main failure callback", repl_instance_name);
+  auto &repl_instance = FindReplicationInstance(repl_instance_name);
+  repl_instance.OnFailPing();
+  const auto &repl_instance_uuid = repl_instance.GetMainUUID();
+  MG_ASSERT(repl_instance_uuid.has_value(), "Instance must have uuid set");
+
+  if (!repl_instance.IsAlive() && GetMainUUID() == repl_instance_uuid.value()) {
+    spdlog::info("Cluster without main instance, trying automatic failover");
+    TryFailover();
+  }
+}
+
+void CoordinatorInstance::MainSuccessCallback(std::string_view repl_instance_name,
+                                              std::unique_lock<utils::ResourceLock> lock) {
+  MG_ASSERT(lock.owns_lock(), "Callback doesn't own lock");
+  spdlog::trace("Instance {} performing main successful callback", repl_instance_name);
+
+  auto &repl_instance = FindReplicationInstance(repl_instance_name);
+
+  if (repl_instance.IsAlive()) {
+    repl_instance.OnSuccessPing();
+    return;
+  }
+
+  const auto &repl_instance_uuid = repl_instance.GetMainUUID();
+  MG_ASSERT(repl_instance_uuid.has_value(), "Instance must have uuid set.");
+
+  auto const curr_main_uuid = GetMainUUID();
+  if (curr_main_uuid == repl_instance_uuid.value()) {
+    if (!repl_instance.EnableWritingOnMain()) {
+      spdlog::error("Failed to enable writing on main instance {}", repl_instance_name);
+      return;
+    }
+
+    repl_instance.OnSuccessPing();
+    return;
+  }
+
+  if (repl_instance.DemoteToReplica(&CoordinatorInstance::ReplicaSuccessCallback,
+                                    &CoordinatorInstance::ReplicaFailCallback)) {
+    repl_instance.OnSuccessPing();
+    spdlog::info("Instance {} demoted to replica", repl_instance_name);
+  } else {
+    spdlog::error("Instance {} failed to become replica", repl_instance_name);
+    return;
+  }
+
+  if (!repl_instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
+    spdlog::error(fmt::format("Failed to swap uuid for demoted main instance {}", repl_instance.InstanceName()));
+    return;
+  }
+}
+
+void CoordinatorInstance::ReplicaSuccessCallback(std::string_view repl_instance_name,
+                                                 std::unique_lock<utils::ResourceLock> lock) {
+  MG_ASSERT(lock.owns_lock(), "Callback doesn't own lock");
+  auto &repl_instance = FindReplicationInstance(repl_instance_name);
+  if (!repl_instance.IsReplica()) {
+    spdlog::error("Aborting replica callback since instance {} is not replica anymore", repl_instance_name);
+    return;
+  }
+  spdlog::trace("Instance {} performing replica successful callback", repl_instance_name);
+  // We need to get replicas UUID from time to time to ensure replica is listening to correct main
+  // and that it didn't go down for less time than we could notice
+  // We need to get id of main replica is listening to
+  // and swap if necessary
+  if (!repl_instance.EnsureReplicaHasCorrectMainUUID(GetMainUUID())) {
+    spdlog::error("Failed to swap uuid for replica instance {} which is alive", repl_instance.InstanceName());
+    return;
+  }
+
+  repl_instance.OnSuccessPing();
+}
+
+void CoordinatorInstance::ReplicaFailCallback(std::string_view repl_instance_name,
+                                              std::unique_lock<utils::ResourceLock> lock) {
+  MG_ASSERT(lock.owns_lock(), "Callback doesn't own lock");
+  auto &repl_instance = FindReplicationInstance(repl_instance_name);
+  if (!repl_instance.IsReplica()) {
+    spdlog::error("Aborting replica fail callback since instance {} is not replica anymore", repl_instance_name);
+    return;
+  }
+  spdlog::trace("Instance {} performing replica failure callback", repl_instance_name);
+  repl_instance.OnFailPing();
 }
 
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string instance_name)

@@ -26,8 +26,8 @@ ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorC
                                          HealthCheckInstanceCallback fail_instance_cb)
     : client_(peer, std::move(config), std::move(succ_cb), std::move(fail_cb)),
       replication_role_(replication_coordination_glue::ReplicationRole::REPLICA),
-      succ_cb_(std::move(succ_instance_cb)),
-      fail_cb_(std::move(fail_instance_cb)) {
+      succ_cb_(succ_instance_cb),
+      fail_cb_(fail_instance_cb) {
   if (!client_.DemoteToReplica()) {
     throw CoordinatorRegisterInstanceException("Failed to demote instance {} to replica", client_.InstanceName());
   }
@@ -71,8 +71,8 @@ auto ReplicationInstance::PromoteToMain(utils::UUID new_uuid, ReplicationClients
 
   replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
   main_uuid_ = new_uuid;
-  succ_cb_ = std::move(main_succ_cb);
-  fail_cb_ = std::move(main_fail_cb);
+  succ_cb_ = main_succ_cb;
+  fail_cb_ = main_fail_cb;
 
   return true;
 }
@@ -84,8 +84,8 @@ auto ReplicationInstance::DemoteToReplica(HealthCheckInstanceCallback replica_su
   }
 
   replication_role_ = replication_coordination_glue::ReplicationRole::REPLICA;
-  succ_cb_ = std::move(replica_succ_cb);
-  fail_cb_ = std::move(replica_fail_cb);
+  succ_cb_ = replica_succ_cb;
+  fail_cb_ = replica_fail_cb;
 
   return true;
 }
