@@ -127,6 +127,7 @@ def test_not_replicate_old_main_register_new_cluster():
     MEMGRAPH_FISRT_COORD_CLUSTER_DESCRIPTION = {
         "shared_instance": {
             "args": [
+                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7688",
                 "--log-level",
@@ -140,6 +141,7 @@ def test_not_replicate_old_main_register_new_cluster():
         },
         "instance_2": {
             "args": [
+                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7689",
                 "--log-level",
@@ -152,7 +154,14 @@ def test_not_replicate_old_main_register_new_cluster():
             "setup_queries": [],
         },
         "coordinator_1": {
-            "args": ["--bolt-port", "7690", "--log-level=TRACE", "--raft-server-id=1", "--raft-server-port=10111"],
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--raft-server-id=1",
+                "--raft-server-port=10111",
+            ],
             "log_file": "coordinator.log",
             "setup_queries": [
                 "REGISTER INSTANCE shared_instance ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
@@ -185,6 +194,7 @@ def test_not_replicate_old_main_register_new_cluster():
     MEMGRAPH_SECOND_COORD_CLUSTER_DESCRIPTION = {
         "instance_3": {
             "args": [
+                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7687",
                 "--log-level",
@@ -197,7 +207,14 @@ def test_not_replicate_old_main_register_new_cluster():
             "setup_queries": [],
         },
         "coordinator_2": {
-            "args": ["--bolt-port", "7691", "--log-level=TRACE", "--raft-server-id=1", "--raft-server-port=10112"],
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7691",
+                "--log-level=TRACE",
+                "--raft-server-id=1",
+                "--raft-server-port=10112",
+            ],
             "log_file": "coordinator.log",
             "setup_queries": [],
         },
