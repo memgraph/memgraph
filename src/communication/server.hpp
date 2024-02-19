@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 
 #include "communication/init.hpp"
 #include "communication/listener.hpp"
+#include "io/network/fmt.hpp"
 #include "io/network/socket.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
@@ -89,15 +90,14 @@ class Server final {
     alive_.store(true);
 
     if (!socket_.Bind(endpoint_)) {
-      spdlog::error(utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_.SocketAddress(),
-                                           "https://memgr.ph/socket"));
+      spdlog::error(
+          utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "https://memgr.ph/socket"));
       alive_.store(false);
       return false;
     }
     socket_.SetTimeout(1, 0);
     if (!socket_.Listen(1024)) {
-      spdlog::error(
-          utils::MessageWithLink("Cannot listen on socket {}", endpoint_.SocketAddress(), "https://memgr.ph/socket"));
+      spdlog::error(utils::MessageWithLink("Cannot listen on socket {}", endpoint_, "https://memgr.ph/socket"));
       alive_.store(false);
       return false;
     }
@@ -108,7 +108,7 @@ class Server final {
       utils::ThreadSetName(fmt::format("{} server", service_name_));
 
       spdlog::info("{} server is fully armed and operational", service_name_);
-      spdlog::info("{} listening on {}", service_name_, socket_.endpoint().SocketAddress());
+      spdlog::info("{} listening on {}", service_name_, socket_.endpoint());
 
       while (alive_) {
         AcceptConnection();
@@ -148,7 +148,7 @@ class Server final {
       // Connection is not available anymore or configuration failed.
       return;
     }
-    spdlog::info("Accepted a {} connection from {}", service_name_, s->endpoint().SocketAddress());
+    spdlog::info("Accepted a {} connection from {}", service_name_, s->endpoint());
     listener_.AddConnection(std::move(*s));
   }
 
