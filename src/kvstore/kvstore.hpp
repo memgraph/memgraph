@@ -162,7 +162,7 @@ class KVStore final {
    */
   class iterator final {
    public:
-    using iterator_concept [[maybe_unused]] = std::contiguous_iterator_tag;
+    using iterator_concept [[maybe_unused]] = std::input_iterator_tag;
     using value_type = std::pair<std::string, std::string>;
     using difference_type = long;
     using pointer = const std::pair<std::string, std::string> *;

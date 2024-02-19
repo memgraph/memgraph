@@ -313,7 +313,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
           auto *property_lookup = storage.Create<PropertyLookup>(atom->filter_lambda_.inner_edge, prop_pair.first);
           auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
           // Currently, variable expand has no gains if we set PropertyFilter.
-          all_filters_.emplace_back(FilterInfo(FilterInfo::Type::Generic, prop_equal, collector.symbols_));
+          all_filters_.emplace_back(FilterInfo::Type::Generic, prop_equal, collector.symbols_);
         }
         {
           collector.symbols_.clear();
@@ -328,9 +328,9 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
           auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
           // Currently, variable expand has no gains if we set PropertyFilter.
           all_filters_.emplace_back(
-              FilterInfo(FilterInfo::Type::Generic,
-                         storage.Create<All>(identifier, atom->identifier_, storage.Create<Where>(prop_equal)),
-                         collector.symbols_));
+              FilterInfo::Type::Generic,
+              storage.Create<All>(identifier, atom->identifier_, storage.Create<Where>(prop_equal)),
+              collector.symbols_);
         }
       }
       return;
@@ -361,7 +361,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     if (!node->labels_.empty()) {
       // Create a LabelsTest and store it.
       auto *labels_test = storage.Create<LabelsTest>(node->identifier_, node->labels_);
-      auto label_filter = FilterInfo(FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol});
+      auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
       label_filter.labels = node->labels_;
       all_filters_.emplace_back(label_filter);
     }
@@ -398,7 +398,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   using Bound = PropertyFilter::Bound;
   UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
-  auto make_filter = [&collector, &expr](FilterInfo::Type type) { return FilterInfo(type, expr, collector.symbols_); };
+  auto make_filter = [&collector, &expr](FilterInfo::Type type) { return FilterInfo{type, expr, collector.symbols_}; };
   auto get_property_lookup = [](auto *maybe_lookup, auto *&prop_lookup, auto *&ident) -> bool {
     return (prop_lookup = utils::Downcast<PropertyLookup>(maybe_lookup)) &&
            (ident = utils::Downcast<Identifier>(prop_lookup->expression_));

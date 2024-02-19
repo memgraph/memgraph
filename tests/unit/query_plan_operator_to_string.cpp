@@ -214,22 +214,22 @@ TYPED_TEST(OperatorToStringTest, Filter) {
   auto node_ident = IDENT("person");
   auto property = this->dba.NameToProperty("name");
   auto property_ix = this->storage.GetPropertyIx("name");
-  auto generic_filter_info = FilterInfo(FilterInfo::Type::Generic, nullptr, {node});
+  auto generic_filter_info = FilterInfo{FilterInfo::Type::Generic, nullptr, {node}};
 
   auto id_filter = IdFilter(this->symbol_table, node, LITERAL(42));
-  auto id_filter_info = FilterInfo(FilterInfo::Type::Id, nullptr, {}, {}, id_filter);
+  auto id_filter_info = FilterInfo{FilterInfo::Type::Id, nullptr, {}, {}, id_filter};
 
   std::vector<LabelIx> labels{this->storage.GetLabelIx("Customer"), this->storage.GetLabelIx("Visitor")};
   auto labels_test = LABELS_TEST(node_ident, labels);
-  auto label_filter_info = FilterInfo(FilterInfo::Type::Label, labels_test);
+  auto label_filter_info = FilterInfo{FilterInfo::Type::Label, labels_test};
 
   auto labels_test_2 = LABELS_TEST(PROPERTY_LOOKUP(this->dba, "person", property), labels);
-  auto label_filter_2_info = FilterInfo(FilterInfo::Type::Label, labels_test_2);
+  auto label_filter_2_info = FilterInfo{FilterInfo::Type::Label, labels_test_2};
 
   auto property_filter = PropertyFilter(node, property_ix, PropertyFilter::Type::EQUAL);
-  auto property_filter_info = FilterInfo(FilterInfo::Type::Property, nullptr, {}, property_filter);
+  auto property_filter_info = FilterInfo{FilterInfo::Type::Property, nullptr, {}, property_filter};
 
-  auto pattern_filter_info = FilterInfo(FilterInfo::Type::Pattern);
+  auto pattern_filter_info = FilterInfo{FilterInfo::Type::Pattern};
 
   Filters filters;
   filters.SetFilters({generic_filter_info, id_filter_info, label_filter_info, label_filter_2_info, property_filter_info,
