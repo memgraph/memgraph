@@ -253,7 +253,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   MultiPropsInitChecked(&new_node, properties);
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    context.db_accessor->TextIndexAddVertex(&new_node);
+    context.db_accessor->TextIndexAddVertex(new_node);
   }
 
   (*frame)[node_info.symbol] = new_node;
@@ -2887,8 +2887,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
                                                                      TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
       if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-        auto new_node = lhs.ValueVertex();
-        context.db_accessor->TextIndexUpdateVertex(&new_node);
+        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
       }
       break;
     }
@@ -3047,8 +3046,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       PropertiesMap new_properties = get_props(rhs.ValueVertex());
       update_props(new_properties);
       if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-        auto new_node = rhs.ValueVertex();
-        context->db_accessor->TextIndexUpdateVertex(&new_node);
+        context->db_accessor->TextIndexUpdateVertex(rhs.ValueVertex());
       }
       break;
     }
@@ -3108,7 +3106,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
 #endif
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
       if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-        context.db_accessor->TextIndexUpdateVertex(&lhs.ValueVertex());
+        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
       }
       break;
     case TypedValue::Type::Edge:
@@ -3200,7 +3198,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    context.db_accessor->TextIndexUpdateVertex(&vertex);
+    context.db_accessor->TextIndexUpdateVertex(vertex);
   }
 
   return true;
@@ -3275,8 +3273,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 #endif
       remove_prop(&lhs.ValueVertex());
       if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-        auto &updated_vertex = lhs.ValueVertex();
-        context.db_accessor->TextIndexUpdateVertex(&updated_vertex);
+        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
       }
       break;
     case TypedValue::Type::Edge:
@@ -3369,7 +3366,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   }
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    context.db_accessor->TextIndexUpdateVertex(&vertex, self_.labels_);
+    context.db_accessor->TextIndexUpdateVertex(vertex, self_.labels_);
   }
 
   return true;

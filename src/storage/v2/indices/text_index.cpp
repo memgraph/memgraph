@@ -92,10 +92,6 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(c
   return applicable_text_indices;
 }
 
-std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(Vertex *vertex) {
-  return GetApplicableTextIndices(vertex->labels);
-}
-
 void TextIndex::LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::json &properties,
                                       const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
   // NOTE: Text indexes are presently all-property indices. If we allow text indexes restricted to specific properties,
@@ -147,7 +143,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mappe
     throw query::TextSearchDisabledException();
   }
 
-  auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
+  auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update->labels);
   if (applicable_text_indices.empty()) return;
   AddNode(vertex_after_update, name_id_mapper, applicable_text_indices);
 }
@@ -163,7 +159,7 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_ma
     RemoveNode(vertex_after_update, indexes_to_remove_node_from);
   }
 
-  auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
+  auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update->labels);
   if (applicable_text_indices.empty()) return;
   RemoveNode(vertex_after_update, applicable_text_indices);
   AddNode(vertex_after_update, name_id_mapper, applicable_text_indices);
@@ -192,7 +188,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update) {
     throw query::TextSearchDisabledException();
   }
 
-  auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update);
+  auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update->labels);
   if (applicable_text_indices.empty()) return;
   RemoveNode(vertex_after_update, applicable_text_indices);
 }

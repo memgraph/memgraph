@@ -1846,7 +1846,7 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
         v->impl);
     if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
       auto v_impl = v->getImpl();
-      v->graph->getImpl()->TextIndexUpdateVertex(&v_impl);
+      v->graph->getImpl()->TextIndexUpdateVertex(v_impl);
     }
 
     if (result.HasError()) {
@@ -1907,7 +1907,7 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
     const auto result = v->getImpl().UpdateProperties(props);
     if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
       auto v_impl = v->getImpl();
-      v->graph->getImpl()->TextIndexUpdateVertex(&v_impl);
+      v->graph->getImpl()->TextIndexUpdateVertex(v_impl);
     }
 
     if (result.HasError()) {
@@ -1969,7 +1969,7 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
     const auto result = std::visit([label_id](auto &impl) { return impl.AddLabel(label_id); }, v->impl);
     if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
       auto v_impl = v->getImpl();
-      v->graph->getImpl()->TextIndexUpdateVertex(&v_impl);
+      v->graph->getImpl()->TextIndexUpdateVertex(v_impl);
     }
 
     if (result.HasError()) {
@@ -2015,7 +2015,7 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     const auto result = std::visit([label_id](auto &impl) { return impl.RemoveLabel(label_id); }, v->impl);
     if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
       auto v_impl = v->getImpl();
-      v->graph->getImpl()->TextIndexUpdateVertex(&v_impl, {label_id});
+      v->graph->getImpl()->TextIndexUpdateVertex(v_impl, {label_id});
     }
 
     if (result.HasError()) {
@@ -2988,7 +2988,7 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
             [=](auto *impl) { return NewRawMgpObject<mgp_vertex>(memory, impl->InsertVertex(), graph); }, graph->impl);
         if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH)) {
           auto v_impl = vertex->getImpl();
-          vertex->graph->getImpl()->TextIndexAddVertex(&v_impl);
+          vertex->graph->getImpl()->TextIndexAddVertex(v_impl);
         }
 
         auto &ctx = graph->ctx;
@@ -3359,8 +3359,7 @@ mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int
 }
 
 mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memory *memory) {
-  std::optional<memgraph::query::VertexAccessor> maybe_vertex =
-      std::visit([graph, id](auto *impl) { return impl->FindVertex(id, graph->view); }, graph->impl);
+  auto maybe_vertex = std::visit([graph, id](auto *impl) { return impl->FindVertex(id, graph->view); }, graph->impl);
   if (maybe_vertex) {
     return std::visit(memgraph::utils::Overloaded{
                           [memory, graph, maybe_vertex](memgraph::query::DbAccessor *) {

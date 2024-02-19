@@ -14,7 +14,6 @@
 #include <json/json.hpp>
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "text_search.hpp"
 
@@ -23,8 +22,6 @@ class DbAccessor;
 }
 
 namespace memgraph::storage {
-class Storage;
-
 constexpr bool kDoSkipCommit = true;
 
 struct TextIndexData {
@@ -40,8 +37,6 @@ class TextIndex {
   nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, T *name_resolver);
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(const std::vector<LabelId> &labels);
-
-  std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(Vertex *vertex);
 
   void LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::json &properties,
                              const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);

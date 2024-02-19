@@ -2130,9 +2130,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       auto text_indices = storage->indices_.text_index_.ListIndices();
       snapshot.WriteUint(text_indices.size());
-      for (const auto &item : text_indices) {
-        snapshot.WriteString(item.first);
-        write_mapping(item.second);
+      for (const auto &[index_name, label] : text_indices) {
+        snapshot.WriteString(index_name);
+        write_mapping(label);
       }
     }
   }

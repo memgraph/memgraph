@@ -232,16 +232,16 @@ class Storage {
       return storage_->indices_.text_index_.IndexExists(index_name);
     }
 
-    void TextIndexAddVertex(VertexAccessor *vertex) {
-      storage_->indices_.text_index_.AddNode(vertex->vertex_, storage_->name_id_mapper_.get());
+    void TextIndexAddVertex(const VertexAccessor &vertex) {
+      storage_->indices_.text_index_.AddNode(vertex.vertex_, storage_->name_id_mapper_.get());
     }
 
-    void TextIndexUpdateVertex(VertexAccessor *vertex) {
-      storage_->indices_.text_index_.UpdateNode(vertex->vertex_, storage_->name_id_mapper_.get());
+    void TextIndexUpdateVertex(const VertexAccessor &vertex) {
+      storage_->indices_.text_index_.UpdateNode(vertex.vertex_, storage_->name_id_mapper_.get());
     }
 
-    void TextIndexUpdateVertex(VertexAccessor *vertex, std::vector<LabelId> removed_labels) {
-      storage_->indices_.text_index_.UpdateNode(vertex->vertex_, storage_->name_id_mapper_.get(), removed_labels);
+    void TextIndexUpdateVertex(const VertexAccessor &vertex, std::vector<LabelId> removed_labels) {
+      storage_->indices_.text_index_.UpdateNode(vertex.vertex_, storage_->name_id_mapper_.get(), removed_labels);
     }
 
     std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query) const {
@@ -292,19 +292,9 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
 
-    void CreateTextIndex(const std::string &index_name, LabelId label, query::DbAccessor *db) {
-      MG_ASSERT(unique_guard_.owns_lock(), "Creating a text index requires unique access to storage!");
-      storage_->indices_.text_index_.CreateIndex(index_name, label, db);
-      transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label);
-      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
-    }
+    void CreateTextIndex(const std::string &index_name, LabelId label, query::DbAccessor *db);
 
-    void DropTextIndex(const std::string &index_name) {
-      MG_ASSERT(unique_guard_.owns_lock(), "Dropping a text index requires unique access to storage!");
-      auto deleted_index_label = storage_->indices_.text_index_.DropIndex(index_name);
-      transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
-      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
-    }
+    void DropTextIndex(const std::string &index_name);
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
