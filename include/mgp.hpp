@@ -32,6 +32,15 @@
 
 namespace mgp {
 
+class TextSearchException : public std::exception {
+ public:
+  explicit TextSearchException(std::string message) : message_(std::move(message)) {}
+  const char *what() const noexcept override { return message_.c_str(); }
+
+ private:
+  std::string message_;
+};
+
 class IndexException : public std::exception {
  public:
   explicit IndexException(std::string message) : message_(std::move(message)) {}
@@ -4345,7 +4354,7 @@ inline List RunTextSearchQuery(mgp_graph *memgraph_graph, std::string_view index
       Map(mgp::MemHandlerCallback(graph_search_text_index, memgraph_graph, index_name.data(), search_query.data()));
   auto maybe_error = results_or_error["error_msg"].ValueString();
   if (!maybe_error.empty()) {
-    throw std::runtime_error{maybe_error.data()};
+    throw TextSearchException(maybe_error.data());
   }
 
   return results_or_error["search_results"].ValueList();
