@@ -346,7 +346,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
         collector.symbols_.clear();
         prop_equal->Accept(collector);
-        FilterInfo filter_info(FilterInfo::Type::Property, prop_equal, collector.symbols_);
+        FilterInfo filter_info{FilterInfo::Type::Property, prop_equal, collector.symbols_};
         // Store a PropertyFilter on the value of the property.
         filter_info.property_filter.emplace(symbol_table, symbol, prop_pair.first, prop_pair.second,
                                             PropertyFilter::Type::EQUAL);
