@@ -39,7 +39,7 @@ Endpoint::IpFamily Endpoint::GetIpFamily(const std::string &address) {
 }
 
 std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress(
-    const std::string &address, const std::optional<uint16_t> default_port = {}) {
+    const std::string &address, const std::optional<uint16_t> default_port) {
   /// expected address format:
   ///   - "ip_address:port_number"
   ///   - "ip_address"
@@ -166,7 +166,7 @@ bool Endpoint::IsResolvableAddress(const std::string &address, uint16_t port) {
 }
 
 std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrAddress(
-    const std::string &address, const std::optional<uint16_t> default_port = {}) {
+    const std::string &address, const std::optional<uint16_t> default_port) {
   const std::string delimiter = ":";
   std::vector<std::string> parts = utils::Split(address, delimiter);
   if (parts.size() == 1) {

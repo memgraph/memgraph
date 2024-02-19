@@ -32,7 +32,7 @@ namespace memgraph::utils {
  * void long_function() {
  *     resource.enable();
  *     OnScopeExit on_exit([&resource] { resource.disable(); });
- *     // long block of code, might trow an exception
+ *     // long block of code, might throw an exception
  * }
  */
 template <typename Callable>

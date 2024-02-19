@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,7 +62,7 @@ class QueriesMemoryControl {
   // Find tracker for current thread if exists, track
   // query allocation and procedure allocation if
   // necessary
-  void TrackAllocOnCurrentThread(size_t size);
+  bool TrackAllocOnCurrentThread(size_t size);
 
   // Find tracker for current thread if exists, track
   // query allocation and procedure allocation if
@@ -78,9 +78,20 @@ class QueriesMemoryControl {
   bool IsThreadTracked();
 
  private:
+  struct TransactionId {
+    uint64_t id;
+    uint64_t cnt;
+
+    bool operator<(const TransactionId &other) const { return id < other.id; }
+    bool operator==(const TransactionId &other) const { return id == other.id; }
+
+    bool operator<(uint64_t other) const { return id < other; }
+    bool operator==(uint64_t other) const { return id == other; }
+  };
+
   struct ThreadIdToTransactionId {
     std::thread::id thread_id;
-    uint64_t transaction_id;
+    TransactionId transaction_id;
 
     bool operator<(const ThreadIdToTransactionId &other) const { return thread_id < other.thread_id; }
     bool operator==(const ThreadIdToTransactionId &other) const { return thread_id == other.thread_id; }
@@ -98,6 +109,9 @@ class QueriesMemoryControl {
 
     bool operator<(uint64_t other) const { return transaction_id < other; }
     bool operator==(uint64_t other) const { return transaction_id == other; }
+
+    bool operator<(TransactionId other) const { return transaction_id < other.id; }
+    bool operator==(TransactionId other) const { return transaction_id == other.id; }
   };
 
   utils::SkipList<ThreadIdToTransactionId> thread_id_to_transaction_id;

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,24 +36,32 @@ namespace memgraph::memory {
 
 void QueriesMemoryControl::UpdateThreadToTransactionId(const std::thread::id &thread_id, uint64_t transaction_id) {
   auto accessor = thread_id_to_transaction_id.access();
-  accessor.insert({thread_id, transaction_id});
+  auto elem = accessor.find(thread_id);
+  if (elem == accessor.end()) {
+    accessor.insert({thread_id, {transaction_id, 1}});
+  } else {
+    elem->transaction_id.cnt++;
+  }
 }
 
 void QueriesMemoryControl::EraseThreadToTransactionId(const std::thread::id &thread_id, uint64_t transaction_id) {
   auto accessor = thread_id_to_transaction_id.access();
   auto elem = accessor.find(thread_id);
   MG_ASSERT(elem != accessor.end() && elem->transaction_id == transaction_id);
-  accessor.remove(thread_id);
+  elem->transaction_id.cnt--;
+  if (elem->transaction_id.cnt == 0) {
+    accessor.remove(thread_id);
+  }
 }
 
-void QueriesMemoryControl::TrackAllocOnCurrentThread(size_t size) {
+bool QueriesMemoryControl::TrackAllocOnCurrentThread(size_t size) {
   auto thread_id_to_transaction_id_accessor = thread_id_to_transaction_id.access();
 
   // we might be just constructing mapping between thread id and transaction id
   // so we miss this allocation
   auto thread_id_to_transaction_id_elem = thread_id_to_transaction_id_accessor.find(std::this_thread::get_id());
   if (thread_id_to_transaction_id_elem == thread_id_to_transaction_id_accessor.end()) {
-    return;
+    return true;
   }
 
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
@@ -63,10 +71,10 @@ void QueriesMemoryControl::TrackAllocOnCurrentThread(size_t size) {
   // It can happen that some allocation happens between mapping thread to
   // transaction id, so we miss this allocation
   if (transaction_id_to_tracker == transaction_id_to_tracker_accessor.end()) [[unlikely]] {
-    return;
+    return true;
   }
   auto &query_tracker = transaction_id_to_tracker->tracker;
-  query_tracker.TrackAlloc(size);
+  return query_tracker.TrackAlloc(size);
 }
 
 void QueriesMemoryControl::TrackFreeOnCurrentThread(size_t size) {
@@ -102,7 +110,7 @@ void QueriesMemoryControl::CreateTransactionIdTracker(uint64_t transaction_id, s
 
 bool QueriesMemoryControl::EraseTransactionIdTracker(uint64_t transaction_id) {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  auto removed = transaction_id_to_tracker.access().remove(transaction_id);
+  auto removed = transaction_id_to_tracker_accessor.remove(transaction_id);
   return removed;
 }
 

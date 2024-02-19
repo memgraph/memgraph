@@ -1,0 +1,111 @@
+// Copyright 2024 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#ifdef MG_ENTERPRISE
+
+#include "nuraft/coordinator_state_machine.hpp"
+
+namespace memgraph::coordination {
+
+auto CoordinatorStateMachine::EncodeRegisterReplicationInstance(const std::string &name) -> ptr<buffer> {
+  std::string str_log = name + "_replica";
+  ptr<buffer> log = buffer::alloc(sizeof(uint32_t) + str_log.size());
+  buffer_serializer bs(log);
+  bs.put_str(str_log);
+  return log;
+}
+
+auto CoordinatorStateMachine::DecodeRegisterReplicationInstance(buffer &data) -> std::string {
+  buffer_serializer bs(data);
+  return bs.get_str();
+}
+
+auto CoordinatorStateMachine::pre_commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
+  buffer_serializer bs(data);
+  std::string str = bs.get_str();
+
+  spdlog::info("pre_commit {} : {}", log_idx, str);
+  return nullptr;
+}
+
+auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
+  buffer_serializer bs(data);
+  std::string str = bs.get_str();
+
+  spdlog::info("commit {} : {}", log_idx, str);
+
+  last_committed_idx_ = log_idx;
+  return nullptr;
+}
+
+auto CoordinatorStateMachine::commit_config(ulong const log_idx, ptr<cluster_config> & /*new_conf*/) -> void {
+  last_committed_idx_ = log_idx;
+}
+
+auto CoordinatorStateMachine::rollback(ulong const log_idx, buffer &data) -> void {
+  buffer_serializer bs(data);
+  std::string str = bs.get_str();
+
+  spdlog::info("rollback {} : {}", log_idx, str);
+}
+
+auto CoordinatorStateMachine::read_logical_snp_obj(snapshot & /*snapshot*/, void *& /*user_snp_ctx*/, ulong /*obj_id*/,
+                                                   ptr<buffer> &data_out, bool &is_last_obj) -> int {
+  // Put dummy data.
+  data_out = buffer::alloc(sizeof(int32));
+  buffer_serializer bs(data_out);
+  bs.put_i32(0);
+
+  is_last_obj = true;
+  return 0;
+}
+
+auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &s, ulong &obj_id, buffer & /*data*/, bool /*is_first_obj*/,
+                                                   bool /*is_last_obj*/) -> void {
+  spdlog::info("save snapshot {} term {} object ID", s.get_last_log_idx(), s.get_last_log_term(), obj_id);
+  // Request next object.
+  obj_id++;
+}
+
+auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
+  spdlog::info("apply snapshot {} term {}", s.get_last_log_idx(), s.get_last_log_term());
+  {
+    auto lock = std::lock_guard{last_snapshot_lock_};
+    ptr<buffer> snp_buf = s.serialize();
+    last_snapshot_ = snapshot::deserialize(*snp_buf);
+  }
+  return true;
+}
+
+auto CoordinatorStateMachine::free_user_snp_ctx(void *&user_snp_ctx) -> void {}
+
+auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
+  auto lock = std::lock_guard{last_snapshot_lock_};
+  return last_snapshot_;
+}
+
+auto CoordinatorStateMachine::last_commit_index() -> ulong { return last_committed_idx_; }
+
+auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void {
+  spdlog::info("create snapshot {} term {}", s.get_last_log_idx(), s.get_last_log_term());
+  // Clone snapshot from `s`.
+  {
+    auto lock = std::lock_guard{last_snapshot_lock_};
+    ptr<buffer> snp_buf = s.serialize();
+    last_snapshot_ = snapshot::deserialize(*snp_buf);
+  }
+  ptr<std::exception> except(nullptr);
+  bool ret = true;
+  when_done(ret, except);
+}
+
+}  // namespace memgraph::coordination
+#endif

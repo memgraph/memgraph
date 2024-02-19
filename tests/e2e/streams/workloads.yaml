@@ -42,21 +42,3 @@ workloads:
     proc: "tests/e2e/streams/transformations/"
     args: ["streams/pulsar_streams_tests.py"]
     <<: *in_memory_cluster
-
-  - name: "Kafka streams start, stop and show for on-disk storage"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/streams/transformations/"
-    args: ["streams/kafka_streams_tests.py"]
-    <<: *disk_cluster
-
-  - name: "Streams with users for on-disk storage"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/streams/transformations/"
-    args: ["streams/streams_owner_tests.py"]
-    <<: *disk_cluster
-
-  - name: "Pulsar streams start, stop and show for on-disk storage"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/streams/transformations/"
-    args: ["streams/pulsar_streams_tests.py"]
-    <<: *disk_cluster

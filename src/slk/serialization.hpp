@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,9 +56,20 @@ class SlkDecodeException : public utils::BasicException {
 // the global namespace.
 
 template <typename T>
+inline void Save(const std::vector<T> &obj, Builder *builder,
+                 std::function<void(const T &, Builder *)> item_save_function);
+template <typename T>
+inline void Load(std::vector<T> *obj, Reader *reader, std::function<void(T *, Reader *)> item_load_function);
+
+template <typename T>
 void Save(const std::vector<T> &obj, Builder *builder);
 template <typename T>
 void Load(std::vector<T> *obj, Reader *reader);
+
+template <typename T, size_t N>
+void Save(const std::array<T, N> &obj, Builder *builder);
+template <typename T, size_t N>
+void Load(std::array<T, N> *obj, Reader *reader);
 
 template <typename T, typename Cmp>
 void Save(const std::set<T, Cmp> &obj, Builder *builder);
@@ -196,6 +207,24 @@ inline void Load(std::vector<T> *obj, Reader *reader) {
   uint64_t size = 0;
   Load(&size, reader);
   obj->resize(size);
+  for (uint64_t i = 0; i < size; ++i) {
+    Load(&(*obj)[i], reader);
+  }
+}
+
+template <typename T, size_t N>
+inline void Save(const std::array<T, N> &obj, Builder *builder) {
+  uint64_t size = obj.size();
+  Save(size, builder);
+  for (const auto &item : obj) {
+    Save(item, builder);
+  }
+}
+
+template <typename T, size_t N>
+inline void Load(std::array<T, N> *obj, Reader *reader) {
+  uint64_t size = 0;
+  Load(&size, reader);
   for (uint64_t i = 0; i < size; ++i) {
     Load(&(*obj)[i], reader);
   }
@@ -484,6 +513,19 @@ inline void Load(utils::TypeId *obj, Reader *reader) {
   enum_type obj_encoded;
   slk::Load(&obj_encoded, reader);
   *obj = utils::TypeId(utils::MemcpyCast<enum_type>(obj_encoded));
+}
+
+template <utils::Enum T>
+void Save(const T &enum_value, slk::Builder *builder) {
+  slk::Save(utils::UnderlyingCast(enum_value), builder);
+}
+
+template <utils::Enum T>
+void Load(T *enum_value, slk::Reader *reader) {
+  using UnderlyingType = std::underlying_type_t<T>;
+  UnderlyingType value;
+  slk::Load(&value, reader);
+  *enum_value = static_cast<T>(value);
 }
 
 }  // namespace memgraph::slk

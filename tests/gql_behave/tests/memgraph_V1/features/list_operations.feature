@@ -279,3 +279,15 @@ Feature: List operators
         Then the result should be:
             | o                                       |
             | (:Node {Status: 'This is the status'})  |
+
+     Scenario: Simple list pattern comprehension
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (keanu:Person {name: 'Keanu Reeves'})
+            RETURN [(keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years
+            """
+        Then an error should be raised
+#        Then the result should be:
+#            | years                 |
+#            | [2021,2003,2003,1999] |

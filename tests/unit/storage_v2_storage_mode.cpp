@@ -44,8 +44,8 @@ TEST_P(StorageModeTest, Mode) {
           .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
 
   static_cast<memgraph::storage::InMemoryStorage *>(storage.get())->SetStorageMode(storage_mode);
-  auto creator = storage->Access(memgraph::replication::ReplicationRole::MAIN);
-  auto other_analytics_mode_reader = storage->Access(memgraph::replication::ReplicationRole::MAIN);
+  auto creator = storage->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  auto other_analytics_mode_reader = storage->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
 
   ASSERT_EQ(CountVertices(*creator, memgraph::storage::View::OLD), 0);
   ASSERT_EQ(CountVertices(*other_analytics_mode_reader, memgraph::storage::View::OLD), 0);
@@ -90,7 +90,16 @@ class StorageModeMultiTxTest : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
-  memgraph::query::InterpreterContext interpreter_context{{}, nullptr, &repl_state};
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
+                                                          &repl_state,
+                                                          system_state
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr
+#endif
+  };
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
 };
 

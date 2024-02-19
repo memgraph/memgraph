@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,12 @@
 
 #pragma once
 
-#include "dbms/dbms_handler.hpp"
-#include "replication/replication_client.hpp"
+namespace memgraph::coordination {
 
-namespace memgraph::dbms {
+#ifdef MG_EXPERIMENTAL_HIGH_AVAILABILITY
+constexpr bool allow_ha = true;
+#else
+constexpr bool allow_ha = false;
+#endif
 
-void StartReplicaClient(DbmsHandler &dbms_handler, replication::ReplicationClient &client);
-
-}  // namespace memgraph::dbms
+}  // namespace memgraph::coordination

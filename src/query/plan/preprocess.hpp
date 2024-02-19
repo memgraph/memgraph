@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -230,6 +230,7 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(ParameterLookup &op) override{};
   void Visit(NamedExpression &op) override{};
   void Visit(RegexMatch &op) override{};
+  void Visit(PatternComprehension &op) override{};
 
   std::vector<FilterMatching> getMatchings() { return matchings_; }
 
@@ -365,7 +366,8 @@ class Filters final {
   /// Remove a label filter for symbol; may invalidate iterators.
   /// If removed_filters is not nullptr, fills the vector with original
   /// `Expression *` which are now completely removed.
-  void EraseLabelFilter(const Symbol &, LabelIx, std::vector<Expression *> *removed_filters = nullptr);
+  void EraseLabelFilter(const Symbol &symbol, const LabelIx &label,
+                        std::vector<Expression *> *removed_filters = nullptr);
 
   /// Returns a vector of FilterInfo for properties.
   auto PropertyFilters(const Symbol &symbol) const {

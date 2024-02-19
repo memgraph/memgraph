@@ -21,7 +21,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "test_utils.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 template <typename StorageType>
 class PyModule : public testing::Test {

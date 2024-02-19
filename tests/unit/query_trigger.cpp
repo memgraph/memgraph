@@ -29,7 +29,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 
-using memgraph::replication::ReplicationRole;
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 namespace {
 const std::unordered_set<memgraph::query::TriggerEventType> kAllEventTypes{

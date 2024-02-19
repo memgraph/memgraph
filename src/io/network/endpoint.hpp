@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -61,8 +61,8 @@ struct Endpoint {
    * it into an ip address and a port number; even if a default port is given,
    * it won't be used, as we expect that it is given in the address string.
    */
-  static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(const std::string &address,
-                                                                                std::optional<uint16_t> default_port);
+  static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(
+      const std::string &address, std::optional<uint16_t> default_port = {});
 
   /**
    * Tries to parse given string as either socket address or hostname.

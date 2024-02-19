@@ -232,7 +232,6 @@ class RuleBasedPlanner {
           } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
             const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
             context.bound_symbols.insert(row_sym);
-
             input_op = std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
                                                        load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_,
                                                        load_csv->nullif_, row_sym);
@@ -271,9 +270,9 @@ class RuleBasedPlanner {
  private:
   TPlanningContext *context_;
 
-  storage::LabelId GetLabel(LabelIx label) { return context_->db->NameToLabel(label.name); }
+  storage::LabelId GetLabel(const LabelIx &label) { return context_->db->NameToLabel(label.name); }
 
-  storage::PropertyId GetProperty(PropertyIx prop) { return context_->db->NameToProperty(prop.name); }
+  storage::PropertyId GetProperty(const PropertyIx &prop) { return context_->db->NameToProperty(prop.name); }
 
   storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
 
