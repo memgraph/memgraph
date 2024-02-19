@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,7 +41,6 @@ class KafkaClusterMock {
   std::string Bootstraps() const;
   void CreateTopic(const std::string &topic_name);
   void SeedTopic(const std::string &topic_name, std::span<const char> message);
-  void SeedTopic(const std::string &topic_name, std::string_view message);
 
  private:
   RdKafkaUniquePtr rk_{nullptr};
