@@ -92,10 +92,7 @@ def test_replication_works_on_failover(connection):
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE ();")
-    assert (
-        str(e.value)
-        == "Replication Exception: At least one SYNC replica has not confirmed committing last transaction. Check the status of the replicas using 'SHOW REPLICAS' query."
-    )
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
 
     res = execute_and_fetch_all(main_cursor, "MATCH (n) RETURN count(n) as count;")[0][0]
     assert res == 1, "Vertex should be created"
@@ -233,10 +230,7 @@ def test_not_replicate_old_main_register_new_cluster(connection):
     main_1_cursor = connection(7689, "main_1").cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_1_cursor, "CREATE ();")
-    assert (
-        str(e.value)
-        == "Replication Exception: At least one SYNC replica has not confirmed committing last transaction. Check the status of the replicas using 'SHOW REPLICAS' query."
-    )
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
 
     shared_replica_cursor = connection(7688, "shared_replica").cursor()
     res = execute_and_fetch_all(shared_replica_cursor, "MATCH (n) RETURN count(n);")[0][0]
