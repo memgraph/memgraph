@@ -285,5 +285,6 @@ repo_clone_try_double "${primary_urls[range-v3]}" "${secondary_urls[range-v3]}" 
 nuraft_tag="v2.1.0"
 repo_clone_try_double "${primary_urls[nuraft]}" "${secondary_urls[nuraft]}" "nuraft" "$nuraft_tag" true
 pushd nuraft
+git apply ../nuraft2.1.0.patch
 ./prepare.sh
 popd
