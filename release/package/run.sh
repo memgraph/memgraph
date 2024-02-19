@@ -17,7 +17,9 @@ SUPPORTED_BUILD_TYPES=(
 )
 
 PROJECT_ROOT="$SCRIPT_DIR/../.."
-# TODO(gitbuda): Toolchain is now specific for a given OS -> ADJUST.
+# TODO(gitbuda): Toolchain is now specific for a given OS -> ADJUST:
+#   * under init, toolchain version is passed to docker compose -> consider having arch + toolchain version as a folder structure
+#   * for a give OS latest possible toolchain should be picked -> there is only one toolchain per OS possible
 TOOLCHAIN_VERSION="toolchain-v4"
 ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
@@ -75,7 +77,7 @@ make_package () {
 
     # Ensure we have a clean build directory
     docker exec "$build_container" rm -rf /memgraph
-    
+
     docker exec "$build_container" mkdir -p /memgraph
     # TODO(gitbuda): Revisit copying the whole repo -> makese sense under CI.
     docker cp "$PROJECT_ROOT/." "$build_container:/memgraph/"
@@ -124,7 +126,6 @@ make_package () {
 
 case "$1" in
     init)
-        # TODO(gitbuda): Add support for different toolchains on different operating systems at the same time.
         cd "$SCRIPT_DIR"
         if ! which "docker-compose" >/dev/null; then
             docker_compose_cmd="docker compose"
