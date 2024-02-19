@@ -39,6 +39,10 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
   ~CoordinatorStateMachine() override {}
 
+  auto MainExists() const -> bool;
+  auto IsMain(std::string const &instance_name) const -> bool;
+  auto IsReplica(std::string const &instance_name) const -> bool;
+
   static auto EncodeLogAction(std::string const &instance_name, RaftLogAction log_action) -> ptr<buffer>;
 
   static auto DecodeLog(buffer &data) -> std::pair<std::string, RaftLogAction>;
@@ -67,6 +71,8 @@ class CoordinatorStateMachine : public state_machine {
 
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
+  auto GetInstances() const -> std::vector<std::pair<std::string, std::string>>;
+
  private:
   struct SnapshotCtx {
     SnapshotCtx(ptr<snapshot> &snapshot, CoordinatorClusterState const &cluster_state)
@@ -79,7 +85,9 @@ class CoordinatorStateMachine : public state_machine {
   auto create_snapshot_internal(ptr<snapshot> snapshot) -> void;
 
   CoordinatorClusterState cluster_state_;
-  mutable utils::RWLock lock{utils::RWLock::Priority::READ};
+
+
+  //mutable utils::RWLock lock{utils::RWLock::Priority::READ};
 
   std::atomic<uint64_t> last_committed_idx_{0};
 

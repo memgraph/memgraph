@@ -15,6 +15,16 @@
 
 namespace memgraph::coordination {
 
+auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
+
+auto CoordinatorStateMachine::IsMain(std::string const &instance_name) const -> bool {
+  return cluster_state_.IsMain(instance_name);
+}
+
+auto CoordinatorStateMachine::IsReplica(std::string const &instance_name) const -> bool {
+  return cluster_state_.IsReplica(instance_name);
+}
+
 auto CoordinatorStateMachine::EncodeLogAction(std::string const &name, RaftLogAction log_action) -> ptr<buffer> {
   auto const str_log = [&name, log_action] {
     switch (log_action) {
@@ -23,9 +33,9 @@ auto CoordinatorStateMachine::EncodeLogAction(std::string const &name, RaftLogAc
       case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
         return "unregister_" + name;
       case RaftLogAction::SET_INSTANCE_AS_MAIN:
-        return "set_main_" + name;
+        return "promote_" + name;
       case RaftLogAction::SET_INSTANCE_AS_REPLICA:
-        return "set_replica_" + name;
+        return "demote_" + name;
     }
   }();
 
@@ -37,9 +47,16 @@ auto CoordinatorStateMachine::EncodeLogAction(std::string const &name, RaftLogAc
 
 auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<std::string, RaftLogAction> {
   buffer_serializer bs(data);
+
   auto const log_str = bs.get_str();
-  spdlog::info("Received log in DecodeLog: {}", log_str);
-  return {};
+
+  auto const sep = log_str.find('_');
+  auto const action = log_str.substr(0, sep);
+  auto const name = log_str.substr(sep + 1);
+
+  spdlog::info("Decoding log: {} {}", name, action);
+
+  return {name, ParseRaftLogAction(action)};
 }
 
 auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*data*/) -> ptr<buffer> { return nullptr; }
@@ -51,6 +68,7 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
   auto const [instance_name, log_action] = DecodeLog(data);
   spdlog::info("commit {} : {} {}", log_idx, instance_name, log_action);
   cluster_state_.DoAction(instance_name, log_action);
+  // push_back(ReplicationInstance)
 
   last_committed_idx_ = log_idx;
   return nullptr;
@@ -70,7 +88,7 @@ auto CoordinatorStateMachine::read_logical_snp_obj(snapshot &snapshot, void *& /
 
   ptr<SnapshotCtx> ctx = nullptr;
   {
-    std::lock_guard<std::mutex> ll(snapshots_lock_);
+    auto ll = std::lock_guard{snapshots_lock_};
     auto entry = snapshots_.find(snapshot.get_last_log_idx());
     if (entry == snapshots_.end()) {
       data_out = nullptr;
@@ -93,15 +111,15 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
   auto cluster_state = CoordinatorClusterState::Deserialize(data);
 
   {
-    std::lock_guard<std::mutex> ll(snapshots_lock_);
+    auto ll = std::lock_guard{snapshots_lock_};
     auto entry = snapshots_.find(snapshot.get_last_log_idx());
-    assert(entry != snapshots_.end());
+    DMG_ASSERT(entry != snapshots_.end());
     entry->second->cluster_state_ = cluster_state;
   }
 }
 
 auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
-  std::lock_guard<std::mutex> ll(snapshots_lock_);
+  auto ll = std::lock_guard{snapshots_lock_};
 
   auto entry = snapshots_.find(s.get_last_log_idx());
   if (entry == snapshots_.end()) return false;
@@ -113,7 +131,7 @@ auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
 auto CoordinatorStateMachine::free_user_snp_ctx(void *&user_snp_ctx) -> void {}
 
 auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
-  std::lock_guard<std::mutex> ll(snapshots_lock_);
+  auto ll = std::lock_guard{snapshots_lock_};
   auto entry = snapshots_.rbegin();
   if (entry == snapshots_.rend()) return nullptr;
 
@@ -134,7 +152,7 @@ auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::h
 }
 
 auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -> void {
-  std::lock_guard<std::mutex> ll(snapshots_lock_);
+  auto ll = std::lock_guard{snapshots_lock_};
 
   auto ctx = cs_new<SnapshotCtx>(snapshot, cluster_state_);
   snapshots_[snapshot->get_last_log_idx()] = ctx;
@@ -143,6 +161,10 @@ auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -
   while (snapshots_.size() > MAX_SNAPSHOTS) {
     snapshots_.erase(snapshots_.begin());
   }
+}
+
+auto CoordinatorStateMachine::GetInstances() const -> std::vector<std::pair<std::string, std::string>> {
+  return cluster_state_.GetInstances();
 }
 
 }  // namespace memgraph::coordination

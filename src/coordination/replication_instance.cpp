@@ -25,7 +25,6 @@ ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorC
                                          HealthCheckInstanceCallback succ_instance_cb,
                                          HealthCheckInstanceCallback fail_instance_cb)
     : client_(peer, std::move(config), std::move(succ_cb), std::move(fail_cb)),
-      replication_role_(replication_coordination_glue::ReplicationRole::REPLICA),
       succ_cb_(succ_instance_cb),
       fail_cb_(fail_instance_cb) {
   if (!client_.DemoteToReplica()) {
@@ -55,13 +54,6 @@ auto ReplicationInstance::InstanceName() const -> std::string { return client_.I
 auto ReplicationInstance::SocketAddress() const -> std::string { return client_.SocketAddress(); }
 auto ReplicationInstance::IsAlive() const -> bool { return is_alive_; }
 
-auto ReplicationInstance::IsReplica() const -> bool {
-  return replication_role_ == replication_coordination_glue::ReplicationRole::REPLICA;
-}
-auto ReplicationInstance::IsMain() const -> bool {
-  return replication_role_ == replication_coordination_glue::ReplicationRole::MAIN;
-}
-
 auto ReplicationInstance::PromoteToMain(utils::UUID new_uuid, ReplicationClientsInfo repl_clients_info,
                                         HealthCheckInstanceCallback main_succ_cb,
                                         HealthCheckInstanceCallback main_fail_cb) -> bool {
@@ -69,7 +61,6 @@ auto ReplicationInstance::PromoteToMain(utils::UUID new_uuid, ReplicationClients
     return false;
   }
 
-  replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
   main_uuid_ = new_uuid;
   succ_cb_ = main_succ_cb;
   fail_cb_ = main_fail_cb;
@@ -83,7 +74,6 @@ auto ReplicationInstance::DemoteToReplica(HealthCheckInstanceCallback replica_su
     return false;
   }
 
-  replication_role_ = replication_coordination_glue::ReplicationRole::REPLICA;
   succ_cb_ = replica_succ_cb;
   fail_cb_ = replica_fail_cb;
 

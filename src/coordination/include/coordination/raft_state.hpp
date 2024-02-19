@@ -14,6 +14,8 @@
 #ifdef MG_ENTERPRISE
 
 #include <flags/replication.hpp>
+#include "nuraft/coordinator_state_machine.hpp"
+#include "nuraft/coordinator_state_manager.hpp"
 
 #include <libnuraft/nuraft.hxx>
 
@@ -58,18 +60,22 @@ class RaftState {
   auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
 
+  auto IsMain(std::string const &instance_name) const -> bool;
+  auto IsReplica(std::string const &instance_name) const -> bool;
+
   auto AppendRegisterReplicationInstance(std::string const &instance_name) -> ptr<raft_result>;
   auto AppendUnregisterReplicationInstance(std::string const &instance_name) -> ptr<raft_result>;
   auto AppendSetInstanceAsMain(std::string const &instance_name) -> ptr<raft_result>;
   auto AppendSetInstanceAsReplica(std::string const &instance_name) -> ptr<raft_result>;
 
+ private:
   // TODO: (andi) I think variables below can be abstracted
   uint32_t raft_server_id_;
   uint32_t raft_port_;
   std::string raft_address_;
 
-  ptr<state_machine> state_machine_;
-  ptr<state_mgr> state_manager_;
+  ptr<CoordinatorStateMachine> state_machine_;
+  ptr<CoordinatorStateManager> state_manager_;
   ptr<raft_server> raft_server_;
   ptr<logger> logger_;
   raft_launcher launcher_;

@@ -86,7 +86,6 @@ class ReplicationInstance {
 
  private:
   CoordinatorClient client_;
-  replication_coordination_glue::ReplicationRole replication_role_;
   std::chrono::system_clock::time_point last_response_time_{};
   bool is_alive_{false};
   std::chrono::system_clock::time_point last_check_of_uuid_{};
@@ -102,7 +101,8 @@ class ReplicationInstance {
   HealthCheckInstanceCallback fail_cb_;
 
   friend bool operator==(ReplicationInstance const &first, ReplicationInstance const &second) {
-    return first.client_ == second.client_ && first.replication_role_ == second.replication_role_;
+    return first.client_ == second.client_ && first.last_response_time_ == second.last_response_time_ &&
+           first.is_alive_ == second.is_alive_ && first.main_uuid_ == second.main_uuid_;
   }
 };
 

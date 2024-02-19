@@ -14,8 +14,6 @@
 #include "coordination/raft_state.hpp"
 
 #include "coordination/coordinator_exceptions.hpp"
-#include "nuraft/coordinator_state_machine.hpp"
-#include "nuraft/coordinator_state_manager.hpp"
 #include "utils/counter.hpp"
 
 namespace memgraph::coordination {
@@ -150,6 +148,12 @@ auto RaftState::AppendSetInstanceAsMain(std::string const &instance_name) -> ptr
 auto RaftState::AppendSetInstanceAsReplica(std::string const &instance_name) -> ptr<raft_result> {
   auto new_log = CoordinatorStateMachine::EncodeLogAction(instance_name, RaftLogAction::SET_INSTANCE_AS_REPLICA);
   return raft_server_->append_entries({new_log});
+}
+
+auto RaftState::IsMain(std::string const &instance_name) const -> bool { return state_machine_->IsMain(instance_name); }
+
+auto RaftState::IsReplica(std::string const &instance_name) const -> bool {
+  return state_machine_->IsReplica(instance_name);
 }
 
 }  // namespace memgraph::coordination
