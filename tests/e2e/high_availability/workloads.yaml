@@ -46,7 +46,7 @@ workloads:
 
   - name: "Disable writing on main after restart"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["high_availability_experimental/disable_writing_on_main_after_restart.py"]
+    args: ["high_availability/disable_writing_on_main_after_restart.py"]
 
   - name: "Distributed coordinators"
     binary: "tests/e2e/pytest_runner.sh"

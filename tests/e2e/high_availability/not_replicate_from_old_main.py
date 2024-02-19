@@ -16,7 +16,7 @@ import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import execute_and_fetch_all, safe_execute
+from common import connect, execute_and_fetch_all
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -57,7 +57,7 @@ MEMGRAPH_SECOND_CLUSTER_DESCRIPTION = {
 }
 
 
-def test_replication_works_on_failover(connection):
+def test_replication_works_on_failover():
     # Goal of this test is to check that after changing `shared_replica`
     # to be part of new cluster, `main` (old cluster) can't write any more to it
 
@@ -65,7 +65,7 @@ def test_replication_works_on_failover(connection):
     interactive_mg_runner.start_all_keep_others(MEMGRAPH_FIRST_CLUSTER_DESCRIPTION)
 
     # 2
-    main_cursor = connection(7687, "main1").cursor()
+    main_cursor = connect(host="localhost", port=7687).cursor()
     expected_data_on_main = [
         ("shared_replica", "127.0.0.1:10001", "sync", 0, 0, "ready"),
     ]
@@ -76,7 +76,7 @@ def test_replication_works_on_failover(connection):
     interactive_mg_runner.start_all_keep_others(MEMGRAPH_SECOND_CLUSTER_DESCRIPTION)
 
     # 4
-    new_main_cursor = connection(7690, "main_2").cursor()
+    new_main_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_replicas():
         return sorted(list(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;")))
@@ -88,7 +88,7 @@ def test_replication_works_on_failover(connection):
     mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
 
     # 5
-    shared_replica_cursor = connection(7688, "shared_replica").cursor()
+    shared_replica_cursor = connect(host="localhost", port=7688).cursor()
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE ();")
@@ -112,7 +112,7 @@ def test_replication_works_on_failover(connection):
     interactive_mg_runner.stop_all()
 
 
-def test_not_replicate_old_main_register_new_cluster(connection):
+def test_not_replicate_old_main_register_new_cluster():
     # Goal of this test is to check that although replica is registered in one cluster
     # it can be re-registered to new cluster
     # This flow checks if Registering replica is idempotent and that old main cannot talk to replica
@@ -167,7 +167,7 @@ def test_not_replicate_old_main_register_new_cluster(connection):
 
     # 2
 
-    first_cluster_coord_cursor = connection(7690, "coord_1").cursor()
+    first_cluster_coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def show_repl_cluster():
         return sorted(list(execute_and_fetch_all(first_cluster_coord_cursor, "SHOW INSTANCES;")))
@@ -204,7 +204,7 @@ def test_not_replicate_old_main_register_new_cluster(connection):
     }
 
     interactive_mg_runner.start_all_keep_others(MEMGRAPH_SECOND_COORD_CLUSTER_DESCRIPTION)
-    second_cluster_coord_cursor = connection(7691, "coord_2").cursor()
+    second_cluster_coord_cursor = connect(host="localhost", port=7691).cursor()
     execute_and_fetch_all(
         second_cluster_coord_cursor, "REGISTER INSTANCE shared_instance ON '127.0.0.1:10011' WITH '127.0.0.1:10001';"
     )
@@ -227,21 +227,21 @@ def test_not_replicate_old_main_register_new_cluster(connection):
     mg_sleep_and_assert(expected_data_up_second_cluster, show_repl_cluster)
 
     # 5
-    main_1_cursor = connection(7689, "main_1").cursor()
+    main_1_cursor = connect(host="localhost", port=7689).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_1_cursor, "CREATE ();")
     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
 
-    shared_replica_cursor = connection(7688, "shared_replica").cursor()
+    shared_replica_cursor = connect(host="localhost", port=7688).cursor()
     res = execute_and_fetch_all(shared_replica_cursor, "MATCH (n) RETURN count(n);")[0][0]
     assert res == 0, "Old main should not replicate to 'shared' replica"
 
     # 6
-    main_2_cursor = connection(7687, "main_2").cursor()
+    main_2_cursor = connect(host="localhost", port=7687).cursor()
 
     execute_and_fetch_all(main_2_cursor, "CREATE ();")
 
-    shared_replica_cursor = connection(7688, "shared_replica").cursor()
+    shared_replica_cursor = connect(host="localhost", port=7688).cursor()
     res = execute_and_fetch_all(shared_replica_cursor, "MATCH (n) RETURN count(n);")[0][0]
     assert res == 1, "New main should replicate to 'shared' replica"
 
