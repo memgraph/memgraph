@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,6 +47,7 @@
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
+#include "communication/fmt.hpp"
 #include "dbms/global.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
@@ -212,14 +213,11 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
       session_.Execute();
       DoRead();
     } catch (const SessionClosedException &e) {
-      spdlog::info("{} client {}:{} closed the connection.", service_name_, remote_endpoint_.address(),
-                   remote_endpoint_.port());
+      spdlog::info("{} client {} closed the connection.", service_name_, remote_endpoint_);
       DoClose();
     } catch (const std::exception &e) {
-      spdlog::error(
-          "Exception was thrown while processing event in {} session "
-          "associated with {}:{}",
-          service_name_, remote_endpoint_.address(), remote_endpoint_.port());
+      spdlog::error("Exception was thrown while processing event in {} session associated with {}", service_name_,
+                    remote_endpoint_);
       spdlog::debug("Exception message: {}", e.what());
       DoClose();
     }
@@ -376,8 +374,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       socket.lowest_layer().non_blocking(false);
     });
     timeout_timer_.expires_at(boost::asio::steady_timer::time_point::max());
-    spdlog::info("Accepted a connection from {}: {}:{}", service_name_, remote_endpoint_.address(),
-                 remote_endpoint_.port());
+    spdlog::info("Accepted a connection from {}: {}", service_name_, remote_endpoint_);
   }
 
   void DoRead() {
@@ -437,14 +434,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       session_.Execute();
       DoRead();
     } catch (const SessionClosedException &e) {
-      spdlog::info("{} client {}:{} closed the connection.", service_name_, remote_endpoint_.address(),
-                   remote_endpoint_.port());
+      spdlog::info("{} client {} closed the connection.", service_name_, remote_endpoint_);
       DoShutdown();
     } catch (const std::exception &e) {
-      spdlog::error(
-          "Exception was thrown while processing event in {} session "
-          "associated with {}:{}",
-          service_name_, remote_endpoint_.address(), remote_endpoint_.port());
+      spdlog::error("Exception was thrown while processing event in {} session associated with {}", service_name_,
+                    remote_endpoint_);
       spdlog::debug("Exception message: {}", e.what());
       DoShutdown();
     }

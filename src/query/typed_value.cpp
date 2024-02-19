@@ -19,6 +19,7 @@
 #include <string_view>
 #include <utility>
 
+#include "query/fmt.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
@@ -326,13 +327,11 @@ TypedValue::operator storage::PropertyValue() const {
       throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
     return field;                                                                                \
   }                                                                                              \
-                                                                                                 \
   const type_param &TypedValue::Value##type_enum() const {                                       \
     if (type_ != Type::type_enum) [[unlikely]]                                                   \
       throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
     return field;                                                                                \
   }                                                                                              \
-                                                                                                 \
   bool TypedValue::Is##type_enum() const { return type_ == Type::type_enum; }
 
 DEFINE_VALUE_AND_TYPE_GETTERS(bool, Bool, bool_v)
@@ -783,10 +782,13 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
         return false;
     }
   };
-  if (!is_legal(a.type()) || !is_legal(b.type()))
+  if (!is_legal(a.type()) || !is_legal(b.type())) {
     throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+  }
 
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsNull() || b.IsNull()) {
+    return TypedValue(a.GetMemoryResource());
+  }
 
   if (a.IsString() || b.IsString()) {
     if (a.type() != b.type()) {
@@ -956,8 +958,9 @@ inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, boo
   // checked here because they are handled before this check is performed in
   // arithmetic op implementations.
 
-  if (!is_legal(a) || !is_legal(b))
+  if (!is_legal(a) || !is_legal(b)) {
     throw TypedValueException("Invalid {} operand types {}, {}", op_name, a.type(), b.type());
+  }
 }
 
 namespace {
@@ -1107,8 +1110,9 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b) {
 }
 
 inline void EnsureLogicallyOk(const TypedValue &a, const TypedValue &b, const std::string &op_name) {
-  if (!((a.IsBool() || a.IsNull()) && (b.IsBool() || b.IsNull())))
+  if (!((a.IsBool() || a.IsNull()) && (b.IsBool() || b.IsNull()))) {
     throw TypedValueException("Invalid {} operand types({} && {})", op_name, a.type(), b.type());
+  }
 }
 
 TypedValue operator&&(const TypedValue &a, const TypedValue &b) {

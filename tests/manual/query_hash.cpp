@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include <gflags/gflags.h>
 
 #include "query/frontend/stripped.hpp"
+#include "storage/v2/fmt.hpp"
 
 DEFINE_string(q, "CREATE (n) RETURN n", "Query");
 
