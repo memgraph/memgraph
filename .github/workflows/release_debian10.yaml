@@ -115,7 +115,7 @@ jobs:
       - name: Save code coverage
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Coverage build)-$OS"
+          name: "Code coverage(Coverage build)-${{ env.OS }}"
           path: tools/github/generated/code_coverage.tar.gz
 
   debug_build:
@@ -169,7 +169,7 @@ jobs:
       - name: Save cppcheck and clang-format errors
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Debug build)-$OS"
+          name: "Code coverage(Debug build)-${{ env.OS }}"
           path: tools/github/cppcheck_and_clang_format.txt
 
   debug_integration_test:
@@ -246,7 +246,7 @@ jobs:
       - name: Save enterprise DEB package
         uses: actions/upload-artifact@v4
         with:
-          name: "Enterprise DEB package-$OS"
+          name: "Enterprise DEB package-${{ env.OS}}"
           path: build/output/memgraph*.deb
 
       - name: Run GQL Behave tests
@@ -259,7 +259,7 @@ jobs:
       - name: Save quality assurance status
         uses: actions/upload-artifact@v4
         with:
-          name: "GQL Behave Status-$OS"
+          name: "GQL Behave Status-${{ env.OS }}"
           path: |
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
@@ -459,5 +459,5 @@ jobs:
         uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: "Jepsen Report-$OS"
+          name: "Jepsen Report-${{ env.OS }}"
           path: tests/jepsen/Jepsen.tar.gz
