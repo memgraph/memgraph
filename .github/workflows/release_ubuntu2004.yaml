@@ -4,12 +4,9 @@ on:
   workflow_call:
     inputs:
       build_type:
-        type: choice
+        type: string
         description: "Memgraph Build type. Default value is Release."
         default: 'Release'
-        options:
-          - Release
-          - RelWithDebInfo
   workflow_dispatch:
     inputs:
       build_type:

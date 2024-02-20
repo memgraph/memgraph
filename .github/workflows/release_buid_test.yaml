@@ -135,7 +135,7 @@ jobs:
 
   PushToS3:
     if: github.ref_type == 'tag'
-    needs: [PackageDebian11, PackageDebian11_ARM, PackageUbuntu20_04, PackageUbuntu20_04_ARM]
+    needs: [PackageDebian10, PackageDebian11, PackageDebian11_ARM, PackageUbuntu20_04, PackageUbuntu20_04_ARM]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
