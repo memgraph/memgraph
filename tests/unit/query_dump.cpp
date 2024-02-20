@@ -110,6 +110,10 @@ bool operator<(const DatabaseState::LabelPropertyItem &first, const DatabaseStat
   return first.property < second.property;
 }
 
+bool operator<(const DatabaseState::TextItem &first, const DatabaseState::TextItem &second) {
+  return first.index_name < second.index_name && first.label < second.label;
+}
+
 bool operator<(const DatabaseState::LabelPropertiesItem &first, const DatabaseState::LabelPropertiesItem &second) {
   if (first.label != second.label) return first.label < second.label;
   return first.properties < second.properties;
@@ -130,6 +134,10 @@ bool operator==(const DatabaseState::LabelItem &first, const DatabaseState::Labe
 
 bool operator==(const DatabaseState::LabelPropertyItem &first, const DatabaseState::LabelPropertyItem &second) {
   return first.label == second.label && first.property == second.property;
+}
+
+bool operator==(const DatabaseState::TextItem &first, const DatabaseState::TextItem &second) {
+  return first.index_name == second.index_name && first.label == second.label;
 }
 
 bool operator==(const DatabaseState::LabelPropertiesItem &first, const DatabaseState::LabelPropertiesItem &second) {
@@ -198,8 +206,8 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     for (const auto &item : info.label_property) {
       label_property_indices.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
     }
-    for (const auto &item : info.text) {
-      text_indices.insert({item.first, dba->PropertyToName(item.second)});
+    for (const auto &item : info.text_indices) {
+      text_indices.insert({item.first, dba->LabelToName(item.second)});
     }
   }
 
