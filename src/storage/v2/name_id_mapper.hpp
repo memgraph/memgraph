@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -81,6 +81,18 @@ class NameIdMapper {
       id_to_name_acc.insert({id, std::string(name)});
     }
     return id;
+  }
+
+  /// This method unlike NameToId does not insert the new property id if not found
+  /// but just returns either std::nullopt or the value of the property id if it
+  /// finds it.
+  virtual std::optional<uint64_t> NameToIdIfExists(const std::string_view name) {
+    auto name_to_id_acc = name_to_id_.access();
+    auto found = name_to_id_acc.find(name);
+    if (found == name_to_id_acc.end()) {
+      return std::nullopt;
+    }
+    return found->id;
   }
 
   // NOTE: Currently this function returns a `const std::string &` instead of a

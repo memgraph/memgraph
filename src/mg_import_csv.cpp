@@ -139,6 +139,11 @@ struct NodeId {
   std::string id_space;
 };
 
+#if FMT_VERSION > 90000
+template <>
+class fmt::formatter<NodeId> : public fmt::ostream_formatter {};
+#endif
+
 bool operator==(const NodeId &a, const NodeId &b) { return a.id == b.id && a.id_space == b.id_space; }
 
 std::ostream &operator<<(std::ostream &stream, const NodeId &node_id) {

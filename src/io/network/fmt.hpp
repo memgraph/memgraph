@@ -11,12 +11,11 @@
 
 #pragma once
 
-namespace memgraph::coordination {
+#if FMT_VERSION > 90000
+#include <fmt/ostream.h>
 
-#ifdef MG_EXPERIMENTAL_HIGH_AVAILABILITY
-constexpr bool allow_ha = true;
-#else
-constexpr bool allow_ha = false;
+#include "io/network/endpoint.hpp"
+
+template <>
+class fmt::formatter<memgraph::io::network::Endpoint> : public fmt::ostream_formatter {};
 #endif
-
-}  // namespace memgraph::coordination

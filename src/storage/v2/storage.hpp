@@ -274,6 +274,10 @@ class Storage {
 
     PropertyId NameToProperty(std::string_view name) { return storage_->NameToProperty(name); }
 
+    std::optional<PropertyId> NameToPropertyIfExists(std::string_view name) const {
+      return storage_->NameToPropertyIfExists(name);
+    }
+
     EdgeTypeId NameToEdgeType(std::string_view name) { return storage_->NameToEdgeType(name); }
 
     StorageMode GetCreationStorageMode() const noexcept;
@@ -344,6 +348,14 @@ class Storage {
 
   PropertyId NameToProperty(const std::string_view name) const {
     return PropertyId::FromUint(name_id_mapper_->NameToId(name));
+  }
+
+  std::optional<PropertyId> NameToPropertyIfExists(std::string_view name) const {
+    const auto id = name_id_mapper_->NameToIdIfExists(name);
+    if (!id) {
+      return std::nullopt;
+    }
+    return PropertyId::FromUint(*id);
   }
 
   EdgeTypeId NameToEdgeType(const std::string_view name) const {
