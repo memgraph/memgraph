@@ -47,7 +47,7 @@ jobs:
 
   PackageDebian10:
     # if: github.ref_type == 'tag'
-    needs: [Debian10]
+    # needs: [Debian10]
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -66,7 +66,7 @@ jobs:
 
   PackageUbuntu20_04:
     # if: github.ref_type == 'tag'
-    needs: [Ubuntu20_04]
+    # needs: [Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -85,7 +85,7 @@ jobs:
 
   PackageUbuntu20_04_ARM:
     # if: github.ref_type == 'tag'
-    needs: [Ubuntu20_04]
+    # needs: [Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
     timeout-minutes: 120
     steps:
@@ -104,7 +104,7 @@ jobs:
 
   PackageDebian11:
     # if: github.ref_type == 'tag'
-    needs: [Debian10, Ubuntu20_04]
+    # needs: [Debian10, Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -123,7 +123,7 @@ jobs:
 
   PackageDebian11_ARM:
     # if: github.ref_type == 'tag'
-    needs: [Debian10, Ubuntu20_04]
+    # needs: [Debian10, Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
     timeout-minutes: 120
     steps:
