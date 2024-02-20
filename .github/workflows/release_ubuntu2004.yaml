@@ -1,9 +1,15 @@
 name: Release Ubuntu 20.04
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
-  cancel-in-progress: true
 
 on:
+  workflow_call:
+    inputs:
+      build_type:
+        type: choice
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
+        options:
+          - Release
+          - RelWithDebInfo
   workflow_dispatch:
     inputs:
       build_type:
@@ -13,14 +19,6 @@ on:
         options:
           - Release
           - RelWithDebInfo
-  push:
-    branches:
-      - "release/**"
-    tags:
-      - "v*.*.*-rc*"
-      - "v*.*-rc*"
-  schedule:
-    - cron: "0 22 * * *"
 
 env:
   THREADS: 24
