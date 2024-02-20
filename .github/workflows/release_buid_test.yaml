@@ -13,8 +13,9 @@ on:
         options:
           - Release
           - RelWithDebInfo
+  # Remove this line begore merge
+  pull_request:
   push:
-    pull_request:
     branches:
       - "release/**"
     tags:
