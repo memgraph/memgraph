@@ -38,7 +38,7 @@ jobs:
     secrets: inherit
 
   Ubuntu20_04:
-    uses: ./.github/workflows/release_debian2004.yaml
+    uses: ./.github/workflows/release_ubuntu2004.yaml
     with:
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
