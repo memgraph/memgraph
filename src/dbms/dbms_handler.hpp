@@ -155,26 +155,39 @@ class DbmsHandler {
     spdlog::debug("Trying to create db '{}' on replica which already exists.", config.name);
 
     auto db = Get_(config.name);
+    spdlog::debug("Aligning database with name {} which has UUID {}, where config UUID is {}", config.name,
+                  std::string(db->uuid()), std::string(config.uuid));
     if (db->uuid() == config.uuid) {  // Same db
       return db;
     }
 
     spdlog::debug("Different UUIDs");
 
+    // This case can happen in following scenarios:
+    // 1. INSTANCE was down and set --data-recover-on-startup=false so we have DB which are created as new
+    // For replication to work --recover-replication-on-startup must be true
+    // Instance can only make progress if not coordinator managed
     // TODO: Fix this hack
     if (config.name == kDefaultDB) {
+      // If we have replication cluster, for REPLICAs which where down we
+      spdlog::debug("Last commit timestamp for DB {} is {}", kDefaultDB,
+                    db->storage()->repl_storage_state_.last_commit_timestamp_);
+      // This seems correct, if database made progress
       if (db->storage()->repl_storage_state_.last_commit_timestamp_ != storage::kTimestampInitialId) {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
         return NewError::GENERIC;  // Update error
       }
-      spdlog::debug("Update default db's UUID");
+      spdlog::debug("Updated default db's UUID");
       // Default db cannot be deleted and remade, have to just update the UUID
       db->storage()->config_.salient.uuid = config.uuid;
       UpdateDurability(db->storage()->config_, ".");
       return db;
     }
 
-    spdlog::debug("Drop database and recreate with the correct UUID");
+    // TODO AF: In case of MT we might not have any issue at all?
+    // we will have issues if they set --data-recovery-on-startup=true if it fails and comes back up but was ahead
+
+    spdlog::debug("Dropping database and recreating with the correct UUID");
     // Defer drop
     (void)Delete_(db->name());
     // Second attempt

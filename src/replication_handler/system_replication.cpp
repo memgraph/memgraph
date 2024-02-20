@@ -91,6 +91,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   /*
    * SUCCESSFUL RECOVERY
    */
+  // TODO AF: what to do with LastCommittedTS
   system_state_access.SetLastCommitedTS(req.forced_group_timestamp);
   spdlog::debug("SystemRecoveryHandler: SUCCESS updated LCTS to {}", req.forced_group_timestamp);
   res = SystemRecoveryRes(SystemRecoveryRes::Result::SUCCESS);

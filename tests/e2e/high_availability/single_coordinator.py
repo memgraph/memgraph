@@ -37,6 +37,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10011",
+            "--replication-restore-state-on-startup",
+            "true",
         ],
         "log_file": "instance_1.log",
         "data_directory": f"{TEMP_DIR}/instance_1",
@@ -51,6 +53,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10012",
+            "--replication-restore-state-on-startup",
+            "true",
         ],
         "log_file": "instance_2.log",
         "data_directory": f"{TEMP_DIR}/instance_2",
@@ -65,6 +69,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10013",
+            "--replication-restore-state-on-startup",
+            "true",
         ],
         "log_file": "instance_3.log",
         "data_directory": f"{TEMP_DIR}/instance_3",
@@ -90,7 +96,184 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
-def test_replication_works_on_failover():
+@pytest.mark.parametrize("data_recovery", ["false", "true"])
+def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recovery):
+    # TODO: Test should succeed on both --data-recovery-on-startup=true and --data-recovery-on-startup=false
+    # Goal of this test is to check the replication works after failover command.
+    # 1. We start all replicas, main and coordinator manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
+    # 2. We check that main has correct state
+    # 3. Create initial data on MAIN
+    # 4. Expect data to be copied on all replicas
+    # 5. Kill instance_1 (replica 1)
+    # 6. Create data on MAIN and expect to be copied to only one replica (instance_2)
+    # 7. Kill main
+    # 8. Instance_2 new MAIN
+    # 9. Create vertex on instance 2
+    # 10. Start instance_1 ( it should have one commit on old epoch and new epoch with new commit shouldn't be replicated)
+    # 11. Expect data to be copied on instance_1
+    # 12. Start old MAIN (instance_3)
+    # 13. Expect data to be copied to instance_3
+
+    temp_dir = tempfile.TemporaryDirectory().name
+
+    # TODO use append and deep copy of dict
+    MEMGRAPH_INNER_INSTANCES_DESCRIPTION = {
+        "instance_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10011",
+                "--replication-restore-state-on-startup",
+                "true",
+                f"--data-recovery-on-startup={data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_1.log",
+            "data_directory": f"{temp_dir}/instance_1",
+            "setup_queries": [],
+        },
+        "instance_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7689",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10012",
+                "--replication-restore-state-on-startup",
+                "true",
+                f"--data-recovery-on-startup={data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_2.log",
+            "data_directory": f"{temp_dir}/instance_2",
+            "setup_queries": [],
+        },
+        "instance_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10013",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                f"{data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_3.log",
+            "data_directory": f"{temp_dir}/instance_3",
+            "setup_queries": [],
+        },
+        "coordinator": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--raft-server-id=1",
+                "--raft-server-port=10111",
+            ],
+            "log_file": "coordinator.log",
+            "setup_queries": [
+                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
+                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
+                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
+                "SET INSTANCE instance_3 TO MAIN",
+            ],
+        },
+    }
+
+    # 1
+    interactive_mg_runner.start_all(MEMGRAPH_INNER_INSTANCES_DESCRIPTION)
+
+    # 2
+    main_cursor = connect(host="localhost", port=7687).cursor()
+    expected_data_on_main = [
+        ("instance_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+    ]
+    actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+    assert actual_data_on_main == expected_data_on_main
+
+    # 3
+    execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:1});")
+
+    # 4
+
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+    instance_2_cursor = connect(host="localhost", port=7689).cursor()
+
+    assert execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0] == 1
+    assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 1
+
+    # 5
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
+
+    # 6.
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:2});")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+
+    # 7. Kill main
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
+
+    # 8.
+    coord_cursor = connect(host="localhost", port=7690).cursor()
+
+    def retrieve_data_show_instances():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", True, "main"),
+        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 9. Create vertex on instance 2
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(instance_2_cursor, "CREATE (:Epoch3 {prop:3});")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    # 10. Start instance_1 ( it should have one commit on old epoch and new epoch with new commit shouldn't be replicated)
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
+
+    new_expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "", "127.0.0.1:10012", True, "main"),
+        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
+    ]
+    mg_sleep_and_assert(new_expected_data_on_coord, retrieve_data_show_instances)
+
+    # 11. Expect data to be copied on instance_1
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(3, get_vertex_count)
+
+    # 12. Start old MAIN (instance_3)
+
+    # 13. Expect data to be copied to instance_3
+
+
+def test_replication_works_on_failover_simple():
     # Goal of this test is to check the replication works after failover command.
     # 1. We start all replicas, main and coordinator manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 2. We check that main has correct state
@@ -98,6 +281,8 @@ def test_replication_works_on_failover():
     # 4. We check that coordinator and new main have correct state
     # 5. We insert one vertex on new main
     # 6. We check that vertex appears on new replica
+    # 7. We bring back main up
+    # 8. Expect data to be copied to main
     safe_execute(shutil.rmtree, TEMP_DIR)
 
     # 1
@@ -191,6 +376,17 @@ def test_replication_works_on_failover():
     res = execute_and_fetch_all(alive_replica_cursror, "MATCH (n) RETURN count(n) as count;")[0][0]
     assert res == 1, "Vertex should be replicated"
     interactive_mg_runner.stop_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    # 7
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+
+    # 8
+    alive_main = connect(host="localhost", port=7687).cursor()
+
+    def retrieve_vertices_count():
+        return execute_and_fetch_all(alive_main, "MATCH (n) RETURN count(n) as count;")[0][0]
+
+    mg_sleep_and_assert(1, retrieve_vertices_count)
 
 
 def test_replication_works_on_replica_instance_restart():

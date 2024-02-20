@@ -54,6 +54,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 
   std::optional<uint64_t> branching_point;
   // different epoch id, replica was main
+  // In case there is no epoch transfer, and MAIN doesn't hold all the epochs as it could have been down and miss it
+  // we need then just to check commit timestamp
   if (replica.epoch_id != replStorageState.epoch_.id() && replica.current_commit_timestamp != kTimestampInitialId) {
     auto const &history = replStorageState.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
@@ -62,7 +64,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     // main didn't have that epoch, but why is here branching point
     if (epoch_info_iter == history.crend()) {
       branching_point = 0;
-    } else if (epoch_info_iter->second != replica.current_commit_timestamp) {
+    } else if (epoch_info_iter->second < replica.current_commit_timestamp) {
       branching_point = epoch_info_iter->second;
     }
   }
@@ -192,9 +194,6 @@ void ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
   }
 }
 
-//////// AF: you can't finialize transaction replication if you are not replicating
-/////// AF: if there is no stream or it is Defunct than we need to set replica in MAYBE_BEHIND -> is that even used
-/////// AF:
 bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc) {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption

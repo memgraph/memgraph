@@ -311,7 +311,7 @@ int main(int argc, char **argv) {
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
 
       .durability = {.storage_directory = FLAGS_data_directory,
-                     .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
+                     .recover_on_startup = FLAGS_data_recovery_on_startup,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
@@ -334,7 +334,8 @@ int main(int argc, char **argv) {
       .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
                         .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
       .salient.storage_mode = memgraph::flags::ParseStorageMode()};
-
+  spdlog::info("config recover on startup {}, flags {} {}", db_config.durability.recover_on_startup,
+               FLAGS_storage_recover_on_startup, FLAGS_data_recovery_on_startup);
   memgraph::utils::Scheduler jemalloc_purge_scheduler;
   jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
                                [] { memgraph::memory::PurgeUnusedMemory(); });
