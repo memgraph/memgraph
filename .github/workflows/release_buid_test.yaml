@@ -14,9 +14,8 @@ on:
           - Release
           - RelWithDebInfo
   push:
+    pull_request:
     branches:
-      # Remove this line before merge
-      - "push-to-s3-on-rc"
       - "release/**"
     tags:
       - "v*.*.*-rc*"
@@ -44,6 +43,7 @@ jobs:
     secrets: inherit
 
   PackageDebian10:
+    if: github.ref_type == 'tag'
     needs: [Debian10]
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
@@ -62,6 +62,7 @@ jobs:
           path: build/output/debian-10/memgraph*.deb
 
   PackageUbuntu20_04:
+    if: github.ref_type == 'tag'
     needs: [Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
@@ -80,6 +81,7 @@ jobs:
           path: build/output/ubuntu-22.04/memgraph*.deb
 
   PackageUbuntu20_04_ARM:
+    if: github.ref_type == 'tag'
     needs: [Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
     timeout-minutes: 120
@@ -98,6 +100,7 @@ jobs:
           path: build/output/ubuntu-22.04-arm/memgraph*.deb
 
   PackageDebian11:
+    if: github.ref_type == 'tag'
     needs: [Debian10, Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
@@ -116,6 +119,7 @@ jobs:
           path: build/output/debian-11/memgraph*.deb
 
   PackageDebian11_ARM:
+    if: github.ref_type == 'tag'
     needs: [Debian10, Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
     timeout-minutes: 120
