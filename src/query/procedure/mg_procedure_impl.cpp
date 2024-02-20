@@ -3360,20 +3360,19 @@ mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int
 }
 
 mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memory *memory) {
-  auto maybe_vertex = std::visit([graph, id](auto *impl) { return impl->FindVertex(id, graph->view); }, graph->impl);
-  if (maybe_vertex) {
-    return std::visit(memgraph::utils::Overloaded{
-                          [memory, graph, maybe_vertex](memgraph::query::DbAccessor *) {
-                            return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
-                          },
-                          [memory, graph, maybe_vertex](memgraph::query::SubgraphDbAccessor *impl) {
-                            return NewRawMgpObject<mgp_vertex>(
-                                memory, memgraph::query::SubgraphVertexAccessor(*maybe_vertex, impl->getGraph()),
-                                graph);
-                          }},
-                      graph->impl);
-  }
-  return nullptr;
+  auto get_vertex_by_gid = memgraph::utils::Overloaded{
+      [graph, id, memory](memgraph::query::DbAccessor *impl) -> mgp_vertex * {
+        auto maybe_vertex = impl->FindVertex(id, graph->view);
+        if (!maybe_vertex) return nullptr;
+        return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
+      },
+      [graph, id, memory](memgraph::query::SubgraphDbAccessor *impl) -> mgp_vertex * {
+        auto maybe_vertex = impl->FindVertex(id, graph->view);
+        if (!maybe_vertex) return nullptr;
+        return NewRawMgpObject<mgp_vertex>(
+            memory, memgraph::query::SubgraphVertexAccessor(*maybe_vertex, impl->getGraph()), graph);
+      }};
+  return std::visit(get_vertex_by_gid, graph->impl);
 }
 
 void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
