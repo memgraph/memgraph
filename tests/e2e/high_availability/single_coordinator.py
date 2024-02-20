@@ -37,8 +37,9 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10011",
-            "--replication-restore-state-on-startup",
-            "true",
+            "--replication-restore-state-on-startup=true",
+            "--storage-recover-on-startup=false",
+            "--data-recovery-on-startup=false",
         ],
         "log_file": "instance_1.log",
         "data_directory": f"{TEMP_DIR}/instance_1",
@@ -53,8 +54,9 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10012",
-            "--replication-restore-state-on-startup",
-            "true",
+            "--replication-restore-state-on-startup=true",
+            "--storage-recover-on-startup=false",
+            "--data-recovery-on-startup=false",
         ],
         "log_file": "instance_2.log",
         "data_directory": f"{TEMP_DIR}/instance_2",
@@ -69,8 +71,9 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10013",
-            "--replication-restore-state-on-startup",
-            "true",
+            "--replication-restore-state-on-startup=true",
+            "--storage-recover-on-startup=false",
+            "--data-recovery-on-startup=false",
         ],
         "log_file": "instance_3.log",
         "data_directory": f"{TEMP_DIR}/instance_3",
@@ -98,7 +101,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 
 @pytest.mark.parametrize("data_recovery", ["false", "true"])
 def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recovery):
-    # TODO: Test should succeed on both --data-recovery-on-startup=true and --data-recovery-on-startup=false
     # Goal of this test is to check the replication works after failover command.
     # 1. We start all replicas, main and coordinator manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 2. We check that main has correct state
@@ -116,7 +118,6 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
 
     temp_dir = tempfile.TemporaryDirectory().name
 
-    # TODO use append and deep copy of dict
     MEMGRAPH_INNER_INSTANCES_DESCRIPTION = {
         "instance_1": {
             "args": [
@@ -273,6 +274,49 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     # 13. Expect data to be copied to instance_3
 
 
+@pytest.mark.parametrize("data_recovery", ["false", "true"])
+def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_recovery):
+    # Goal of this test is to check the replication works after failover command if one instance missed
+    # couple of epochs but data is still available on one of the instances
+
+    # 1. We start all replicas, main and coordinator manually
+    # 2. Main does commit
+    # 3. instance_2 down
+    # 4. Instance_1 new main
+    # 5. Instance 1 commits
+    # 6. Instance 1 dies
+    # 7. Instance 4 new main
+    # 8 Instance 4 commits
+    # 9. Instance 2 wakes up
+    # 10. All other instances wake up
+    # 11. Everything is replicated
+
+    pass
+
+
+@pytest.mark.parametrize("data_recovery", ["false"])
+def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_recovery):
+    # Goal of this test is to check the replication works forcefully if replica misses epoch
+    # 1. We start all replicas, main and coordinator manually
+    # 2. We check that main has correct state
+    # 3. Create initial data on MAIN
+    # 4. Expect data to be copied on all replicas
+    # 5. Kill instance_1 ( this one will miss complete epoch)
+    # 6. Kill main (instance_3)
+    # 7. Instance_2 or instance_4 new main
+    # 8. New main commits
+    # 9. Instance_2 down (not main)
+    # 10. instance_4 down
+    # 11. Instance 1 up (missed epoch)
+    # 12 Instance 1 new main
+    # 13 instance 2 up
+    # 14 Force data from instance 1 to instance 2 (TODO) next PR
+
+    temp_dir = tempfile.TemporaryDirectory().name
+
+    pass
+
+
 def test_replication_works_on_failover_simple():
     # Goal of this test is to check the replication works after failover command.
     # 1. We start all replicas, main and coordinator manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
@@ -349,7 +393,24 @@ def test_replication_works_on_failover_simple():
     ]
     mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
+
+    # 5
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(new_main_cursor, "CREATE ();")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    # 6
+    alive_replica_cursor = connect(host="localhost", port=7689).cursor()
+    res = execute_and_fetch_all(alive_replica_cursor, "MATCH (n) RETURN count(n) as count;")[0][0]
+    assert res == 1, "Vertex should be replicated"
+
+    # 7
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;")))
+
+    new_main_cursor = connect(host="localhost", port=7688).cursor()
+
     expected_data_on_new_main = [
         (
             "instance_2",
@@ -366,19 +427,7 @@ def test_replication_works_on_failover_simple():
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
-    mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
-
-    # 5
-    execute_and_fetch_all(new_main_cursor, "CREATE ();")
-
-    # 6
-    alive_replica_cursror = connect(host="localhost", port=7689).cursor()
-    res = execute_and_fetch_all(alive_replica_cursror, "MATCH (n) RETURN count(n) as count;")[0][0]
-    assert res == 1, "Vertex should be replicated"
-    interactive_mg_runner.stop_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-
-    # 7
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+    mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
 
     # 8
     alive_main = connect(host="localhost", port=7687).cursor()
