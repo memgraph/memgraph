@@ -2,7 +2,6 @@
 BasedOnStyle: Google
 ---
 Language:     Cpp
-Standard:     "c++20"
 UseTab:       Never
 DerivePointerAlignment: false
 PointerAlignment: Right

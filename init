@@ -120,7 +120,7 @@ fi
 # develop on them -> pre-commit hook not required -> we can use latest
 # packages.
 if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ] && [ "${DISTRO}" != "amzn-2" ]; then
-  python3 -m pip install pre-commit
+  python3 -m pip install pre-commit==3.6.*
   python3 -m pre_commit install
   # Install py format tools for usage during the development.
   echo "Install black formatter"
