@@ -160,7 +160,11 @@ struct Delta {
   // Because of this object was created in past txs, we create timestamp by ourselves inside instead of having it from
   // current tx. This timestamp we got from RocksDB timestamp stored in key.
   Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, std::optional<std::string> old_disk_key)
-      : timestamp(new std::atomic<uint64_t>(ts)), command_id(0), old_disk_key{.value = std::move(old_disk_key)} {}
+      : timestamp(new std::atomic<uint64_t>(ts)),
+        command_id(0),
+        old_disk_key{
+            // .value = std::move(old_disk_key)
+        } {}
 
   Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), action(Action::DELETE_OBJECT) {}
@@ -222,7 +226,7 @@ struct Delta {
       case Action::REMOVE_OUT_EDGE:
         break;
       case Action::DELETE_DESERIALIZED_OBJECT:
-        old_disk_key.value.reset();
+        // old_disk_key.value.reset();
         delete timestamp;
         timestamp = nullptr;
         break;
@@ -242,7 +246,7 @@ struct Delta {
     Action action;
     struct {
       Action action = Action::DELETE_DESERIALIZED_OBJECT;
-      std::optional<std::string> value;
+      // std::optional<std::string> value;
     } old_disk_key;
     struct {
       Action action;
