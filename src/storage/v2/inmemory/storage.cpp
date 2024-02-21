@@ -315,11 +315,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   }
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
+  if (from_vertex->deleted()) return Error::DELETED_OBJECT;
 
   if (to_vertex != from_vertex) {
     if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
+    if (to_vertex->deleted()) return Error::DELETED_OBJECT;
   }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
@@ -404,11 +404,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   }
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
+  if (from_vertex->deleted()) return Error::DELETED_OBJECT;
 
   if (to_vertex != from_vertex) {
     if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
+    if (to_vertex->deleted()) return Error::DELETED_OBJECT;
   }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
@@ -482,7 +482,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
 
     if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
 
-    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
+    if (edge_ptr->deleted()) return Error::DELETED_OBJECT;
   }
 
   std::unique_lock<utils::RWSpinLock> guard_old_from(old_from_vertex->lock, std::defer_lock);
@@ -508,14 +508,14 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
   }
 
   if (!PrepareForWrite(&transaction_, old_from_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!old_from_vertex->deleted, "Invalid database state!");
+  MG_ASSERT(!old_from_vertex->deleted(), "Invalid database state!");
 
   if (!PrepareForWrite(&transaction_, new_from_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!new_from_vertex->deleted, "Invalid database state!");
+  MG_ASSERT(!new_from_vertex->deleted(), "Invalid database state!");
 
   if (to_vertex != old_from_vertex && to_vertex != new_from_vertex) {
     if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
+    MG_ASSERT(!to_vertex->deleted(), "Invalid database state!");
   }
 
   auto delete_edge_from_storage = [&edge_type, &edge_ref, this](auto *vertex, auto *edges) {
@@ -587,7 +587,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
 
     if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
 
-    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
+    if (edge_ptr->deleted()) return Error::DELETED_OBJECT;
   }
 
   std::unique_lock<utils::RWSpinLock> guard_from(from_vertex->lock, std::defer_lock);
@@ -613,14 +613,14 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
   }
 
   if (!PrepareForWrite(&transaction_, old_to_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!old_to_vertex->deleted, "Invalid database state!");
+  MG_ASSERT(!old_to_vertex->deleted(), "Invalid database state!");
 
   if (!PrepareForWrite(&transaction_, new_to_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!new_to_vertex->deleted, "Invalid database state!");
+  MG_ASSERT(!new_to_vertex->deleted(), "Invalid database state!");
 
   if (from_vertex != old_to_vertex && from_vertex != new_to_vertex) {
     if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-    MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
+    MG_ASSERT(!from_vertex->deleted(), "Invalid database state!");
   }
 
   auto delete_edge_from_storage = [&edge_type, &edge_ref, this](auto *vertex, auto *edges) {
@@ -684,7 +684,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
     guard = std::unique_lock{edge_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
-    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
+    if (edge_ptr->deleted()) return Error::DELETED_OBJECT;
   }
 
   auto *from_vertex = edge->from_vertex_;
@@ -705,10 +705,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
   }
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
+  MG_ASSERT(!from_vertex->deleted(), "Invalid database state!");
 
   if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
+  MG_ASSERT(!to_vertex->deleted(), "Invalid database state!");
 
   auto change_edge_type_in_storage = [&edge_type, &edge_ref, &new_edge_type, this](auto *vertex, auto *edges) {
     std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
@@ -901,8 +901,8 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
         case PreviousPtr::Type::VERTEX: {
           // safe because no other txn can be reading this while we have engine lock
           auto &vertex = *prev.vertex;
-          vertex.delta = nullptr;
-          if (vertex.deleted) {
+          vertex.delta(nullptr);
+          if (vertex.deleted()) {
             DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
             current_deleted_vertices.push_back(vertex.gid);
           }
@@ -911,8 +911,8 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
         case PreviousPtr::Type::EDGE: {
           // safe because no other txn can be reading this while we have engine lock
           auto &edge = *prev.edge;
-          edge.delta = nullptr;
-          if (edge.deleted) {
+          edge.delta(nullptr);
+          if (edge.deleted()) {
             DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
             current_deleted_edges.push_back(edge.gid);
           }
@@ -1006,7 +1006,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         case PreviousPtr::Type::VERTEX: {
           auto *vertex = prev.vertex;
           auto guard = std::unique_lock{vertex->lock};
-          Delta *current = vertex->delta;
+          Delta *current = vertex->delta();
           while (current != nullptr &&
                  current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
             switch (current->action) {
@@ -1103,18 +1103,18 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
               case Delta::Action::DELETE_OBJECT: {
-                vertex->deleted = true;
+                vertex->deleted(true);
                 my_deleted_vertices.push_back(vertex->gid);
                 break;
               }
               case Delta::Action::RECREATE_OBJECT: {
-                vertex->deleted = false;
+                vertex->deleted(false);
                 break;
               }
             }
             current = current->next.load(std::memory_order_acquire);
           }
-          vertex->delta = current;
+          vertex->delta(current);
           if (current != nullptr) {
             current->prev.Set(vertex);
           }
@@ -1124,7 +1124,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         case PreviousPtr::Type::EDGE: {
           auto *edge = prev.edge;
           auto guard = std::lock_guard{edge->lock};
-          Delta *current = edge->delta;
+          Delta *current = edge->delta();
           while (current != nullptr &&
                  current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
             switch (current->action) {
@@ -1134,12 +1134,12 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
               case Delta::Action::DELETE_OBJECT: {
-                edge->deleted = true;
+                edge->deleted(true);
                 my_deleted_edges.push_back(edge->gid);
                 break;
               }
               case Delta::Action::RECREATE_OBJECT: {
-                edge->deleted = false;
+                edge->deleted(false);
                 break;
               }
               case Delta::Action::REMOVE_LABEL:
@@ -1154,7 +1154,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             }
             current = current->next.load(std::memory_order_acquire);
           }
-          edge->delta = current;
+          edge->delta(current);
           if (current != nullptr) {
             current->prev.Set(edge);
           }
@@ -1572,13 +1572,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           case PreviousPtr::Type::VERTEX: {
             Vertex *vertex = prev.vertex;
             auto vertex_guard = std::unique_lock{vertex->lock};
-            if (vertex->delta != &delta) {
+            if (vertex->delta() != &delta) {
               // Something changed, we're not the first delta in the chain
               // anymore.
               continue;
             }
-            vertex->delta = nullptr;
-            if (vertex->deleted) {
+            vertex->delta(nullptr);
+            if (vertex->deleted()) {
               DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
               current_deleted_vertices.push_back(vertex->gid);
             }
@@ -1587,13 +1587,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           case PreviousPtr::Type::EDGE: {
             Edge *edge = prev.edge;
             auto edge_guard = std::unique_lock{edge->lock};
-            if (edge->delta != &delta) {
+            if (edge->delta() != &delta) {
               // Something changed, we're not the first delta in the chain
               // anymore.
               continue;
             }
-            edge->delta = nullptr;
-            if (edge->deleted) {
+            edge->delta(nullptr);
+            if (edge->deleted()) {
               DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
               current_deleted_edges.push_back(edge->gid);
             }
@@ -1729,14 +1729,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions
   // TODO: implement a fast internal iteration inside the skip_list (to avoid unnecessary find_node calls),
-  //  accessor.remove_if([](auto const & item){ return item.delta == nullptr && item.deleted;});
+  //  accessor.remove_if([](auto const & item){ return item.delta == nullptr && item.deleted();});
   //  alternatively, an auxiliary data structure within skip_list to track these, hence a full scan wouldn't be needed
   //  we will wait for evidence that this is needed before doing so.
   if (need_full_scan_vertices) {
     auto vertex_acc = vertices_.access();
     for (auto &vertex : vertex_acc) {
       // a deleted vertex which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
-      if (vertex.delta == nullptr && vertex.deleted) {
+      if (vertex.delta() == nullptr && vertex.deleted()) {
         vertex_acc.remove(vertex);
       }
     }
@@ -1747,7 +1747,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto edge_acc = edges_.access();
     for (auto &edge : edge_acc) {
       // a deleted edge which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
-      if (edge.delta == nullptr && edge.deleted) {
+      if (edge.delta() == nullptr && edge.deleted()) {
         edge_acc.remove(edge);
       }
     }

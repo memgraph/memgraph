@@ -40,8 +40,8 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex->lock};
-    deleted = vertex->deleted;
-    delta = vertex->delta;
+    deleted = vertex->deleted();
+    delta = vertex->delta();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -105,7 +105,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
+  if (vertex_->deleted()) return Error::DELETED_OBJECT;
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
   utils::AtomicMemoryBlock atomic_memory_block{[transaction = transaction_, vertex = vertex_, &label]() {
@@ -135,7 +135,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
+  if (vertex_->deleted()) return Error::DELETED_OBJECT;
 
   auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
   if (it == vertex_->labels.end()) return false;
@@ -162,9 +162,9 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex_->lock};
-    deleted = vertex_->deleted;
+    deleted = vertex_->deleted();
     has_label = std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end();
-    delta = vertex_->delta;
+    delta = vertex_->delta();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -209,9 +209,9 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex_->lock};
-    deleted = vertex_->deleted;
+    deleted = vertex_->deleted();
     labels = vertex_->labels;
-    delta = vertex_->delta;
+    delta = vertex_->delta();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -259,7 +259,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
+  if (vertex_->deleted()) return Error::DELETED_OBJECT;
 
   auto current_value = vertex_->properties.GetProperty(property);
   // We could skip setting the value if the previous one is the same to the new
@@ -297,7 +297,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
+  if (vertex_->deleted()) return Error::DELETED_OBJECT;
   bool result{false};
   utils::AtomicMemoryBlock atomic_memory_block{
       [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_]() {
@@ -333,7 +333,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
+  if (vertex_->deleted()) return Error::DELETED_OBJECT;
 
   using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
@@ -367,7 +367,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
-  if (vertex_->deleted) return Error::DELETED_OBJECT;
+  if (vertex_->deleted()) return Error::DELETED_OBJECT;
 
   using ReturnType = decltype(vertex_->properties.Properties());
   std::optional<ReturnType> properties;
@@ -397,9 +397,9 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex_->lock};
-    deleted = vertex_->deleted;
+    deleted = vertex_->deleted();
     value = vertex_->properties.GetProperty(property);
-    delta = vertex_->delta;
+    delta = vertex_->delta();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -441,7 +441,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view) const {
   {
     auto guard = std::shared_lock{vertex_->lock};
-    Delta *delta = vertex_->delta;
+    Delta *delta = vertex_->delta();
     if (!delta) {
       return vertex_->properties.PropertySize(property);
     }
@@ -465,9 +465,9 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex_->lock};
-    deleted = vertex_->deleted;
+    deleted = vertex_->deleted();
     properties = vertex_->properties.Properties();
-    delta = vertex_->delta;
+    delta = vertex_->delta();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -585,7 +585,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   int64_t expanded_count = 0;
   {
     auto guard = std::shared_lock{vertex_->lock};
-    deleted = vertex_->deleted;
+    deleted = vertex_->deleted();
     expanded_count = static_cast<int64_t>(vertex_->in_edges.size());
     // TODO: a better filter copy
     if (edge_types.empty() && !destination) {
@@ -598,7 +598,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
         in_edges.emplace_back(edge_type, from_vertex, edge);
       }
     }
-    delta = vertex_->delta;
+    delta = vertex_->delta();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -675,7 +675,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   int64_t expanded_count = 0;
   {
     auto guard = std::shared_lock{vertex_->lock};
-    deleted = vertex_->deleted;
+    deleted = vertex_->deleted();
     expanded_count = static_cast<int64_t>(vertex_->out_edges.size());
     if (edge_types.empty() && !destination) {
       out_edges = vertex_->out_edges;
@@ -687,7 +687,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
         out_edges.emplace_back(edge_type, to_vertex, edge);
       }
     }
-    delta = vertex_->delta;
+    delta = vertex_->delta();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -749,9 +749,9 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex_->lock};
-    deleted = vertex_->deleted;
+    deleted = vertex_->deleted();
     degree = vertex_->in_edges.size();
-    delta = vertex_->delta;
+    delta = vertex_->delta();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -805,9 +805,9 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex_->lock};
-    deleted = vertex_->deleted;
+    deleted = vertex_->deleted();
     degree = vertex_->out_edges.size();
-    delta = vertex_->delta;
+    delta = vertex_->delta();
   }
 
   // Checking cache has a cost, only do it if we have any deltas

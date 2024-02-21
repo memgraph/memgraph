@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,7 +58,7 @@ void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::strin
 
 [[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::ValidateVertexOnConstraint(
     const Vertex &vertex, const LabelId &label, const PropertyId &property) {
-  if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
+  if (!vertex.deleted() && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
     return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
   }
   return std::nullopt;
