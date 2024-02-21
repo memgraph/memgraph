@@ -21,6 +21,7 @@ on:
       - "v*.*.*-rc*"
       - "v*.*-rc*"
   schedule:
+    # UTC
     - cron: "0 22 * * *"
 
 env:
@@ -84,7 +85,8 @@ jobs:
     if: github.ref_type == 'tag'
     needs: [Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
-    timeout-minutes: 120
+    # M1 Mac mini is sometimes slower
+    timeout-minutes: 90
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v4
@@ -122,7 +124,8 @@ jobs:
     if: github.ref_type == 'tag'
     needs: [Debian10, Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
-    timeout-minutes: 120
+    # M1 Mac mini is sometimes slower
+    timeout-minutes: 90
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v4
