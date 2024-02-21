@@ -1,9 +1,12 @@
 name: Release Ubuntu 20.04
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
-  cancel-in-progress: true
 
 on:
+  workflow_call:
+    inputs:
+      build_type:
+        type: string
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
   workflow_dispatch:
     inputs:
       build_type:
@@ -13,16 +16,9 @@ on:
         options:
           - Release
           - RelWithDebInfo
-  push:
-    branches:
-      - "release/**"
-    tags:
-      - "v*.*.*-rc*"
-      - "v*.*-rc*"
-  schedule:
-    - cron: "0 22 * * *"
 
 env:
+  OS: "Ubuntu 20.04"
   THREADS: 24
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
@@ -115,7 +111,7 @@ jobs:
       - name: Save code coverage
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Coverage build)"
+          name: "Code coverage(Coverage build)-${{ env.OS }}"
           path: tools/github/generated/code_coverage.tar.gz
 
   debug_build:
@@ -169,7 +165,7 @@ jobs:
       - name: Save cppcheck and clang-format errors
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Debug build)"
+          name: "Code coverage(Debug build)-${{ env.OS }}"
           path: tools/github/cppcheck_and_clang_format.txt
 
   debug_integration_test:
@@ -246,7 +242,7 @@ jobs:
       - name: Save enterprise DEB package
         uses: actions/upload-artifact@v4
         with:
-          name: "Enterprise DEB package"
+          name: "Enterprise DEB package-${{ env.OS }}"
           path: build/output/memgraph*.deb
 
       - name: Run GQL Behave tests
@@ -259,7 +255,7 @@ jobs:
       - name: Save quality assurance status
         uses: actions/upload-artifact@v4
         with:
-          name: "GQL Behave Status"
+          name: "GQL Behave Status-${{ env.OS }}"
           path: |
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
