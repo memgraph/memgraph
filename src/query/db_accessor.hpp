@@ -576,9 +576,7 @@ class DbAccessor final {
 
   void TextIndexAddVertex(const VertexAccessor &vertex) { accessor_->TextIndexAddVertex(vertex.impl_); }
 
-  void TextIndexUpdateVertex(const VertexAccessor &vertex) { accessor_->TextIndexUpdateVertex(vertex.impl_); }
-
-  void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<storage::LabelId> &removed_labels) {
+  void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<storage::LabelId> &removed_labels = {}) {
     accessor_->TextIndexUpdateVertex(vertex.impl_, removed_labels);
   }
 

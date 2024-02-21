@@ -43,11 +43,6 @@ class TextIndex {
 
   void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
 
-  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper,
-               const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
-
-  void RemoveNode(Vertex *vertex, const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
-
  public:
   TextIndex() = default;
 
@@ -61,11 +56,13 @@ class TextIndex {
   std::map<std::string, TextIndexData> index_;
   std::map<LabelId, std::string> label_to_index_;
 
-  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper);
+  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper,
+               std::optional<std::vector<mgcxx::text_search::Context *>> applicable_text_indices = std::nullopt);
 
   void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper, const std::vector<LabelId> &removed_labels = {});
 
-  void RemoveNode(Vertex *vertex);
+  void RemoveNode(Vertex *vertex,
+                  std::optional<std::vector<mgcxx::text_search::Context *>> applicable_text_indices = std::nullopt);
 
   void CreateIndex(const std::string &index_name, LabelId label, memgraph::query::DbAccessor *db);
 

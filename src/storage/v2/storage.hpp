@@ -236,11 +236,7 @@ class Storage {
       storage_->indices_.text_index_.AddNode(vertex.vertex_, storage_->name_id_mapper_.get());
     }
 
-    void TextIndexUpdateVertex(const VertexAccessor &vertex) {
-      storage_->indices_.text_index_.UpdateNode(vertex.vertex_, storage_->name_id_mapper_.get());
-    }
-
-    void TextIndexUpdateVertex(const VertexAccessor &vertex, std::vector<LabelId> removed_labels) {
+    void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<LabelId> &removed_labels = {}) {
       storage_->indices_.text_index_.UpdateNode(vertex.vertex_, storage_->name_id_mapper_.get(), removed_labels);
     }
 
