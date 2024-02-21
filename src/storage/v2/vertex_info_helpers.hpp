@@ -144,8 +144,8 @@ inline auto Properties_ActionMethod(std::map<PropertyId, PropertyValue> &propert
 }
 
 template <EdgeDirection dir>
-inline auto Edges_ActionMethod(std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges,
-                               std::vector<EdgeTypeId> const &edge_types, Vertex const *destination) {
+inline auto Edges_ActionMethod(TcoVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges,
+                               TcoVector<EdgeTypeId> const &edge_types, Vertex const *destination) {
   auto const predicate = [&, destination](Delta const &delta) {
     if (destination && delta.vertex_edge.vertex != destination) return false;
     if (!edge_types.empty() &&
