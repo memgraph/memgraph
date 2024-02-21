@@ -189,7 +189,7 @@ add_custom_target(clean_all
 # is easier debugging of compilation and linker flags.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # c99-designator is disabled because of required mixture of designated and
 # non-designated initializers in Python Query Module code (`py_module.cpp`).
@@ -211,8 +211,13 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 # ** Static linking is allowed only for executables! **
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
-# Use lld linker to speedup build
-add_link_options(-fuse-ld=lld) # TODO: use mold linker
+# Use lld linker to speedup build and use less memory.
+add_link_options(-fuse-ld=lld)
+# NOTE: Moving to latest Clang (probably starting from 15), lld stopped to work
+# without explicit link_directories call.
+string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
+separate_arguments(LD_LIBS)
+link_directories(${LD_LIBS})
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
