@@ -357,8 +357,8 @@ void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operati
                                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
   // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2) -> text index name not sent here
-  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, "", label, properties, stats, property_stats,
-                  timestamp);
+  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, std::nullopt, label, properties, stats,
+                  property_stats, timestamp);
 }
 
 replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }

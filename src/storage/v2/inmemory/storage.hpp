@@ -389,12 +389,14 @@ class InMemoryStorage final : public Storage {
                                  const std::set<PropertyId> &properties, LabelPropertyIndexStats property_stats,
                                  uint64_t final_commit_timestamp);
   /// Return true in all cases except if any sync replicas have not sent confirmation.
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, const std::string &text_index_name,
-                                 LabelId label, const std::set<PropertyId> &properties, LabelIndexStats stats,
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
+                                 const std::optional<std::string> text_index_name, LabelId label,
+                                 const std::set<PropertyId> &properties, LabelIndexStats stats,
                                  LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp);
   /// Return true in all cases except if any sync replicas have not sent confirmation.
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, const std::string &index_name,
-                                 LabelId label, uint64_t final_commit_timestamp);
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
+                                 const std::optional<std::string> text_index_name, LabelId label,
+                                 uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 

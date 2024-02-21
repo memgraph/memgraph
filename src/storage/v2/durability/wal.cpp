@@ -680,8 +680,9 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
 }
 
 void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
-                     const std::string &text_index_name, LabelId label, const std::set<PropertyId> &properties,
-                     const LabelIndexStats &stats, const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
+                     const std::optional<std::string> text_index_name, LabelId label,
+                     const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   switch (operation) {
@@ -734,8 +735,9 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
     }
     case StorageMetadataOperation::TEXT_INDEX_CREATE:
     case StorageMetadataOperation::TEXT_INDEX_DROP: {
+      MG_ASSERT(text_index_name.has_value(), "Text indices must be named!");
       encoder->WriteMarker(OperationToMarker(operation));
-      encoder->WriteString(text_index_name);
+      encoder->WriteString(text_index_name.value());
       encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
       break;
     }
@@ -1131,8 +1133,8 @@ void WalFile::AppendTransactionEnd(uint64_t timestamp) {
   UpdateStats(timestamp);
 }
 
-void WalFile::AppendOperation(StorageMetadataOperation operation, const std::string &text_index_name, LabelId label,
-                              const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+void WalFile::AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
+                              LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                               const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
   EncodeOperation(&wal_, name_id_mapper_, operation, text_index_name, label, properties, stats, property_stats,
                   timestamp);

@@ -214,8 +214,9 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
 /// Function used to encode non-transactional operation.
 void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
-                     const std::string &text_index_name, LabelId label, const std::set<PropertyId> &properties,
-                     const LabelIndexStats &stats, const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
+                     const std::optional<std::string> text_index_name, LabelId label,
+                     const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
@@ -246,8 +247,8 @@ class WalFile {
 
   void AppendTransactionEnd(uint64_t timestamp);
 
-  void AppendOperation(StorageMetadataOperation operation, const std::string &text_index_name, LabelId label,
-                       const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+  void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
+                       LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                        const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
   void Sync();
