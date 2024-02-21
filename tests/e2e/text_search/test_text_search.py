@@ -119,20 +119,29 @@ def test_update_text_property_of_indexed_node(memgraph_with_text_indexed_data):
     assert len(result) == 1 and result == [{"title": "Rules2030", "version": 1}]
 
 
-def test_add_non_text_property_to_indexed_node(memgraph_with_text_indexed_data):
-    memgraph_with_text_indexed_data.execute("""MATCH (n:Document {version:1}) SET n.randomList = [2, 3, 4, 5];""")
+def test_add_unindexable_dexable_property_to_indexed_node(memgraph_with_text_indexed_data):
+    try:
+        memgraph_with_text_indexed_data.execute("""MATCH (n:Document {version:1}) SET n.randomList = [2, 3, 4, 5];""")
+    except Exception:
+        assert False
 
 
 def test_remove_indexable_property_from_indexed_node(memgraph_with_text_indexed_data):
-    memgraph_with_text_indexed_data.execute(
-        """MATCH (n:Document {version:1}) REMOVE n.title, n.version, n.fulltext, n.date;"""
-    )
+    try:
+        memgraph_with_text_indexed_data.execute(
+            """MATCH (n:Document {version:1}) REMOVE n.title, n.version, n.fulltext, n.date;"""
+        )
+    except Exception:
+        assert False
 
 
-def test_remove_non_text_property_from_indexed_node(memgraph_with_text_indexed_data):
-    memgraph_with_text_indexed_data.execute_and_fetch(
-        """MATCH (n:Document {date: date("2023-12-15")}) REMOVE n.date;"""
-    )
+def test_remove_unindexable_dexable_property_from_indexed_node(memgraph_with_text_indexed_data):
+    try:
+        memgraph_with_text_indexed_data.execute_and_fetch(
+            """MATCH (n:Document {date: date("2023-12-15")}) REMOVE n.date;"""
+        )
+    except Exception:
+        assert False
 
 
 def test_text_search_nonexistent_index(memgraph_with_text_indexed_data):
