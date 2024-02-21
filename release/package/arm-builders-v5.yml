@@ -5,7 +5,13 @@ services:
     build:
       context: debian-11-arm
     container_name: "mgbuild_debian-11-arm"
-  ubuntu-2204-arm:
+
+  debian-12-arm:
+    build:
+      context: debian-12-arm
+    container_name: "mgbuild_debian-12-arm"
+
+  ubuntu-22.04-arm:
     build:
       context: ubuntu-22.04-arm
     container_name: "mgbuild_ubuntu-22.04-arm"
