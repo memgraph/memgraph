@@ -22,8 +22,6 @@ class DbAccessor;
 }
 
 namespace memgraph::storage {
-constexpr bool kDoSkipCommit = true;
-
 struct TextIndexData {
   mgcxx::text_search::Context context_;
   LabelId scope_;
@@ -31,6 +29,8 @@ struct TextIndexData {
 
 class TextIndex {
  private:
+  static constexpr bool kDoSkipCommit = true;
+
   void CreateEmptyIndex(const std::string &index_name, LabelId label);
 
   template <typename T>
