@@ -306,6 +306,4 @@ std::vector<std::pair<std::string, LabelId>> TextIndex::ListIndices() const {
   return ret;
 }
 
-std::uint64_t TextIndex::ApproximateVertexCount(const std::string &index_name) const { return 10; }
-
 }  // namespace memgraph::storage

@@ -15,8 +15,6 @@
 #include <tuple>
 #include <utility>
 
-#include <fmt/format.h>
-
 #include "query/exceptions.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -28,11 +26,12 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
-#include "text_search.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/variant_helpers.hpp"
+
+#include <fmt/format.h>
 
 namespace memgraph::storage {
 

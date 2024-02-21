@@ -83,8 +83,6 @@ class TextIndex {
   void Rollback();
 
   std::vector<std::pair<std::string, LabelId>> ListIndices() const;
-
-  std::uint64_t ApproximateVertexCount(const std::string &index_name) const;
 };
 
 }  // namespace memgraph::storage
