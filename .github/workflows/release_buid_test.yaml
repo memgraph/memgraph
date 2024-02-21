@@ -13,8 +13,7 @@ on:
         options:
           - Release
           - RelWithDebInfo
-  # Remove this line begore merge
-  pull_request:
+
   push:
     branches:
       - "release/**"
@@ -32,22 +31,20 @@ env:
 
 jobs:
   Debian10:
-    if: false
     uses: ./.github/workflows/release_debian10.yaml
     with:
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
 
   Ubuntu20_04:
-    if: false
     uses: ./.github/workflows/release_ubuntu2004.yaml
     with:
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
 
   PackageDebian10:
-    # if: github.ref_type == 'tag'
-    # needs: [Debian10]
+    if: github.ref_type == 'tag'
+    needs: [Debian10]
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -65,8 +62,8 @@ jobs:
           path: build/output/debian-10/memgraph*.deb
 
   PackageUbuntu20_04:
-    # if: github.ref_type == 'tag'
-    # needs: [Ubuntu20_04]
+    if: github.ref_type == 'tag'
+    needs: [Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -84,8 +81,8 @@ jobs:
           path: build/output/ubuntu-22.04/memgraph*.deb
 
   PackageUbuntu20_04_ARM:
-    # if: github.ref_type == 'tag'
-    # needs: [Ubuntu20_04]
+    if: github.ref_type == 'tag'
+    needs: [Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
     timeout-minutes: 120
     steps:
@@ -103,8 +100,8 @@ jobs:
           path: build/output/ubuntu-22.04-arm/memgraph*.deb
 
   PackageDebian11:
-    # if: github.ref_type == 'tag'
-    # needs: [Debian10, Ubuntu20_04]
+    if: github.ref_type == 'tag'
+    needs: [Debian10, Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -122,8 +119,8 @@ jobs:
           path: build/output/debian-11/memgraph*.deb
 
   PackageDebian11_ARM:
-    # if: github.ref_type == 'tag'
-    # needs: [Debian10, Ubuntu20_04]
+    if: github.ref_type == 'tag'
+    needs: [Debian10, Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
     timeout-minutes: 120
     steps:
@@ -141,7 +138,7 @@ jobs:
           path: build/output/debian-11-arm/memgraph*.deb
 
   PushToS3:
-    # if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag'
     needs: [PackageDebian10, PackageDebian11, PackageDebian11_ARM, PackageUbuntu20_04, PackageUbuntu20_04_ARM]
     runs-on: ubuntu-latest
     steps:
@@ -159,5 +156,4 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
           SOURCE_DIR: "build/output/release"
-          DEST_DIR: "memgraph-unofficial/dev-test/"
-          # DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
+          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
