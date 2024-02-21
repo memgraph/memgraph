@@ -2,9 +2,13 @@
 set -Eeuo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+SUPPORTED_TOOLCHAINS=(
+    v4 v5
+)
+
 SUPPORTED_OS=(
     centos-7 centos-9
-    debian-10 debian-11 debian-11-arm
+    debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
     fedora-36
     amzn-2
@@ -20,25 +24,26 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 # TODO(gitbuda): Toolchain is now specific for a given OS -> ADJUST:
 #   * under init, toolchain version is passed to docker compose -> consider having arch + toolchain version as a folder structure
 #   * for a give OS latest possible toolchain should be picked -> there is only one toolchain per OS possible
-TOOLCHAIN_VERSION="toolchain-v4"
-ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
-    # TODO(gitbuda): Update the release/package/run.sh help
-    echo "$0 init|package|docker|test {os} {build_type} [--for-docker|--for-platform]"
+    echo "$0 init {toolchain _version} | docker | build {toolchain _version} {os} | package {toolchain _version} {os} {build_type} [--for-docker|--for-platform]"
     echo ""
+    echo "    Toolchain versions: ${SUPPORTED_TOOLCHAINS[*]}"
     echo "    OSs: ${SUPPORTED_OS[*]}"
     echo "    Build types: ${SUPPORTED_BUILD_TYPES[*]}"
     exit 1
 }
 
 make_package () {
-    os="$1"
-    build_type="$2"
+    toolchain_version="$1"
+    os="$2"
+    build_type="$3"
 
-    build_container="mgbuild_$os"
+    build_container="mgbuild_${toolchain_version}_${os}"
     echo "Building Memgraph for $os on $build_container..."
+
+    local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
 
     package_command=""
     if [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"fedora".* ]] || [[ "$os" =~ ^"amzn".* ]]; then
@@ -54,10 +59,10 @@ make_package () {
         package_command=" cpack -G DEB --config ../CPackConfig.cmake "
     fi
     telemetry_id_override_flag=""
-    if [[ "$#" -gt 2 ]]; then
-        if [[ "$3" == "--for-docker" ]]; then
+    if [[ "$#" -gt 3 ]]; then
+        if [[ "$4" == "--for-docker" ]]; then
             telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER "
-        elif [[ "$3" == "--for-platform" ]]; then
+        elif [[ "$4" == "--for-platform" ]]; then
             telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM"
         else
           print_help
@@ -126,14 +131,20 @@ make_package () {
 
 case "$1" in
     init)
+        shift 1
+        if [[ "$#" -lt 1 ]]; then
+            print_help
+        fi
+        toolchain_version="$1"
         cd "$SCRIPT_DIR"
         if ! which "docker-compose" >/dev/null; then
             docker_compose_cmd="docker compose"
         else
             docker_compose_cmd="docker-compose"
         fi
-        $docker_compose_cmd build --build-arg TOOLCHAIN_VERSION="${TOOLCHAIN_VERSION}"
-        $docker_compose_cmd up -d
+        $docker_compose_cmd -f docker-compose-${toolchain_version}.yml up -d --build
+        # $docker_compose_cmd build --build-arg TOOLCHAIN_VERSION="${TOOLCHAIN_VERSION}"
+        # $docker_compose_cmd up -d
     ;;
 
     docker)
@@ -155,11 +166,12 @@ case "$1" in
 
     package)
         shift 1
-        if [[ "$#" -lt 2 ]]; then
+        if [[ "$#" -lt 3 ]]; then
             print_help
         fi
-        os="$1"
-        build_type="$2"
+        toolchain_version="$1"
+        os="$2"
+        build_type="$3"
         shift 2
         is_os_ok=false
         for supported_os in "${SUPPORTED_OS[@]}"; do
@@ -176,7 +188,7 @@ case "$1" in
             fi
         done
         if [[ "$is_os_ok" == true && "$is_build_type_ok" == true ]]; then
-            make_package "$os" "$build_type" "$@"
+            make_package "$toolchain_version" "$os" "$build_type" "$@"
         else
             if [[ "$is_os_ok" == false ]]; then
                 echo "Unsupported OS: $os"
@@ -197,7 +209,7 @@ case "$1" in
       # a name of the os folder, e.g. ubuntu-22.04-arm
       os="$2"
       cd "$SCRIPT_DIR/$os"
-      docker build -f Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" -t "memgraph/memgraph-builder:${toolchain_version}_$os" .
+      docker build -f Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" -t "memgraph/memgraph-builder:v${toolchain_version}_$os" .
     ;;
 
     test)
