@@ -205,6 +205,7 @@ import_external_library(rocksdb STATIC
   -DGFLAGS_NOTHREADS=OFF
   -DCMAKE_INSTALL_LIBDIR=lib
   -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+  -DPORTABLE=1
   BUILD_COMMAND $(MAKE) rocksdb)
 
 # Setup libbcrypt

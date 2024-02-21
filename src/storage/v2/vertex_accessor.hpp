@@ -27,7 +27,7 @@ class Storage;
 struct Constraints;
 struct Indices;
 struct EdgesVertexAccessorResult;
-using edge_store = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
+using edge_store = TcoVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
 
 class VertexAccessor final {
  private:

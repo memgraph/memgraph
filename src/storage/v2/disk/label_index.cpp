@@ -80,7 +80,7 @@ std::unique_ptr<rocksdb::Transaction> DiskLabelIndex::CreateAllReadingRocksDBTra
 bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_t commit_timestamp) const {
   auto disk_transaction = CreateRocksDBTransaction();
 
-  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
     if (!disk_transaction->Delete(maybe_old_disk_key.value()).ok()) {
       return false;
     }

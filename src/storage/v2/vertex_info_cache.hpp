@@ -13,6 +13,7 @@
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/tco_vector.hpp"
 #include "storage/v2/view.hpp"
 
 #include "absl/container/flat_hash_map.h"
@@ -86,7 +87,7 @@ struct VertexInfoCache final {
 
   void Invalidate(Vertex const *vertex, PropertyId property_key);
 
-  using EdgeStore = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
+  using EdgeStore = TcoVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
 
   auto GetInEdges(View view, Vertex const *src_vertex, Vertex const *dst_vertex,
                   const std::vector<EdgeTypeId> &edge_types) const -> detail::optref<const EdgeStore>;

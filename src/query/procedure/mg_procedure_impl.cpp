@@ -335,7 +335,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
 }
 }  // namespace
 
-bool IsDeleted(const mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex_->deleted; }
+bool IsDeleted(const mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex_->deleted(); }
 
 bool IsDeleted(const mgp_edge *edge) { return edge->impl.IsDeleted(); }
 

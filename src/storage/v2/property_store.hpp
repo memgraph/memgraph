@@ -48,7 +48,7 @@ class PropertyStore {
   /// Returns the size of the encoded property in bytes.
   /// Returns 0 if the property does not exist.
   /// The time complexity of this function is O(n).
-  uint64_t PropertySize(PropertyId property) const;
+  uint32_t PropertySize(PropertyId property) const;
 
   /// Checks whether the property `property` exists in the store. The time
   /// complexity of this function is O(n).
@@ -119,7 +119,8 @@ class PropertyStore {
   template <typename TContainer>
   bool DoInitProperties(const TContainer &properties);
 
-  uint8_t buffer_[sizeof(uint64_t) + sizeof(uint8_t *)];
+  // uint8_t buffer_[sizeof(uint64_t) + sizeof(uint8_t *)];
+  uint8_t buffer_[sizeof(uint32_t) + sizeof(uint8_t *)];
 };
 
 }  // namespace memgraph::storage

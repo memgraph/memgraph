@@ -82,7 +82,7 @@ namespace {
 //         ++   -> size of property ID (2 bits)
 //           ++ -> size of payload OR size of payload size indicator (2 bits)
 //
-// When encoding integers (`int64_t` and `uint64_t`) they are compressed so that
+// When encoding integers (`int64_t` and `uint32_t`) they are compressed so that
 // they are stored into 1, 2, 4 or 8 bytes depending on their value.
 //
 // The size of the metadata field is very important because it is encoded with
@@ -97,7 +97,7 @@ enum class Size : uint8_t {
   INT64 = 0x03,
 };
 
-uint64_t SizeToByteSize(Size size) {
+uint32_t SizeToByteSize(Size size) {
   switch (size) {
     case Size::INT8:
       return 1;
@@ -149,13 +149,13 @@ const uint8_t kShiftIdSize = 2;
 //     - encoded value
 //   * STRING
 //     - type; payload size is used to indicate whether the string size is
-//       encoded as `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t`
+//       encoded as `uint8_t`, `uint16_t`, `uint32_t` or `uint32_t`
 //     - encoded property ID
 //     - encoded string size
 //     - string data
 //   * LIST
 //     - type; payload size is used to indicate whether the list size is encoded
-//       as `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t`
+//       as `uint8_t`, `uint16_t`, `uint32_t` or `uint32_t`
 //     - encoded property ID
 //     - encoded list size
 //     - list items
@@ -165,12 +165,12 @@ const uint8_t kShiftIdSize = 2;
 //       + encoded item data
 //   * MAP
 //     - type; payload size is used to indicate whether the map size is encoded
-//       as `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t`
+//       as `uint8_t`, `uint16_t`, `uint32_t` or `uint32_t`
 //     - encoded property ID
 //     - encoded map size
 //     - map items
 //       + type; id size is used to indicate whether the key size is encoded as
-//         `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t`; payload size is used
+//         `uint8_t`, `uint16_t`, `uint32_t` or `uint32_t`; payload size is used
 //         as described above for the inner payload type
 //       + encoded key size
 //       + encoded key data
@@ -181,9 +181,9 @@ const uint8_t kShiftIdSize = 2;
 //     - encoded property ID
 //     - value saved as Metadata
 //       + type; id size is used to indicate whether the temporal data type is encoded
-//         as `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t`; payload size used to
+//         as `uint8_t`, `uint16_t`, `uint32_t` or `uint32_t`; payload size used to
 //         indicate whether the microseconds are encoded as `uint8_t`, `uint16_t, `uint32_t
-//         or `uint64_t`
+//         or `uint32_t`
 //       + encoded temporal data type value
 //       + encoded microseconds value
 //   * ZONED_TEMPORAL_DATA
@@ -244,7 +244,7 @@ class Writer {
 
   Writer() = default;
 
-  Writer(uint8_t *data, uint64_t size) : data_(data), size_(size) {}
+  Writer(uint8_t *data, uint32_t size) : data_(data), size_(size) {}
 
   std::optional<MetadataHandle> WriteMetadata() {
     if (data_ && pos_ + 1 > size_) return std::nullopt;
@@ -293,12 +293,12 @@ class Writer {
     return true;
   }
 
-  bool WriteBytes(const char *data, uint64_t size) {
+  bool WriteBytes(const char *data, uint32_t size) {
     static_assert(std::is_same_v<uint8_t, unsigned char>);
     return WriteBytes(reinterpret_cast<const uint8_t *>(data), size);
   }
 
-  uint64_t Written() const { return pos_; }
+  uint32_t Written() const { return pos_; }
 
  private:
   template <typename T, typename V>
@@ -315,14 +315,14 @@ class Writer {
   }
 
   uint8_t *data_{nullptr};
-  uint64_t size_{0};
-  uint64_t pos_{0};
+  uint32_t size_{0};
+  uint32_t pos_{0};
 };
 
 // Helper class used to read data from the binary stream.
 class Reader {
  public:
-  Reader(const uint8_t *data, uint64_t size) : data_(data), size_(size), pos_(0) {}
+  Reader(const uint8_t *data, uint32_t size) : data_(data), size_(size), pos_(0) {}
 
   std::optional<Metadata> ReadMetadata() {
     if (pos_ + 1 > size_) return std::nullopt;
@@ -420,33 +420,33 @@ class Reader {
     return std::nullopt;
   }
 
-  bool ReadBytes(uint8_t *data, uint64_t size) {
+  bool ReadBytes(uint8_t *data, uint32_t size) {
     if (pos_ + size > size_) return false;
     memcpy(data, data_ + pos_, size);
     pos_ += size;
     return true;
   }
 
-  bool ReadBytes(char *data, uint64_t size) { return ReadBytes(reinterpret_cast<uint8_t *>(data), size); }
+  bool ReadBytes(char *data, uint32_t size) { return ReadBytes(reinterpret_cast<uint8_t *>(data), size); }
 
-  bool VerifyBytes(const uint8_t *data, uint64_t size) {
+  bool VerifyBytes(const uint8_t *data, uint32_t size) {
     if (pos_ + size > size_) return false;
     if (memcmp(data, data_ + pos_, size) != 0) return false;
     pos_ += size;
     return true;
   }
 
-  bool VerifyBytes(const char *data, uint64_t size) {
+  bool VerifyBytes(const char *data, uint32_t size) {
     return VerifyBytes(reinterpret_cast<const uint8_t *>(data), size);
   }
 
-  bool SkipBytes(uint64_t size) {
+  bool SkipBytes(uint32_t size) {
     if (pos_ + size > size_) return false;
     pos_ += size;
     return true;
   }
 
-  uint64_t GetPosition() const { return pos_; }
+  uint32_t GetPosition() const { return pos_; }
 
  private:
   template <typename T>
@@ -459,8 +459,8 @@ class Reader {
   }
 
   const uint8_t *data_;
-  uint64_t size_;
-  uint64_t pos_;
+  uint32_t size_;
+  uint32_t pos_;
 };
 
 // Function used to encode a PropertyValue into a byte stream.
@@ -582,8 +582,8 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader) {
   return TemporalData{static_cast<TemporalType>(*type_value), *microseconds_value};
 }
 
-std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
-  uint64_t temporal_data_size = 0;
+std::optional<uint32_t> DecodeTemporalDataSize(Reader &reader) {
+  uint32_t temporal_data_size = 0;
 
   auto metadata = reader.ReadMetadata();
   if (!metadata || metadata->type != Type::TEMPORAL_DATA) return std::nullopt;
@@ -703,7 +703,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       if (!size) return false;
       std::vector<PropertyValue> list;
       list.reserve(*size);
-      for (uint64_t i = 0; i < *size; ++i) {
+      for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
         PropertyValue item;
@@ -717,7 +717,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
       std::map<std::string, PropertyValue> map;
-      for (uint64_t i = 0; i < *size; ++i) {
+      for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
         auto key_size = reader->ReadUint(metadata->id_size);
@@ -747,7 +747,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
   }
 }
 
-[[nodiscard]] bool DecodePropertyValueSize(Reader *reader, Type type, Size payload_size, uint64_t &property_size) {
+[[nodiscard]] bool DecodePropertyValueSize(Reader *reader, Type type, Size payload_size, uint32_t &property_size) {
   switch (type) {
     case Type::EMPTY: {
       return false;
@@ -781,9 +781,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
 
-      uint64_t list_property_size = SizeToByteSize(payload_size);
+      uint32_t list_property_size = SizeToByteSize(payload_size);
 
-      for (uint64_t i = 0; i < *size; ++i) {
+      for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
 
@@ -798,9 +798,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
 
-      uint64_t map_property_size = SizeToByteSize(payload_size);
+      uint32_t map_property_size = SizeToByteSize(payload_size);
 
-      for (uint64_t i = 0; i < *size; ++i) {
+      for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
 
@@ -868,7 +868,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       auto const size = reader->ReadUint(payload_size);
       if (!size) return false;
       auto size_val = *size;
-      for (uint64_t i = 0; i != size_val; ++i) {
+      for (uint32_t i = 0; i != size_val; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
         if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return false;
@@ -879,7 +879,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       auto const size = reader->ReadUint(payload_size);
       if (!size) return false;
       auto size_val = *size;
-      for (uint64_t i = 0; i != size_val; ++i) {
+      for (uint32_t i = 0; i != size_val; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
         auto key_size = reader->ReadUint(metadata->id_size);
@@ -962,7 +962,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
       if (*size != list.size()) return false;
-      for (uint64_t i = 0; i < *size; ++i) {
+      for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
         if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, list[i])) return false;
@@ -1071,7 +1071,7 @@ enum class ExpectedPropertyStatus {
 }
 
 [[nodiscard]] ExpectedPropertyStatus DecodeExpectedPropertySize(Reader *reader, PropertyId expected_property,
-                                                                uint64_t &size) {
+                                                                uint32_t &size) {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return ExpectedPropertyStatus::MISSING_DATA;
 
@@ -1178,7 +1178,7 @@ enum class ExpectedPropertyStatus {
   }
 }
 
-[[nodiscard]] ExpectedPropertyStatus FindSpecificPropertySize(Reader *reader, PropertyId property, uint64_t &size) {
+[[nodiscard]] ExpectedPropertyStatus FindSpecificPropertySize(Reader *reader, PropertyId property, uint32_t &size) {
   ExpectedPropertyStatus ret = ExpectedPropertyStatus::SMALLER;
   while ((ret = DecodeExpectedPropertySize(reader, property, size)) == ExpectedPropertyStatus::SMALLER) {
   }
@@ -1205,12 +1205,12 @@ enum class ExpectedPropertyStatus {
 
 // Struct used to return info about the property position and buffer size.
 struct SpecificPropertyAndBufferInfo {
-  uint64_t property_begin;
-  uint64_t property_end;
-  uint64_t property_size;
-  uint64_t all_begin;
-  uint64_t all_end;
-  uint64_t all_size;
+  uint32_t property_begin;
+  uint32_t property_end;
+  uint32_t property_size;
+  uint32_t all_begin;
+  uint32_t all_end;
+  uint32_t all_size;
 };
 
 // Struct used to return info about the property position
@@ -1233,10 +1233,10 @@ struct SpecificPropertyAndBufferInfoMinimal {
 //
 // @sa FindSpecificProperty
 SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(Reader *reader, PropertyId property) {
-  uint64_t property_begin = reader->GetPosition();
-  uint64_t property_end = reader->GetPosition();
-  uint64_t all_begin = reader->GetPosition();
-  uint64_t all_end = reader->GetPosition();
+  uint32_t property_begin = reader->GetPosition();
+  uint32_t property_end = reader->GetPosition();
+  uint32_t all_begin = reader->GetPosition();
+  uint32_t all_end = reader->GetPosition();
   while (true) {
     auto ret = HasExpectedProperty(reader, property);
     if (ret == ExpectedPropertyStatus::MISSING_DATA) {
@@ -1275,8 +1275,8 @@ SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(Re
 }
 
 // All data buffers will be allocated to a power of 8 size.
-uint64_t ToPowerOf8(uint64_t size) {
-  uint64_t mod = size % 8;
+uint32_t ToPowerOf8(uint32_t size) {
+  uint32_t mod = size % 8;
   if (mod == 0) return size;
   return size - mod + 8;
 }
@@ -1314,23 +1314,23 @@ const uint8_t kUseLocalBuffer = 0x01;
 // Helper functions used to retrieve/store `size` and `data` from/into the
 // `buffer_`.
 
-std::pair<uint64_t, uint8_t *> GetSizeData(const uint8_t *buffer) {
-  uint64_t size;
+std::pair<uint32_t, uint8_t *> GetSizeData(const uint8_t *buffer) {
+  uint32_t size;
   uint8_t *data;
-  memcpy(&size, buffer, sizeof(uint64_t));
-  memcpy(&data, buffer + sizeof(uint64_t), sizeof(uint8_t *));
+  memcpy(&size, buffer, sizeof(uint32_t));
+  memcpy(&data, buffer + sizeof(uint32_t), sizeof(uint8_t *));
   return {size, data};
 }
 
 struct BufferInfo {
-  uint64_t size;
+  uint32_t size;
   uint8_t *data{nullptr};
   bool in_local_buffer;
 };
 
 template <size_t N>
 BufferInfo GetBufferInfo(const uint8_t (&buffer)[N]) {
-  uint64_t size = 0;
+  uint32_t size = 0;
   const uint8_t *data = nullptr;
   bool in_local_buffer = false;
   std::tie(size, data) = GetSizeData(buffer);
@@ -1347,9 +1347,9 @@ BufferInfo GetBufferInfo(const uint8_t (&buffer)[N]) {
   return {size, non_const_data, in_local_buffer};
 }
 
-void SetSizeData(uint8_t *buffer, uint64_t size, uint8_t *data) {
-  memcpy(buffer, &size, sizeof(uint64_t));
-  memcpy(buffer + sizeof(uint64_t), &data, sizeof(uint8_t *));
+void SetSizeData(uint8_t *buffer, uint32_t size, uint8_t *data) {
+  memcpy(buffer, &size, sizeof(uint32_t));
+  memcpy(buffer + sizeof(uint32_t), &data, sizeof(uint8_t *));
 }
 
 }  // namespace
@@ -1362,7 +1362,7 @@ PropertyStore::PropertyStore(PropertyStore &&other) noexcept {
 }
 
 PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
-  uint64_t size;
+  uint32_t size;
   uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 == 0) {
@@ -1377,7 +1377,7 @@ PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
 }
 
 PropertyStore::~PropertyStore() {
-  uint64_t size;
+  uint32_t size;
   uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 == 0) {
@@ -1395,11 +1395,11 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   return value;
 }
 
-uint64_t PropertyStore::PropertySize(PropertyId property) const {
+uint32_t PropertyStore::PropertySize(PropertyId property) const {
   auto data_size_localbuffer = GetBufferInfo(buffer_);
   Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
 
-  uint64_t property_size = 0;
+  uint32_t property_size = 0;
   if (FindSpecificPropertySize(&reader, property, property_size) != ExpectedPropertyStatus::EQUAL) return 0;
   return property_size;
 }
@@ -1468,7 +1468,7 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
 }
 
 bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
-  uint64_t property_size = 0;
+  uint32_t property_size = 0;
   if (!value.IsNull()) {
     Writer writer;
     EncodeProperty(&writer, property, value);
@@ -1476,7 +1476,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   }
 
   bool in_local_buffer = false;
-  uint64_t size;
+  uint32_t size;
   uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 != 0) {
@@ -1538,7 +1538,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       // We need to enlarge/shrink the buffer.
       bool current_in_local_buffer = false;
       uint8_t *current_data = nullptr;
-      uint64_t current_size = 0;
+      uint32_t current_size = 0;
       if (new_size <= sizeof(buffer_) - 1) {
         // Use the local buffer.
         buffer_[0] = kUseLocalBuffer;
@@ -1592,14 +1592,14 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 
 template <typename TContainer>
 bool PropertyStore::DoInitProperties(const TContainer &properties) {
-  uint64_t size = 0;
+  uint32_t size = 0;
   uint8_t *data = nullptr;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size != 0) {
     return false;
   }
 
-  uint64_t property_size = 0;
+  uint32_t property_size = 0;
   {
     Writer writer;
     for (const auto &[property, value] : properties) {
@@ -1713,7 +1713,7 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
     return;
   }
 
-  uint64_t size = 0;
+  uint32_t size = 0;
   uint8_t *data = nullptr;
   size = buffer.size();
   if (buffer.size() == sizeof(buffer_) - 1) {  // use local buffer
