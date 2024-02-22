@@ -7,7 +7,7 @@ MEMGRAPH_BINARY_PATH="../../build/memgraph"
 # NOTE: On Ubuntu 22.04 v0.3.2 uses non-existing docker compose --compatibility flag.
 # NOTE: On Ubuntu 22.04 v0.3.0 and v0.3.1 seems to be runnable.
 # TODO(gitbuda): Make sure Memgraph can be testes with Jepsen >= 0.3.0
-JEPSEN_VERSION="${JEPSEN_VERSION:-0.3.4}"
+JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.5}"
 JEPSEN_ACTIVE_NODES_NO=5
 CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
 CONTROL_LEIN_RUN_STDOUT_LOGS=1
@@ -43,6 +43,10 @@ INFO() {
     /bin/echo -e "\e[104m\e[97m[INFO]\e[49m\e[39m" "$@"
 }
 
+if [[ "$#" -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
+    HELP_EXIT
+fi
+
 if ! command -v docker > /dev/null 2>&1 || ! command -v docker-compose > /dev/null 2>&1; then
   ERROR "docker and docker-compose have to be installed."
   exit 1
@@ -57,10 +61,6 @@ if [ ! -d "$script_dir/jepsen" ]; then
             cd "$script_dir"
         fi
     fi
-fi
-
-if [ "$#" -lt 1 ]; then
-    HELP_EXIT
 fi
 
 PROCESS_ARGS() {
