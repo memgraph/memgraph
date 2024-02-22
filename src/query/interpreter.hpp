@@ -53,7 +53,7 @@
 #include "utils/tsc.hpp"
 
 #ifdef MG_ENTERPRISE
-#include "coordination/coordinator_instance_status.hpp"
+#include "coordination/instance_status.hpp"
 #endif
 
 namespace memgraph::metrics {
@@ -72,6 +72,7 @@ inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
+#ifdef MG_ENTERPRISE
 class CoordinatorQueryHandler {
  public:
   CoordinatorQueryHandler() = default;
@@ -93,7 +94,6 @@ class CoordinatorQueryHandler {
     ReplicationQuery::ReplicaState state;
   };
 
-#ifdef MG_ENTERPRISE
   struct MainReplicaStatus {
     std::string_view name;
     std::string_view socket_address;
@@ -103,23 +103,29 @@ class CoordinatorQueryHandler {
     MainReplicaStatus(std::string_view name, std::string_view socket_address, bool alive, bool is_main)
         : name{name}, socket_address{socket_address}, alive{alive}, is_main{is_main} {}
   };
-#endif
-
-#ifdef MG_ENTERPRISE
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterInstance(const std::string &coordinator_socket_address,
-                                const std::string &replication_socket_address,
-                                const std::chrono::seconds instance_check_frequency, const std::string &instance_name,
-                                CoordinatorQuery::SyncMode sync_mode) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetInstanceToMain(const std::string &instance_name) = 0;
+  virtual void RegisterReplicationInstance(std::string const &coordinator_socket_address,
+                                           std::string const &replication_socket_address,
+                                           std::chrono::seconds const &instance_health_check_frequency,
+                                           std::chrono::seconds const &instance_down_timeout,
+                                           std::chrono::seconds const &instance_get_uuid_frequency,
+                                           std::string const &instance_name, CoordinatorQuery::SyncMode sync_mode) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<coordination::CoordinatorInstanceStatus> ShowInstances() const = 0;
+  virtual void UnregisterInstance(std::string const &instance_name) = 0;
 
-#endif
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void SetReplicationInstanceToMain(const std::string &instance_name) = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
+
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual auto AddCoordinatorInstance(uint32_t raft_server_id, std::string const &coordinator_socket_address)
+      -> void = 0;
 };
+#endif
 
 class AnalyzeGraphQueryHandler {
  public:
@@ -296,32 +302,12 @@ class Interpreter final {
 
   void SetUser(std::string_view username);
 
-  struct SystemTransactionGuard {
-    explicit SystemTransactionGuard(std::unique_lock<utils::ResourceLock> guard, dbms::DbmsHandler &dbms_handler)
-        : system_guard_(std::move(guard)), dbms_handler_{&dbms_handler} {
-      dbms_handler_->NewSystemTransaction();
-    }
-    SystemTransactionGuard &operator=(SystemTransactionGuard &&) = default;
-    SystemTransactionGuard(SystemTransactionGuard &&) = default;
-
-    ~SystemTransactionGuard() {
-      if (system_guard_.owns_lock()) dbms_handler_->ResetSystemTransaction();
-    }
-
-    dbms::AllSyncReplicaStatus Commit() { return dbms_handler_->Commit(); }
-
-   private:
-    std::unique_lock<utils::ResourceLock> system_guard_;
-    dbms::DbmsHandler *dbms_handler_;
-  };
-
-  std::optional<SystemTransactionGuard> system_transaction_guard_{};
+  std::optional<memgraph::system::Transaction> system_transaction_{};
 
  private:
   void ResetInterpreter() {
     query_executions_.clear();
-    system_guard.reset();
-    system_transaction_guard_.reset();
+    system_transaction_.reset();
     transaction_queries_->clear();
     if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
       current_db_.db_acc_.reset();
@@ -386,8 +372,6 @@ class Interpreter final {
   // TODO Figure out how this would work for multi-database
   // Exists only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
-  // TODO: our upgradable lock guard for system
-  std::optional<utils::ResourceLockGuard> system_guard;
 
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;

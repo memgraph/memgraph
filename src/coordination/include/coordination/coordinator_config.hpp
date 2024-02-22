@@ -28,13 +28,13 @@ struct CoordinatorClientConfig {
   std::string instance_name;
   std::string ip_address;
   uint16_t port{};
-  std::chrono::seconds health_check_frequency_sec{1};
+  std::chrono::seconds instance_health_check_frequency_sec{1};
+  std::chrono::seconds instance_down_timeout_sec{5};
+  std::chrono::seconds instance_get_uuid_frequency_sec{10};
 
   auto SocketAddress() const -> std::string { return ip_address + ":" + std::to_string(port); }
 
-  // Info which coordinator will send to new main when performing failover
   struct ReplicationClientInfo {
-    // Must be the same as CoordinatorClientConfig's instance_name
     std::string instance_name;
     replication_coordination_glue::ReplicationMode replication_mode{};
     std::string replication_ip_address;
@@ -43,7 +43,6 @@ struct CoordinatorClientConfig {
     friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
   };
 
-  // Each instance has replication config in case it fails
   ReplicationClientInfo replication_client_info;
 
   struct SSL {
@@ -57,6 +56,8 @@ struct CoordinatorClientConfig {
 
   friend bool operator==(CoordinatorClientConfig const &, CoordinatorClientConfig const &) = default;
 };
+
+using ReplClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
 
 struct CoordinatorServerConfig {
   std::string ip_address;

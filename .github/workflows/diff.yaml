@@ -268,7 +268,6 @@ jobs:
           ctest -R memgraph__unit --output-on-failure -j$THREADS
 
       - name: Ensure Kafka and Pulsar are up
-        if: false
         run: |
           cd tests/e2e/streams/kafka
           docker-compose up -d
@@ -276,7 +275,6 @@ jobs:
           docker-compose up -d
 
       - name: Run e2e tests
-        if: false
         run: |
           cd tests
           ./setup.sh /opt/toolchain-v4/activate
@@ -285,7 +283,6 @@ jobs:
           ./run.sh
 
       - name: Ensure Kafka and Pulsar are down
-        if: false
         run: |
           cd tests/e2e/streams/kafka
           docker-compose down
@@ -335,118 +332,6 @@ jobs:
         if: always()
         with:
           name: "Test data(Release build)"
-          path: |
-            # multiple paths could be defined
-            build/logs
-
-  experimental_build_ha:
-    name: "High availability build"
-    runs-on: [self-hosted, Linux, X64, Diff]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v4
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Build release binaries
-        run: |
-          source /opt/toolchain-v4/activate
-          ./init
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release -DMG_EXPERIMENTAL_HIGH_AVAILABILITY=ON ..
-          make -j$THREADS
-      - name: Run unit tests
-        run: |
-          source /opt/toolchain-v4/activate
-          cd build
-          ctest -R memgraph__unit --output-on-failure -j$THREADS
-      - name: Run e2e tests
-        if: false
-        run: |
-          cd tests
-          ./setup.sh /opt/toolchain-v4/activate
-          source ve3/bin/activate_e2e
-          cd e2e
-          ./run.sh "Coordinator"
-          ./run.sh "Client initiated failover"
-          ./run.sh "Uninitialized cluster"
-      - name: Save test data
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: "Test data(High availability build)"
-          path: |
-            # multiple paths could be defined
-            build/logs
-
-  experimental_build_mt:
-    name: "MultiTenancy replication build"
-    runs-on: [self-hosted, Linux, X64, Diff]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v4
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-
-      - name: Build release binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
-
-          # Build MT replication experimental binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release -D MG_EXPERIMENTAL_REPLICATION_MULTITENANCY=ON ..
-          make -j$THREADS
-
-      - name: Run unit tests
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run unit tests.
-          cd build
-          ctest -R memgraph__unit --output-on-failure -j$THREADS
-
-      - name: Run e2e tests
-        if: false
-        run: |
-          cd tests
-          ./setup.sh /opt/toolchain-v4/activate
-          source ve3/bin/activate_e2e
-          cd e2e
-
-          # Just the replication based e2e tests
-          ./run.sh "Replicate multitenancy"
-          ./run.sh "Show"
-          ./run.sh "Show while creating invalid state"
-          ./run.sh "Delete edge replication"
-          ./run.sh "Read-write benchmark"
-          ./run.sh "Index replication"
-          ./run.sh "Constraints"
-
-      - name: Save test data
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: "Test data(MultiTenancy replication build)"
           path: |
             # multiple paths could be defined
             build/logs

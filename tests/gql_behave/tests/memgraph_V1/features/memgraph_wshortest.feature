@@ -170,6 +170,20 @@ Feature: Weighted Shortest Path
           | pth                                                                                                               | total_weight   |
           | <(:label1{id:1})-[:type1{id:1}]->(:label2{id:2})-[:type1{id:2}]->(:label3{id:3})-[:type1{id:3}]->(:label4{id:4})> | 6              |
 
+    Scenario: Test match wShortest using IN edges with accumulated path filtered by order of ids
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})-[:type1 {id: 3}]->(:label4 {id: 4});
+          """
+      When executing query:
+          """
+          MATCH pth=(:label4)<-[*WSHORTEST (r, n | r.id) total_weight (e,n,p | e.id > 0 and (nodes(p)[-1]).id < (nodes(p)[-2]).id)]-(:label1) RETURN pth, total_weight;
+          """
+      Then the result should be:
+          | pth                                                                                                               | total_weight   |
+          | <(:label4{id:4})<-[:type1{id:3}]-(:label3{id:3})<-[:type1{id:2}]-(:label2{id:2})<-[:type1{id:1}]-(:label1{id:1})> | 6              |
+
     Scenario: Test match wShortest with accumulated path filtered by edge type1
       Given graph "graph_edges"
       When executing query:
@@ -255,3 +269,15 @@ Feature: Weighted Shortest Path
       Then the result should be:
           | path   | total_weight   |
           | <(:station {arrival: 08:00:00.000000000, departure: 08:15:00.000000000, name: 'A'})-[:ride {duration: PT1H5M, id: 1}]->(:station {arrival: 09:20:00.000000000, departure: 09:30:00.000000000, name: 'B'})-[:ride {duration: PT30M, id: 2}]->(:station {arrival: 10:00:00.000000000, departure: 10:20:00.000000000, name: 'C'})> | PT2H20M  |
+
+    Scenario: Test wShortest variable expand with already processed vertex and loop with filter by path
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label1)-[*WSHORTEST ..1 (r, n | r.id) total_weight (e, n, p | True)]-() RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | < (:label1 {id: 1})-[:type3 {id: 20}]->(:label5 {id: 5}) > |
+            | < (:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3}) > |
+            | < (:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2}) >  |

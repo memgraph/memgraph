@@ -54,14 +54,14 @@ void QueriesMemoryControl::EraseThreadToTransactionId(const std::thread::id &thr
   }
 }
 
-void QueriesMemoryControl::TrackAllocOnCurrentThread(size_t size) {
+bool QueriesMemoryControl::TrackAllocOnCurrentThread(size_t size) {
   auto thread_id_to_transaction_id_accessor = thread_id_to_transaction_id.access();
 
   // we might be just constructing mapping between thread id and transaction id
   // so we miss this allocation
   auto thread_id_to_transaction_id_elem = thread_id_to_transaction_id_accessor.find(std::this_thread::get_id());
   if (thread_id_to_transaction_id_elem == thread_id_to_transaction_id_accessor.end()) {
-    return;
+    return true;
   }
 
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
@@ -71,10 +71,10 @@ void QueriesMemoryControl::TrackAllocOnCurrentThread(size_t size) {
   // It can happen that some allocation happens between mapping thread to
   // transaction id, so we miss this allocation
   if (transaction_id_to_tracker == transaction_id_to_tracker_accessor.end()) [[unlikely]] {
-    return;
+    return true;
   }
   auto &query_tracker = transaction_id_to_tracker->tracker;
-  query_tracker.TrackAlloc(size);
+  return query_tracker.TrackAlloc(size);
 }
 
 void QueriesMemoryControl::TrackFreeOnCurrentThread(size_t size) {
@@ -110,7 +110,7 @@ void QueriesMemoryControl::CreateTransactionIdTracker(uint64_t transaction_id, s
 
 bool QueriesMemoryControl::EraseTransactionIdTracker(uint64_t transaction_id) {
   auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  auto removed = transaction_id_to_tracker.access().remove(transaction_id);
+  auto removed = transaction_id_to_tracker_accessor.remove(transaction_id);
   return removed;
 }
 

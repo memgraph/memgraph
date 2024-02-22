@@ -13,64 +13,47 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_client.hpp"
-#include "coordination/coordinator_cluster_config.hpp"
-#include "replication_coordination_glue/role.hpp"
+#include "coordination/coordinator_server.hpp"
+#include "coordination/instance_status.hpp"
+#include "coordination/raft_state.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
+#include "coordination/replication_instance.hpp"
+#include "utils/rw_lock.hpp"
+#include "utils/thread_pool.hpp"
+
+#include <list>
 
 namespace memgraph::coordination {
 
-class CoordinatorData;
-
 class CoordinatorInstance {
  public:
-  CoordinatorInstance(CoordinatorData *data, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
-                      HealthCheckCallback fail_cb, replication_coordination_glue::ReplicationRole replication_role)
-      : client_(data, std::move(config), std::move(succ_cb), std::move(fail_cb)),
-        replication_role_(replication_role),
-        is_alive_(true) {}
+  CoordinatorInstance();
 
-  CoordinatorInstance(CoordinatorInstance const &other) = delete;
-  CoordinatorInstance &operator=(CoordinatorInstance const &other) = delete;
-  CoordinatorInstance(CoordinatorInstance &&other) noexcept = delete;
-  CoordinatorInstance &operator=(CoordinatorInstance &&other) noexcept = delete;
-  ~CoordinatorInstance() = default;
+  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorClientConfig config) -> RegisterInstanceCoordinatorStatus;
+  [[nodiscard]] auto UnregisterReplicationInstance(std::string instance_name) -> UnregisterInstanceCoordinatorStatus;
 
-  auto UpdateInstanceStatus() -> bool {
-    is_alive_ = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_response_time_)
-                    .count() < CoordinatorClusterConfig::alive_response_time_difference_sec_;
-    return is_alive_;
-  }
-  auto UpdateLastResponseTime() -> void { last_response_time_ = std::chrono::system_clock::now(); }
+  [[nodiscard]] auto SetReplicationInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus;
 
-  auto InstanceName() const -> std::string { return client_.InstanceName(); }
-  auto SocketAddress() const -> std::string { return client_.SocketAddress(); }
-  auto IsAlive() const -> bool { return is_alive_; }
+  auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto IsReplica() const -> bool {
-    return replication_role_ == replication_coordination_glue::ReplicationRole::REPLICA;
-  }
-  auto IsMain() const -> bool { return replication_role_ == replication_coordination_glue::ReplicationRole::MAIN; }
+  auto TryFailover() -> void;
 
-  auto PrepareForFailover() -> void { client_.PauseFrequentCheck(); }
-  auto RestoreAfterFailedFailover() -> void { client_.ResumeFrequentCheck(); }
+  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
 
-  auto PostFailover(HealthCheckCallback main_succ_cb, HealthCheckCallback main_fail_cb) -> void {
-    replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
-    client_.SetSuccCallback(std::move(main_succ_cb));
-    client_.SetFailCallback(std::move(main_fail_cb));
-    // Comment with Andi but we shouldn't delete this, what if this MAIN FAILS AGAIN
-    // client_.ResetReplicationClientInfo();
-    client_.ResumeFrequentCheck();
-  }
+  auto GetMainUUID() const -> utils::UUID;
 
-  CoordinatorClient client_;
-  replication_coordination_glue::ReplicationRole replication_role_;
-  std::chrono::system_clock::time_point last_response_time_{};
-  bool is_alive_{false};
+  auto SetMainUUID(utils::UUID new_uuid) -> void;
 
-  friend bool operator==(CoordinatorInstance const &first, CoordinatorInstance const &second) {
-    return first.client_ == second.client_ && first.replication_role_ == second.replication_role_;
-  }
+ private:
+  HealthCheckCallback main_succ_cb_, main_fail_cb_, replica_succ_cb_, replica_fail_cb_;
+
+  // NOTE: Must be std::list because we rely on pointer stability
+  std::list<ReplicationInstance> repl_instances_;
+  mutable utils::RWLock coord_instance_lock_{utils::RWLock::Priority::READ};
+
+  utils::UUID main_uuid_;
+
+  RaftState raft_state_;
 };
 
 }  // namespace memgraph::coordination

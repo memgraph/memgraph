@@ -105,7 +105,9 @@ def is_port_in_use(port: int) -> bool:
         return s.connect_ex(("localhost", port)) == 0
 
 
-def _start_instance(name, args, log_file, setup_queries, use_ssl, procdir, data_directory):
+def _start_instance(
+    name, args, log_file, setup_queries, use_ssl, procdir, data_directory, username=None, password=None
+):
     assert (
         name not in MEMGRAPH_INSTANCES.keys()
     ), "If this raises, you are trying to start an instance with the same name than one already running."
@@ -115,7 +117,9 @@ def _start_instance(name, args, log_file, setup_queries, use_ssl, procdir, data_
 
     log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
     data_directory_path = os.path.join(BUILD_DIR, data_directory)
-    mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY, use_ssl, {data_directory_path})
+    mg_instance = MemgraphInstanceRunner(
+        MEMGRAPH_BINARY, use_ssl, {data_directory_path}, username=username, password=password
+    )
     MEMGRAPH_INSTANCES[name] = mg_instance
     binary_args = args + ["--log-file", log_file_path] + ["--data-directory", data_directory_path]
 
@@ -156,6 +160,12 @@ def kill(context, name, keep_directories=True):
         MEMGRAPH_INSTANCES.pop(name)
 
 
+def kill_all(context, keep_directories=True):
+    for key in MEMGRAPH_INSTANCES.keys():
+        MEMGRAPH_INSTANCES[key].kill(keep_directories)
+    MEMGRAPH_INSTANCES.clear()
+
+
 def cleanup_directories_on_exit(value=True):
     CLEANUP_DIRECTORIES_ON_EXIT = value
 
@@ -185,8 +195,14 @@ def start_instance(context, name, procdir):
             data_directory = value["data_directory"]
         else:
             data_directory = tempfile.TemporaryDirectory().name
+        username = None
+        if "username" in value:
+            username = value["username"]
+        password = None
+        if "password" in value:
+            password = value["password"]
 
-        instance = _start_instance(name, args, log_file, queries, use_ssl, procdir, data_directory)
+        instance = _start_instance(name, args, log_file, queries, use_ssl, procdir, data_directory, username, password)
         mg_instances[name] = instance
 
     assert len(mg_instances) == 1
@@ -194,6 +210,11 @@ def start_instance(context, name, procdir):
 
 def start_all(context, procdir="", keep_directories=True):
     stop_all(keep_directories)
+    for key, _ in context.items():
+        start_instance(context, key, procdir)
+
+
+def start_all_keep_others(context, procdir="", keep_directories=True):
     for key, _ in context.items():
         start_instance(context, key, procdir)
 

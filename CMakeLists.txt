@@ -211,8 +211,13 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 # ** Static linking is allowed only for executables! **
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
-# Use lld linker to speedup build
-add_link_options(-fuse-ld=lld) # TODO: use mold linker
+# Use lld linker to speedup build and use less memory.
+add_link_options(-fuse-ld=lld)
+# NOTE: Moving to latest Clang (probably starting from 15), lld stopped to work
+# without explicit link_directories call.
+string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
+separate_arguments(LD_LIBS)
+link_directories(${LD_LIBS})
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
@@ -271,18 +276,6 @@ endif()
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)
 
-option(MG_EXPERIMENTAL_HIGH_AVAILABILITY "Feature flag for experimental high availability" OFF)
-
-if (NOT MG_ENTERPRISE AND MG_EXPERIMENTAL_HIGH_AVAILABILITY)
-    set(MG_EXPERIMENTAL_HIGH_AVAILABILITY OFF)
-    message(FATAL_ERROR "MG_EXPERIMENTAL_HIGH_AVAILABILITY must be used with enterpise version of the code.")
-endif ()
-
-if (MG_EXPERIMENTAL_HIGH_AVAILABILITY)
-    add_compile_definitions(MG_EXPERIMENTAL_HIGH_AVAILABILITY)
-endif ()
-
-# Optional subproject configuration -------------------------------------------
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
@@ -291,16 +284,6 @@ option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option
 option(UBSAN "Build with Undefined Behaviour Sanitizer" OFF)
 
 # Build feature flags
-option(MG_EXPERIMENTAL_REPLICATION_MULTITENANCY "Feature flag for experimental replicaition of multitenacy" OFF)
-
-if (NOT MG_ENTERPRISE AND MG_EXPERIMENTAL_REPLICATION_MULTITENANCY)
-    set(MG_EXPERIMENTAL_REPLICATION_MULTITENANCY OFF)
-    message(FATAL_ERROR "MG_EXPERIMENTAL_REPLICATION_MULTITENANCY with community edition build isn't possible")
-endif ()
-
-if (MG_EXPERIMENTAL_REPLICATION_MULTITENANCY)
-    add_compile_definitions(MG_EXPERIMENTAL_REPLICATION_MULTITENANCY)
-endif ()
 
 if (TEST_COVERAGE)
   string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)

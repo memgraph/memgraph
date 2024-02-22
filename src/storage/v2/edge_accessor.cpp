@@ -17,6 +17,7 @@
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
@@ -237,7 +238,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         if (delta.property.key == property) {
-          *value = delta.property.value;
+          *value = *delta.property.value;
         }
         break;
       }
@@ -264,6 +265,27 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   return *std::move(value);
 }
 
+Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) const {
+  if (!storage_->config_.salient.items.properties_on_edges) return 0;
+
+  auto guard = std::shared_lock{edge_.ptr->lock};
+  Delta *delta = edge_.ptr->delta;
+  if (!delta) {
+    return edge_.ptr->properties.PropertySize(property);
+  }
+
+  auto property_result = this->GetProperty(property, view);
+
+  if (property_result.HasError()) {
+    return property_result.GetError();
+  }
+
+  auto property_store = storage::PropertyStore();
+  property_store.SetProperty(property, *property_result);
+
+  return property_store.PropertySize(property);
+};
+
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
   if (!storage_->config_.salient.items.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
   bool exists = true;
@@ -281,15 +303,15 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
       case Delta::Action::SET_PROPERTY: {
         auto it = properties.find(delta.property.key);
         if (it != properties.end()) {
-          if (delta.property.value.IsNull()) {
+          if (delta.property.value->IsNull()) {
             // remove the property
             properties.erase(it);
           } else {
             // set the value
-            it->second = delta.property.value;
+            it->second = *delta.property.value;
           }
-        } else if (!delta.property.value.IsNull()) {
-          properties.emplace(delta.property.key, delta.property.value);
+        } else if (!delta.property.value->IsNull()) {
+          properties.emplace(delta.property.key, *delta.property.value);
         }
         break;
       }

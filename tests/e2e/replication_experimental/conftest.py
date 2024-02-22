@@ -18,9 +18,9 @@ def connection():
     connection_holder = None
     role_holder = None
 
-    def inner_connection(port, role):
+    def inner_connection(port, role, username="", password=""):
         nonlocal connection_holder, role_holder
-        connection_holder = connect(host="localhost", port=port)
+        connection_holder = connect(host="localhost", port=port, username=username, password=password)
         role_holder = role
         return connection_holder
 

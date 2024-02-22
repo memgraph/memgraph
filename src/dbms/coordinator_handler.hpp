@@ -13,15 +13,11 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "utils/result.hpp"
-
 #include "coordination/coordinator_config.hpp"
-#include "coordination/coordinator_instance_status.hpp"
-#include "coordination/failover_status.hpp"
+#include "coordination/coordinator_state.hpp"
+#include "coordination/instance_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 
-#include <cstdint>
-#include <optional>
 #include <vector>
 
 namespace memgraph::dbms {
@@ -30,17 +26,23 @@ class DbmsHandler;
 
 class CoordinatorHandler {
  public:
-  explicit CoordinatorHandler(DbmsHandler &dbms_handler);
+  explicit CoordinatorHandler(coordination::CoordinatorState &coordinator_state);
 
-  auto RegisterInstance(coordination::CoordinatorClientConfig config)
+  // TODO: (andi) When moving coordinator state on same instances, rename from RegisterReplicationInstance to
+  // RegisterInstance
+  auto RegisterReplicationInstance(coordination::CoordinatorClientConfig config)
       -> coordination::RegisterInstanceCoordinatorStatus;
 
-  auto SetInstanceToMain(std::string instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
+  auto UnregisterReplicationInstance(std::string instance_name) -> coordination::UnregisterInstanceCoordinatorStatus;
 
-  auto ShowInstances() const -> std::vector<coordination::CoordinatorInstanceStatus>;
+  auto SetReplicationInstanceToMain(std::string instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
+
+  auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
+
+  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
 
  private:
-  DbmsHandler &dbms_handler_;
+  coordination::CoordinatorState &coordinator_state_;
 };
 
 }  // namespace memgraph::dbms

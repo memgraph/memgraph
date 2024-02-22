@@ -21,10 +21,12 @@
 #include "status.hpp"
 #include "utils/result.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/uuid.hpp"
 
 #include <atomic>
 #include <cstdint>
 #include <list>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -37,7 +39,12 @@ enum class RegisterReplicaError : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD_
 
 struct RoleMainData {
   RoleMainData() = default;
-  explicit RoleMainData(ReplicationEpoch e) : epoch_(std::move(e)) {}
+  explicit RoleMainData(ReplicationEpoch e, bool writing_enabled, std::optional<utils::UUID> uuid = std::nullopt)
+      : epoch_(std::move(e)), writing_enabled_(writing_enabled) {
+    if (uuid) {
+      uuid_ = *uuid;
+    }
+  }
   ~RoleMainData() = default;
 
   RoleMainData(RoleMainData const &) = delete;
@@ -47,11 +54,15 @@ struct RoleMainData {
 
   ReplicationEpoch epoch_;
   std::list<ReplicationClient> registered_replicas_{};  // TODO: data race issues
+  utils::UUID uuid_;
+  bool writing_enabled_{false};
 };
 
 struct RoleReplicaData {
   ReplicationServerConfig config;
   std::unique_ptr<ReplicationServer> server;
+  // uuid of main replica is listening to
+  std::optional<utils::UUID> uuid_;
 };
 
 // Global (instance) level object
@@ -81,20 +92,36 @@ struct ReplicationState {
   bool IsMain() const { return GetRole() == replication_coordination_glue::ReplicationRole::MAIN; }
   bool IsReplica() const { return GetRole() == replication_coordination_glue::ReplicationRole::REPLICA; }
 
+  auto IsMainWriteable() const -> bool {
+    if (auto const *main = std::get_if<RoleMainData>(&replication_data_)) {
+      return main->writing_enabled_;
+    }
+    return false;
+  }
+
+  auto EnableWritingOnMain() -> bool {
+    if (auto *main = std::get_if<RoleMainData>(&replication_data_)) {
+      main->writing_enabled_ = true;
+      return true;
+    }
+    return false;
+  }
+
   bool HasDurability() const { return nullptr != durability_; }
 
-  bool TryPersistRoleMain(std::string new_epoch);
-  bool TryPersistRoleReplica(const ReplicationServerConfig &config);
+  bool TryPersistRoleMain(std::string new_epoch, utils::UUID main_uuid);
+  bool TryPersistRoleReplica(const ReplicationServerConfig &config, const std::optional<utils::UUID> &main_uuid);
   bool TryPersistUnregisterReplica(std::string_view name);
-  bool TryPersistRegisteredReplica(const ReplicationClientConfig &config);
+  bool TryPersistRegisteredReplica(const ReplicationClientConfig &config, utils::UUID main_uuid);
 
   // TODO: locked access
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
   utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
-  bool SetReplicationRoleMain();
-  bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
+  bool SetReplicationRoleMain(const utils::UUID &main_uuid);
+  bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
+                                 const std::optional<utils::UUID> &main_uuid = std::nullopt);
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;

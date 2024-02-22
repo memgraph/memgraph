@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -114,12 +114,17 @@ class Path {
   /** Expands the path with the given vertex. */
   void Expand(const VertexAccessor &vertex) {
     DMG_ASSERT(vertices_.size() == edges_.size(), "Illegal path construction order");
+    DMG_ASSERT(edges_.empty() || (!edges_.empty() && (edges_.back().To().Gid() == vertex.Gid() ||
+                                                      edges_.back().From().Gid() == vertex.Gid())),
+               "Illegal path construction order");
     vertices_.emplace_back(vertex);
   }
 
   /** Expands the path with the given edge. */
   void Expand(const EdgeAccessor &edge) {
     DMG_ASSERT(vertices_.size() - 1 == edges_.size(), "Illegal path construction order");
+    DMG_ASSERT(vertices_.back().Gid() == edge.From().Gid() || vertices_.back().Gid() == edge.To().Gid(),
+               "Illegal path construction order");
     edges_.emplace_back(edge);
   }
 
@@ -128,6 +133,14 @@ class Path {
   void Expand(const TFirst &first, const TOthers &...others) {
     Expand(first);
     Expand(others...);
+  }
+
+  void Shrink() {
+    DMG_ASSERT(!vertices_.empty(), "Vertices should not be empty in the path before shrink.");
+    vertices_.pop_back();
+    if (!edges_.empty()) {
+      edges_.pop_back();
+    }
   }
 
   /** Returns the number of expansions (edges) in this path. */

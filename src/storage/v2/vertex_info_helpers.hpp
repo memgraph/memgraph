@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -76,13 +76,13 @@ inline auto HasLabel_ActionMethod(bool &has_label, LabelId label) {
   // clang-format off
   return utils::Overloaded{
       ActionMethod<REMOVE_LABEL>([&, label](Delta const &delta) {
-        if (delta.label == label) {
+        if (delta.label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
         }
       }),
       ActionMethod<ADD_LABEL>([&, label](Delta const &delta) {
-        if (delta.label == label) {
+        if (delta.label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
         }
@@ -96,14 +96,14 @@ inline auto Labels_ActionMethod(std::vector<LabelId> &labels) {
   // clang-format off
   return utils::Overloaded{
       ActionMethod<REMOVE_LABEL>([&](Delta const &delta) {
-        auto it = std::find(labels.begin(), labels.end(), delta.label);
+        auto it = std::find(labels.begin(), labels.end(), delta.label.value);
         DMG_ASSERT(it != labels.end(), "Invalid database state!");
         *it = labels.back();
         labels.pop_back();
       }),
       ActionMethod<ADD_LABEL>([&](Delta const &delta) {
-        DMG_ASSERT(std::find(labels.begin(), labels.end(), delta.label) == labels.end(), "Invalid database state!");
-        labels.emplace_back(delta.label);
+        DMG_ASSERT(std::find(labels.begin(), labels.end(), delta.label.value) == labels.end(), "Invalid database state!");
+        labels.emplace_back(delta.label.value);
       })
   };
   // clang-format on
@@ -113,7 +113,7 @@ inline auto PropertyValue_ActionMethod(PropertyValue &value, PropertyId property
   using enum Delta::Action;
   return ActionMethod<SET_PROPERTY>([&, property](Delta const &delta) {
     if (delta.property.key == property) {
-      value = delta.property.value;
+      value = *delta.property.value;
     }
   });
 }
@@ -121,7 +121,7 @@ inline auto PropertyValue_ActionMethod(PropertyValue &value, PropertyId property
 inline auto PropertyValueMatch_ActionMethod(bool &match, PropertyId property, PropertyValue const &value) {
   using enum Delta::Action;
   return ActionMethod<SET_PROPERTY>([&, property](Delta const &delta) {
-    if (delta.property.key == property) match = (value == delta.property.value);
+    if (delta.property.key == property) match = (value == *delta.property.value);
   });
 }
 
@@ -130,15 +130,15 @@ inline auto Properties_ActionMethod(std::map<PropertyId, PropertyValue> &propert
   return ActionMethod<SET_PROPERTY>([&](Delta const &delta) {
     auto it = properties.find(delta.property.key);
     if (it != properties.end()) {
-      if (delta.property.value.IsNull()) {
+      if (delta.property.value->IsNull()) {
         // remove the property
         properties.erase(it);
       } else {
         // set the value
-        it->second = delta.property.value;
+        it->second = *delta.property.value;
       }
-    } else if (!delta.property.value.IsNull()) {
-      properties.emplace(delta.property.key, delta.property.value);
+    } else if (!delta.property.value->IsNull()) {
+      properties.emplace(delta.property.key, *delta.property.value);
     }
   });
 }

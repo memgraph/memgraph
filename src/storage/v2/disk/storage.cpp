@@ -137,14 +137,14 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::REMOVE_LABEL: {
-        if (delta.label == label) {
+        if (delta.label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
         }
         break;
       }
       case Delta::Action::ADD_LABEL: {
-        if (delta.label == label) {
+        if (delta.label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
         }
@@ -177,7 +177,7 @@ PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Trans
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         if (delta.property.key == property) {
-          value = delta.property.value;
+          value = *delta.property.value;
         }
         break;
       }
@@ -1278,7 +1278,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 /// std::map<dst_vertex_gid, ...>
 /// Here we also do flushing of too many things, we don't need to serialize edges in read-only txn, check that...
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushModifiedEdges(
-    Transaction *transaction, const auto &edge_acc) {
+    Transaction *transaction, const auto &edges_acc) {
   for (const auto &modified_edge : transaction->modified_edges_) {
     const std::string edge_gid = modified_edge.first.ToString();
     const Delta::Action root_action = modified_edge.second.delta_action;
@@ -1304,8 +1304,8 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
         return StorageManipulationError{SerializationError{}};
       }
 
-      const auto &edge = edge_acc.find(modified_edge.first);
-      MG_ASSERT(edge != edge_acc.end(),
+      const auto &edge = edges_acc.find(modified_edge.first);
+      MG_ASSERT(edge != edges_acc.end(),
                 "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
 
       /// TODO: (andi) I think this is not wrong but it would be better to use AtomicWrites across column families.
@@ -1682,9 +1682,9 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         } break;
       }
     }
-  } else if (transaction_.deltas.use().empty() ||
+  } else if (transaction_.deltas.empty() ||
              (!edge_import_mode_active &&
-              std::all_of(transaction_.deltas.use().begin(), transaction_.deltas.use().end(), [](const Delta &delta) {
+              std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(), [](const Delta &delta) {
                 return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT;
               }))) {
   } else {
@@ -1693,9 +1693,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
     if (edge_import_mode_active) {
-      if (auto res =
-              disk_storage->FlushModifiedEdges(&transaction_, disk_storage->edge_import_mode_cache_->AccessToEdges());
-          res.HasError()) {
+      auto edges_acc = disk_storage->edge_import_mode_cache_->AccessToEdges();
+      if (auto res = disk_storage->FlushModifiedEdges(&transaction_, edges_acc); res.HasError()) {
         Abort();
         return res;
       }
@@ -1717,7 +1716,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         return del_vertices_res.GetError();
       }
 
-      if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, transaction_.edges_->access());
+      auto tx_edges_acc = transaction_.edges_->access();
+      if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, tx_edges_acc);
           modified_edges_res.HasError()) {
         Abort();
         return modified_edges_res.GetError();
@@ -1812,7 +1812,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   uint64_t transaction_id = transaction_.transaction_id;
 
-  for (const auto &delta : transaction_.deltas.use()) {
+  for (const auto &delta : transaction_.deltas) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
