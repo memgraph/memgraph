@@ -346,7 +346,6 @@ void ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-// TODO figure this out... We should encorporate edge-type here somehow...
 void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                                     const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {

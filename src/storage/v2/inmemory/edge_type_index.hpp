@@ -58,6 +58,9 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                             const Transaction &tx) override;
 
+  void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
+                                EdgeTypeId edge_type, const Transaction &tx) override;
+
   static constexpr std::size_t kEdgeTypeIdPos = 0U;
   static constexpr std::size_t kVertexPos = 1U;
   static constexpr std::size_t kEdgeRefPos = 2U;

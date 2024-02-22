@@ -26,6 +26,8 @@ class EdgesIterable final {
     InMemoryEdgeTypeIndex::Iterable in_memory_edges_by_edge_type_;
   };
 
+  void Destroy() noexcept;
+
  public:
   explicit EdgesIterable(InMemoryEdgeTypeIndex::Iterable);
 

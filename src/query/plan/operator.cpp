@@ -518,11 +518,11 @@ class ScanAllCursor : public Cursor {
   const char *op_name_;
 };
 
-template <typename TVerticesFun>
+template <typename TEdgesFun>
 class ScanAllByEdgeTypeCursor : public Cursor {
  public:
   explicit ScanAllByEdgeTypeCursor(const ScanAllByEdgeType &self, Symbol output_symbol, UniqueCursorPtr input_cursor,
-                                   storage::View view, TVerticesFun get_edges, const char *op_name)
+                                   storage::View view, TEdgesFun get_edges, const char *op_name)
       : self_(self),
         output_symbol_(std::move(output_symbol)),
         input_cursor_(std::move(input_cursor)),
@@ -565,8 +565,8 @@ class ScanAllByEdgeTypeCursor : public Cursor {
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
   storage::View view_;
-  TVerticesFun get_edges_;
-  std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
+  TEdgesFun get_edges_;
+  std::optional<typename std::result_of<TEdgesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
   std::optional<decltype(vertices_.value().end())> vertices_end_it_;
   const char *op_name_;

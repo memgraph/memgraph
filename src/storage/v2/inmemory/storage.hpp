@@ -402,23 +402,17 @@ class InMemoryStorage final : public Storage {
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
                                  DatabaseAccessProtector db_acc);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
                                  uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label, LabelIndexStats stats,
                                  uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  const std::set<PropertyId> &properties, LabelPropertyIndexStats property_stats,
                                  uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  const std::set<PropertyId> &properties, LabelIndexStats stats,
                                  LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp);

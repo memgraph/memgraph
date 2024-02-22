@@ -27,11 +27,7 @@ EdgesIterable::EdgesIterable(EdgesIterable &&other) noexcept : type_(other.type_
 }
 
 EdgesIterable &EdgesIterable::operator=(EdgesIterable &&other) noexcept {
-  switch (type_) {
-    case Type::BY_EDGE_TYPE_IN_MEMORY:
-      in_memory_edges_by_edge_type_.InMemoryEdgeTypeIndex::Iterable::~Iterable();
-      break;
-  }
+  Destroy();
   type_ = other.type_;
   switch (other.type_) {
     case Type::BY_EDGE_TYPE_IN_MEMORY:
@@ -42,7 +38,9 @@ EdgesIterable &EdgesIterable::operator=(EdgesIterable &&other) noexcept {
   return *this;
 }
 
-EdgesIterable::~EdgesIterable() {
+EdgesIterable::~EdgesIterable() { Destroy(); }
+
+void EdgesIterable::Destroy() noexcept {
   switch (type_) {
     case Type::BY_EDGE_TYPE_IN_MEMORY:
       in_memory_edges_by_edge_type_.InMemoryEdgeTypeIndex::Iterable::~Iterable();

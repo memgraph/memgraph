@@ -16,28 +16,34 @@
 namespace memgraph::storage {
 
 bool DiskEdgeTypeIndex::DropIndex(EdgeTypeId /*edge_type*/) {
-  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return true;
 }
 
 bool DiskEdgeTypeIndex::IndexExists(EdgeTypeId /*edge_type*/) const {
-  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return false;
 }
 
 std::vector<EdgeTypeId> DiskEdgeTypeIndex::ListIndices() const {
-  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return {};
 }
 
 uint64_t DiskEdgeTypeIndex::ApproximateEdgeCount(EdgeTypeId /*edge_type*/) const {
-  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return 0U;
 }
 
 void DiskEdgeTypeIndex::UpdateOnEdgeCreation(Vertex * /*from*/, Vertex * /*to*/, EdgeRef /*edge_ref*/,
                                              EdgeTypeId /*edge_type*/, const Transaction & /*tx*/) {
-  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
+void DiskEdgeTypeIndex::UpdateOnEdgeModification(Vertex * /*old_from*/, Vertex * /*old_to*/, Vertex * /*new_from*/,
+                                                 Vertex * /*new_to*/, EdgeRef /*edge_ref*/, EdgeTypeId /*edge_type*/,
+                                                 const Transaction & /*tx*/) {
+  spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
 }  // namespace memgraph::storage

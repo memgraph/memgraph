@@ -48,27 +48,11 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.CollectFilterExpression(op.expression_, *symbol_table_);
     return true;
   }
 
-  // Remove no longer needed Filter in PostVisit, this should be the last thing
-  // Filter::Accept does, so it should be safe to remove the last reference and
-  // free the memory.
-  bool PostVisit(Filter &op) override {
+  bool PostVisit(Filter & /*op*/) override {
     prev_ops_.pop_back();
-    ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_);
-    op.expression_ = removal.trimmed_expression;
-    if (op.expression_) {
-      Filters leftover_filters;
-      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
-      op.all_filters_ = std::move(leftover_filters);
-    }
-
-    if (!op.expression_ || utils::Contains(filter_exprs_for_removal_, op.expression_)) {
-      SetOnParent(op.input());
-    }
-
     return true;
   }
 

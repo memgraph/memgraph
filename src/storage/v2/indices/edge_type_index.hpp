@@ -38,6 +38,9 @@ class EdgeTypeIndex {
 
   virtual void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                                     const Transaction &tx) = 0;
+
+  virtual void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to,
+                                        EdgeRef edge_ref, EdgeTypeId edge_type, const Transaction &tx) = 0;
 };
 
 }  // namespace memgraph::storage

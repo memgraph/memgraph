@@ -352,7 +352,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
         transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
         // Update indices if they exist.
-        // TODO enforce the presence of config_.properties_on_edges
         storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
 
         // Increment edge count.
@@ -558,6 +557,13 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
         CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, new_from_vertex, edge_ref);
         to_vertex->in_edges.emplace_back(edge_type, new_from_vertex, edge_ref);
 
+        if (storage_->storage_mode_ != StorageMode::ON_DISK_TRANSACTIONAL) {
+          auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+          auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
+          mem_edge_type_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex,
+                                                        edge_ref, edge_type, transaction_);
+        }
+
         transaction_.manyDeltasCache.Invalidate(new_from_vertex, edge_type, EdgeDirection::OUT);
         transaction_.manyDeltasCache.Invalidate(old_from_vertex, edge_type, EdgeDirection::OUT);
         transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
@@ -663,6 +669,13 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
         from_vertex->out_edges.emplace_back(edge_type, new_to_vertex, edge_ref);
         CreateAndLinkDelta(&transaction_, new_to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge_ref);
         new_to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge_ref);
+
+        if (storage_->storage_mode_ != StorageMode::ON_DISK_TRANSACTIONAL) {
+          auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+          auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
+          mem_edge_type_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex,
+                                                        edge_ref, edge_type, transaction_);
+        }
 
         transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
         transaction_.manyDeltasCache.Invalidate(old_to_vertex, edge_type, EdgeDirection::IN);
@@ -1755,8 +1768,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
   {
-    // Maybe get rid of vertex-respresented edges here?
-
     auto edge_acc = edges_.access();
     for (auto edge : current_deleted_edges) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");

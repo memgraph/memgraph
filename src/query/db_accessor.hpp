@@ -393,8 +393,8 @@ class EdgesIterable final {
 
   explicit EdgesIterable(storage::EdgesIterable iterable) : iterable_(std::move(iterable)) {}
   explicit EdgesIterable(std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
-                                            utils::Allocator<EdgeAccessor>> *vertices)
-      : iterable_(vertices) {}
+                                            utils::Allocator<EdgeAccessor>> *edges)
+      : iterable_(edges) {}
 
   Iterator begin() {
     return std::visit(

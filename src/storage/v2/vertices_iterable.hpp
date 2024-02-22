@@ -12,13 +12,10 @@
 #pragma once
 
 #include "storage/v2/all_vertices_iterable.hpp"
-#include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 
 namespace memgraph::storage {
-
-class InMemoryEdgeTypeIndex;
 
 class VerticesIterable final {
   enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY };

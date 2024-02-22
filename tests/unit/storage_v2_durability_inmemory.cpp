@@ -3009,40 +3009,39 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
-  if (GetParam() == true) {
-    // Create snapshot.
-    {
-      memgraph::storage::Config config{
-          .salient.items = {.properties_on_edges = GetParam()},
-          .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
-      memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
-      memgraph::dbms::Database db{config, repl_state};
-      CreateBaseDataset(db.storage(), GetParam());
-      VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
-      CreateEdgeIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"));
-      VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam());
-    }
-
-    ASSERT_EQ(GetSnapshotsList().size(), 1);
-    ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
-    ASSERT_EQ(GetWalsList().size(), 0);
-    ASSERT_EQ(GetBackupWalsList().size(), 0);
-
-    // Recover snapshot.
-    memgraph::storage::Config config{
-        .salient.items = {.properties_on_edges = GetParam()},
-        .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  if (GetParam() == false) {
+    return;
+  }
+  // Create snapshot.
+  {
+    memgraph::storage::Config config{.salient.items = {.properties_on_edges = GetParam()},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
+    CreateEdgeIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"));
     VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam());
+  }
 
-    // Try to use the storage.
-    {
-      auto acc = db.Access();
-      auto vertex = acc->CreateVertex();
-      auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-      ASSERT_TRUE(edge.HasValue());
-      ASSERT_FALSE(acc->Commit().HasError());
-    }
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Recover snapshot.
+  memgraph::storage::Config config{.salient.items = {.properties_on_edges = GetParam()},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam());
+
+  // Try to use the storage.
+  {
+    auto acc = db.Access();
+    auto vertex = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(edge.HasValue());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
 }

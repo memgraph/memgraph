@@ -59,7 +59,7 @@ bool IsIndexEntryVisible(Edge *edge, const Transaction *transaction, View view) 
 }
 
 using ReturnType = std::optional<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
-ReturnType VertexDeletedConnectedEdges(Vertex *vertex, const Transaction *transaction, View view) {
+ReturnType VertexDeletedConnectedEdges(Vertex *vertex, Edge *edge, const Transaction *transaction, View view) {
   ReturnType link;
   Delta *delta = nullptr;
   {
@@ -71,17 +71,22 @@ ReturnType VertexDeletedConnectedEdges(Vertex *vertex, const Transaction *transa
       case Delta::Action::ADD_LABEL:
       case Delta::Action::REMOVE_LABEL:
       case Delta::Action::SET_PROPERTY:
-      case Delta::Action::ADD_IN_EDGE: {
-        link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
-        auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-        MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
         break;
+      case Delta::Action::ADD_IN_EDGE: {
+        if (edge == delta.vertex_edge.edge.ptr) {
+          link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
+          auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
+          MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
+          break;
+        }
       }
       case Delta::Action::ADD_OUT_EDGE: {
-        link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
-        auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
-        MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
-        break;
+        if (edge == delta.vertex_edge.edge.ptr) {
+          link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
+          auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
+          MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
+          break;
+        }
       }
       case Delta::Action::REMOVE_IN_EDGE:
       case Delta::Action::REMOVE_OUT_EDGE:
@@ -168,8 +173,7 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
         return to_vertex != it->to_vertex;
       });
 
-      if ((next_it != edges_acc.end() && it->edge->gid == next_it->edge->gid) || it->from_vertex->deleted ||
-          it->to_vertex->deleted || edge_deleted) {
+      if (next_it != edges_acc.end() || it->from_vertex->deleted || it->to_vertex->deleted || edge_deleted) {
         edges_acc.remove(*it);
       }
 
@@ -193,6 +197,18 @@ void InMemoryEdgeTypeIndex::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeR
   }
   auto acc = it->second.access();
   acc.insert(Entry{from, to, edge_ref.ptr, tx.start_timestamp});
+}
+
+void InMemoryEdgeTypeIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to,
+                                                     EdgeRef edge_ref, EdgeTypeId edge_type, const Transaction &tx) {
+  auto it = index_.find(edge_type);
+  if (it == index_.end()) {
+    return;
+  }
+  auto acc = it->second.access();
+
+  acc.remove(Entry{old_from, old_to, edge_ref.ptr, tx.start_timestamp});
+  acc.insert(Entry{new_from, new_to, edge_ref.ptr, tx.start_timestamp});
 }
 
 InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type,
@@ -229,13 +245,7 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
 
     const bool edge_was_deleted = index_iterator_->edge->deleted;
     auto [edge_ref, edge_type, deleted_from_vertex, deleted_to_vertex] = GetEdgeInfo();
-    if (edge_ref == EdgeRef(nullptr)) {
-      MG_ASSERT(false, "Invalid database state!");
-    }
-
-    if (edge_ref == current_edge_) {
-      continue;
-    }
+    MG_ASSERT(edge_ref != EdgeRef(nullptr), "Invalid database state!");
 
     if (edge_was_deleted) {
       from_vertex = deleted_from_vertex;
@@ -258,8 +268,10 @@ std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> InMemoryEdgeTypeIndex::Itera
   auto *to_vertex = index_iterator_->to_vertex;
 
   if (index_iterator_->edge->deleted) {
-    const auto missing_in_edge = VertexDeletedConnectedEdges(from_vertex, self_->transaction_, self_->view_);
-    const auto missing_out_edge = VertexDeletedConnectedEdges(to_vertex, self_->transaction_, self_->view_);
+    const auto missing_in_edge =
+        VertexDeletedConnectedEdges(from_vertex, index_iterator_->edge, self_->transaction_, self_->view_);
+    const auto missing_out_edge =
+        VertexDeletedConnectedEdges(to_vertex, index_iterator_->edge, self_->transaction_, self_->view_);
     if (missing_in_edge && missing_out_edge &&
         std::get<kEdgeRefPos>(*missing_in_edge) == std::get<kEdgeRefPos>(*missing_out_edge)) {
       return std::make_tuple(std::get<kEdgeRefPos>(*missing_in_edge), std::get<kEdgeTypeIdPos>(*missing_in_edge),
