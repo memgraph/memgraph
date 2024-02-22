@@ -4,9 +4,13 @@ services:
   debian-12-arm:
     build:
       context: debian-12-arm
+      args:
+        TOOLCHAIN_VERSION: "v4"
     container_name: "mgbuild_debian-12-arm"
 
   ubuntu-22.04-arm:
     build:
       context: ubuntu-22.04-arm
+      args:
+        TOOLCHAIN_VERSION: "v4"
     container_name: "mgbuild_ubuntu-22.04-arm"
