@@ -168,12 +168,11 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
         continue;
       }
 
-      const bool edge_deleted = !std::ranges::all_of(it->from_vertex->out_edges, [&](const auto &edge) {
-        auto *to_vertex = std::get<InMemoryEdgeTypeIndex::kVertexPos>(edge);
-        return to_vertex != it->to_vertex;
-      });
-
-      if (next_it != edges_acc.end() || it->from_vertex->deleted || it->to_vertex->deleted || edge_deleted) {
+      if (next_it != edges_acc.end() || it->from_vertex->deleted || it->to_vertex->deleted ||
+          !std::ranges::all_of(it->from_vertex->out_edges, [&](const auto &edge) {
+            auto *to_vertex = std::get<InMemoryEdgeTypeIndex::kVertexPos>(edge);
+            return to_vertex != it->to_vertex;
+          })) {
         edges_acc.remove(*it);
       }
 
