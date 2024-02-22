@@ -12,11 +12,14 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "disk_test_utils.hpp"
 #include "glue/auth_checker.hpp"
 
 #include "license/license.hpp"
+#include "query/frontend/ast/ast.hpp"
+#include "query/query_user.hpp"
 #include "query_plan_common.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -224,5 +227,124 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GrantAndDenySpecificEdgeTypes) {
   ASSERT_TRUE(auth_checker.Has(this->r2, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
   ASSERT_FALSE(auth_checker.Has(this->r3, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
   ASSERT_FALSE(auth_checker.Has(this->r4, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+}
+
+TEST(AuthChecker, Generate) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+
+  auto empty_user = auth_checker.GenQueryUser(std::nullopt, std::nullopt);
+  ASSERT_THROW(auth_checker.GenQueryUser("does_not_exist", std::nullopt), memgraph::auth::AuthException);
+
+  EXPECT_FALSE(empty_user && *empty_user);
+  // Still empty auth, so the above should have su permissions
+  using enum memgraph::query::AuthQuery::Privilege;
+  EXPECT_TRUE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, "", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph",
+                                       &memgraph::query::session_long_policy));
+  EXPECT_TRUE(
+      empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db", &memgraph::query::session_long_policy));
+
+  // Add user
+  auth->AddUser("new_user");
+
+  // ~Empty user should now fail~
+  // NOTE: Cache invalidation has been disabled, so this will pass; change if it is ever turned on
+  EXPECT_TRUE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, "", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph",
+                                       &memgraph::query::session_long_policy));
+  EXPECT_TRUE(
+      empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db", &memgraph::query::session_long_policy));
+
+  // Add role and new user
+  auto new_role = *auth->AddRole("new_role");
+  auto new_user2 = *auth->AddUser("new_user2");
+  auto role = auth_checker.GenQueryUser("anyuser", "new_role");
+  auto user2 = auth_checker.GenQueryUser("new_user2", std::nullopt);
+
+  // Should be permission-less by default
+  EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(role->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(user2->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+
+  // Update permissions and recheck
+  new_user2.permissions().Grant(memgraph::auth::Permission::AUTH);
+  new_role.permissions().Grant(memgraph::auth::Permission::TRIGGER);
+  auth->SaveUser(new_user2);
+  auth->SaveRole(new_role);
+  role = auth_checker.GenQueryUser("no check", "new_role");
+  user2 = auth_checker.GenQueryUser("new_user2", std::nullopt);
+  EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(role->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(user2->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+
+  // Connect role and recheck
+  new_user2.SetRole(new_role);
+  auth->SaveUser(new_user2);
+  user2 = auth_checker.GenQueryUser("new_user2", std::nullopt);
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(user2->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+
+  // Add database and recheck
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+  new_user2.db_access().Grant("another");
+  new_role.db_access().Grant("non_default");
+  auth->SaveUser(new_user2);
+  auth->SaveRole(new_role);
+  // Session policy test
+  // Session long policy
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+  // Up to date policy
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::up_to_date_policy));
+
+  new_user2.db_access().Deny("memgraph");
+  new_role.db_access().Deny("non_default");
+  auth->SaveUser(new_user2);
+  auth->SaveRole(new_role);
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::up_to_date_policy));
+
+  new_user2.db_access().Revoke("memgraph");
+  new_role.db_access().Revoke("non_default");
+  auth->SaveUser(new_user2);
+  auth->SaveRole(new_role);
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::up_to_date_policy));
 }
 #endif
