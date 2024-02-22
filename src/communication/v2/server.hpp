@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include "communication/context.hpp"
+#include "communication/fmt.hpp"
 #include "communication/init.hpp"
 #include "communication/v2/listener.hpp"
 #include "communication/v2/pool.hpp"
@@ -129,7 +130,7 @@ bool Server<TSession, TSessionContext>::Start() {
   listener_->Start();
 
   spdlog::info("{} server is fully armed and operational", service_name_);
-  spdlog::info("{} listening on {}", service_name_, endpoint_.address());
+  spdlog::info("{} listening on {}", service_name_, endpoint_);
   context_thread_pool_.Run();
 
   return true;

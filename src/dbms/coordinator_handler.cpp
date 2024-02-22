@@ -9,31 +9,41 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/register_main_replica_coordinator_status.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "dbms/coordinator_handler.hpp"
 
-#include "dbms/dbms_handler.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
 
 namespace memgraph::dbms {
 
 CoordinatorHandler::CoordinatorHandler(coordination::CoordinatorState &coordinator_state)
     : coordinator_state_(coordinator_state) {}
 
-auto CoordinatorHandler::RegisterInstance(memgraph::coordination::CoordinatorClientConfig config)
+auto CoordinatorHandler::RegisterReplicationInstance(memgraph::coordination::CoordinatorClientConfig config)
     -> coordination::RegisterInstanceCoordinatorStatus {
-  return coordinator_state_.RegisterInstance(config);
+  return coordinator_state_.RegisterReplicationInstance(config);
 }
 
-auto CoordinatorHandler::SetInstanceToMain(std::string instance_name)
+auto CoordinatorHandler::UnregisterReplicationInstance(std::string instance_name)
+    -> coordination::UnregisterInstanceCoordinatorStatus {
+  return coordinator_state_.UnregisterReplicationInstance(std::move(instance_name));
+}
+
+auto CoordinatorHandler::SetReplicationInstanceToMain(std::string instance_name)
     -> coordination::SetInstanceToMainCoordinatorStatus {
-  return coordinator_state_.SetInstanceToMain(std::move(instance_name));
+  return coordinator_state_.SetReplicationInstanceToMain(std::move(instance_name));
 }
 
-auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::CoordinatorInstanceStatus> {
+auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::InstanceStatus> {
   return coordinator_state_.ShowInstances();
 }
+
+auto CoordinatorHandler::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)
+    -> void {
+  coordinator_state_.AddCoordinatorInstance(raft_server_id, raft_port, std::move(raft_address));
+}
+
 }  // namespace memgraph::dbms
 
 #endif

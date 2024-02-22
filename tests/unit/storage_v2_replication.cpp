@@ -113,7 +113,7 @@ struct MinMemgraph {
   MinMemgraph(const memgraph::storage::Config &conf)
       : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
         repl_state{ReplicationStateRootPath(conf)},
-        dbms{conf, system_, repl_state
+        dbms{conf, repl_state
 #ifdef MG_ENTERPRISE
              ,
              auth, true
@@ -124,7 +124,7 @@ struct MinMemgraph {
         repl_handler(repl_state, dbms
 #ifdef MG_ENTERPRISE
                      ,
-                     &system_, auth
+                     system_, auth
 #endif
         ) {
   }
@@ -142,21 +142,19 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   MinMemgraph replica(repl_conf);
 
   auto replica_store_handler = replica.repl_handler;
-  replica_store_handler.SetReplicationRoleReplica(
+  replica_store_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[0],
       },
       std::nullopt);
 
-  const auto &reg = main.repl_handler.TryRegisterReplica(
-      ReplicationClientConfig{
-          .name = "REPLICA",
-          .mode = ReplicationMode::SYNC,
-          .ip_address = local_host,
-          .port = ports[0],
-      },
-      true);
+  const auto &reg = main.repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .ip_address = local_host,
+      .port = ports[0],
+  });
   ASSERT_FALSE(reg.HasError()) << (int)reg.GetError();
 
   // vertex create
@@ -439,13 +437,13 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   MinMemgraph replica1(repl_conf);
   MinMemgraph replica2(repl2_conf);
 
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[0],
       },
       std::nullopt);
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[1],
@@ -453,24 +451,20 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
       std::nullopt);
 
   ASSERT_FALSE(main.repl_handler
-                   .TryRegisterReplica(
-                       ReplicationClientConfig{
-                           .name = replicas[0],
-                           .mode = ReplicationMode::SYNC,
-                           .ip_address = local_host,
-                           .port = ports[0],
-                       },
-                       true)
+                   .TryRegisterReplica(ReplicationClientConfig{
+                       .name = replicas[0],
+                       .mode = ReplicationMode::SYNC,
+                       .ip_address = local_host,
+                       .port = ports[0],
+                   })
                    .HasError());
   ASSERT_FALSE(main.repl_handler
-                   .TryRegisterReplica(
-                       ReplicationClientConfig{
-                           .name = replicas[1],
-                           .mode = ReplicationMode::SYNC,
-                           .ip_address = local_host,
-                           .port = ports[1],
-                       },
-                       true)
+                   .TryRegisterReplica(ReplicationClientConfig{
+                       .name = replicas[1],
+                       .mode = ReplicationMode::SYNC,
+                       .ip_address = local_host,
+                       .port = ports[1],
+                   })
                    .HasError());
 
   const auto *vertex_label = "label";
@@ -597,21 +591,19 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     MinMemgraph replica(repl_conf);
     auto replica_store_handler = replica.repl_handler;
 
-    replica_store_handler.SetReplicationRoleReplica(
+    replica_store_handler.TrySetReplicationRoleReplica(
         ReplicationServerConfig{
             .ip_address = local_host,
             .port = ports[0],
         },
         std::nullopt);
     ASSERT_FALSE(main.repl_handler
-                     .TryRegisterReplica(
-                         ReplicationClientConfig{
-                             .name = replicas[0],
-                             .mode = ReplicationMode::SYNC,
-                             .ip_address = local_host,
-                             .port = ports[0],
-                         },
-                         true)
+                     .TryRegisterReplica(ReplicationClientConfig{
+                         .name = replicas[0],
+                         .mode = ReplicationMode::SYNC,
+                         .ip_address = local_host,
+                         .port = ports[0],
+                     })
                      .HasError());
 
     ASSERT_EQ(main.db.storage()->GetReplicaState(replicas[0]), ReplicaState::RECOVERY);
@@ -676,7 +668,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   MinMemgraph replica_async(repl_conf);
 
   auto replica_store_handler = replica_async.repl_handler;
-  replica_store_handler.SetReplicationRoleReplica(
+  replica_store_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[1],
@@ -684,14 +676,12 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
       std::nullopt);
 
   ASSERT_FALSE(main.repl_handler
-                   .TryRegisterReplica(
-                       ReplicationClientConfig{
-                           .name = "REPLICA_ASYNC",
-                           .mode = ReplicationMode::ASYNC,
-                           .ip_address = local_host,
-                           .port = ports[1],
-                       },
-                       true)
+                   .TryRegisterReplica(ReplicationClientConfig{
+                       .name = "REPLICA_ASYNC",
+                       .mode = ReplicationMode::ASYNC,
+                       .ip_address = local_host,
+                       .port = ports[1],
+                   })
                    .HasError());
 
   static constexpr size_t vertices_create_num = 10;
@@ -726,7 +716,7 @@ TEST_F(ReplicationTest, EpochTest) {
   MinMemgraph main(main_conf);
   MinMemgraph replica1(repl_conf);
 
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[0],
@@ -734,7 +724,7 @@ TEST_F(ReplicationTest, EpochTest) {
       std::nullopt);
 
   MinMemgraph replica2(repl2_conf);
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = 10001,
@@ -742,25 +732,21 @@ TEST_F(ReplicationTest, EpochTest) {
       std::nullopt);
 
   ASSERT_FALSE(main.repl_handler
-                   .TryRegisterReplica(
-                       ReplicationClientConfig{
-                           .name = replicas[0],
-                           .mode = ReplicationMode::SYNC,
-                           .ip_address = local_host,
-                           .port = ports[0],
-                       },
-                       true)
+                   .TryRegisterReplica(ReplicationClientConfig{
+                       .name = replicas[0],
+                       .mode = ReplicationMode::SYNC,
+                       .ip_address = local_host,
+                       .port = ports[0],
+                   })
                    .HasError());
 
   ASSERT_FALSE(main.repl_handler
-                   .TryRegisterReplica(
-                       ReplicationClientConfig{
-                           .name = replicas[1],
-                           .mode = ReplicationMode::SYNC,
-                           .ip_address = local_host,
-                           .port = 10001,
-                       },
-                       true)
+                   .TryRegisterReplica(ReplicationClientConfig{
+                       .name = replicas[1],
+                       .mode = ReplicationMode::SYNC,
+                       .ip_address = local_host,
+                       .port = 10001,
+                   })
                    .HasError());
 
   std::optional<Gid> vertex_gid;
@@ -789,15 +775,12 @@ TEST_F(ReplicationTest, EpochTest) {
   ASSERT_TRUE(replica1.repl_handler.SetReplicationRoleMain());
 
   ASSERT_FALSE(replica1.repl_handler
-                   .TryRegisterReplica(
-                       ReplicationClientConfig{
-                           .name = replicas[1],
-                           .mode = ReplicationMode::SYNC,
-                           .ip_address = local_host,
-                           .port = 10001,
-                       },
-                       true)
-
+                   .TryRegisterReplica(ReplicationClientConfig{
+                       .name = replicas[1],
+                       .mode = ReplicationMode::SYNC,
+                       .ip_address = local_host,
+                       .port = 10001,
+                   })
                    .HasError());
 
   {
@@ -819,22 +802,19 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[0],
       },
       std::nullopt);
   ASSERT_TRUE(main.repl_handler
-                  .TryRegisterReplica(
-                      ReplicationClientConfig{
-                          .name = replicas[0],
-                          .mode = ReplicationMode::SYNC,
-                          .ip_address = local_host,
-                          .port = ports[0],
-                      },
-                      true)
-
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .ip_address = local_host,
+                      .port = ports[0],
+                  })
                   .HasError());
 
   {
@@ -858,7 +838,7 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   MinMemgraph replica1(repl_conf);
 
   uint16_t replica1_port = 10001;
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = replica1_port,
@@ -867,7 +847,7 @@ TEST_F(ReplicationTest, ReplicationInformation) {
 
   uint16_t replica2_port = 10002;
   MinMemgraph replica2(repl2_conf);
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = replica2_port,
@@ -875,27 +855,21 @@ TEST_F(ReplicationTest, ReplicationInformation) {
       std::nullopt);
 
   ASSERT_FALSE(main.repl_handler
-                   .TryRegisterReplica(
-                       ReplicationClientConfig{
-                           .name = replicas[0],
-                           .mode = ReplicationMode::SYNC,
-                           .ip_address = local_host,
-                           .port = replica1_port,
-                       },
-                       true)
-
+                   .TryRegisterReplica(ReplicationClientConfig{
+                       .name = replicas[0],
+                       .mode = ReplicationMode::SYNC,
+                       .ip_address = local_host,
+                       .port = replica1_port,
+                   })
                    .HasError());
 
   ASSERT_FALSE(main.repl_handler
-                   .TryRegisterReplica(
-                       ReplicationClientConfig{
-                           .name = replicas[1],
-                           .mode = ReplicationMode::ASYNC,
-                           .ip_address = local_host,
-                           .port = replica2_port,
-                       },
-                       true)
-
+                   .TryRegisterReplica(ReplicationClientConfig{
+                       .name = replicas[1],
+                       .mode = ReplicationMode::ASYNC,
+                       .ip_address = local_host,
+                       .port = replica2_port,
+                   })
                    .HasError());
 
   ASSERT_TRUE(main.repl_state.IsMain());
@@ -923,7 +897,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
   MinMemgraph replica1(repl_conf);
 
   uint16_t replica1_port = 10001;
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = replica1_port,
@@ -932,32 +906,28 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
 
   uint16_t replica2_port = 10002;
   MinMemgraph replica2(repl2_conf);
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = replica2_port,
       },
       std::nullopt);
   ASSERT_FALSE(main.repl_handler
-                   .TryRegisterReplica(
-                       ReplicationClientConfig{
-                           .name = replicas[0],
-                           .mode = ReplicationMode::SYNC,
-                           .ip_address = local_host,
-                           .port = replica1_port,
-                       },
-                       true)
+                   .TryRegisterReplica(ReplicationClientConfig{
+                       .name = replicas[0],
+                       .mode = ReplicationMode::SYNC,
+                       .ip_address = local_host,
+                       .port = replica1_port,
+                   })
                    .HasError());
 
   ASSERT_TRUE(main.repl_handler
-                  .TryRegisterReplica(
-                      ReplicationClientConfig{
-                          .name = replicas[0],
-                          .mode = ReplicationMode::ASYNC,
-                          .ip_address = local_host,
-                          .port = replica2_port,
-                      },
-                      true)
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::ASYNC,
+                      .ip_address = local_host,
+                      .port = replica2_port,
+                  })
                   .GetError() == RegisterReplicaError::NAME_EXISTS);
 }
 
@@ -966,7 +936,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
 
   MinMemgraph main(main_conf);
   MinMemgraph replica1(repl_conf);
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = common_port,
@@ -974,7 +944,7 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
       std::nullopt);
 
   MinMemgraph replica2(repl2_conf);
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = common_port,
@@ -982,25 +952,21 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
       std::nullopt);
 
   ASSERT_FALSE(main.repl_handler
-                   .TryRegisterReplica(
-                       ReplicationClientConfig{
-                           .name = replicas[0],
-                           .mode = ReplicationMode::SYNC,
-                           .ip_address = local_host,
-                           .port = common_port,
-                       },
-                       true)
+                   .TryRegisterReplica(ReplicationClientConfig{
+                       .name = replicas[0],
+                       .mode = ReplicationMode::SYNC,
+                       .ip_address = local_host,
+                       .port = common_port,
+                   })
                    .HasError());
 
   ASSERT_TRUE(main.repl_handler
-                  .TryRegisterReplica(
-                      ReplicationClientConfig{
-                          .name = replicas[1],
-                          .mode = ReplicationMode::ASYNC,
-                          .ip_address = local_host,
-                          .port = common_port,
-                      },
-                      true)
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[1],
+                      .mode = ReplicationMode::ASYNC,
+                      .ip_address = local_host,
+                      .port = common_port,
+                  })
                   .GetError() == RegisterReplicaError::ENDPOINT_EXISTS);
 }
 
@@ -1023,7 +989,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   std::optional<MinMemgraph> main(main_config);
   MinMemgraph replica1(replica1_config);
 
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[0],
@@ -1031,30 +997,26 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
       std::nullopt);
 
   MinMemgraph replica2(replica2_config);
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[1],
       },
       std::nullopt);
 
-  auto res = main->repl_handler.TryRegisterReplica(
-      ReplicationClientConfig{
-          .name = replicas[0],
-          .mode = ReplicationMode::SYNC,
-          .ip_address = local_host,
-          .port = ports[0],
-      },
-      true);
+  auto res = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = replicas[0],
+      .mode = ReplicationMode::SYNC,
+      .ip_address = local_host,
+      .port = ports[0],
+  });
   ASSERT_FALSE(res.HasError()) << (int)res.GetError();
-  res = main->repl_handler.TryRegisterReplica(
-      ReplicationClientConfig{
-          .name = replicas[1],
-          .mode = ReplicationMode::SYNC,
-          .ip_address = local_host,
-          .port = ports[1],
-      },
-      true);
+  res = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = replicas[1],
+      .mode = ReplicationMode::SYNC,
+      .ip_address = local_host,
+      .port = ports[1],
+  });
   ASSERT_FALSE(res.HasError()) << (int)res.GetError();
 
   auto replica_infos = main->db.storage()->ReplicasInfo();
@@ -1088,7 +1050,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   std::optional<MinMemgraph> main(main_config);
   MinMemgraph replica1(repl_conf);
 
-  replica1.repl_handler.SetReplicationRoleReplica(
+  replica1.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[0],
@@ -1097,29 +1059,25 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
 
   MinMemgraph replica2(repl2_conf);
 
-  replica2.repl_handler.SetReplicationRoleReplica(
+  replica2.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{
           .ip_address = local_host,
           .port = ports[1],
       },
       std::nullopt);
-  auto res = main->repl_handler.TryRegisterReplica(
-      ReplicationClientConfig{
-          .name = replicas[0],
-          .mode = ReplicationMode::SYNC,
-          .ip_address = local_host,
-          .port = ports[0],
-      },
-      true);
+  auto res = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = replicas[0],
+      .mode = ReplicationMode::SYNC,
+      .ip_address = local_host,
+      .port = ports[0],
+  });
   ASSERT_FALSE(res.HasError());
-  res = main->repl_handler.TryRegisterReplica(
-      ReplicationClientConfig{
-          .name = replicas[1],
-          .mode = ReplicationMode::SYNC,
-          .ip_address = local_host,
-          .port = ports[1],
-      },
-      true);
+  res = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = replicas[1],
+      .mode = ReplicationMode::SYNC,
+      .ip_address = local_host,
+      .port = ports[1],
+  });
   ASSERT_FALSE(res.HasError());
 
   auto replica_infos = main->db.storage()->ReplicasInfo();
@@ -1157,13 +1115,11 @@ TEST_F(ReplicationTest, AddingInvalidReplica) {
   MinMemgraph main(main_conf);
 
   ASSERT_TRUE(main.repl_handler
-                  .TryRegisterReplica(
-                      ReplicationClientConfig{
-                          .name = "REPLICA",
-                          .mode = ReplicationMode::SYNC,
-                          .ip_address = local_host,
-                          .port = ports[0],
-                      },
-                      true)
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = "REPLICA",
+                      .mode = ReplicationMode::SYNC,
+                      .ip_address = local_host,
+                      .port = ports[0],
+                  })
                   .GetError() == RegisterReplicaError::ERROR_ACCEPTING_MAIN);
 }

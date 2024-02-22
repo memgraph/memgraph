@@ -82,6 +82,85 @@ struct DemoteMainToReplicaRes {
 
 using DemoteMainToReplicaRpc = rpc::RequestResponse<DemoteMainToReplicaReq, DemoteMainToReplicaRes>;
 
+struct UnregisterReplicaReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
+  static void Save(UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
+
+  explicit UnregisterReplicaReq(std::string instance_name) : instance_name(std::move(instance_name)) {}
+
+  UnregisterReplicaReq() = default;
+
+  std::string instance_name;
+};
+
+struct UnregisterReplicaRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(UnregisterReplicaRes *self, memgraph::slk::Reader *reader);
+  static void Save(const UnregisterReplicaRes &self, memgraph::slk::Builder *builder);
+
+  explicit UnregisterReplicaRes(bool success) : success(success) {}
+  UnregisterReplicaRes() = default;
+
+  bool success;
+};
+
+using UnregisterReplicaRpc = rpc::RequestResponse<UnregisterReplicaReq, UnregisterReplicaRes>;
+
+struct EnableWritingOnMainReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(EnableWritingOnMainReq *self, memgraph::slk::Reader *reader);
+  static void Save(EnableWritingOnMainReq const &self, memgraph::slk::Builder *builder);
+
+  EnableWritingOnMainReq() = default;
+};
+
+struct EnableWritingOnMainRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
+  static void Save(EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
+
+  explicit EnableWritingOnMainRes(bool success) : success(success) {}
+  EnableWritingOnMainRes() = default;
+
+  bool success;
+};
+
+using EnableWritingOnMainRpc = rpc::RequestResponse<EnableWritingOnMainReq, EnableWritingOnMainRes>;
+
+struct GetInstanceUUIDReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(GetInstanceUUIDReq *self, memgraph::slk::Reader *reader);
+  static void Save(const GetInstanceUUIDReq &self, memgraph::slk::Builder *builder);
+
+  GetInstanceUUIDReq() = default;
+};
+
+struct GetInstanceUUIDRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(GetInstanceUUIDRes *self, memgraph::slk::Reader *reader);
+  static void Save(const GetInstanceUUIDRes &self, memgraph::slk::Builder *builder);
+
+  explicit GetInstanceUUIDRes(std::optional<utils::UUID> uuid) : uuid(uuid) {}
+  GetInstanceUUIDRes() = default;
+
+  std::optional<utils::UUID> uuid;
+};
+
+using GetInstanceUUIDRpc = rpc::RequestResponse<GetInstanceUUIDReq, GetInstanceUUIDRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -99,6 +178,19 @@ void Load(memgraph::coordination::DemoteMainToReplicaRes *self, memgraph::slk::R
 void Save(const memgraph::coordination::DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader);
 
+// GetInstanceUUIDRpc
+void Save(const memgraph::coordination::GetInstanceUUIDReq &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::GetInstanceUUIDReq *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::GetInstanceUUIDRes &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::GetInstanceUUIDRes *self, memgraph::slk::Reader *reader);
+// UnregisterReplicaRpc
+void Save(memgraph::coordination::UnregisterReplicaRes const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::UnregisterReplicaRes *self, memgraph::slk::Reader *reader);
+void Save(memgraph::coordination::UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
+
+void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

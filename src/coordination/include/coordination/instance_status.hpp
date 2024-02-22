@@ -12,11 +12,23 @@
 #pragma once
 
 #ifdef MG_ENTERPRISE
+
+#include "io/network/endpoint.hpp"
+
+#include <string_view>
+
 namespace memgraph::coordination {
 
-struct CoordinatorClusterConfig {
-  static constexpr int alive_response_time_difference_sec_{5};
+// TODO: (andi) For phase IV. Some instances won't have raft_socket_address, coord_socket_address, replication_role and
+// cluster role... At the end, all instances will have everything.
+struct InstanceStatus {
+  std::string instance_name;
+  std::string raft_socket_address;
+  std::string coord_socket_address;
+  std::string cluster_role;
+  bool is_alive;
 };
 
 }  // namespace memgraph::coordination
+
 #endif

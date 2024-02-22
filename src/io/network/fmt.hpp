@@ -11,21 +11,11 @@
 
 #pragma once
 
-#ifdef MG_ENTERPRISE
+#if FMT_VERSION > 90000
+#include <fmt/ostream.h>
 
 #include "io/network/endpoint.hpp"
 
-#include <string_view>
-
-namespace memgraph::coordination {
-
-struct CoordinatorInstanceStatus {
-  std::string instance_name;
-  std::string socket_address;
-  std::string replication_role;
-  bool is_alive;
-};
-
-}  // namespace memgraph::coordination
-
+template <>
+class fmt::formatter<memgraph::io::network::Endpoint> : public fmt::ostream_formatter {};
 #endif

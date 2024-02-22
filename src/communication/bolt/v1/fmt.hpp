@@ -11,12 +11,17 @@
 
 #pragma once
 
-namespace memgraph::coordination {
+#if FMT_VERSION > 90000
+#include <fmt/ostream.h>
 
-#ifdef MG_EXPERIMENTAL_HIGH_AVAILABILITY
-constexpr bool allow_ha = true;
-#else
-constexpr bool allow_ha = false;
+#include "communication/bolt/v1/value.hpp"
+
+template <>
+class fmt::formatter<memgraph::communication::bolt::Value> : public fmt::ostream_formatter {};
+
+template <>
+class fmt::formatter<std::vector<memgraph::communication::bolt::Value>> : public fmt::ostream_formatter {};
+
+template <>
+class fmt::formatter<std::map<std::string, memgraph::communication::bolt::Value>> : public fmt::ostream_formatter {};
 #endif
-
-}  // namespace memgraph::coordination

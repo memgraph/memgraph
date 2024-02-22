@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,13 +36,13 @@ TEST(MemoryTrackerTest, ExceptionEnabler) {
       can_continue = true;
     }};
 
-    ASSERT_NO_THROW(memory_tracker.Alloc(hard_limit + 1));
+    ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
   }};
 
   std::thread t2{[&] {
     memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler exception_enabler;
     enabler_created = true;
-    ASSERT_THROW(memory_tracker.Alloc(hard_limit + 1), memgraph::utils::OutOfMemoryException);
+    ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
 
     // hold the enabler until the first thread finishes
     while (!can_continue)
@@ -63,8 +63,8 @@ TEST(MemoryTrackerTest, ExceptionBlocker) {
   {
     memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
 
-    ASSERT_NO_THROW(memory_tracker.Alloc(hard_limit + 1));
+    ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
     ASSERT_EQ(memory_tracker.Amount(), hard_limit + 1);
   }
-  ASSERT_THROW(memory_tracker.Alloc(hard_limit + 1), memgraph::utils::OutOfMemoryException);
+  ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
 }

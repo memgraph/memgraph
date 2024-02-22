@@ -151,7 +151,10 @@ class MemgraphInstanceRunner:
 
         if not keep_directories:
             for folder in self.delete_on_stop or {}:
-                shutil.rmtree(folder)
+                try:
+                    shutil.rmtree(folder)
+                except Exception as e:
+                    pass  # couldn't delete folder, skip
 
     def kill(self, keep_directories=False):
         if not self.is_running():

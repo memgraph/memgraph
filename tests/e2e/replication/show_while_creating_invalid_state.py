@@ -260,7 +260,14 @@ def test_drop_replicas(connection):
     mg_sleep_and_assert(expected_data, retrieve_data)
 
 
-def test_basic_recovery(connection):
+@pytest.mark.parametrize(
+    "recover_data_on_startup",
+    [
+        "true",
+        "false",
+    ],
+)
+def test_basic_recovery(recover_data_on_startup, connection):
     # Goal of this test is to check the recovery of main.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 1/ We check that all replicas have the correct state: they should all be ready.
@@ -272,9 +279,9 @@ def test_basic_recovery(connection):
     # 7/ We check that all replicas but one have the expected data.
     # 8/ We kill another replica.
     # 9/ We add some data to main.
-    # 10/ We re-add the two replicas droped/killed and check the data.
+    # 10/ We re-add the two replicas dropped/killed and check the data.
     # 11/ We kill another replica.
-    # 12/ Add some more data to main. It must still still occured but exception is expected since one replica is down.
+    # 12/ Add some more data to main. It must still occur but exception is expected since one replica is down.
     # 13/ Restart the replica
     # 14/ Check the states of replicas.
     # 15/ Add some data again.
@@ -284,22 +291,60 @@ def test_basic_recovery(connection):
     data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "replica_1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                "false",
+            ],
             "log_file": "replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            # Need to set it up manually
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/replica_1",
         },
         "replica_2": {
-            "args": ["--bolt-port", "7689", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
+            "args": [
+                "--bolt-port",
+                "7689",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                "false",
+            ],
             "log_file": "replica2.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+            "data_directory": f"{data_directory.name}/replica_2",
         },
         "replica_3": {
-            "args": ["--bolt-port", "7690", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
+            "args": [
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                f"{recover_data_on_startup}",
+            ],
             "log_file": "replica3.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10003;"],
+            # We restart this replica so we set replication role manually,
+            # On restart we would set replication role again, we want to get it from data
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/replica_3",
         },
         "replica_4": {
-            "args": ["--bolt-port", "7691", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
+            "args": [
+                "--bolt-port",
+                "7691",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                "false",
+            ],
             "log_file": "replica4.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10004;"],
         },
@@ -313,11 +358,18 @@ def test_basic_recovery(connection):
             ],
             "log_file": "main.log",
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}",
+            "data_directory": f"{data_directory.name}/main",
         },
     }
 
     interactive_mg_runner.start_all(CONFIGURATION)
+
+    replica_1_cursor = connection(7688, "replica_1").cursor()
+    execute_and_fetch_all(replica_1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    replica_3_cursor = connection(7690, "replica_3").cursor()
+    execute_and_fetch_all(replica_3_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10003;")
+
     cursor = connection(7687, "main").cursor()
 
     # We want to execute manually and not via the configuration, otherwise re-starting main would also execute these registration.
@@ -485,26 +537,32 @@ def test_basic_recovery(connection):
 def test_replication_role_recovery(connection):
     # Goal of this test is to check the recovery of main and replica role.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
-    # 1/ We try to add a replica with reserved name which results in an exception <- Schema changed, there are no reserved names now
-    # 2/ We check that all replicas have the correct state: they should all be ready.
-    # 3/ We kill main.
-    # 4/ We re-start main. We check that main indeed has the role main and replicas still have the correct state.
-    # 5/ We kill the replica.
-    # 6/ We observed that the replica result is in invalid state.
-    # 7/ We start the replica again. We observe that indeed the replica has the replica state.
-    # 8/ We observe that main has the replica ready.
-    # 9/ We kill the replica again.
-    # 10/ We add data to main.
-    # 11/ We start the replica again. We observe that the replica has the same
+    # 1/ We check that all replicas have the correct state: they should all be ready.
+    # 2/ We kill main.
+    # 3/ We re-start main. We check that main indeed has the role main and replicas still have the correct state.
+    # 4/ We kill the replica.
+    # 5/ We observed that the replica result is in invalid state.
+    # 6/ We start the replica again. We observe that indeed the replica has the replica state.
+    # 7/ We observe that main has the replica ready.
+    # 8/ We kill the replica again.
+    # 9/ We add data to main.
+    # 10/ We start the replica again. We observe that the replica has the same
     #     data as main because it synced and added lost data.
 
     # 0/
     data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "replica": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--storage-recover-on-startup",
+                "false",
+            ],
             "log_file": "replica.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
             "data_directory": f"{data_directory.name}/replica",
         },
         "main": {
@@ -522,37 +580,16 @@ def test_replication_role_recovery(connection):
     }
 
     interactive_mg_runner.start_all(CONFIGURATION)
+
+    replica_cursor = connection(7688, "replica").cursor()
+    execute_and_fetch_all(replica_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
     cursor = connection(7687, "main").cursor()
 
     # We want to execute manually and not via the configuration, otherwise re-starting main would also execute these registration.
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica SYNC TO '127.0.0.1:10001';")
 
-    # When we restart the replica, it does not need this query anymore since it needs to remember state
-    CONFIGURATION = {
-        "replica": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
-            "log_file": "replica.log",
-            "setup_queries": [],
-            "data_directory": f"{data_directory.name}/replica",
-        },
-        "main": {
-            "args": [
-                "--bolt-port",
-                "7687",
-                "--log-level=TRACE",
-                "--storage-recover-on-startup=true",
-                "--replication-restore-state-on-startup=true",
-            ],
-            "log_file": "main.log",
-            "setup_queries": [],
-            "data_directory": f"{data_directory.name}/main",
-        },
-    }
-    # 1/ Obsolete, schema change, no longer a reserved name
-    # with pytest.raises(mgclient.DatabaseError):
-    #     execute_and_fetch_all(cursor, "REGISTER REPLICA __replication_role SYNC TO '127.0.0.1:10002';")
-
-    # 2/
+    # 1/
     expected_data = {
         ("replica", "127.0.0.1:10001", "sync", 0, 0, "ready"),
     }
@@ -566,10 +603,10 @@ def test_replication_role_recovery(connection):
 
     check_roles()
 
-    # 3/
+    # 2/
     interactive_mg_runner.kill(CONFIGURATION, "main")
 
-    # 4/
+    # 3/
     interactive_mg_runner.start(CONFIGURATION, "main")
     cursor = connection(7687, "main").cursor()
     check_roles()
@@ -580,10 +617,10 @@ def test_replication_role_recovery(connection):
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
 
-    # 5/
+    # 4/
     interactive_mg_runner.kill(CONFIGURATION, "replica")
 
-    # 6/
+    # 5/
     expected_data = {
         ("replica", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
     }
@@ -591,11 +628,11 @@ def test_replication_role_recovery(connection):
 
     assert actual_data == expected_data
 
-    # 7/
+    # 6/
     interactive_mg_runner.start(CONFIGURATION, "replica")
     check_roles()
 
-    # 8/
+    # 7/
     expected_data = {
         ("replica", "127.0.0.1:10001", "sync", 0, 0, "ready"),
     }
@@ -603,14 +640,14 @@ def test_replication_role_recovery(connection):
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
 
-    # 9/
+    # 8/
     interactive_mg_runner.kill(CONFIGURATION, "replica")
 
-    # 10/
+    # 9/
     with pytest.raises(mgclient.DatabaseError):
         execute_and_fetch_all(cursor, "CREATE (n:First)")
 
-    # 11/
+    # 10/
     interactive_mg_runner.start(CONFIGURATION, "replica")
     check_roles()
 
@@ -758,7 +795,7 @@ def test_async_replication_when_main_is_killed():
                 "data_directory": f"{data_directory_main.name}",
             },
         }
-
+        interactive_mg_runner.kill_all(CONFIGURATION)
         interactive_mg_runner.start_all(CONFIGURATION)
 
         # 1/
@@ -841,7 +878,7 @@ def test_sync_replication_when_main_is_killed():
                 "data_directory": f"{data_directory_main.name}",
             },
         }
-
+        interactive_mg_runner.kill_all(CONFIGURATION)
         interactive_mg_runner.start_all(CONFIGURATION)
 
         # 1/
@@ -948,7 +985,7 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_attempt_to_write_data_on_main_when_sync_replica_is_down():
+def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
     # Goal of this test is to check that main cannot write new data if a sync replica is down.
     # 0/ Start main and sync replicas.
     # 1/ Check status of replicas.
@@ -958,29 +995,47 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down():
     # 5/ Check the status of replicas.
     # 6/ Restart the replica that was killed and check that it is up to date with main.
 
+    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                "false",
+            ],
             "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            # We restart this replica so we want to set role manually
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/sync_replica1",
         },
         "sync_replica2": {
-            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "args": ["--bolt-port", "7689", "--log-level", "TRACE"],
             "log_file": "sync_replica2.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup", "true"],
             "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            # need to do it manually
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/main",
         },
     }
 
     # 0/
     interactive_mg_runner.start_all(CONFIGURATION)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1_cursor").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    main_cursor = connection(7687, "main").cursor()
+    execute_and_fetch_all(main_cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(main_cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
     expected_data = {
@@ -1126,7 +1181,7 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
+def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection):
     # Goal of this test is to check creation of new indexes/constraints when a sync replica is down.
     # 0/ Start main and sync replicas.
     # 1/ Check status of replicas.
@@ -1136,11 +1191,21 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
     # 5/ Check the status of replicas.
     # 6/ Restart the replica that was killed and check that it is up to date with main.
 
+    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                "false",
+            ],
             "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
@@ -1150,15 +1215,23 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
             "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            # Need to do it manually
+            "setup_queries": [],
         },
     }
 
     # 0/
     interactive_mg_runner.start_all(CONFIGURATION)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, as we are setting replica manually because
+    # of restart. Restart on replica would set role again.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
     expected_data = {
@@ -1226,7 +1299,7 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_create_before_commit_with_offline_sync_replica():
+def test_trigger_on_create_before_commit_with_offline_sync_replica(connection):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node. We expect two nodes created (our Not_Magic and the Magic created by trigger).
@@ -1237,11 +1310,23 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica():
     # 7/ Check that we have two nodes.
     # 8/ Re-start the replica and check it's online and that it has two nodes.
 
+    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                "false",
+            ],
             "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            # Need to do it manually since we kill this replica
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
@@ -1251,15 +1336,23 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica():
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
             "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            # Need to do it manually since we kill replica
+            "setup_queries": [],
         },
     }
 
     # 0/
     interactive_mg_runner.start_all(CONFIGURATION)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, as we are setting replica manually because
+    # of restart. Restart on replica would set role again.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
     QUERY_CREATE_TRIGGER = """
@@ -1325,7 +1418,7 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_update_before_commit_with_offline_sync_replica():
+def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1337,11 +1430,22 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica():
     # 8/ Check that we have two nodes.
     # 9/ Re-start the replica and check it's online and that it has two nodes.
 
+    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                "false",
+            ],
             "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            # Need to do it manually
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
@@ -1351,15 +1455,23 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica():
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
             "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            "setup_queries": [],
         },
     }
 
     # 0/
     interactive_mg_runner.start_all(CONFIGURATION)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, as we are setting replica manually because
+    # of restart. Restart on replica would set role again.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
+
     # 1/
     QUERY_CREATE_TRIGGER = """
         CREATE TRIGGER exampleTrigger
@@ -1429,7 +1541,7 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_delete_before_commit_with_offline_sync_replica():
+def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1441,11 +1553,22 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica():
     # 8/ Check that we have one node.
     # 9/ Re-start the replica and check it's online and that it has one node, and the correct one.
 
+    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                "false",
+            ],
             "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            # we need to set it manually
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
@@ -1455,15 +1578,22 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica():
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
             "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            "setup_queries": [],
         },
     }
 
     # 0/
     interactive_mg_runner.start_all(CONFIGURATION)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, as we are setting replica manually because
+    # of restart. Restart on replica would set role again.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
     QUERY_CREATE_TRIGGER = """
@@ -1473,7 +1603,7 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica():
     """
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER)
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW TRIGGERS;")
-    assert len(res_from_main) == 1, f"Incorect result: {res_from_main}"
+    assert len(res_from_main) == 1, f"Incorrect result: {res_from_main}"
 
     # 2/
     QUERY_CREATE_NODE = "CREATE (p:Number {name:'Not_Magic', value:0})"
@@ -1486,7 +1616,7 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica():
     # 4/
     QUERY_TO_CHECK = "MATCH (node) return node;"
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
-    assert len(res_from_main) == 1, f"Incorect result: {res_from_main}"
+    assert len(res_from_main) == 1, f"Incorrect result: {res_from_main}"
     assert res_from_main[0][0].properties["name"] == "Node_created_by_trigger"
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
@@ -1539,7 +1669,7 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica():
+def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(connection):
     # 0/ Start all.
     # 1/ Create the triggers
     # 2/ Create a node. We expect three nodes created (1 node created + the two created by triggers).
@@ -1550,11 +1680,22 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica():
     # 7/ Check that we have three nodes.
     # 8/ Re-start the replica and check it's online and that it has three nodes.
 
+    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                "false",
+            ],
             "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            # we need to set it manually
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
@@ -1564,15 +1705,22 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica():
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
             "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            "setup_queries": [],
         },
     }
 
     # 0/
     interactive_mg_runner.start_all(CONFIGURATION)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, as we are setting replica manually because
+    # of restart. Restart on replica would set role again.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
     QUERY_CREATE_TRIGGER_BEFORE = """
@@ -1644,7 +1792,7 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_triggers_on_create_before_commit_with_offline_sync_replica():
+def test_triggers_on_create_before_commit_with_offline_sync_replica(connection):
     # 0/ Start all.
     # 1/ Create the two triggers
     # 2/ Create a node. We expect three nodes.
@@ -1655,11 +1803,22 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica():
     # 7/ Check that we have three nodes.
     # 8/ Re-start the replica and check it's online and that it has two nodes.
 
+    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                "false",
+            ],
             "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            # we need to set it manually
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
@@ -1669,15 +1828,22 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica():
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
             "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            "setup_queries": [],
         },
     }
 
     # 0/
     interactive_mg_runner.start_all(CONFIGURATION)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, as we are setting replica manually because
+    # of restart. Restart on replica would set role again.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
     QUERY_CREATE_TRIGGER_FIRST = """

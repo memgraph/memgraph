@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,10 +60,13 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
                unsigned arena_ind) {
   // This needs to be before, to throw exception in case of too big alloc
   if (*commit) [[likely]] {
-    memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
     if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
-      GetQueriesMemoryControl().TrackAllocOnCurrentThread(size);
+      bool ok = GetQueriesMemoryControl().TrackAllocOnCurrentThread(size);
+      if (!ok) return nullptr;
     }
+    // This needs to be here so it doesn't get incremented in case the first TrackAlloc throws an exception
+    bool ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
+    if (!ok) return nullptr;
   }
 
   auto *ptr = old_hooks->alloc(extent_hooks, new_addr, size, alignment, zero, commit, arena_ind);
@@ -117,10 +120,14 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
     return err;
   }
 
-  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
+  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
   if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
-    GetQueriesMemoryControl().TrackAllocOnCurrentThread(size);
+    bool ok = GetQueriesMemoryControl().TrackAllocOnCurrentThread(length);
+    DMG_ASSERT(ok);
   }
+
+  auto ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
+  DMG_ASSERT(ok);
 
   return false;
 }

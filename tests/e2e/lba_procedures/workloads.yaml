@@ -48,32 +48,12 @@ read_query_modules_in_memory_cluster: &read_query_modules_in_memory_cluster
       setup_queries: *query_modules_setup_queries
       validation_queries: []
 
-read_query_modules_disk_cluster: &read_query_modules_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk-lba-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *query_modules_setup_queries
-      validation_queries: []
-
 update_query_modules_in_memory_cluster: &update_query_modules_in_memory_cluster
   cluster:
     main:
       args: *args
       log_file: "lba-e2e.log"
       setup_queries: *query_modules_setup_queries
-      validation_queries: []
-
-update_query_modules_disk_cluster: &update_query_modules_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk-lba-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *query_modules_setup_queries
       validation_queries: []
 
 show_privileges_in_memory_cluster: &show_privileges_in_memory_cluster
@@ -84,16 +64,6 @@ show_privileges_in_memory_cluster: &show_privileges_in_memory_cluster
       setup_queries: *show_privileges_setup_queries
       validation_queries: []
 
-show_privileges_disk_cluster: &show_privileges_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk-lba-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *show_privileges_setup_queries
-      validation_queries: []
-
 read_permission_in_memory_queries: &read_permission_in_memory_queries
   cluster:
     main:
@@ -102,33 +72,12 @@ read_permission_in_memory_queries: &read_permission_in_memory_queries
       setup_queries: *query_modules_setup_queries
       validation_queries: []
 
-read_permission_disk_queries: &read_permission_disk_queries
-  cluster:
-    main:
-      args: *args
-      log_file: "disk-lba-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *query_modules_setup_queries
-      validation_queries: []
-
-
 create_delete_query_modules_in_memory_cluster: &create_delete_query_modules_in_memory_cluster
   cluster:
     main:
       args: *args
       log_file: "lba-e2e.log"
       setup_queries: *query_modules_setup_queries
-      validation_queries: []
-
-create_delete_query_modules_disk_cluster: &create_delete_query_modules_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk-lba-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *query_modules_setup_queries
       validation_queries: []
 
 update_permission_queries_in_memory_cluster: &update_permission_queries_in_memory_cluster
@@ -139,16 +88,6 @@ update_permission_queries_in_memory_cluster: &update_permission_queries_in_memor
       setup_queries: *query_modules_setup_queries
       validation_queries: []
 
-update_permission_queries_disk_cluster: &update_permission_queries_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk-lba-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *query_modules_setup_queries
-      validation_queries: []
-
 workloads:
   - name: "read-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
@@ -156,23 +95,11 @@ workloads:
     args: ["lba_procedures/read_query_modules.py"]
     <<: *read_query_modules_in_memory_cluster
 
-  - name: "read-query-modules on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/read_query_modules.py"]
-    <<: *read_query_modules_disk_cluster
-
   - name: "update-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/update_query_modules.py"]
     <<: *update_query_modules_in_memory_cluster
-
-  - name: "update-query-modules on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/update_query_modules.py"]
-    <<: *update_query_modules_disk_cluster
 
   - name: "create-delete-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
@@ -180,23 +107,11 @@ workloads:
     args: ["lba_procedures/create_delete_query_modules.py"]
     <<: *create_delete_query_modules_in_memory_cluster
 
-  - name: "create-delete-query-modules on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/create_delete_query_modules.py"]
-    <<: *create_delete_query_modules_disk_cluster
-
   - name: "show-privileges"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/show_privileges.py"]
     <<: *show_privileges_in_memory_cluster
-
-  - name: "show-privileges on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/show_privileges.py"]
-    <<: *show_privileges_disk_cluster
 
   - name: "read-permission-queries"
     binary: "tests/e2e/pytest_runner.sh"
@@ -204,20 +119,8 @@ workloads:
     args: ["lba_procedures/read_permission_queries.py"]
     <<: *read_permission_in_memory_queries
 
-  - name: "read-permission-queries on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/read_permission_queries.py"]
-    <<: *read_permission_disk_queries
-
   - name: "update-permission-queries"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/update_permission_queries.py"]
     <<: *update_permission_queries_in_memory_cluster
-
-  - name: "update-permission-queries on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/update_permission_queries.py"]
-    <<: *update_permission_queries_disk_cluster

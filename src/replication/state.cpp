@@ -57,9 +57,17 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   auto replication_data = std::move(fetched_replication_data).GetValue();
 #ifdef MG_ENTERPRISE
   if (FLAGS_coordinator_server_port && std::holds_alternative<RoleReplicaData>(replication_data)) {
+    spdlog::trace("Restarted replication uuid for replica");
     std::get<RoleReplicaData>(replication_data).uuid_.reset();
   }
 #endif
+  if (std::holds_alternative<RoleReplicaData>(replication_data)) {
+    auto &replica_uuid = std::get<RoleReplicaData>(replication_data).uuid_;
+    std::string uuid = replica_uuid.has_value() ? std::string(replica_uuid.value()) : "";
+    spdlog::trace("Recovered main's uuid for replica {}", uuid);
+  } else {
+    spdlog::trace("Recovered uuid for main {}", std::string(std::get<RoleMainData>(replication_data).uuid_));
+  }
   replication_data_ = std::move(replication_data);
 }
 
@@ -137,8 +145,8 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
     return std::visit(
         utils::Overloaded{
             [&](durability::MainRole &&r) -> FetchReplicationResult_t {
-              auto res =
-                  RoleMainData{std::move(r.epoch), r.main_uuid.has_value() ? r.main_uuid.value() : utils::UUID{}};
+              auto res = RoleMainData{std::move(r.epoch), false,
+                                      r.main_uuid.has_value() ? r.main_uuid.value() : utils::UUID{}};
               auto b = durability_->begin(durability::kReplicationReplicaPrefix);
               auto e = durability_->end(durability::kReplicationReplicaPrefix);
               for (; b != e; ++b) {
@@ -246,7 +254,7 @@ bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
     return false;
   }
 
-  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, main_uuid};
+  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, true, main_uuid};
 
   return true;
 }

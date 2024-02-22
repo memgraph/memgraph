@@ -13,70 +13,47 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_client.hpp"
-#include "coordination/coordinator_cluster_config.hpp"
-#include "coordination/coordinator_exceptions.hpp"
-#include "replication_coordination_glue/handler.hpp"
-#include "replication_coordination_glue/role.hpp"
+#include "coordination/coordinator_server.hpp"
+#include "coordination/instance_status.hpp"
+#include "coordination/raft_state.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
+#include "coordination/replication_instance.hpp"
+#include "utils/rw_lock.hpp"
+#include "utils/thread_pool.hpp"
+
+#include <list>
 
 namespace memgraph::coordination {
 
-class CoordinatorData;
-
 class CoordinatorInstance {
  public:
-  CoordinatorInstance(CoordinatorData *data, CoordinatorClientConfig config, HealthCheckCallback succ_cb,
-                      HealthCheckCallback fail_cb);
+  CoordinatorInstance();
 
-  CoordinatorInstance(CoordinatorInstance const &other) = delete;
-  CoordinatorInstance &operator=(CoordinatorInstance const &other) = delete;
-  CoordinatorInstance(CoordinatorInstance &&other) noexcept = delete;
-  CoordinatorInstance &operator=(CoordinatorInstance &&other) noexcept = delete;
-  ~CoordinatorInstance() = default;
+  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorClientConfig config) -> RegisterInstanceCoordinatorStatus;
+  [[nodiscard]] auto UnregisterReplicationInstance(std::string instance_name) -> UnregisterInstanceCoordinatorStatus;
 
-  auto OnSuccessPing() -> void;
-  auto OnFailPing() -> bool;
+  [[nodiscard]] auto SetReplicationInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus;
 
-  auto IsAlive() const -> bool;
+  auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto InstanceName() const -> std::string;
-  auto SocketAddress() const -> std::string;
+  auto TryFailover() -> void;
 
-  auto IsReplica() const -> bool;
-  auto IsMain() const -> bool;
+  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
 
-  auto PromoteToMain(utils::UUID main_uuid, ReplicationClientsInfo repl_clients_info, HealthCheckCallback main_succ_cb,
-                     HealthCheckCallback main_fail_cb) -> bool;
-  auto DemoteToReplica(HealthCheckCallback replica_succ_cb, HealthCheckCallback replica_fail_cb) -> bool;
+  auto GetMainUUID() const -> utils::UUID;
 
-  auto PauseFrequentCheck() -> void;
-  auto ResumeFrequentCheck() -> void;
-
-  auto ReplicationClientInfo() const -> ReplClientInfo;
-
-  auto GetClient() -> CoordinatorClient &;
-
-  void SetNewMainUUID(const std::optional<utils::UUID> &main_uuid = std::nullopt);
-  auto GetMainUUID() -> const std::optional<utils::UUID> &;
-
-  auto SendSwapAndUpdateUUID(const utils::UUID &main_uuid) -> bool;
+  auto SetMainUUID(utils::UUID new_uuid) -> void;
 
  private:
-  CoordinatorClient client_;
-  replication_coordination_glue::ReplicationRole replication_role_;
-  std::chrono::system_clock::time_point last_response_time_{};
-  // TODO this needs to be atomic? What if instance is alive and then we read it and it has changed
-  bool is_alive_{false};
-  // for replica this is main uuid of current main
-  // for "main" main this same as in CoordinatorData
-  // it is set to nullopt when replica is down
-  // TLDR; when replica is down and comes back up we reset uuid of main replica is listening to
-  // so we need to send swap uuid again
-  std::optional<utils::UUID> main_uuid_;
+  HealthCheckCallback main_succ_cb_, main_fail_cb_, replica_succ_cb_, replica_fail_cb_;
 
-  friend bool operator==(CoordinatorInstance const &first, CoordinatorInstance const &second) {
-    return first.client_ == second.client_ && first.replication_role_ == second.replication_role_;
-  }
+  // NOTE: Must be std::list because we rely on pointer stability
+  std::list<ReplicationInstance> repl_instances_;
+  mutable utils::RWLock coord_instance_lock_{utils::RWLock::Priority::READ};
+
+  utils::UUID main_uuid_;
+
+  RaftState raft_state_;
 };
 
 }  // namespace memgraph::coordination

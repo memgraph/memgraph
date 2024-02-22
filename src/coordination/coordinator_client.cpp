@@ -17,6 +17,7 @@
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/messages.hpp"
+#include "utils/result.hpp"
 
 namespace memgraph::coordination {
 
@@ -28,25 +29,38 @@ auto CreateClientContext(memgraph::coordination::CoordinatorClientConfig const &
 }
 }  // namespace
 
-CoordinatorClient::CoordinatorClient(CoordinatorData *coord_data, CoordinatorClientConfig config,
+CoordinatorClient::CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorClientConfig config,
                                      HealthCheckCallback succ_cb, HealthCheckCallback fail_cb)
     : rpc_context_{CreateClientContext(config)},
       rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
                   &rpc_context_},
       config_{std::move(config)},
-      coord_data_{coord_data},
+      coord_instance_{coord_instance},
       succ_cb_{std::move(succ_cb)},
       fail_cb_{std::move(fail_cb)} {}
 
 auto CoordinatorClient::InstanceName() const -> std::string { return config_.instance_name; }
 auto CoordinatorClient::SocketAddress() const -> std::string { return rpc_client_.Endpoint().SocketAddress(); }
 
+auto CoordinatorClient::InstanceDownTimeoutSec() const -> std::chrono::seconds {
+  return config_.instance_down_timeout_sec;
+}
+
+auto CoordinatorClient::InstanceGetUUIDFrequencySec() const -> std::chrono::seconds {
+  return config_.instance_get_uuid_frequency_sec;
+}
+
 void CoordinatorClient::StartFrequentCheck() {
-  MG_ASSERT(config_.health_check_frequency_sec > std::chrono::seconds(0),
+  if (instance_checker_.IsRunning()) {
+    return;
+  }
+
+  MG_ASSERT(config_.instance_health_check_frequency_sec > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
   instance_checker_.Run(
-      config_.instance_name, config_.health_check_frequency_sec, [this, instance_name = config_.instance_name] {
+      config_.instance_name, config_.instance_health_check_frequency_sec,
+      [this, instance_name = config_.instance_name] {
         try {
           spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
                         rpc_client_.Endpoint().SocketAddress());
@@ -54,9 +68,9 @@ void CoordinatorClient::StartFrequentCheck() {
             auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
             stream.AwaitResponse();
           }
-          succ_cb_(coord_data_, instance_name);
+          succ_cb_(coord_instance_, instance_name);
         } catch (rpc::RpcFailedException const &) {
-          fail_cb_(coord_data_, instance_name);
+          fail_cb_(coord_instance_, instance_name);
         }
       });
 }
@@ -113,6 +127,46 @@ auto CoordinatorClient::SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bo
     return true;
   } catch (const rpc::RpcFailedException &) {
     spdlog::error("RPC error occurred while sending swapping uuid RPC!");
+  }
+  return false;
+}
+
+auto CoordinatorClient::SendUnregisterReplicaRpc(std::string const &instance_name) const -> bool {
+  try {
+    auto stream{rpc_client_.Stream<UnregisterReplicaRpc>(instance_name)};
+    if (!stream.AwaitResponse().success) {
+      spdlog::error("Failed to receive successful RPC response for unregistering replica!");
+      return false;
+    }
+    return true;
+  } catch (rpc::RpcFailedException const &) {
+    spdlog::error("Failed to unregister replica!");
+  }
+  return false;
+}
+
+auto CoordinatorClient::SendGetInstanceUUIDRpc() const
+    -> utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>> {
+  try {
+    auto stream{rpc_client_.Stream<GetInstanceUUIDRpc>()};
+    auto res = stream.AwaitResponse();
+    return res.uuid;
+  } catch (const rpc::RpcFailedException &) {
+    spdlog::error("RPC error occured while sending GetInstance UUID RPC");
+    return GetInstanceUUIDError::RPC_EXCEPTION;
+  }
+}
+
+auto CoordinatorClient::SendEnableWritingOnMainRpc() const -> bool {
+  try {
+    auto stream{rpc_client_.Stream<EnableWritingOnMainRpc>()};
+    if (!stream.AwaitResponse().success) {
+      spdlog::error("Failed to receive successful RPC response for enabling writing on main!");
+      return false;
+    }
+    return true;
+  } catch (rpc::RpcFailedException const &) {
+    spdlog::error("Failed to enable writing on main!");
   }
   return false;
 }
