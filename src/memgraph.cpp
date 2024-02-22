@@ -27,6 +27,7 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/config.hpp"
 #include "query/discard_value_stream.hpp"
@@ -57,8 +58,13 @@ constexpr uint64_t kMgVmMaxMapCount = 262144;
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
                          std::string cypherl_file_path, memgraph::audit::Log *audit_log = nullptr) {
   memgraph::query::Interpreter interpreter(&ctx, db_acc);
-  std::ifstream file(cypherl_file_path);
+  // Temporary empty user
+  // TODO: Double check with buda
+  memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
+  auto tmp_user = tmp_auth_checker.GenQueryUser(std::nullopt, std::nullopt);
+  interpreter.SetUser(tmp_user);
 
+  std::ifstream file(cypherl_file_path);
   if (!file.is_open()) {
     spdlog::trace("Could not find init file {}", cypherl_file_path);
     return;

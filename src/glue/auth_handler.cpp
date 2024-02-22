@@ -15,6 +15,7 @@
 
 #include <fmt/format.h>
 
+#include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "dbms/constants.hpp"
 #include "glue/auth.hpp"
@@ -124,15 +125,44 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(
 
 #ifdef MG_ENTERPRISE
 std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
+    const std::optional<memgraph::auth::Role> &role) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() || !role) {
+    return {};
+  }
+
+  const auto &db = role->db_access();
+  const auto &allows = db.GetAllowAll();
+  const auto &grants = db.GetGrants();
+  const auto &denies = db.GetDenies();
+
+  std::vector<memgraph::query::TypedValue> res;  // First element is a list of granted databases, second of revoked ones
+  if (allows) {
+    res.emplace_back("*");
+  } else {
+    std::vector<memgraph::query::TypedValue> grants_vec(grants.cbegin(), grants.cend());
+    res.emplace_back(std::move(grants_vec));
+  }
+  std::vector<memgraph::query::TypedValue> denies_vec(denies.cbegin(), denies.cend());
+  res.emplace_back(std::move(denies_vec));
+  return {res};
+}
+
+std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
     const std::optional<memgraph::auth::User> &user) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() || !user) {
     return {};
   }
 
   const auto &db = user->db_access();
-  const auto &allows = db.GetAllowAll();
-  const auto &grants = db.GetGrants();
-  const auto &denies = db.GetDenies();
+  auto allows = db.GetAllowAll();
+  auto grants = db.GetGrants();
+  auto denies = db.GetDenies();
+  if (const auto *role = user->role()) {
+    const auto &role_db = role->db_access();
+    allows |= role_db.GetAllowAll();
+    grants.insert(role_db.GetGrants().begin(), role_db.GetGrants().end());
+    denies.insert(role_db.GetDenies().begin(), role_db.GetDenies().end());
+  }
 
   std::vector<memgraph::query::TypedValue> res;  // First element is a list of granted databases, second of revoked ones
   if (allows) {
@@ -287,7 +317,7 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
           ,
           system_tx);
 #ifdef MG_ENTERPRISE
-      GrantDatabaseToUser(auth::kAllDatabases, username, system_tx);
+      GrantDatabase(auth::kAllDatabases, username, system_tx);
       SetMainDatabase(dbms::kDefaultDB, username, system_tx);
 #endif
     }
@@ -334,51 +364,97 @@ bool AuthQueryHandler::CreateRole(const std::string &rolename, system::Transacti
 }
 
 #ifdef MG_ENTERPRISE
-bool AuthQueryHandler::RevokeDatabaseFromUser(const std::string &db_name, const std::string &username,
-                                              system::Transaction *system_tx) {
+void AuthQueryHandler::GrantDatabase(const std::string &db_name, const std::string &user_or_role,
+                                     system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
-    auto user = locked_auth->GetUser(username);
-    if (!user) return false;
-    return locked_auth->RevokeDatabaseFromUser(db_name, username, system_tx);
+    const auto res = locked_auth->GrantDatabase(db_name, user_or_role, system_tx);
+    switch (res) {
+      using enum auth::Auth::Result;
+      case SUCCESS:
+        return;
+      case NO_USER_ROLE:
+        throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
+      case NO_ROLE:
+        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
+        break;
+    }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
-bool AuthQueryHandler::GrantDatabaseToUser(const std::string &db_name, const std::string &username,
-                                           system::Transaction *system_tx) {
+void AuthQueryHandler::DenyDatabase(const std::string &db_name, const std::string &user_or_role,
+                                    system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
-    auto user = locked_auth->GetUser(username);
-    if (!user) return false;
-    return locked_auth->GrantDatabaseToUser(db_name, username, system_tx);
+    const auto res = locked_auth->DenyDatabase(db_name, user_or_role, system_tx);
+    switch (res) {
+      using enum auth::Auth::Result;
+      case SUCCESS:
+        return;
+      case NO_USER_ROLE:
+        throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
+      case NO_ROLE:
+        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
+        break;
+    }
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+void AuthQueryHandler::RevokeDatabase(const std::string &db_name, const std::string &user_or_role,
+                                      system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    const auto res = locked_auth->RevokeDatabase(db_name, user_or_role, system_tx);
+    switch (res) {
+      using enum auth::Auth::Result;
+      case SUCCESS:
+        return;
+      case NO_USER_ROLE:
+        throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
+      case NO_ROLE:
+        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
+        break;
+    }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatabasePrivileges(
-    const std::string &username) {
+    const std::string &user_or_role) {
   try {
     auto locked_auth = auth_->ReadLock();
-    auto user = locked_auth->GetUser(username);
-    if (!user) {
-      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+    if (auto user = locked_auth->GetUser(user_or_role)) {
+      return ShowDatabasePrivileges(user);
     }
-    return ShowDatabasePrivileges(user);
+    if (auto role = locked_auth->GetRole(user_or_role)) {
+      return ShowDatabasePrivileges(role);
+    }
+    throw memgraph::query::QueryRuntimeException("Neither user nor role '{}' exist.", user_or_role);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
-bool AuthQueryHandler::SetMainDatabase(std::string_view db_name, const std::string &username,
+void AuthQueryHandler::SetMainDatabase(std::string_view db_name, const std::string &user_or_role,
                                        system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
-    auto user = locked_auth->GetUser(username);
-    if (!user) return false;
-    return locked_auth->SetMainDatabase(db_name, username, system_tx);
+    const auto res = locked_auth->SetMainDatabase(db_name, user_or_role, system_tx);
+    switch (res) {
+      using enum auth::Auth::Result;
+      case SUCCESS:
+        return;
+      case NO_USER_ROLE:
+        throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
+      case NO_ROLE:
+        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
+        break;
+    }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
