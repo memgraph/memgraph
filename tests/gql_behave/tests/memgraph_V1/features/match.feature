@@ -761,6 +761,7 @@ Feature: Match
         Then the result should be:
             | path                                        |
             | <(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> |
+            | <(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> |
 
     Scenario: Test DFS variable expand using IN edges with filter by edge type1
         Given graph "graph_edges"
@@ -771,6 +772,7 @@ Feature: Match
         Then the result should be:
             | path                                        |
             | <(:label3 {id: 3})<-[:type2 {id: 10}]-(:label1 {id: 1})> |
+            | <(:label3 {id: 3})<-[:type2 {id: 10}]-(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})> |
 
     Scenario: Test DFS variable expand with filter by edge type2
         Given graph "graph_edges"
@@ -781,6 +783,7 @@ Feature: Match
         Then the result should be:
             | path                                        |
             | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |
+            | <(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |
 
     Scenario: Test DFS variable expand using IN edges with filter by edge type2
         Given graph "graph_edges"
@@ -791,6 +794,7 @@ Feature: Match
         Then the result should be:
             | path                                        |
             | <(:label3 {id: 3})<-[:type1 {id: 2}]-(:label2 {id: 2})<-[:type1 {id: 1}]-(:label1 {id: 1})> |
+            | <(:label3 {id: 3})<-[:type1 {id: 2}]-(:label2 {id: 2})<-[:type1 {id: 1}]-(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})> |
 
     Scenario: Using path indentifier from CREATE in MERGE
         Given an empty graph
