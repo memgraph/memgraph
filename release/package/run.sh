@@ -20,6 +20,11 @@ SUPPORTED_BUILD_TYPES=(
     RelWithDebInfo
 )
 
+SUPPORTED_ARCHS=(
+    amd
+    arm
+)
+
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 # TODO(gitbuda): Toolchain is now specific for a given OS -> ADJUST:
 #   * under init, toolchain version is passed to docker compose -> consider having arch + toolchain version as a folder structure
@@ -27,11 +32,12 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
-    echo "$0 init {toolchain _version} | docker | build {toolchain _version} {os} | package {toolchain _version} {os} {build_type} [--for-docker|--for-platform]"
+    echo "$0 init {toolchain _version} {arch} | docker | build {toolchain _version} {os} | package {toolchain _version} {os} {build_type} [--for-docker|--for-platform]"
     echo ""
-    echo "    Toolchain versions: ${SUPPORTED_TOOLCHAINS[*]}"
-    echo "    OSs: ${SUPPORTED_OS[*]}"
+    echo "    Archs: ${SUPPORTED_ARCHS[*]}"
     echo "    Build types: ${SUPPORTED_BUILD_TYPES[*]}"
+    echo "    OSs: ${SUPPORTED_OS[*]}"
+    echo "    Toolchain versions: ${SUPPORTED_TOOLCHAINS[*]}"
     exit 1
 }
 
@@ -106,7 +112,8 @@ make_package () {
     docker exec "$build_container" bash -c "cd /memgraph && git config --global --add safe.directory '*'"
     docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init"
     docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
-    # TODO(gitbuda): cmake fails locally if remote is clone via ssh because of the key -> FIX
+    # Fix cmake failing locally if remote is clone via ssh
+    docker exec "$build_container" bash -c "cd /memgraph && git remote set-url origin https://github.com/memgraph/memgraph.git"
     if [[ "$os" =~ "-arm" ]]; then
         docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=$build_type -DMG_ARCH="ARM64" $telemetry_id_override_flag .."
     else
@@ -136,15 +143,14 @@ case "$1" in
             print_help
         fi
         toolchain_version="$1"
+        arch="$2"
         cd "$SCRIPT_DIR"
         if ! which "docker-compose" >/dev/null; then
             docker_compose_cmd="docker compose"
         else
             docker_compose_cmd="docker-compose"
         fi
-        $docker_compose_cmd -f docker-compose-${toolchain_version}.yml up -d --build
-        # $docker_compose_cmd build --build-arg TOOLCHAIN_VERSION="${TOOLCHAIN_VERSION}"
-        # $docker_compose_cmd up -d
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d --build
     ;;
 
     docker)
