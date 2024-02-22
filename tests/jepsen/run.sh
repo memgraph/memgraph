@@ -2,7 +2,8 @@
 set -Eeuo pipefail
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-MEMGRAPH_BINARY_PATH="../../build/memgraph"
+MEMGRAPH_BUILD_PATH="${script_dir}/../../build"
+MEMGRAPH_BINARY_PATH="${MEMGRAPH_BUILD_PATH}/memgraph"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
 # NOTE: On Ubuntu 22.04 v0.3.2 uses non-existing docker compose --compatibility flag.
 # NOTE: On Ubuntu 22.04 v0.3.0 and v0.3.1 seems to be runnable.
@@ -254,8 +255,9 @@ case $1 in
     mgbuild)
         PRINT_CONTEXT
         echo ""
-        echo "TODO(gitbuda): Build memgraph for Debian 10 via memgraph/memgraph-builder"
+        echo "TODO(gitbuda): Build memgraph for Jepsen (on v0.3.5 for Debian 12) via memgraph/memgraph-builder"
         exit 1
+        # docker cp -L mgbuild_debian-12:/memgraph/build/memgraph "${MEMGRAPH_BUILD_PATH}/"
     ;;
 
     test)

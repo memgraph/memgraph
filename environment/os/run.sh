@@ -6,16 +6,17 @@ IFS=' '
 # NOTE: each line has to be under quotes, docker_container_type, script_name and docker_image_name separate with a space.
 # "docker_container_type script_name docker_image_name"
 OPERATING_SYSTEMS=(
-  "mgrun amzn-2 amazonlinux:2"
-  "mgrun centos-7 centos:7"
-  "mgrun centos-9 dokken/centos-stream-9"
-  "mgrun debian-10 debian:10"
-  "mgrun debian-11 debian:11"
-  "mgrun fedora-36 fedora:36"
-  "mgrun ubuntu-18.04 ubuntu:18.04"
-  "mgrun ubuntu-20.04 ubuntu:20.04"
-  "mgrun ubuntu-22.04 ubuntu:22.04"
-  # "mgbuild centos-7 package-mgbuild_centos-7"
+  # "mgrun amzn-2 amazonlinux:2"
+  # "mgrun centos-7 centos:7"
+  # "mgrun centos-9 dokken/centos-stream-9"
+  # "mgrun debian-10 debian:10"
+  # "mgrun debian-11 debian:11"
+  # "mgrun fedora-36 fedora:36"
+  # "mgrun ubuntu-18.04 ubuntu:18.04"
+  # "mgrun ubuntu-20.04 ubuntu:20.04"
+  # "mgrun ubuntu-22.04 ubuntu:22.04"
+  # TODO(gitbuda): environment/os/run.sh somehow doesn't work -> fixit.
+  "mgbuild debian-12 memgraph/memgraph-builder:v5_debian-12"
 )
 
 if [ ! "$(docker info)" ]; then
