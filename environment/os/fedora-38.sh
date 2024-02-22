@@ -1,7 +1,5 @@
 #!/bin/bash
-
 set -Eeuo pipefail
-
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
@@ -27,6 +25,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libipt libipt-devel # intel
     patch
     perl # for openssl
+    git
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -56,6 +55,16 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
+)
+
+MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
+
+MEMGRAPH_RUN_DEPS=(
+    logrotate openssl python3 libseccomp
+)
+
+NEW_DEPS=(
+    wget curl tar gzip
 )
 
 list() {

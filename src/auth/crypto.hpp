@@ -8,9 +8,11 @@
 
 #pragma once
 
-#include <json/json.hpp>
+#include <cstdint>
 #include <optional>
 #include <string>
+
+#include <json/json.hpp>
 
 namespace memgraph::auth {
 /// Need to be stable, auth durability depends on this

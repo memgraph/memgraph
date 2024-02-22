@@ -192,41 +192,12 @@ bool ReplicationHandler::SetReplicationRoleMain() {
 
 bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
                                                    const std::optional<utils::UUID> &main_uuid) {
-  // We don't want to restart the server if we're already a REPLICA
-  if (repl_state_.IsReplica()) {
-    spdlog::trace("Instance has already has replica role.");
-    return false;
-  }
+  return SetReplicationRoleReplica_<true>(config, main_uuid);
+}
 
-  // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
-  //      deleting the replica.
-  // Remove database specific clients
-  dbms_handler_.ForEach([&](memgraph::dbms::DatabaseAccess db_acc) {
-    auto *storage = db_acc->storage();
-    storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
-  });
-  // Remove instance level clients
-  std::get<memgraph::replication::RoleMainData>(repl_state_.ReplicationData()).registered_replicas_.clear();
-
-  // Creates the server
-  repl_state_.SetReplicationRoleReplica(config, main_uuid);
-
-  // Start
-  const auto success =
-      std::visit(memgraph::utils::Overloaded{[](memgraph::replication::RoleMainData &) {
-                                               // ASSERT
-                                               return false;
-                                             },
-                                             [this](memgraph::replication::RoleReplicaData &data) {
-#ifdef MG_ENTERPRISE
-                                               return StartRpcServer(dbms_handler_, data, auth_, system_);
-#else
-                                               return StartRpcServer(dbms_handler_, data);
-#endif
-                                             }},
-                 repl_state_.ReplicationData());
-  // TODO Handle error (restore to main?)
-  return success;
+bool ReplicationHandler::TrySetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
+                                                      const std::optional<utils::UUID> &main_uuid) {
+  return SetReplicationRoleReplica_<false>(config, main_uuid);
 }
 
 bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) {
@@ -255,16 +226,14 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
 };
 
 // as MAIN, define and connect to REPLICAs
-auto ReplicationHandler::TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config,
-                                            bool send_swap_uuid)
+auto ReplicationHandler::TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
     -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
-  return RegisterReplica_<false>(config, send_swap_uuid);
+  return RegisterReplica_<true>(config);
 }
 
-auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config,
-                                         bool send_swap_uuid)
+auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
     -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
-  return RegisterReplica_<true>(config, send_swap_uuid);
+  return RegisterReplica_<false>(config);
 }
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> memgraph::query::UnregisterReplicaResult {
@@ -295,6 +264,11 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> memgraph::q
 
 auto ReplicationHandler::GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole {
   return repl_state_.GetRole();
+}
+
+auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
+  MG_ASSERT(repl_state_.IsReplica());
+  return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
 }
 
 auto ReplicationHandler::GetReplState() const -> const memgraph::replication::ReplicationState & { return repl_state_; }

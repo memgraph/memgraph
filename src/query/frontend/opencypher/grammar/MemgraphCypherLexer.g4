@@ -141,6 +141,7 @@ TRIGGER                 : T R I G G E R ;
 TRIGGERS                : T R I G G E R S ;
 UNCOMMITTED             : U N C O M M I T T E D ;
 UNLOCK                  : U N L O C K ;
+UNREGISTER              : U N R E G I S T E R ;
 UPDATE                  : U P D A T E ;
 USE                     : U S E ;
 USER                    : U S E R ;

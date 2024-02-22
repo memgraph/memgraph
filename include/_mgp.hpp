@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -283,7 +283,7 @@ inline mgp_list *list_all_unique_constraints(mgp_graph *graph, mgp_memory *memor
 }
 
 // mgp_graph
-  
+
 inline bool graph_is_transactional(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_transactional, graph); }
 
 inline bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }
