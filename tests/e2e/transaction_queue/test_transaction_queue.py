@@ -70,21 +70,26 @@ def test_multitenant_transactions():
     # TODO Add SHOW TRANSACTIONS ON * that should return all transactions
 
 
-def test_admin_has_one_transaction():
+def test_admin_has_one_transaction(request):
     """Creates admin and tests that he sees only one transaction."""
     # a_cursor is used for creating admin user, simulates main thread
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
+
+    request.addfinalizer(on_exit)
+
     admin_cursor = connect(username="admin", password="").cursor()
     process = multiprocessing.Process(target=show_transactions_test, args=(admin_cursor, 1))
     process.start()
     process.join()
-    execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
 
 
-def test_user_can_see_its_transaction():
+def test_user_can_see_its_transaction(request):
     """Tests that user without privileges can see its own transaction"""
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
@@ -92,20 +97,31 @@ def test_user_can_see_its_transaction():
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
     execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER user")
+
+    request.addfinalizer(on_exit)
+
     user_cursor = connect(username="user", password="").cursor()
     process = multiprocessing.Process(target=show_transactions_test, args=(user_cursor, 1))
     process.start()
     process.join()
     admin_cursor = connect(username="admin", password="").cursor()
-    execute_and_fetch_all(admin_cursor, "DROP USER user")
-    execute_and_fetch_all(admin_cursor, "DROP USER admin")
 
 
-def test_explicit_transaction_output():
+def test_explicit_transaction_output(request):
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
+
+    request.addfinalizer(on_exit)
+
     admin_connection = connect(username="admin", password="")
     admin_cursor = admin_connection.cursor()
     # Admin starts running explicit transaction
@@ -123,10 +139,9 @@ def test_explicit_transaction_output():
     assert show_results[1 - executing_index][2] == ["CREATE (n:Person {id_: 1})", "CREATE (n:Person {id_: 2})"]
 
     execute_and_fetch_all(superadmin_cursor, "ROLLBACK")
-    execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
 
 
-def test_superadmin_cannot_see_admin_can_see_admin():
+def test_superadmin_cannot_see_admin_can_see_admin(request):
     """Tests that superadmin cannot see the transaction created by admin but two admins can see and kill each other's transactions."""
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin1")
@@ -135,6 +150,13 @@ def test_superadmin_cannot_see_admin_can_see_admin():
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin2")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT  TO admin2")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin2")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin1")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin2")
+
+    request.addfinalizer(on_exit)
+
     # Admin starts running infinite query
     admin_connection_1 = connect(username="admin1", password="")
     admin_cursor_1 = admin_connection_1.cursor()
@@ -160,19 +182,23 @@ def test_superadmin_cannot_see_admin_can_see_admin():
     # Kill transaction
     long_transaction_id = show_results[1 - executing_index][1]
     execute_and_fetch_all(admin_cursor_2, f"TERMINATE TRANSACTIONS '{long_transaction_id}'")
-    execute_and_fetch_all(superadmin_cursor, "DROP USER admin1")
-    execute_and_fetch_all(superadmin_cursor, "DROP USER admin2")
     admin_connection_1.close()
     admin_connection_2.close()
 
 
-def test_admin_sees_superadmin():
+def test_admin_sees_superadmin(request):
     """Tests that admin created by superadmin can see the superadmin's transaction."""
     superadmin_connection = connect()
     superadmin_cursor = superadmin_connection.cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+
+    def on_exit():
+        execute_and_fetch_all(admin_cursor, "DROP USER admin")
+
+    request.addfinalizer(on_exit)
+
     # Admin starts running infinite query
     process = multiprocessing.Process(
         target=process_function, args=(superadmin_cursor, ["CALL infinite_query.long_query() YIELD my_id RETURN my_id"])
@@ -194,17 +220,23 @@ def test_admin_sees_superadmin():
     # Kill transaction
     long_transaction_id = show_results[1 - executing_index][1]
     execute_and_fetch_all(admin_cursor, f"TERMINATE TRANSACTIONS '{long_transaction_id}'")
-    execute_and_fetch_all(admin_cursor, "DROP USER admin")
     superadmin_connection.close()
 
 
-def test_admin_can_see_user_transaction():
+def test_admin_can_see_user_transaction(request):
     """Tests that admin can see user's transaction and kill it."""
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER user")
+
+    request.addfinalizer(on_exit)
+
     # Admin starts running infinite query
     admin_connection = connect(username="admin", password="")
     admin_cursor = admin_connection.cursor()
@@ -229,13 +261,11 @@ def test_admin_can_see_user_transaction():
     # Kill transaction
     long_transaction_id = show_results[1 - executing_index][1]
     execute_and_fetch_all(admin_cursor, f"TERMINATE TRANSACTIONS '{long_transaction_id}'")
-    execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
-    execute_and_fetch_all(superadmin_cursor, "DROP USER user")
     admin_connection.close()
     user_connection.close()
 
 
-def test_user_cannot_see_admin_transaction():
+def test_user_cannot_see_admin_transaction(request):
     """User cannot see admin's transaction but other admin can and he can kill it."""
     # Superadmin creates two admins and one user
     superadmin_cursor = connect().cursor()
@@ -246,6 +276,14 @@ def test_user_cannot_see_admin_transaction():
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin2")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin2")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin1")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER admin2")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER user")
+
+    request.addfinalizer(on_exit)
+
     admin_connection_1 = connect(username="admin1", password="")
     admin_cursor_1 = admin_connection_1.cursor()
     admin_connection_2 = connect(username="admin2", password="")
@@ -274,9 +312,6 @@ def test_user_cannot_see_admin_transaction():
     # Kill transaction
     long_transaction_id = show_results[1 - executing_index][1]
     execute_and_fetch_all(admin_cursor_2, f"TERMINATE TRANSACTIONS '{long_transaction_id}'")
-    execute_and_fetch_all(superadmin_cursor, "DROP USER admin1")
-    execute_and_fetch_all(superadmin_cursor, "DROP USER admin2")
-    execute_and_fetch_all(superadmin_cursor, "DROP USER user")
     admin_connection_1.close()
     admin_connection_2.close()
     user_connection.close()
@@ -300,12 +335,18 @@ def test_killing_multiple_non_existing_transactions():
         assert results[i][1] == False  # not killed
 
 
-def test_admin_killing_multiple_non_existing_transactions():
+def test_admin_killing_multiple_non_existing_transactions(request):
     # Starting, superadmin admin
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+
+    def on_exit():
+        execute_and_fetch_all(admin_cursor, "DROP USER admin")
+
+    request.addfinalizer(on_exit)
+
     # Connect with admin
     admin_cursor = connect(username="admin", password="").cursor()
     transactions_id = ["'1'", "'2'", "'3'"]
@@ -314,7 +355,6 @@ def test_admin_killing_multiple_non_existing_transactions():
     for i in range(len(results)):
         assert results[i][0] == eval(transactions_id[i])  # transaction id
         assert results[i][1] == False  # not killed
-    execute_and_fetch_all(admin_cursor, "DROP USER admin")
 
 
 def test_user_killing_some_transactions():

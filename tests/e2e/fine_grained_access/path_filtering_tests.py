@@ -7,11 +7,11 @@ import pytest
 @pytest.mark.parametrize("switch", [False, True])
 def test_weighted_shortest_path_all_edge_types_all_labels_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -54,11 +54,11 @@ def test_weighted_shortest_path_all_edge_types_all_labels_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_weighted_shortest_path_all_edge_types_all_labels_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -72,7 +72,6 @@ def test_weighted_shortest_path_all_edge_types_all_labels_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_weighted_shortest_path_denied_start(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -80,6 +79,7 @@ def test_weighted_shortest_path_denied_start(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label0 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -94,7 +94,6 @@ def test_weighted_shortest_path_denied_start(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_weighted_shortest_path_denied_destination(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -102,6 +101,7 @@ def test_weighted_shortest_path_denied_destination(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label4 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -116,7 +116,6 @@ def test_weighted_shortest_path_denied_destination(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_weighted_shortest_path_denied_label_1(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -124,6 +123,7 @@ def test_weighted_shortest_path_denied_label_1(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -162,7 +162,6 @@ def test_weighted_shortest_path_denied_label_1(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_weighted_shortest_path_denied_edge_type_3(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
@@ -170,6 +169,7 @@ def test_weighted_shortest_path_denied_edge_type_3(switch):
         admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGE_TYPES :edge_type_3 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -213,11 +213,11 @@ def test_weighted_shortest_path_denied_edge_type_3(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_dfs_all_edge_types_all_labels_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -235,11 +235,11 @@ def test_dfs_all_edge_types_all_labels_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_dfs_all_edge_types_all_labels_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -251,7 +251,6 @@ def test_dfs_all_edge_types_all_labels_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_dfs_denied_start(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -259,6 +258,7 @@ def test_dfs_denied_start(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label0 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -272,7 +272,6 @@ def test_dfs_denied_start(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_dfs_denied_destination(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -280,6 +279,7 @@ def test_dfs_denied_destination(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label4 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -293,7 +293,6 @@ def test_dfs_denied_destination(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_dfs_denied_label_1(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -301,6 +300,7 @@ def test_dfs_denied_label_1(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -318,7 +318,6 @@ def test_dfs_denied_label_1(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_dfs_denied_edge_type_3(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
 
@@ -327,6 +326,7 @@ def test_dfs_denied_edge_type_3(switch):
         admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGE_TYPES :edge_type_3 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -344,11 +344,11 @@ def test_dfs_denied_edge_type_3(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_bfs_sts_all_edge_types_all_labels_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -366,11 +366,11 @@ def test_bfs_sts_all_edge_types_all_labels_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_bfs_sts_all_edge_types_all_labels_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -384,7 +384,6 @@ def test_bfs_sts_all_edge_types_all_labels_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_bfs_sts_denied_start(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -392,6 +391,7 @@ def test_bfs_sts_denied_start(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label0 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -405,7 +405,6 @@ def test_bfs_sts_denied_start(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_bfs_sts_denied_destination(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -413,6 +412,7 @@ def test_bfs_sts_denied_destination(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label4 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -426,7 +426,6 @@ def test_bfs_sts_denied_destination(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_bfs_sts_denied_label_1(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -434,6 +433,7 @@ def test_bfs_sts_denied_label_1(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -450,7 +450,6 @@ def test_bfs_sts_denied_label_1(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_bfs_sts_denied_edge_type_3(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
@@ -458,6 +457,7 @@ def test_bfs_sts_denied_edge_type_3(switch):
         admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGE_TYPES :edge_type_3 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -474,11 +474,11 @@ def test_bfs_sts_denied_edge_type_3(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_bfs_single_source_all_edge_types_all_labels_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -496,11 +496,11 @@ def test_bfs_single_source_all_edge_types_all_labels_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_bfs_single_source_all_edge_types_all_labels_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -512,7 +512,6 @@ def test_bfs_single_source_all_edge_types_all_labels_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_bfs_single_source_denied_start(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -520,6 +519,7 @@ def test_bfs_single_source_denied_start(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label0 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -533,7 +533,6 @@ def test_bfs_single_source_denied_start(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_bfs_single_source_denied_destination(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -541,6 +540,7 @@ def test_bfs_single_source_denied_destination(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label4 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -554,7 +554,6 @@ def test_bfs_single_source_denied_destination(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_bfs_single_source_denied_label_1(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -562,6 +561,7 @@ def test_bfs_single_source_denied_label_1(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -579,7 +579,6 @@ def test_bfs_single_source_denied_label_1(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_bfs_single_source_denied_edge_type_3(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
@@ -587,6 +586,7 @@ def test_bfs_single_source_denied_edge_type_3(switch):
         admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGE_TYPES :edge_type_3 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -604,11 +604,11 @@ def test_bfs_single_source_denied_edge_type_3(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_all_shortest_paths_when_all_edge_types_all_labels_granted(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -651,11 +651,11 @@ def test_all_shortest_paths_when_all_edge_types_all_labels_granted(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_all_shortest_paths_when_all_edge_types_all_labels_denied(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -669,7 +669,6 @@ def test_all_shortest_paths_when_all_edge_types_all_labels_denied(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_all_shortest_paths_when_denied_start(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -677,6 +676,7 @@ def test_all_shortest_paths_when_denied_start(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label0 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -691,7 +691,6 @@ def test_all_shortest_paths_when_denied_start(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_all_shortest_paths_when_denied_destination(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -699,6 +698,7 @@ def test_all_shortest_paths_when_denied_destination(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label4 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -713,7 +713,6 @@ def test_all_shortest_paths_when_denied_destination(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_all_shortest_paths_when_denied_label_1(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
@@ -721,6 +720,7 @@ def test_all_shortest_paths_when_denied_label_1(switch):
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())
@@ -759,7 +759,6 @@ def test_all_shortest_paths_when_denied_label_1(switch):
 @pytest.mark.parametrize("switch", [False, True])
 def test_all_shortest_paths_when_denied_edge_type_3(switch):
     admin_connection = common.connect(username="admin", password="test")
-    user_connection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
@@ -767,6 +766,7 @@ def test_all_shortest_paths_when_denied_edge_type_3(switch):
         admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGE_TYPES :edge_type_3 TO user;")
+    user_connection = common.connect(username="user", password="test")
 
     if switch:
         common.switch_db(user_connection.cursor())

@@ -103,7 +103,8 @@ void RecoverReplication(memgraph::replication::ReplicationState &repl_state,
 
 inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
     utils::BasicResult<replication::RegisterReplicaError, replication::ReplicationClient *> &instance_client) {
-  if (instance_client.HasError()) switch (instance_client.GetError()) {
+  if (instance_client.HasError()) {
+    switch (instance_client.GetError()) {
       case replication::RegisterReplicaError::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");
         return {};
@@ -116,6 +117,7 @@ inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
       case replication::RegisterReplicaError::SUCCESS:
         break;
     }
+  }
   return {};
 }
 

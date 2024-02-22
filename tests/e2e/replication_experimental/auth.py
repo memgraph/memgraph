@@ -121,6 +121,7 @@ def only_main_queries(cursor):
     n_exceptions += try_and_count(cursor, f"REVOKE EDGE_TYPES :e FROM user_name")
     n_exceptions += try_and_count(cursor, f"GRANT DATABASE memgraph TO user_name;")
     n_exceptions += try_and_count(cursor, f"SET MAIN DATABASE memgraph FOR user_name")
+    n_exceptions += try_and_count(cursor, f"DENY DATABASE memgraph FROM user_name;")
     n_exceptions += try_and_count(cursor, f"REVOKE DATABASE memgraph FROM user_name;")
 
     return n_exceptions
@@ -198,8 +199,8 @@ def test_auth_queries_on_replica(connection):
 
     # 1/
     assert only_main_queries(cursor_main) == 0
-    assert only_main_queries(cursor_replica_1) == 17
-    assert only_main_queries(cursor_replica_2) == 17
+    assert only_main_queries(cursor_replica_1) == 18
+    assert only_main_queries(cursor_replica_2) == 18
     assert main_and_repl_queries(cursor_main) == 0
     assert main_and_repl_queries(cursor_replica_1) == 0
     assert main_and_repl_queries(cursor_replica_2) == 0
@@ -383,6 +384,7 @@ def test_manual_roles_recovery(connection):
                 "--log-level=TRACE",
                 "--data_directory",
                 TEMP_DIR + "/replica1",
+                "--also-log-to-stderr",
             ],
             "log_file": "replica1.log",
             "setup_queries": [
@@ -818,13 +820,15 @@ def test_auth_replication(connection):
         {("LABEL :l3", "UPDATE", "LABEL PERMISSION GRANTED TO ROLE")},
     )
 
-    # GRANT/REVOKE DATABASE
+    # GRANT/DENY DATABASE
     execute_and_fetch_all(cursor_main, "CREATE DATABASE auth_test")
     execute_and_fetch_all(cursor_main, "CREATE DATABASE auth_test2")
     execute_and_fetch_all(cursor_main, "GRANT DATABASE auth_test TO user4")
     check(partial(show_database_privileges_func, user="user4"), [(["auth_test", "memgraph"], [])])
-    execute_and_fetch_all(cursor_main, "REVOKE DATABASE auth_test2 FROM user4")
+    execute_and_fetch_all(cursor_main, "DENY DATABASE auth_test2 FROM user4")
     check(partial(show_database_privileges_func, user="user4"), [(["auth_test", "memgraph"], ["auth_test2"])])
+    execute_and_fetch_all(cursor_main, "REVOKE DATABASE memgraph FROM user4")
+    check(partial(show_database_privileges_func, user="user4"), [(["auth_test"], ["auth_test2"])])
 
     # SET MAIN DATABASE
     execute_and_fetch_all(cursor_main, "GRANT ALL PRIVILEGES TO user4")
