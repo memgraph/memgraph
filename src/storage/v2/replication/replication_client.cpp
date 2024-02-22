@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+
 #include "replication/replication_client.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
@@ -17,7 +19,7 @@
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
 
-#include <algorithm>
+#include "io/network/fmt.hpp"
 
 namespace {
 template <typename>
@@ -69,7 +71,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
         "now hold unique data. Please resolve data conflicts and start the "
         "replication on a clean instance.",
         client_.name_, client_.name_, client_.name_);
-    // State not updated, hence in MAYBE_BEHIND state
+    replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::DIVERGED_FROM_MAIN; });
     return;
   }
 
@@ -170,6 +172,10 @@ void ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
       spdlog::error(
           utils::MessageWithLink("Couldn't replicate data to {}.", client_.name_, "https://memgr.ph/replication"));
       TryCheckReplicaStateAsync(storage, std::move(db_acc));
+      return;
+    case DIVERGED_FROM_MAIN:
+      spdlog::error(utils::MessageWithLink("Couldn't replicate data to {} since replica has diverged from main.",
+                                           client_.name_, "https://memgr.ph/replication"));
       return;
     case READY:
       MG_ASSERT(!replica_stream_);

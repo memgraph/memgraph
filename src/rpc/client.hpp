@@ -27,6 +27,8 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/typeinfo.hpp"
 
+#include "io/network/fmt.hpp"
+
 namespace memgraph::rpc {
 
 /// Client is thread safe, but it is recommended to use thread_local clients.

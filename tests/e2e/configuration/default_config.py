@@ -69,6 +69,9 @@ startup_config_dict = {
     "coordinator_server_port": ("0", "0", "Port on which coordinator servers will be started."),
     "raft_server_port": ("0", "0", "Port on which raft servers will be started."),
     "raft_server_id": ("0", "0", "Unique ID of the raft server."),
+    "instance_down_timeout_sec": ("5", "5", "Time duration after which an instance is considered down."),
+    "instance_health_check_frequency_sec": ("1", "1", "The time duration between two health checks/pings."),
+    "instance_get_uuid_frequency_sec": ("10", "10", "The time duration between two instance uuid checks."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_recovery_on_startup": (
         "false",
@@ -225,6 +228,6 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma seperated. Options [system-replication]",
+        "Experimental features to be used, comma seperated. Options [system-replication, high-availability]",
     ),
 }

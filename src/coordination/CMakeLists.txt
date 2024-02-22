@@ -10,12 +10,11 @@ target_sources(mg-coordination
         include/coordination/coordinator_exceptions.hpp
         include/coordination/coordinator_slk.hpp
         include/coordination/coordinator_instance.hpp
-        include/coordination/coordinator_cluster_config.hpp
         include/coordination/coordinator_handlers.hpp
-        include/coordination/constants.hpp
         include/coordination/instance_status.hpp
         include/coordination/replication_instance.hpp
         include/coordination/raft_state.hpp
+        include/coordination/rpc_errors.hpp
 
         include/nuraft/coordinator_log_store.hpp
         include/nuraft/coordinator_state_machine.hpp

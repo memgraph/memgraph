@@ -205,7 +205,7 @@ class DiskStorage final : public Storage {
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedVertices(Transaction *transaction);
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedEdges(Transaction *transaction);
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushModifiedEdges(Transaction *transaction,
-                                                                                      const auto &edge_acc);
+                                                                                      const auto &edges_acc);
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> ClearDanglingVertices(Transaction *transaction);
 
   /// Writing methods

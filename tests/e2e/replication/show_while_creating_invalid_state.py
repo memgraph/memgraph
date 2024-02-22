@@ -795,7 +795,7 @@ def test_async_replication_when_main_is_killed():
                 "data_directory": f"{data_directory_main.name}",
             },
         }
-
+        interactive_mg_runner.kill_all(CONFIGURATION)
         interactive_mg_runner.start_all(CONFIGURATION)
 
         # 1/
@@ -878,7 +878,7 @@ def test_sync_replication_when_main_is_killed():
                 "data_directory": f"{data_directory_main.name}",
             },
         }
-
+        interactive_mg_runner.kill_all(CONFIGURATION)
         interactive_mg_runner.start_all(CONFIGURATION)
 
         # 1/
@@ -1990,5 +1990,4 @@ def test_replication_not_messed_up_by_ShowIndexInfo(connection):
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-k", "test_basic_recovery"]))
     sys.exit(pytest.main([__file__, "-rA"]))

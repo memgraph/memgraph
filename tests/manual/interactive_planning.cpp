@@ -27,6 +27,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/pretty_print.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/fmt.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/string.hpp"
 

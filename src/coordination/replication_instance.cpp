@@ -14,6 +14,7 @@
 #include "coordination/replication_instance.hpp"
 
 #include "replication_coordination_glue/handler.hpp"
+#include "utils/result.hpp"
 
 namespace memgraph::coordination {
 
@@ -34,10 +35,14 @@ auto ReplicationInstance::OnSuccessPing() -> void {
 }
 
 auto ReplicationInstance::OnFailPing() -> bool {
-  is_alive_ =
-      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_response_time_).count() <
-      CoordinatorClusterConfig::alive_response_time_difference_sec_;
+  auto elapsed_time = std::chrono::system_clock::now() - last_response_time_;
+  is_alive_ = elapsed_time < client_.InstanceDownTimeoutSec();
   return is_alive_;
+}
+
+auto ReplicationInstance::IsReadyForUUIDPing() -> bool {
+  return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_check_of_uuid_) >
+         client_.InstanceGetUUIDFrequencySec();
 }
 
 auto ReplicationInstance::InstanceName() const -> std::string { return client_.InstanceName(); }
@@ -86,15 +91,26 @@ auto ReplicationInstance::ReplicationClientInfo() const -> CoordinatorClientConf
 }
 
 auto ReplicationInstance::GetClient() -> CoordinatorClient & { return client_; }
+
 auto ReplicationInstance::SetNewMainUUID(utils::UUID const &main_uuid) -> void { main_uuid_ = main_uuid; }
 auto ReplicationInstance::ResetMainUUID() -> void { main_uuid_ = std::nullopt; }
-auto ReplicationInstance::GetMainUUID() -> const std::optional<utils::UUID> & { return main_uuid_; }
+auto ReplicationInstance::GetMainUUID() const -> std::optional<utils::UUID> const & { return main_uuid_; }
 
 auto ReplicationInstance::EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool {
-  if (!main_uuid_ || *main_uuid_ != curr_main_uuid) {
-    return SendSwapAndUpdateUUID(curr_main_uuid);
+  if (!IsReadyForUUIDPing()) {
+    return true;
   }
-  return true;
+  auto res = SendGetInstanceUUID();
+  if (res.HasError()) {
+    return false;
+  }
+  UpdateReplicaLastResponseUUID();
+
+  if (res.GetValue().has_value() && res.GetValue().value() == curr_main_uuid) {
+    return true;
+  }
+
+  return SendSwapAndUpdateUUID(curr_main_uuid);
 }
 
 auto ReplicationInstance::SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid) -> bool {
@@ -104,6 +120,19 @@ auto ReplicationInstance::SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid
   SetNewMainUUID(new_main_uuid);
   return true;
 }
+
+auto ReplicationInstance::SendUnregisterReplicaRpc(std::string const &instance_name) -> bool {
+  return client_.SendUnregisterReplicaRpc(instance_name);
+}
+
+auto ReplicationInstance::EnableWritingOnMain() -> bool { return client_.SendEnableWritingOnMainRpc(); }
+
+auto ReplicationInstance::SendGetInstanceUUID()
+    -> utils::BasicResult<coordination::GetInstanceUUIDError, std::optional<utils::UUID>> {
+  return client_.SendGetInstanceUUIDRpc();
+}
+
+void ReplicationInstance::UpdateReplicaLastResponseUUID() { last_check_of_uuid_ = std::chrono::system_clock::now(); }
 
 }  // namespace memgraph::coordination
 #endif

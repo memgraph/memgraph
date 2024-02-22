@@ -438,6 +438,26 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   return std::move(value);
 }
 
+Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view) const {
+  {
+    auto guard = std::shared_lock{vertex_->lock};
+    Delta *delta = vertex_->delta;
+    if (!delta) {
+      return vertex_->properties.PropertySize(property);
+    }
+  }
+
+  auto property_result = this->GetProperty(property, view);
+  if (property_result.HasError()) {
+    return property_result.GetError();
+  }
+
+  auto property_store = storage::PropertyStore();
+  property_store.SetProperty(property, *property_result);
+
+  return property_store.PropertySize(property);
+};
+
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view) const {
   bool exists = true;
   bool deleted = false;

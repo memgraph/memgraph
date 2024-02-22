@@ -11,12 +11,17 @@
 
 #pragma once
 
-#ifdef MG_ENTERPRISE
-namespace memgraph::coordination {
+#if FMT_VERSION > 90000
+#include <fmt/ostream.h>
 
-struct CoordinatorClusterConfig {
-  static constexpr int alive_response_time_difference_sec_{5};
-};
+#include "communication/bolt/v1/value.hpp"
 
-}  // namespace memgraph::coordination
+template <>
+class fmt::formatter<memgraph::communication::bolt::Value> : public fmt::ostream_formatter {};
+
+template <>
+class fmt::formatter<std::vector<memgraph::communication::bolt::Value>> : public fmt::ostream_formatter {};
+
+template <>
+class fmt::formatter<std::map<std::string, memgraph::communication::bolt::Value>> : public fmt::ostream_formatter {};
 #endif

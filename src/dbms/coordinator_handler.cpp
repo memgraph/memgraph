@@ -25,6 +25,11 @@ auto CoordinatorHandler::RegisterReplicationInstance(memgraph::coordination::Coo
   return coordinator_state_.RegisterReplicationInstance(config);
 }
 
+auto CoordinatorHandler::UnregisterReplicationInstance(std::string instance_name)
+    -> coordination::UnregisterInstanceCoordinatorStatus {
+  return coordinator_state_.UnregisterReplicationInstance(std::move(instance_name));
+}
+
 auto CoordinatorHandler::SetReplicationInstanceToMain(std::string instance_name)
     -> coordination::SetInstanceToMainCoordinatorStatus {
   return coordinator_state_.SetReplicationInstanceToMain(std::move(instance_name));
