@@ -246,31 +246,31 @@ test_memgraph() {
 
   case "$1" in
     unit)
-      docker exec -c "cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN $$ ctest -R memgraph__unit --output-on-failure -j$threads"
+      docker exec $build_container bash -c "cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN $$ ctest -R memgraph__unit --output-on-failure -j$threads"
     ;;
     leftover-CTest)
-      docker exec -c "cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -E \"(memgraph__unit|memgraph__benchmark)\" --output-on-failure"
+      docker exec $build_container bash -c "cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -E \"(memgraph__unit|memgraph__benchmark)\" --output-on-failure"
     ;;
     drivers)
-      docker exec -c "cd $ROOT_DIR && ./tests/drivers/run.sh"
+      docker exec $build_container bash -c "cd $ROOT_DIR && ./tests/drivers/run.sh"
     ;;
     integration)
-      docker exec -c "cd $ROOT_DIR && tests/integration/run.sh"
+      docker exec $build_container bash -c "cd $ROOT_DIR && tests/integration/run.sh"
     ;;
     cppcheck-and-clang-format)
-      docker exec -c "cd $ROOT_DIR/tools/github && $ACTIVATE_TOOLCHAIN && ./cppcheck_and_clang_format diff"
+      docker exec $build_container bash -c "cd $ROOT_DIR/tools/github && $ACTIVATE_TOOLCHAIN && ./cppcheck_and_clang_format diff"
     ;;
     stress-plain)
-      docker exec -c "cd $ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration"
+      docker exec $build_container bash -c "cd $ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration"
     ;;
     stress-ssl)
-      docker exec -c "cd $ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration --use-ssl"
+      docker exec $build_container bash -c "cd $ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration --use-ssl"
     ;;
     durability)
-      docker exec -c "cd $ROOT_DIR/tests/stress && source ve3/bin/activate && python3 durability --num-steps 5"
+      docker exec $build_container bash -c "cd $ROOT_DIR/tests/stress && source ve3/bin/activate && python3 durability --num-steps 5"
     ;;
     gql-behave)
-      docker exec -c "cd $ROOT_DIR/tests/gql_behave && $ACTIVATE_TOOLCHAIN && ./continuous_integration"
+      docker exec $build_container bash -c "cd $ROOT_DIR/tests/gql_behave && $ACTIVATE_TOOLCHAIN && ./continuous_integration"
     ;;
     *)
       echo "Error: Unknown test '$1'"
