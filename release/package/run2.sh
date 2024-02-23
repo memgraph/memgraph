@@ -4,11 +4,11 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ROOT_DIR="$SCRIPT_DIR/../.."
 HOST_OUTPUT_DIR="$ROOT_DIR/build/output"
 
+DEFAULT_TOOLCHAIN="v5"
 SUPPORTED_TOOLCHAINS=(
     v4 v5
 )
-DEFAULT_TOOLCHAIN="v5"
-
+DEFAULT_OS="all"
 SUPPORTED_OS=(
     all
     amzn-2
@@ -18,25 +18,22 @@ SUPPORTED_OS=(
     rocky-9
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
 )
-DEFAULT_OS="all"
-
+DEFAULT_BUILD_TYPE="Release"
 SUPPORTED_BUILD_TYPES=(
     Debug
     Release
     RelWithDebInfo
 )
-DEFAULT_BUILD_TYPE="Release"
-
+DEFAULT_ARCH="amd"
 SUPPORTED_ARCHS=(
     amd
     arm
 )
-DEFAULT_ARCH="amd"
-
 SUPPORTED_TESTS=(
     unit stress-plain stress-ssl drivers integration durability
     gql-behave cppcheck-and-clang-format leftover-CTest
 )
+DEFAULT_THREADS=$(nproc)
 
 # TODO(deda): create toolchain + OS combinations
 print_help () {
@@ -57,6 +54,7 @@ print_help () {
   echo -e "  --build-type string      Specify build type (\"${SUPPORTED_BUILD_TYPES[*]}\") (default \"$DEFAULT_BUILD_TYPE\")"
   echo -e "  --toolchain string       Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
   echo -e "  --os string              Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
+  echo -e "  --threads int            Specify the number of threads a command will use (default \"\$(nproc)\")"
 
   echo -e "\nSupported tests:"
   echo -e "  \"${SUPPORTED_TESTS[*]}\""
@@ -201,8 +199,8 @@ build_memgraph () {
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
   # shellcheck disable=SC2016
-  docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc)'
-  docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc) -B mgconsole'
+  docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads'
+  docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads -B mgconsole'
 }
 
 package_memgraph() {
@@ -248,7 +246,7 @@ test_memgraph() {
 
   case "$1" in
     unit)
-      docker exec -c "cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN $$ ctest -R memgraph__unit --output-on-failure -j$THREADS"
+      docker exec -c "cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN $$ ctest -R memgraph__unit --output-on-failure -j$threads"
     ;;
     leftover-CTest)
       docker exec -c "cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -E \"(memgraph__unit|memgraph__benchmark)\" --output-on-failure"
@@ -292,6 +290,7 @@ fi
 arch=$DEFAULT_ARCH
 build_type=$DEFAULT_BUILD_TYPE
 os=$DEFAULT_OS
+threads=$DEFAULT_THREADS
 toolchain_version=$DEFAULT_TOOLCHAIN
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -308,6 +307,10 @@ while [[ $# -gt 0 ]]; do
     --os)
         os=$2
         check_support os $os
+        shift 2
+    ;;
+    --threads)
+        threads=$2
         shift 2
     ;;
     --toolchain)
