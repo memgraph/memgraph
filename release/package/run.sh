@@ -194,6 +194,9 @@ make_package () {
     echo "Package saved to $package_host_destination."
 }
 
+if [[ "$#" -lt 1 ]]; then
+    print_help
+fi
 case "$1" in
     init)
         shift 1
