@@ -39,22 +39,25 @@ HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
   echo -e "\nUsage: ./run.sh [OPTIONS] COMMAND"
-  echo -e "\nInteract with mgbuilder containers"
+  echo -e "\nInteract with mgbuild containers"
 
   echo -e "\nCommands:"
-  echo -e "  build                 Build mgbuilder image"
-  echo -e "  run                   Run mgbuilder container"
-  echo -e "  stop                  Stop mgbuilder container"
-  echo -e "  build-memgraph        Build memgraph inside mgbuilder container"
+  echo -e "  build                 Build mgbuild image"
+  echo -e "  run                   Run mgbuild container"
+  echo -e "  stop OPTIONS          Stop mgbuild container"
+  echo -e "  build-memgraph        Build memgraph inside mgbuild container"
   echo -e "  package-memgraph      Build memgraph and create deb package"
   echo -e "  test-memgraph         Run a specific test on memgraph"
-  echo -e "  copy OPTIONS          Copy an artifact from mgbuilder container"
+  echo -e "  copy OPTIONS          Copy an artifact from mgbuild container"
 
   echo -e "\nOptions:"
   echo -e "  --arch string         Specify target architecture (\"${SUPPORTED_ARCHS[*]}\") (default \"$DEFAULT_ARCH\")"
   echo -e "  --build-type string   Specify build type (\"${SUPPORTED_BUILD_TYPES[*]}\") (default \"$DEFAULT_BUILD_TYPE\")"
   echo -e "  --toolchain string    Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
   echo -e "  --os string           Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
+
+  echo -e "\nstop options:"
+  echo -e "  --remove              Remove the stopped mgbuild container"
 
   echo -e "\ncopy options:"
   echo -e "  --binary              Copy built memgraph binary"
@@ -250,10 +253,11 @@ while [[ $# -gt 0 ]]; do
     ;;
     *)
       if [[ "$1" =~ ^--.* ]]; then
-        echo -e "Unknown option $1"
+        echo -e "Error: Unknown option $1"
         exit 1
       else
         command=$1
+        shift 1
         break
       fi
     ;;
@@ -282,10 +286,22 @@ case $command in
     ;;
     stop)
       cd $SCRIPT_DIR
+      remove=false
+      if [[ "$#" -gt 0 ]]; then
+        if [[ "$1" == "--remove" ]]; then
+          remove=true
+        else
+          echo "Error: Unknown flag '$1'"
+          exit 1
+        fi
+      fi
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml down
       else
         docker stop mgbuild_${toolchain_version}_${os}
+        if [[ "$remove" == "true" ]]; then
+          docker rm mgbuild_${toolchain_version}_${os}
+        fi
       fi
     ;;
     build-memgraph)
