@@ -179,7 +179,7 @@ build_memgraph () {
   # TOOLCHAIN_RUN_DEPS installation from here.
   # TODO(gitbuda): On the other side, having this here allows updating deps
   # wihout reruning the build containers.
-  # TODO(gitbuda+deda): Make a decision on this
+  # TODO(gitbuda+deda): Make a decision on this, (deda thinks we should move this to the Dockerfiles to save on time)
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
   docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
   docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
@@ -383,7 +383,7 @@ case $command in
       package_memgraph
     ;;
     test-memgraph)
-      echo "$command"
+      test_memgraph $1
     ;;
     copy)
       copy_memgraph $@
