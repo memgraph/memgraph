@@ -46,49 +46,49 @@ check_support() {
   case "$1" in
     arch)
       for e in "${SUPPORTED_ARCHS[@]}"; do
-        if [[ "$e" == "$1" ]]; then
+        if [[ "$e" == "$2" ]]; then
           is_supported=true
           break
         fi
       done
       if [[ "$is_supported" == false ]]; then
-        echo -e "Architecture $1 isn't supported, choose from  ${SUPPORTED_ARCHS[*]}"
+        echo -e "Architecture $2 isn't supported, choose from  ${SUPPORTED_ARCHS[*]}"
         exit 1
       fi
     ;;
     build_type)
       for e in "${SUPPORTED_BUILD_TYPES[@]}"; do
-        if [[ "$e" == "$1" ]]; then
+        if [[ "$e" == "$2" ]]; then
           is_supported=true
           break
         fi
       done
       if [[ "$is_supported" == false ]]; then
-        echo -e "Build type $1 isn't supported, choose from  ${SUPPORTED_BUILD_TYPES[*]}"
+        echo -e "Build type $2 isn't supported, choose from  ${SUPPORTED_BUILD_TYPES[*]}"
         exit 1
       fi
     ;;
     os)
       for e in "${SUPPORTED_OS[@]}"; do
-        if [[ "$e" == "$1" ]]; then
+        if [[ "$e" == "$2" ]]; then
           is_supported=true
           break
         fi
       done
       if [[ "$is_supported" == false ]]; then
-        echo -e "OS $1 isn't supported, choose from  ${SUPPORTED_OS[*]}"
+        echo -e "OS $2 isn't supported, choose from  ${SUPPORTED_OS[*]}"
         exit 1
       fi
     ;;
     toolchain)
       for e in "${SUPPORTED_TOOLCHAINS[@]}"; do
-        if [[ "$e" == "$1" ]]; then
+        if [[ "$e" == "$2" ]]; then
           is_supported=true
           break
         fi
       done
       if [[ "$is_supported" == false ]]; then
-        echo -e "Toolchain version $1 isn't supported, choose from  ${SUPPORTED_TOOLCHAINS[*]}"
+        echo -e "Toolchain version $2 isn't supported, choose from  ${SUPPORTED_TOOLCHAINS[*]}"
         exit 1
       fi
     ;;
