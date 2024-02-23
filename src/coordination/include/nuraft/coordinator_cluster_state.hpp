@@ -44,6 +44,8 @@ class CoordinatorClusterState {
 
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
 
+  auto GetInstances() const -> std::vector<std::pair<std::string, std::string>>;
+
  private:
   std::map<std::string, replication_coordination_glue::ReplicationRole> instance_roles;
 };

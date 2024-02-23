@@ -13,7 +13,10 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_exceptions.hpp"
+
 #include <cstdint>
+#include <string>
 
 namespace memgraph::coordination {
 
@@ -23,6 +26,22 @@ enum class RaftLogAction : uint8_t {
   SET_INSTANCE_AS_MAIN,
   SET_INSTANCE_AS_REPLICA
 };
+
+inline auto ParseRaftLogAction(std::string const &action) -> RaftLogAction {
+  if (action == "register") {
+    return RaftLogAction::REGISTER_REPLICATION_INSTANCE;
+  }
+  if (action == "unregister") {
+    return RaftLogAction::UNREGISTER_REPLICATION_INSTANCE;
+  }
+  if (action == "set_main") {
+    return RaftLogAction::SET_INSTANCE_AS_MAIN;
+  }
+  if (action == "set_replica") {
+    return RaftLogAction::SET_INSTANCE_AS_REPLICA;
+  }
+  throw InvalidRaftLogActionException("Invalid Raft log action: " + action);
+}
 
 }  // namespace memgraph::coordination
 #endif

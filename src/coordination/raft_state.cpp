@@ -156,5 +156,9 @@ auto RaftState::IsReplica(std::string const &instance_name) const -> bool {
   return state_machine_->IsReplica(instance_name);
 }
 
+auto RaftState::GetInstances() const -> std::vector<std::pair<std::string, std::string>> {
+  return state_machine_->GetInstances();
+}
+
 }  // namespace memgraph::coordination
 #endif

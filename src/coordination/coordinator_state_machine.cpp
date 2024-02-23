@@ -49,7 +49,6 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<std::string, 
   buffer_serializer bs(data);
 
   auto const log_str = bs.get_str();
-
   auto const sep = log_str.find('_');
   auto const action = log_str.substr(0, sep);
   auto const name = log_str.substr(sep + 1);

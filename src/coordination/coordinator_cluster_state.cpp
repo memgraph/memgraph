@@ -89,5 +89,22 @@ auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterSta
   return cluster_state;
 }
 
+auto CoordinatorClusterState::GetInstances() const -> std::vector<std::pair<std::string, std::string>> {
+  auto const role_to_string = [](auto const &role) -> std::string {
+    switch (role) {
+      case replication_coordination_glue::ReplicationRole::MAIN:
+        return "main";
+      case replication_coordination_glue::ReplicationRole::REPLICA:
+        return "replica";
+    }
+  };
+
+  auto const entry_to_pair = [&role_to_string](auto const &entry) {
+    return std::make_pair(entry.first, role_to_string(entry.second));
+  };
+
+  return instance_roles | ranges::views::transform(entry_to_pair) | ranges::to<std::vector>();
+}
+
 }  // namespace memgraph::coordination
 #endif

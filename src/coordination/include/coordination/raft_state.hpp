@@ -63,13 +63,16 @@ class RaftState {
   auto IsMain(std::string const &instance_name) const -> bool;
   auto IsReplica(std::string const &instance_name) const -> bool;
 
+  /// TODO: (andi) Add log in the name of methods
   auto AppendRegisterReplicationInstance(std::string const &instance_name) -> ptr<raft_result>;
   auto AppendUnregisterReplicationInstance(std::string const &instance_name) -> ptr<raft_result>;
   auto AppendSetInstanceAsMain(std::string const &instance_name) -> ptr<raft_result>;
   auto AppendSetInstanceAsReplica(std::string const &instance_name) -> ptr<raft_result>;
 
+  auto GetInstances() const -> std::vector<std::pair<std::string, std::string>>;
+
  private:
-  // TODO: (andi) I think variables below can be abstracted
+  // TODO: (andi) I think variables below can be abstracted/clean them.
   uint32_t raft_server_id_;
   uint32_t raft_port_;
   std::string raft_address_;

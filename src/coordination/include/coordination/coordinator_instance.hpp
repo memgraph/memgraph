@@ -67,7 +67,8 @@ class CoordinatorInstance {
  private:
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
 
-  // NOTE: Must be std::list because we rely on pointer stability
+  // NOTE: Only leader should have repl_instances_, not followers.
+  // NOTE: Must be std::list because we rely on pointer stability.
   std::list<ReplicationInstance> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 
