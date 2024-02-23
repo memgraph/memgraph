@@ -15,6 +15,7 @@
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
 #include "dbms/database.hpp"
+#include "glue/query_user.hpp"
 #include "query/interpreter.hpp"
 
 namespace memgraph::glue {
@@ -82,7 +83,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   memgraph::query::InterpreterContext *interpreter_context_;
   memgraph::query::Interpreter interpreter_;
-  std::optional<memgraph::auth::User> user_;
+  std::unique_ptr<query::QueryUserOrRole> user_or_role_;
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
   bool in_explicit_db_{false};  //!< If true, the user has defined the database to use via metadata

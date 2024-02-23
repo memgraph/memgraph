@@ -46,6 +46,7 @@ constexpr uint64_t kInterpreterTransactionInitialId = 1ULL << 63U;
 class AuthQueryHandler;
 class AuthChecker;
 class Interpreter;
+struct QueryUserOrRole;
 
 /**
  * Holds data shared between multiple `Interpreter` instances (which might be
@@ -95,8 +96,8 @@ struct InterpreterContext {
   void Shutdown() { is_shutting_down.store(true, std::memory_order_release); }
 
   std::vector<std::vector<TypedValue>> TerminateTransactions(
-      std::vector<std::string> maybe_kill_transaction_ids, const std::optional<std::string> &username,
-      std::function<bool(std::string const &)> privilege_checker);
+      std::vector<std::string> maybe_kill_transaction_ids, QueryUserOrRole *user_or_role,
+      std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
 };
 
 }  // namespace memgraph::query

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -403,7 +403,7 @@ nlohmann::json Module::Call(const nlohmann::json &params, int timeout_millisec) 
   return ret;
 }
 
-bool Module::IsUsed() { return !module_executable_path_.empty(); }
+bool Module::IsUsed() const { return !module_executable_path_.empty(); }
 
 void Module::Shutdown() {
   if (pid_ == -1) return;
