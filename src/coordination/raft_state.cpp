@@ -150,6 +150,8 @@ auto RaftState::AppendSetInstanceAsReplica(std::string const &instance_name) -> 
   return raft_server_->append_entries({new_log});
 }
 
+auto RaftState::MainExists() const -> bool { return state_machine_->MainExists(); }
+
 auto RaftState::IsMain(std::string const &instance_name) const -> bool { return state_machine_->IsMain(instance_name); }
 
 auto RaftState::IsReplica(std::string const &instance_name) const -> bool {

@@ -32,6 +32,8 @@ using nuraft::ptr;
 
 class CoordinatorClusterState {
  public:
+  auto MainExists() const -> bool;
+
   auto IsMain(std::string const &instance_name) const -> bool;
 
   auto IsReplica(std::string const &instance_name) const -> bool;

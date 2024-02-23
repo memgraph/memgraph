@@ -32,8 +32,10 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
   NO_INSTANCE_WITH_NAME,
   IS_MAIN,
   NOT_COORDINATOR,
-  NOT_LEADER,
   RPC_FAILED,
+  NOT_LEADER,
+  RAFT_COULD_NOT_ACCEPT,
+  RAFT_COULD_NOT_APPEND,
   SUCCESS,
 };
 

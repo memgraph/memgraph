@@ -15,12 +15,20 @@
 
 namespace memgraph::coordination {
 
+auto CoordinatorClusterState::MainExists() const -> bool {
+  return std::any_of(instance_roles.begin(), instance_roles.end(), [](auto const &entry) {
+    return entry.second == replication_coordination_glue::ReplicationRole::MAIN;
+  });
+}
+
 auto CoordinatorClusterState::IsMain(std::string const &instance_name) const -> bool {
-  return instance_roles.at(instance_name) == replication_coordination_glue::ReplicationRole::MAIN;
+  auto const it = instance_roles.find(instance_name);
+  return it != instance_roles.end() && it->second == replication_coordination_glue::ReplicationRole::MAIN;
 }
 
 auto CoordinatorClusterState::IsReplica(std::string const &instance_name) const -> bool {
-  return instance_roles.at(instance_name) == replication_coordination_glue::ReplicationRole::REPLICA;
+  auto const it = instance_roles.find(instance_name);
+  return it != instance_roles.end() && it->second == replication_coordination_glue::ReplicationRole::REPLICA;
 }
 
 auto CoordinatorClusterState::InsertInstance(std::string const &instance_name,
@@ -34,7 +42,9 @@ auto CoordinatorClusterState::DoAction(std::string const &instance_name, RaftLog
       instance_roles[instance_name] = replication_coordination_glue::ReplicationRole::REPLICA;
       break;
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
+      spdlog::info("Unregistering instance: {}", instance_name);
       instance_roles.erase(instance_name);
+      spdlog::info("Instance {} unregistered", instance_name);
       break;
     case RaftLogAction::SET_INSTANCE_AS_MAIN:
       instance_roles[instance_name] = replication_coordination_glue::ReplicationRole::MAIN;

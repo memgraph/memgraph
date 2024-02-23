@@ -60,6 +60,7 @@ class RaftState {
   auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
 
+  auto MainExists() const -> bool;
   auto IsMain(std::string const &instance_name) const -> bool;
   auto IsReplica(std::string const &instance_name) const -> bool;
 

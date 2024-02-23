@@ -147,13 +147,14 @@ def test_register_repl_instances_then_coordinators():
     def check_coordinator1():
         return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
 
+    # TODO: (andi) Waiting for product decision about this
     expected_cluster_not_shared = [
         ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
         ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("instance_1", "", "", False, "replica"),
+        ("instance_2", "", "", False, "replica"),
+        ("instance_3", "", "", False, "main"),
     ]
 
     mg_sleep_and_assert(expected_cluster_not_shared, check_coordinator1)
