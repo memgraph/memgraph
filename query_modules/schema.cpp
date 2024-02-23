@@ -209,30 +209,30 @@ void Schema::RelTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, m
         continue;
       }
 
-      auto &property_info = rel_types_properties.at(rel_type);
+      auto &labels_info = rel_types_properties.at(rel_type);
       for (auto &[key, prop] : rel.Properties()) {
         const auto prop_type = TypeOf(prop.Type());
-        if (property_info.properties.find(key) == property_info.properties.end()) {
-          property_info.properties[key] = PropertyInfo{prop_type};
+        if (labels_info.properties.find(key) == labels_info.properties.end()) {
+          labels_info.properties[key] = PropertyInfo{prop_type};
         } else {
-          property_info.properties[key].property_types.emplace(prop_type);
-          property_info.properties[key].number_of_property_occurrences++;
+          labels_info.properties[key].property_types.emplace(prop_type);
+          labels_info.properties[key].number_of_property_occurrences++;
         }
       }
     }
 
-    for (auto &[type, property_info] : rel_types_properties) {
+    for (auto &[type, labels_info] : rel_types_properties) {
       std::string type_str = ":`" + std::string(type) + "`";
-      for (auto const &prop : property_info.properties) {
+      for (auto const &prop : labels_info.properties) {
         auto prop_types = mgp::List();
         for (auto const &prop_type : prop.second.property_types) {
           prop_types.AppendExtend(mgp::Value(prop_type));
         }
-        bool mandatory = prop.second.number_of_property_occurrences == property_info.number_of_label_occurrences;
+        bool mandatory = prop.second.number_of_property_occurrences == labels_info.number_of_label_occurrences;
         auto record = record_factory.NewRecord();
         ProcessPropertiesRel(record, type_str, prop.first, prop_types, mandatory);
       }
-      if (property_info.properties.empty()) {
+      if (labels_info.properties.empty()) {
         auto record = record_factory.NewRecord();
         ProcessPropertiesRel<mgp::List>(record, type_str, "", mgp::List(), false);
       }
