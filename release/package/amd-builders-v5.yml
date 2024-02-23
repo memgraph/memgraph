@@ -10,6 +10,8 @@ services:
   mgbuild_v5_centos-7:
     build:
       context: centos-7
+      args:
+        TOOLCHAIN_VERSION: "v5"
     container_name: "mgbuild_v5_centos-7"
 
   mgbuild_v5_centos-9:
