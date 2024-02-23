@@ -138,9 +138,9 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
   try {
     std::unordered_map<std::set<std::string>, LabelsInfo, LabelsHash, LabelsComparator> node_types_properties;
 
-    for (auto node : mgp::Graph(memgraph_graph).Nodes()) {
+    for (const auto node : mgp::Graph(memgraph_graph).Nodes()) {
       std::set<std::string> labels_set = {};
-      for (auto label : node.Labels()) {
+      for (const auto label : node.Labels()) {
         labels_set.emplace(label);
       }
 
@@ -151,8 +151,8 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
       }
 
       auto &labels_info = node_types_properties.at(labels_set);
-      for (auto const &[key, prop] : node.Properties()) {
-        auto const &prop_type = TypeOf(prop.Type());
+      for (const auto &[key, prop] : node.Properties()) {
+        const auto &prop_type = TypeOf(prop.Type());
         if (labels_info.properties.find(key) == labels_info.properties.end()) {
           labels_info.properties[key] = PropertyInfo{prop_type};
         } else {
@@ -162,16 +162,16 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
       }
     }
 
-    for (auto &[labels, labels_info] : node_types_properties) {
+    for (auto &[node_type, labels_info] : node_types_properties) {  // node type is a set of labels
       std::string label_type;
-      mgp::List labels_list = mgp::List();
-      for (auto const &label : labels) {
+      auto labels_list = mgp::List();
+      for (const auto &label : node_type) {
         label_type += ":`" + std::string(label) + "`";
         labels_list.AppendExtend(mgp::Value(label));
       }
-      for (auto const &prop : labels_info.properties) {
+      for (const auto &prop : labels_info.properties) {
         auto prop_types = mgp::List();
-        for (auto const &prop_type : prop.second.property_types) {
+        for (const auto &prop_type : prop.second.property_types) {
           prop_types.AppendExtend(mgp::Value(prop_type));
         }
         bool mandatory = prop.second.number_of_property_occurrences == labels_info.number_of_label_occurrences;
@@ -196,12 +196,9 @@ void Schema::RelTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, m
   std::unordered_map<std::string, LabelsInfo> rel_types_properties;
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    const mgp::Graph graph = mgp::Graph(memgraph_graph);
-    for (auto rel : graph.Relationships()) {
+    const auto graph = mgp::Graph(memgraph_graph);
+    for (const auto rel : graph.Relationships()) {
       std::string rel_type = std::string(rel.Type());
-      if (rel_types_properties.find(rel_type) == rel_types_properties.end()) {
-        rel_types_properties[rel_type] = LabelsInfo();
-      }
 
       rel_types_properties[rel_type].number_of_label_occurrences++;
 
@@ -221,11 +218,11 @@ void Schema::RelTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, m
       }
     }
 
-    for (auto &[type, labels_info] : rel_types_properties) {
-      std::string type_str = ":`" + std::string(type) + "`";
-      for (auto const &prop : labels_info.properties) {
+    for (auto &[rel_type, labels_info] : rel_types_properties) {
+      std::string type_str = ":`" + std::string(rel_type) + "`";
+      for (const auto &prop : labels_info.properties) {
         auto prop_types = mgp::List();
-        for (auto const &prop_type : prop.second.property_types) {
+        for (const auto &prop_type : prop.second.property_types) {
           prop_types.AppendExtend(mgp::Value(prop_type));
         }
         bool mandatory = prop.second.number_of_property_occurrences == labels_info.number_of_label_occurrences;
@@ -554,7 +551,7 @@ void ProcessUniqueConstraints(const mgp::Map &unique_constraints_map, mgp_graph 
   // label-unique_constraints pair
   std::map<std::string_view, AssertedUniqueConstraintsStorage> existing_unique_constraints;
   for (const auto &constraint : mgp_existing_unique_constraints) {
-    auto constraint_list = constraint.ValueList();
+    const autoraint_list = constraint.ValueList();
     std::set<std::string_view> properties;
     for (int i = 1; i < constraint_list.Size(); i++) {
       properties.emplace(constraint_list[i].ValueString());
