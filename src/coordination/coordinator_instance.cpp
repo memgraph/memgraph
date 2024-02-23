@@ -14,6 +14,7 @@
 #include "coordination/coordinator_instance.hpp"
 
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/fmt.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
 #include "utils/counter.hpp"
@@ -186,11 +187,9 @@ auto CoordinatorInstance::TryFailover() -> void {
     }
   }
 
-  // TODO: (andi) fmap compliant
-  ReplicationClientsInfo repl_clients_info;
-  repl_clients_info.reserve(repl_instances_.size() - 1);
-  std::ranges::transform(repl_instances_ | ranges::views::filter(is_not_new_main),
-                         std::back_inserter(repl_clients_info), &ReplicationInstance::ReplicationClientInfo);
+  auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
+                           ranges::views::transform(&ReplicationInstance::ReplicationClientInfo) |
+                           ranges::to<ReplicationClientsInfo>();
 
   if (!new_main->PromoteToMain(new_main_uuid, std::move(repl_clients_info), main_succ_cb_, main_fail_cb_)) {
     spdlog::warn("Failover failed since promoting replica to main failed!");

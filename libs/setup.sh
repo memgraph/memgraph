@@ -168,12 +168,11 @@ pushd antlr4
 git apply ../antlr4.10.1.patch
 popd
 
-# cppitertools v2.0 2019-12-23
-cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
+cppitertools_ref="v2.1" # 2021-01-15
 repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
 
 # rapidcheck
-rapidcheck_tag="7bc7d302191a4f3d0bf005692677126136e02f60" # (2020-05-04)
+rapidcheck_tag="1c91f40e64d87869250cfb610376c629307bf77d" # (2023-08-15)
 repo_clone_try_double "${primary_urls[rapidcheck]}" "${secondary_urls[rapidcheck]}" "rapidcheck" "$rapidcheck_tag"
 
 # google benchmark
@@ -221,7 +220,7 @@ repo_clone_try_double "${primary_urls[pymgclient]}" "${secondary_urls[pymgclient
 mgconsole_tag="v1.4.0" # (2023-05-21)
 repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
 
-spdlog_tag="v1.9.2" # (2021-08-12)
+spdlog_tag="v1.12.0" # (2022-11-02)
 repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag" true
 
 # librdkafka
@@ -286,5 +285,6 @@ repo_clone_try_double "${primary_urls[range-v3]}" "${secondary_urls[range-v3]}" 
 nuraft_tag="v2.1.0"
 repo_clone_try_double "${primary_urls[nuraft]}" "${secondary_urls[nuraft]}" "nuraft" "$nuraft_tag" true
 pushd nuraft
+git apply ../nuraft2.1.0.patch
 ./prepare.sh
 popd

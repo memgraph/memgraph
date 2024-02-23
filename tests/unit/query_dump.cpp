@@ -21,6 +21,8 @@
 #include "communication/result_stream_faker.hpp"
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
+#include "glue/auth_checker.hpp"
+#include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/dump.hpp"
 #include "query/interpreter.hpp"
@@ -216,6 +218,8 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
 auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::DatabaseAccess db,
              const std::string &query) {
   memgraph::query::Interpreter interpreter(context, db);
+  memgraph::query::AllowEverythingAuthChecker auth_checker;
+  interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   ResultStreamFaker stream(db->storage());
 
   auto [header, _1, qid, _2] = interpreter.Prepare(query, {}, {});
@@ -915,7 +919,10 @@ TYPED_TEST(DumpTest, ExecuteDumpDatabase) {
 class StatefulInterpreter {
  public:
   explicit StatefulInterpreter(memgraph::query::InterpreterContext *context, memgraph::dbms::DatabaseAccess db)
-      : context_(context), interpreter_(context_, db) {}
+      : context_(context), interpreter_(context_, db) {
+    memgraph::query::AllowEverythingAuthChecker auth_checker;
+    interpreter_.SetUser(auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  }
 
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(interpreter_.current_db_.db_acc_->get()->storage());
@@ -1138,7 +1145,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::DbAccessor dba(acc.get());
     const std::map<std::string, memgraph::storage::PropertyValue> props;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
-                              &dba, query_config, std::nullopt, &auth_checker);
+                              &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   }
   {
     ResultStreamFaker stream(this->db->storage());

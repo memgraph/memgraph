@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "utils/file.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::utils {
@@ -39,19 +40,19 @@ inline uint64_t GetDirDiskUsage(const std::filesystem::path &path) {
     return 0;
   }
   uint64_t size = 0;
-  for (const auto &p : std::filesystem::directory_iterator(path)) {
-    if (IgnoreSymlink && std::filesystem::is_symlink(p)) continue;
-    if (std::filesystem::is_directory(p)) {
-      size += GetDirDiskUsage(p);
-    } else if (std::filesystem::is_regular_file(p)) {
-      if (!utils::HasReadAccess(p)) {
+  for (const auto &dir_entry : std::filesystem::directory_iterator(path)) {
+    if (IgnoreSymlink && std::filesystem::is_symlink(dir_entry)) continue;
+    if (std::filesystem::is_directory(dir_entry)) {
+      size += GetDirDiskUsage(dir_entry);
+    } else if (std::filesystem::is_regular_file(dir_entry)) {
+      if (!utils::HasReadAccess(dir_entry)) {
         spdlog::warn(
             "Skipping file path on collecting directory disk usage '{}' because it is not readable, check file "
             "ownership and read permissions!",
-            p);
+            dir_entry.path());
         continue;
       }
-      size += std::filesystem::file_size(p);
+      size += std::filesystem::file_size(dir_entry);
     }
   }
 

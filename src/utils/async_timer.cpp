@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,12 +56,11 @@ void EraseFlag(uint64_t flag_id) { expiration_flags.access().remove(flag_id); }
 
 std::weak_ptr<std::atomic<bool>> GetFlag(uint64_t flag_id) {
   const auto flag_accessor = expiration_flags.access();
-  const auto it = flag_accessor.find(flag_id);
-  if (it == flag_accessor.end()) {
+  const auto iter = flag_accessor.find(flag_id);
+  if (iter == flag_accessor.end()) {
     return {};
   }
-
-  return it->flag;
+  return iter->flag;
 }
 
 void MarkDone(const uint64_t flag_id) {

@@ -1,7 +1,5 @@
 #!/bin/bash
-
 set -Eeuo pipefail
-
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
@@ -9,7 +7,7 @@ check_operating_system "amzn-2"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
-    gcc gcc-c++ make # generic build tools
+    git gcc gcc-c++ make # generic build tools
     wget # used for archive download
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
@@ -62,6 +60,8 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     cyrus-sasl-devel
 )
+
+MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp
