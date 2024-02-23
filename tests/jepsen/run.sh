@@ -258,6 +258,8 @@ case $1 in
         echo "TODO(gitbuda): Build memgraph for Jepsen (on v0.3.5 for Debian 12) via memgraph/memgraph-builder"
         exit 1
         # docker cp -L mgbuild_debian-12:/memgraph/build/memgraph "${MEMGRAPH_BUILD_PATH}/"
+        # NOTE: mgconsole is interesting inside jepsen container to inspect Memgraph state.
+        # docker cp -L mgbuild_debian-12:/usr/local/bin/mgconsole "${MEMGRAPH_BUILD_PATH}/"
     ;;
 
     test)
