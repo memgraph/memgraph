@@ -32,7 +32,7 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
-    echo "$0 init {toolchain _version} {arch} [--build-only | --no-build] | docker | build {toolchain _version} {os} | package {toolchain _version} {os} {build_type} [--for-docker|--for-platform]"
+    echo "$0 init {toolchain _version} {arch} [--build-only | --run-only] | docker | build {toolchain _version} {os} | package {toolchain _version} {os} {build_type} [--for-docker|--for-platform]"
     echo ""
     echo "    Archs: ${SUPPORTED_ARCHS[*]}"
     echo "    Build types: ${SUPPORTED_BUILD_TYPES[*]}"
@@ -216,7 +216,7 @@ case "$1" in
         if [[ "$#" -gt 2 ]]; then
           if [[ "$3" == "--build-only" ]]; then
             $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build
-          elif [[ "$3" == "--no-build" ]]; then
+          elif [[ "$3" == "--run-only" ]]; then
             $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d
           else
             print_help
