@@ -11,9 +11,10 @@
 #pragma once
 
 #include <optional>
+#include <range/v3/view.hpp>
+#include <ranges>
 #include <string>
 #include <unordered_map>
-
 #include "dbms/constants.hpp"
 #include "replication_coordination_glue/common.hpp"
 
@@ -38,7 +39,6 @@ inline std::string ChooseMostUpToDateInstance(
                            return db_timestamps.name == default_db;
                          });
 
-        // TODO remove only for logging purposes
         std::for_each(
             instance_db_histories.begin(), instance_db_histories.end(),
             [instance_name = instance_name](const replication_coordination_glue::DatabaseHistory &db_history) {
@@ -46,12 +46,10 @@ inline std::string ChooseMostUpToDateInstance(
                             memgraph::dbms::kDefaultDB);
             });
 
-        // auto error_msg = std::string(fmt::format("No history for instance {}", instance_name));
         MG_ASSERT(default_db_history_data != instance_db_histories.end(), "No history for instance");
 
         const auto &instance_default_db_history = default_db_history_data->history;
 
-        // TODO remove only for logging purposes
         std::for_each(instance_default_db_history.rbegin(), instance_default_db_history.rend(),
                       [instance_name = instance_name](const auto &instance_default_db_history_it) {
                         spdlog::trace("Instance {}:  epoch {}, last_commit_timestamp: {}", instance_name,
@@ -62,8 +60,6 @@ inline std::string ChooseMostUpToDateInstance(
         // get latest epoch
         // get latest timestamp
 
-        // if current history is none, I am first one
-        // if there is some kind history recorded, check that I am older
         if (!latest_epoch) {
           const auto it = instance_default_db_history.crbegin();
           const auto &[epoch, timestamp] = *it;
@@ -75,30 +71,27 @@ inline std::string ChooseMostUpToDateInstance(
           return;
         }
 
-        for (auto it = instance_default_db_history.rbegin(); it != instance_default_db_history.rend(); ++it) {
-          const auto &[epoch, timestamp] = *it;
+        bool found_same_point{false};
+        std::string last_most_up_to_date_epoch{*latest_epoch};
+        for (auto [epoch, timestamp] : ranges::reverse_view(instance_default_db_history)) {
+          if (*latest_commit_timestamp < timestamp) {
+            latest_commit_timestamp.emplace(timestamp);
+            latest_epoch.emplace(epoch);
+            most_up_to_date_instance = instance_name;
+            spdlog::trace("Found the new most up to date instance {} with epoch {} and {} latest commit timestamp",
+                          instance_name, epoch, timestamp);
+          }
 
           // we found point at which they were same
-          if (epoch == *latest_epoch) {
-            // if this is the latest history, compare timestamps
-            if (it == instance_default_db_history.rbegin()) {
-              if (*latest_commit_timestamp < timestamp) {
-                latest_commit_timestamp.emplace(timestamp);
-                most_up_to_date_instance = instance_name;
-                spdlog::trace("Found new the most up to date instance {} with epoch {} and {} latest commit timestamp",
-                              instance_name, epoch, timestamp);
-              }
-            } else {
-              latest_epoch.emplace(instance_default_db_history.rbegin()->first);
-              latest_commit_timestamp.emplace(instance_default_db_history.rbegin()->second);
-              most_up_to_date_instance = instance_name;
-              spdlog::trace("Found new the most up to date instance {} with epoch {} and {} latest commit timestamp",
-                            instance_name, epoch, timestamp);
-            }
+          if (epoch == last_most_up_to_date_epoch) {
+            found_same_point = true;
             break;
           }
-          // else if we don't find epoch which is same, instance with current most_up_to_date_instance
-          // is ahead
+        }
+
+        if (!found_same_point) {
+          spdlog::error("Didn't find same history epoch {} for instance {} and instance {}", last_most_up_to_date_epoch,
+                        most_up_to_date_instance, instance_name);
         }
       });
 
