@@ -722,6 +722,7 @@ def test_replication_works_with_snapshot(data_recovery):
     # 6
     num_vertices = 100
     with pytest.raises(Exception) as e:
+        # FOREACH (i in range(1, 100) | CREATE (:Vertex));
         execute_and_fetch_all(main_cursor, f"FOREACH (i in range(1, {num_vertices}) | CREATE (:Vertex));")
     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
 
@@ -743,7 +744,7 @@ def test_replication_works_with_snapshot(data_recovery):
 
     # 9
 
-    folder = f"{temp_dir}/instance_2/wal"
+    folder = f"{temp_dir}/instance_3/wal"
     for filename in os.listdir(folder):
         file_path = os.path.join(folder, filename)
         print(file_path)
