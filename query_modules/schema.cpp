@@ -551,7 +551,7 @@ void ProcessUniqueConstraints(const mgp::Map &unique_constraints_map, mgp_graph 
   // label-unique_constraints pair
   std::map<std::string_view, AssertedUniqueConstraintsStorage> existing_unique_constraints;
   for (const auto &constraint : mgp_existing_unique_constraints) {
-    const autoraint_list = constraint.ValueList();
+    auto constraint_list = constraint.ValueList();
     std::set<std::string_view> properties;
     for (int i = 1; i < constraint_list.Size(); i++) {
       properties.emplace(constraint_list[i].ValueString());
