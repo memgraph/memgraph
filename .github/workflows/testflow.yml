@@ -163,6 +163,7 @@ jobs:
       #       build/logs
 
       - name: Stop mgbuild container
+        if: always()
         run: |
           ./release/package/run2.sh \
           --toolchain $TOOLCHAIN \
