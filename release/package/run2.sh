@@ -251,7 +251,7 @@ test_memgraph() {
       docker exec -c "cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN $$ ctest -R memgraph__unit --output-on-failure -j$THREADS"
     ;;
     leftover-CTest)
-      docker exec -c "cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure"
+      docker exec -c "cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -E \"(memgraph__unit|memgraph__benchmark)\" --output-on-failure"
     ;;
     drivers)
       docker exec -c "cd $ROOT_DIR && ./tests/drivers/run.sh"
