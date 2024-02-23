@@ -107,6 +107,7 @@ auto ReplicationInstance::EnsureReplicaHasCorrectMainUUID(utils::UUID const &cur
   }
   UpdateReplicaLastResponseUUID();
 
+  // NOLINTNEXTLINE
   if (res.GetValue().has_value() && res.GetValue().value() == curr_main_uuid) {
     return true;
   }

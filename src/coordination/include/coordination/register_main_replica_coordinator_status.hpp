@@ -43,9 +43,12 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   NO_INSTANCE_WITH_NAME,
   MAIN_ALREADY_EXISTS,
   NOT_COORDINATOR,
-  SUCCESS,
+  NOT_LEADER,
+  RAFT_COULD_NOT_ACCEPT,
+  RAFT_COULD_NOT_APPEND,
   COULD_NOT_PROMOTE_TO_MAIN,
-  SWAP_UUID_FAILED
+  SWAP_UUID_FAILED,
+  SUCCESS,
 };
 
 }  // namespace memgraph::coordination

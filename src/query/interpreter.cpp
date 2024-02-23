@@ -521,6 +521,14 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't set instance to main since there is already a main instance in cluster!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
+      case NOT_LEADER:
+        throw QueryRuntimeException("Couldn't set instance to main since coordinator is not a leader!");
+      case RAFT_COULD_NOT_ACCEPT:
+        throw QueryRuntimeException(
+            "Couldn't promote instance since raft server couldn't accept the log! Most likely the raft "
+            "instance is not a leader!");
+      case RAFT_COULD_NOT_APPEND:
+        throw QueryRuntimeException("Couldn't promote instance since raft server couldn't append the log!");
       case COULD_NOT_PROMOTE_TO_MAIN:
         throw QueryRuntimeException(
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");

@@ -47,9 +47,13 @@ auto CoordinatorClusterState::DoAction(std::string const &instance_name, RaftLog
       spdlog::info("Instance {} unregistered", instance_name);
       break;
     case RaftLogAction::SET_INSTANCE_AS_MAIN:
+      MG_ASSERT(instance_roles.find(instance_name) != instance_roles.end(),
+                "Instance does not exist as part of raft state!");
       instance_roles[instance_name] = replication_coordination_glue::ReplicationRole::MAIN;
       break;
     case RaftLogAction::SET_INSTANCE_AS_REPLICA:
+      MG_ASSERT(instance_roles.find(instance_name) != instance_roles.end(),
+                "Instance does not exist as part of raft state!");
       instance_roles[instance_name] = replication_coordination_glue::ReplicationRole::REPLICA;
       break;
   }

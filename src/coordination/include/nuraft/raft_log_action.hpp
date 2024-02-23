@@ -34,10 +34,10 @@ inline auto ParseRaftLogAction(std::string const &action) -> RaftLogAction {
   if (action == "unregister") {
     return RaftLogAction::UNREGISTER_REPLICATION_INSTANCE;
   }
-  if (action == "set_main") {
+  if (action == "promote") {
     return RaftLogAction::SET_INSTANCE_AS_MAIN;
   }
-  if (action == "set_replica") {
+  if (action == "demote") {
     return RaftLogAction::SET_INSTANCE_AS_REPLICA;
   }
   throw InvalidRaftLogActionException("Invalid Raft log action: " + action);
