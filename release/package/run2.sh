@@ -267,25 +267,25 @@ case $command in
     build)
       cd $SCRIPT_DIR
       if [[ "$os" == "all" ]]; then
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build mgbuild_${toolchain_version}_${os}
-      else
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build
+      else
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build mgbuild_${toolchain_version}_${os}
       fi
     ;;
     run)
       cd $SCRIPT_DIR
       if [[ "$os" == "all" ]]; then
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d mgbuild_${toolchain_version}_${os}
-      else
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d
+      else
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d mgbuild_${toolchain_version}_${os}
       fi
     ;;
     stop)
       cd $SCRIPT_DIR
       if [[ "$os" == "all" ]]; then
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml down mgbuild_${toolchain_version}_${os}
-      else
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml down
+      else
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml down mgbuild_${toolchain_version}_${os}
       fi
     ;;
     build-memgraph)
