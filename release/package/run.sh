@@ -204,9 +204,9 @@ case "$1" in
             print_help
         fi
         toolchain_version="$1"
-        check toolchain $toolchain_version
+        check_support toolchain $toolchain_version
         arch="$2"
-        check arch $arch
+        check_support arch $arch
         cd "$SCRIPT_DIR"
         if ! which "docker-compose" >/dev/null; then
             docker_compose_cmd="docker compose"
@@ -249,11 +249,11 @@ case "$1" in
             print_help
         fi
         toolchain_version="$1"
-        check toolchain $toolchain_version
+        check_support toolchain $toolchain_version
         os="$2"
-        check os $os
+        check_support os $os
         build_type="$3"
-        check build_type $arch
+        check_support build_type $arch
         shift 2
         make_package "$toolchain_version" "$os" "$build_type" "$@"
     ;;
@@ -264,9 +264,9 @@ case "$1" in
           print_help
       fi
       toolchain_version="$1"
-      check toolchain $toolchain_version
+      check_support toolchain $toolchain_version
       os="$2"
-      check os $os
+      check_support os $os
       cd "$SCRIPT_DIR/$os"
       docker build -f Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" -t "memgraph/memgraph-builder:v${toolchain_version}_$os" .
     ;;
