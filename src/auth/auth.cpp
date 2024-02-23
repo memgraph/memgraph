@@ -35,15 +35,41 @@ DEFINE_VALIDATED_string(auth_module_executable, "", "Absolute path to the auth m
                           }
                           return true;
                         });
-DEFINE_bool(auth_module_create_missing_user, true, "Set to false to disable creation of missing users.");
-DEFINE_bool(auth_module_create_missing_role, true, "Set to false to disable creation of missing roles.");
-DEFINE_bool(auth_module_manage_roles, true, "Set to false to disable management of roles through the auth module.");
 DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
                        "Timeout (in milliseconds) used when waiting for a "
                        "response from the auth module.",
                        FLAG_IN_RANGE(100, 1800000));
 
+// DEPRECATED FLAGS
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_VALIDATED_HIDDEN_bool(auth_module_create_missing_user, true,
+                             "Set to false to disable creation of missing users.", {
+                               spdlog::warn(
+                                   "auth_module_create_missing_user flag is deprecated. It not possible to create "
+                                   "users through the module anymore.");
+                               return true;
+                             });
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_VALIDATED_HIDDEN_bool(auth_module_create_missing_role, true,
+                             "Set to false to disable creation of missing roles.", {
+                               spdlog::warn(
+                                   "auth_module_create_missing_role flag is deprecated. It not possible to create "
+                                   "roles through the module anymore.");
+                               return true;
+                             });
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_VALIDATED_HIDDEN_bool(
+    auth_module_manage_roles, true, "Set to false to disable management of roles through the auth module.", {
+      spdlog::warn(
+          "auth_module_manage_roles flag is deprecated. It not possible to create roles through the module anymore.");
+      return true;
+    });
+
 namespace memgraph::auth {
+
+const Auth::Epoch Auth::kStartEpoch = 1;
 
 namespace {
 #ifdef MG_ENTERPRISE
@@ -192,6 +218,17 @@ void MigrateVersions(kvstore::KVStore &store) {
     version_str = kVersionV1;
   }
 }
+
+auto ParseJson(std::string_view str) {
+  nlohmann::json data;
+  try {
+    data = nlohmann::json::parse(str);
+  } catch (const nlohmann::json::parse_error &e) {
+    throw AuthException("Couldn't load auth data!");
+  }
+  return data;
+}
+
 };  // namespace
 
 Auth::Auth(std::string storage_directory, Config config)
@@ -199,8 +236,11 @@ Auth::Auth(std::string storage_directory, Config config)
   MigrateVersions(storage_);
 }
 
-std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
+std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const std::string &password) {
   if (module_.IsUsed()) {
+    /*
+     * MODULE AUTH STORAGE
+     */
     const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
     if (license_check_result.HasError()) {
       spdlog::warn(license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
@@ -225,108 +265,64 @@ std::optional<User> Auth::Authenticate(const std::string &username, const std::s
     auto is_authenticated = ret_authenticated.get<bool>();
     const auto &rolename = ret_role.get<std::string>();
 
+    // Check if role is present
+    auto role = GetRole(rolename);
+    if (!role) {
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the role '{}' doesn't exist.",
+                                          username, rolename, "https://memgr.ph/auth"));
+      return std::nullopt;
+    }
+
     // Authenticate the user.
     if (!is_authenticated) return std::nullopt;
 
-    /**
-     * TODO
-     * The auth module should not update auth data.
-     * There is now way to replicate it and we should not be storing sensitive data if we don't have to.
-     */
-
-    // Find or create the user and return it.
-    auto user = GetUser(username);
-    if (!user) {
-      if (FLAGS_auth_module_create_missing_user) {
-        user = AddUser(username, password);
-        if (!user) {
-          spdlog::warn(utils::MessageWithLink(
-              "Couldn't create the missing user '{}' using the auth module because the user already exists as a role.",
-              username, "https://memgr.ph/auth"));
-          return std::nullopt;
-        }
-      } else {
-        spdlog::warn(utils::MessageWithLink(
-            "Couldn't authenticate user '{}' using the auth module because the user doesn't exist.", username,
-            "https://memgr.ph/auth"));
-        return std::nullopt;
-      }
-    } else {
-      UpdatePassword(*user, password);
-    }
-    if (FLAGS_auth_module_manage_roles) {
-      if (!rolename.empty()) {
-        auto role = GetRole(rolename);
-        if (!role) {
-          if (FLAGS_auth_module_create_missing_role) {
-            role = AddRole(rolename);
-            if (!role) {
-              spdlog::warn(
-                  utils::MessageWithLink("Couldn't authenticate user '{}' using the auth module because the user's "
-                                         "role '{}' already exists as a user.",
-                                         username, rolename, "https://memgr.ph/auth"));
-              return std::nullopt;
-            }
-            SaveRole(*role);
-          } else {
-            spdlog::warn(utils::MessageWithLink(
-                "Couldn't authenticate user '{}' using the auth module because the user's role '{}' doesn't exist.",
-                username, rolename, "https://memgr.ph/auth"));
-            return std::nullopt;
-          }
-        }
-        user->SetRole(*role);
-      } else {
-        user->ClearRole();
-      }
-    }
-    SaveUser(*user);
-    return user;
-  } else {
-    auto user = GetUser(username);
-    if (!user) {
-      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the user doesn't exist.", username,
-                                          "https://memgr.ph/auth"));
-      return std::nullopt;
-    }
-    if (!user->CheckPassword(password)) {
-      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the password is not correct.",
-                                          username, "https://memgr.ph/auth"));
-      return std::nullopt;
-    }
-    if (user->UpgradeHash(password)) {
-      SaveUser(*user);
-    }
-
-    return user;
+    return RoleWUsername{username, std::move(*role)};
   }
+
+  /*
+   * LOCAL AUTH STORAGE
+   */
+  auto user = GetUser(username);
+  if (!user) {
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the user doesn't exist.", username,
+                                        "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
+  if (!user->CheckPassword(password)) {
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the password is not correct.",
+                                        username, "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
+  if (user->UpgradeHash(password)) {
+    SaveUser(*user);
+  }
+
+  return user;
 }
 
-std::optional<User> Auth::GetUser(const std::string &username_orig) const {
-  auto username = utils::ToLowerCase(username_orig);
-  auto existing_user = storage_.Get(kUserPrefix + username);
-  if (!existing_user) return std::nullopt;
-
-  nlohmann::json data;
-  try {
-    data = nlohmann::json::parse(*existing_user);
-  } catch (const nlohmann::json::parse_error &e) {
-    throw AuthException("Couldn't load user data!");
-  }
-
-  auto user = User::Deserialize(data);
-  auto link = storage_.Get(kLinkPrefix + username);
-
+void Auth::LinkUser(User &user) const {
+  auto link = storage_.Get(kLinkPrefix + user.username());
   if (link) {
     auto role = GetRole(*link);
     if (role) {
       user.SetRole(*role);
     }
   }
+}
+
+std::optional<User> Auth::GetUser(const std::string &username_orig) const {
+  if (module_.IsUsed()) return std::nullopt;  // User's are not supported when using module
+  auto username = utils::ToLowerCase(username_orig);
+  auto existing_user = storage_.Get(kUserPrefix + username);
+  if (!existing_user) return std::nullopt;
+
+  auto user = User::Deserialize(ParseJson(*existing_user));
+  LinkUser(user);
   return user;
 }
 
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
+  DisableIfModuleUsed();
   bool success = false;
   if (const auto *role = user.role(); role != nullptr) {
     success = storage_.PutMultiple(
@@ -338,6 +334,10 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   if (!success) {
     throw AuthException("Couldn't save user '{}'!", user.username());
   }
+
+  // Durability updated -> new epoch
+  UpdateEpoch();
+
   // All changes to the user end up calling this function, so no need to add a delta anywhere else
   if (system_tx) {
 #ifdef MG_ENTERPRISE
@@ -347,6 +347,7 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
 }
 
 void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) {
+  DisableIfModuleUsed();
   // Check if null
   if (!password) {
     if (!config_.password_permit_null) {
@@ -378,6 +379,7 @@ void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &pa
 
 std::optional<User> Auth::AddUser(const std::string &username, const std::optional<std::string> &password,
                                   system::Transaction *system_tx) {
+  DisableIfModuleUsed();
   if (!NameRegexMatch(username)) {
     throw AuthException("Invalid user name.");
   }
@@ -392,12 +394,17 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
 }
 
 bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
+  DisableIfModuleUsed();
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
   std::vector<std::string> keys({kLinkPrefix + username, kUserPrefix + username});
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove user '{}'!", username);
   }
+
+  // Durability updated -> new epoch
+  UpdateEpoch();
+
   // Handling drop user delta
   if (system_tx) {
 #ifdef MG_ENTERPRISE
@@ -412,9 +419,12 @@ std::vector<auth::User> Auth::AllUsers() const {
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
-    auto user = GetUser(username);
-    if (user) {
-      ret.push_back(std::move(*user));
+    try {
+      User user = auth::User::Deserialize(ParseJson(it->second));  // Will throw on failure
+      LinkUser(user);
+      ret.emplace_back(std::move(user));
+    } catch (AuthException &) {
+      continue;
     }
   }
   return ret;
@@ -425,9 +435,12 @@ std::vector<std::string> Auth::AllUsernames() const {
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
-    auto user = GetUser(username);
-    if (user) {
-      ret.push_back(username);
+    try {
+      // Check if serialized correctly
+      memgraph::auth::User::Deserialize(ParseJson(it->second));  // Will throw on failure
+      ret.emplace_back(std::move(username));
+    } catch (AuthException &) {
+      continue;
     }
   }
   return ret;
@@ -435,25 +448,24 @@ std::vector<std::string> Auth::AllUsernames() const {
 
 bool Auth::HasUsers() const { return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix); }
 
+bool Auth::AccessControlled() const { return HasUsers() || module_.IsUsed(); }
+
 std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
   auto rolename = utils::ToLowerCase(rolename_orig);
   auto existing_role = storage_.Get(kRolePrefix + rolename);
   if (!existing_role) return std::nullopt;
 
-  nlohmann::json data;
-  try {
-    data = nlohmann::json::parse(*existing_role);
-  } catch (const nlohmann::json::parse_error &e) {
-    throw AuthException("Couldn't load role data!");
-  }
-
-  return Role::Deserialize(data);
+  return Role::Deserialize(ParseJson(*existing_role));
 }
 
 void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
   if (!storage_.Put(kRolePrefix + role.rolename(), role.Serialize().dump())) {
     throw AuthException("Couldn't save role '{}'!", role.rolename());
   }
+
+  // Durability updated -> new epoch
+  UpdateEpoch();
+
   // All changes to the role end up calling this function, so no need to add a delta anywhere else
   if (system_tx) {
 #ifdef MG_ENTERPRISE
@@ -486,6 +498,10 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }
+
+  // Durability updated -> new epoch
+  UpdateEpoch();
+
   // Handling drop role delta
   if (system_tx) {
 #ifdef MG_ENTERPRISE
@@ -500,11 +516,8 @@ std::vector<auth::Role> Auth::AllRoles() const {
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
     if (rolename != utils::ToLowerCase(rolename)) continue;
-    if (auto role = GetRole(rolename)) {
-      ret.push_back(*role);
-    } else {
-      throw AuthException("Couldn't load role '{}'!", rolename);
-    }
+    Role role = memgraph::auth::Role::Deserialize(ParseJson(it->second));  // Will throw on failure
+    ret.emplace_back(std::move(role));
   }
   return ret;
 }
@@ -514,14 +527,19 @@ std::vector<std::string> Auth::AllRolenames() const {
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
     if (rolename != utils::ToLowerCase(rolename)) continue;
-    if (auto role = GetRole(rolename)) {
-      ret.push_back(rolename);
+    try {
+      // Check that the data is serialized correctly
+      memgraph::auth::Role::Deserialize(ParseJson(it->second));
+      ret.emplace_back(std::move(rolename));
+    } catch (AuthException &) {
+      continue;
     }
   }
   return ret;
 }
 
 std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) const {
+  DisableIfModuleUsed();
   const auto rolename = utils::ToLowerCase(rolename_orig);
   std::vector<auth::User> ret;
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
@@ -540,51 +558,176 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
 }
 
 #ifdef MG_ENTERPRISE
-bool Auth::GrantDatabaseToUser(const std::string &db, const std::string &name, system::Transaction *system_tx) {
-  if (auto user = GetUser(name)) {
-    if (db == kAllDatabases) {
-      user->db_access().GrantAll();
-    } else {
-      user->db_access().Add(db);
+Auth::Result Auth::GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+  using enum Auth::Result;
+  if (module_.IsUsed()) {
+    if (auto role = GetRole(name)) {
+      GrantDatabase(db, *role, system_tx);
+      return SUCCESS;
     }
-    SaveUser(*user, system_tx);
-    return true;
+    return NO_ROLE;
   }
-  return false;
+  if (auto user = GetUser(name)) {
+    GrantDatabase(db, *user, system_tx);
+    return SUCCESS;
+  }
+  if (auto role = GetRole(name)) {
+    GrantDatabase(db, *role, system_tx);
+    return SUCCESS;
+  }
+  return NO_USER_ROLE;
 }
 
-bool Auth::RevokeDatabaseFromUser(const std::string &db, const std::string &name, system::Transaction *system_tx) {
-  if (auto user = GetUser(name)) {
-    if (db == kAllDatabases) {
-      user->db_access().DenyAll();
-    } else {
-      user->db_access().Remove(db);
-    }
-    SaveUser(*user, system_tx);
-    return true;
+void Auth::GrantDatabase(const std::string &db, User &user, system::Transaction *system_tx) {
+  if (db == kAllDatabases) {
+    user.db_access().GrantAll();
+  } else {
+    user.db_access().Grant(db);
   }
-  return false;
+  SaveUser(user, system_tx);
+}
+
+void Auth::GrantDatabase(const std::string &db, Role &role, system::Transaction *system_tx) {
+  if (db == kAllDatabases) {
+    role.db_access().GrantAll();
+  } else {
+    role.db_access().Grant(db);
+  }
+  SaveRole(role, system_tx);
+}
+
+Auth::Result Auth::DenyDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+  using enum Auth::Result;
+  if (module_.IsUsed()) {
+    if (auto role = GetRole(name)) {
+      DenyDatabase(db, *role, system_tx);
+      return SUCCESS;
+    }
+    return NO_ROLE;
+  }
+  if (auto user = GetUser(name)) {
+    DenyDatabase(db, *user, system_tx);
+    return SUCCESS;
+  }
+  if (auto role = GetRole(name)) {
+    DenyDatabase(db, *role, system_tx);
+    return SUCCESS;
+  }
+  return NO_USER_ROLE;
+}
+
+void Auth::DenyDatabase(const std::string &db, User &user, system::Transaction *system_tx) {
+  if (db == kAllDatabases) {
+    user.db_access().DenyAll();
+  } else {
+    user.db_access().Deny(db);
+  }
+  SaveUser(user, system_tx);
+}
+
+void Auth::DenyDatabase(const std::string &db, Role &role, system::Transaction *system_tx) {
+  if (db == kAllDatabases) {
+    role.db_access().DenyAll();
+  } else {
+    role.db_access().Deny(db);
+  }
+  SaveRole(role, system_tx);
+}
+
+Auth::Result Auth::RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
+  using enum Auth::Result;
+  if (module_.IsUsed()) {
+    if (auto role = GetRole(name)) {
+      RevokeDatabase(db, *role, system_tx);
+      return SUCCESS;
+    }
+    return NO_ROLE;
+  }
+  if (auto user = GetUser(name)) {
+    RevokeDatabase(db, *user, system_tx);
+    return SUCCESS;
+  }
+  if (auto role = GetRole(name)) {
+    RevokeDatabase(db, *role, system_tx);
+    return SUCCESS;
+  }
+  return NO_USER_ROLE;
+}
+
+void Auth::RevokeDatabase(const std::string &db, User &user, system::Transaction *system_tx) {
+  if (db == kAllDatabases) {
+    user.db_access().RevokeAll();
+  } else {
+    user.db_access().Revoke(db);
+  }
+  SaveUser(user, system_tx);
+}
+
+void Auth::RevokeDatabase(const std::string &db, Role &role, system::Transaction *system_tx) {
+  if (db == kAllDatabases) {
+    role.db_access().RevokeAll();
+  } else {
+    role.db_access().Revoke(db);
+  }
+  SaveRole(role, system_tx);
 }
 
 void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx) {
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
     auto username = it->first.substr(kUserPrefix.size());
-    if (auto user = GetUser(username)) {
-      user->db_access().Delete(db);
-      SaveUser(*user, system_tx);
+    try {
+      User user = auth::User::Deserialize(ParseJson(it->second));
+      LinkUser(user);
+      user.db_access().Revoke(db);
+      SaveUser(user, system_tx);
+    } catch (AuthException &) {
+      continue;
+    }
+  }
+  for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
+    auto rolename = it->first.substr(kRolePrefix.size());
+    try {
+      auto role = memgraph::auth::Role::Deserialize(ParseJson(it->second));
+      role.db_access().Revoke(db);
+      SaveRole(role, system_tx);
+    } catch (AuthException &) {
+      continue;
     }
   }
 }
 
-bool Auth::SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx) {
-  if (auto user = GetUser(name)) {
-    if (!user->db_access().SetDefault(db)) {
-      throw AuthException("Couldn't set default database '{}' for user '{}'!", db, name);
+Auth::Result Auth::SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx) {
+  using enum Auth::Result;
+  if (module_.IsUsed()) {
+    if (auto role = GetRole(name)) {
+      SetMainDatabase(db, *role, system_tx);
+      return SUCCESS;
     }
-    SaveUser(*user, system_tx);
-    return true;
+    return NO_ROLE;
   }
-  return false;
+  if (auto user = GetUser(name)) {
+    SetMainDatabase(db, *user, system_tx);
+    return SUCCESS;
+  }
+  if (auto role = GetRole(name)) {
+    SetMainDatabase(db, *role, system_tx);
+    return SUCCESS;
+  }
+  return NO_USER_ROLE;
+}
+
+void Auth::SetMainDatabase(std::string_view db, User &user, system::Transaction *system_tx) {
+  if (!user.db_access().SetMain(db)) {
+    throw AuthException("Couldn't set default database '{}' for '{}'!", db, user.username());
+  }
+  SaveUser(user, system_tx);
+}
+
+void Auth::SetMainDatabase(std::string_view db, Role &role, system::Transaction *system_tx) {
+  if (!role.db_access().SetMain(db)) {
+    throw AuthException("Couldn't set default database '{}' for '{}'!", db, role.rolename());
+  }
+  SaveRole(role, system_tx);
 }
 #endif
 

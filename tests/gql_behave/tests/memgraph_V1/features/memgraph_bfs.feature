@@ -249,3 +249,15 @@ Feature: Bfs
         Then the result should be:
             | path                                        |
             | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |
+
+    Scenario: Test BFS variable expand with already processed vertex and loop with filter by path
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label1)-[*BFS 1..1 (e, n, p | True)]-() RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | < (:label1 {id: 1})-[:type3 {id: 20}]->(:label5 {id: 5}) > |
+            | < (:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3}) > |
+            | < (:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2}) >  |

@@ -9,14 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "query/query_user.hpp"
 
-namespace memgraph::coordination {
+namespace memgraph::query {
+// The variables below are used to define a user auth policy.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+SessionLongPolicy session_long_policy;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+UpToDatePolicy up_to_date_policy;
 
-#ifdef MG_EXPERIMENTAL_HIGH_AVAILABILITY
-constexpr bool allow_ha = true;
-#else
-constexpr bool allow_ha = false;
-#endif
-
-}  // namespace memgraph::coordination
+}  // namespace memgraph::query

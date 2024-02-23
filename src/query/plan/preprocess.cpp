@@ -313,7 +313,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
           auto *property_lookup = storage.Create<PropertyLookup>(atom->filter_lambda_.inner_edge, prop_pair.first);
           auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
           // Currently, variable expand has no gains if we set PropertyFilter.
-          all_filters_.emplace_back(FilterInfo{FilterInfo::Type::Generic, prop_equal, collector.symbols_});
+          all_filters_.emplace_back(FilterInfo::Type::Generic, prop_equal, collector.symbols_);
         }
         {
           collector.symbols_.clear();
@@ -328,9 +328,9 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
           auto *prop_equal = storage.Create<EqualOperator>(property_lookup, prop_pair.second);
           // Currently, variable expand has no gains if we set PropertyFilter.
           all_filters_.emplace_back(
-              FilterInfo{FilterInfo::Type::Generic,
-                         storage.Create<All>(identifier, atom->identifier_, storage.Create<Where>(prop_equal)),
-                         collector.symbols_});
+              FilterInfo::Type::Generic,
+              storage.Create<All>(identifier, atom->identifier_, storage.Create<Where>(prop_equal)),
+              collector.symbols_);
         }
       }
       return;
@@ -639,6 +639,12 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
   }
 }
 
+PatternFilterVisitor::PatternFilterVisitor(SymbolTable &symbol_table, AstStorage &storage)
+    : symbol_table_(symbol_table), storage_(storage) {}
+PatternFilterVisitor::PatternFilterVisitor(const PatternFilterVisitor &) = default;
+PatternFilterVisitor::PatternFilterVisitor(PatternFilterVisitor &&) noexcept = default;
+PatternFilterVisitor::~PatternFilterVisitor() = default;
+
 void PatternFilterVisitor::Visit(Exists &op) {
   std::vector<Pattern *> patterns;
   patterns.push_back(op.pattern_);
@@ -651,6 +657,8 @@ void PatternFilterVisitor::Visit(Exists &op) {
 
   matchings_.push_back(std::move(filter_matching));
 }
+
+std::vector<FilterMatching> PatternFilterVisitor::getMatchings() { return matchings_; }
 
 static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
                          SymbolTable &symbol_table) {
@@ -722,5 +730,19 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
   }
   return QueryParts{query_parts, distinct};
 }
+
+FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Symbol> used_symbols,
+                       std::optional<PropertyFilter> property_filter, std::optional<IdFilter> id_filter)
+    : type(type),
+      expression(expression),
+      used_symbols(std::move(used_symbols)),
+      property_filter(std::move(property_filter)),
+      id_filter(std::move(id_filter)),
+      matchings({}) {}
+FilterInfo::FilterInfo(const FilterInfo &) = default;
+FilterInfo &FilterInfo::operator=(const FilterInfo &) = default;
+FilterInfo::FilterInfo(FilterInfo &&) noexcept = default;
+FilterInfo &FilterInfo::operator=(FilterInfo &&) noexcept = default;
+FilterInfo::~FilterInfo() = default;
 
 }  // namespace memgraph::query::plan

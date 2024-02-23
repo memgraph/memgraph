@@ -21,9 +21,9 @@ class AuthenticationInterface {
  public:
   virtual bool Authenticate(const std::string &username, const std::string &password) const = 0;
 
-  virtual bool HasUserPermission(const std::string &username, auth::Permission permission) const = 0;
+  virtual bool HasPermission(auth::Permission permission) const = 0;
 
-  virtual bool HasAnyUsers() const = 0;
+  virtual bool AccessControlled() const = 0;
 };
 
 class SafeAuth : public AuthenticationInterface {
@@ -32,11 +32,13 @@ class SafeAuth : public AuthenticationInterface {
 
   bool Authenticate(const std::string &username, const std::string &password) const override;
 
-  bool HasUserPermission(const std::string &username, auth::Permission permission) const override;
+  bool HasPermission(auth::Permission permission) const override;
 
-  bool HasAnyUsers() const override;
+  bool AccessControlled() const override;
 
  private:
   auth::SynchedAuth *auth_;
+  mutable std::optional<auth::UserOrRole> user_or_role_;
+  mutable auth::Auth::Epoch auth_epoch_{};
 };
 }  // namespace memgraph::communication::websocket
