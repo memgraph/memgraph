@@ -32,7 +32,7 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 
 print_help () {
-    echo "$0 init {toolchain _version} {arch} | docker | build {toolchain _version} {os} | package {toolchain _version} {os} {build_type} [--for-docker|--for-platform]"
+    echo "$0 init {toolchain _version} {arch} [--build-only | --no-build] | docker | build {toolchain _version} {os} | package {toolchain _version} {os} {build_type} [--for-docker|--for-platform]"
     echo ""
     echo "    Archs: ${SUPPORTED_ARCHS[*]}"
     echo "    Build types: ${SUPPORTED_BUILD_TYPES[*]}"
@@ -197,7 +197,7 @@ make_package () {
 case "$1" in
     init)
         shift 1
-        if [[ "$#" -lt 1 ]]; then
+        if [[ "$#" -lt 2 ]]; then
             print_help
         fi
         toolchain_version="$1"
@@ -210,7 +210,17 @@ case "$1" in
         else
             docker_compose_cmd="docker-compose"
         fi
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d --build
+        if [[ "$#" -gt 2 ]]; then
+          if [[ "$3" == "--build-only" ]]; then
+            $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build
+          elif [[ "$3" == "--no-build" ]]; then
+            $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d
+          else
+            print_help
+          fi
+        else
+          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d --build
+        fi
     ;;
 
     docker)
