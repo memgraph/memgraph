@@ -585,7 +585,6 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
 @pytest.mark.parametrize("data_recovery", ["false", "true"])
 def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
-    # TODO(antoniofilipovic): Test should pass when base branch is updated
     # Goal of this test is to check that correct replica instance as new MAIN is chosen
     # 1. We start all replicas, main and coordinator manually
     # 2. We check that main has correct state
@@ -686,7 +685,6 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
                 "--log-level=TRACE",
                 "--raft-server-id=1",
                 "--raft-server-port=10111",
-                "--instance-down-timeout-sec=10",
             ],
             "log_file": "coordinator.log",
             "setup_queries": [
@@ -714,6 +712,21 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
     assert actual_data_on_main == expected_data_on_main
 
+    coord_cursor = connect(host="localhost", port=7690).cursor()
+
+    def retrieve_data_show_instances():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    # TODO(antoniofilipovic) Before fixing durability, if this is removed we also have an issue. Check after fix
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("instance_4", "", "127.0.0.1:10014", True, "replica"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
     # 3
 
     execute_and_fetch_all(main_cursor, "CREATE (:Epoch1Vertex {prop:1});")
@@ -736,10 +749,6 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
 
     # 7
-    coord_cursor = connect(host="localhost", port=7690).cursor()
-
-    def retrieve_data_show_instances():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_on_coord = [
         ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
@@ -1394,5 +1403,4 @@ def test_disable_multiple_mains():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-k", "test_replication_works_with_snapshot"]))
     sys.exit(pytest.main([__file__, "-rA"]))

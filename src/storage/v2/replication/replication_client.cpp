@@ -56,6 +56,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   // different epoch id, replica was main
   // In case there is no epoch transfer, and MAIN doesn't hold all the epochs as it could have been down and miss it
   // we need then just to check commit timestamp
+  spdlog::trace("Replicas epoch id {}, replicas timestamp id {}, main epoch id {}, main timestamp {}",
+                std::string(replica.epoch_id), replica.current_commit_timestamp,
+                std::string(replStorageState.epoch_.id()), replStorageState.last_commit_timestamp_);
   if (replica.epoch_id != replStorageState.epoch_.id() && replica.current_commit_timestamp != kTimestampInitialId) {
     auto const &history = replStorageState.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
@@ -63,8 +66,10 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     });
     // main didn't have that epoch, but why is here branching point
     if (epoch_info_iter == history.crend()) {
+      spdlog::info("Couldn't find epoch, setting branching point");
       branching_point = 0;
     } else if (epoch_info_iter->second < replica.current_commit_timestamp) {
+      spdlog::info("Found epoch with commit timestamp {}", epoch_info_iter->second);
       branching_point = epoch_info_iter->second;
     }
   }

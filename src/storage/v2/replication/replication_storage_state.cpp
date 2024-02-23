@@ -110,6 +110,7 @@ void ReplicationStorageState::TrackLatestHistory() {
 }
 
 void ReplicationStorageState::AddEpochToHistoryForce(std::string prev_epoch) {
+  spdlog::trace("ADDING EPOCH TO HISTORY ID FORCEFULLY: {}, timestamp {}", prev_epoch, last_commit_timestamp_);
   history.emplace_back(std::move(prev_epoch), last_commit_timestamp_);
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -118,6 +118,8 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
     if (!item.is_regular_file()) continue;
     try {
       auto info = ReadWalInfo(item.path());
+      spdlog::trace("Getting wal file with following info: uuid: {}, epoch id: {}, from timestamp {}, to_timestamp {} ",
+                    info.uuid, info.epoch_id, info.from_timestamp, info.to_timestamp);
       if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num)) {
         wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, std::move(info.uuid),
                                std::move(info.epoch_id), item.path());
@@ -356,6 +358,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
       spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
       return std::nullopt;
     }
+    // TODO(antoniofilipovic) What is the logic here?
     std::sort(wal_files.begin(), wal_files.end());
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.
@@ -410,22 +413,21 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     std::optional<uint64_t> previous_seq_num;
     auto last_loaded_timestamp = snapshot_timestamp;
     spdlog::info("Trying to load WAL files.");
+
+    // This way we skip WALs finalized only because of role change.
+    // We can also set the last timestamp to 0 if last loaded timestamp
+    // is nullopt as this can only happen if the WAL file with seq = 0
+    // does not contain any deltas and we didn't find any snapshots.
+    if (last_loaded_timestamp) {
+      epoch_history->emplace_back(repl_storage_state.epoch_.id(), *last_loaded_timestamp);
+    }
+
     for (auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
       }
       previous_seq_num = wal_file.seq_num;
 
-      if (wal_file.epoch_id != repl_storage_state.epoch_.id()) {
-        // This way we skip WALs finalized only because of role change.
-        // We can also set the last timestamp to 0 if last loaded timestamp
-        // is nullopt as this can only happen if the WAL file with seq = 0
-        // does not contain any deltas and we didn't find any snapshots.
-        if (last_loaded_timestamp) {
-          epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
-        }
-        repl_storage_state.epoch_.SetEpoch(std::move(wal_file.epoch_id));
-      }
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
                             edge_count, config.salient.items);
@@ -434,12 +436,24 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
 
         recovery_info.last_commit_timestamp = info.last_commit_timestamp;
+
+        if (recovery_info.next_timestamp != 0) {
+          last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
+        }
+
+        auto no_last_element_or_different_epoch =
+            (!epoch_history->empty() && epoch_history->back().first != wal_file.epoch_id) || epoch_history->empty();
+        if (no_last_element_or_different_epoch) {
+          epoch_history->emplace_back(std::string(wal_file.epoch_id), last_loaded_timestamp.value_or(0));
+        }
+        auto last_epoch_bigger_timestamp = !epoch_history->empty() &&
+                                           epoch_history->back().first == wal_file.epoch_id &&
+                                           epoch_history->back().second < last_loaded_timestamp.value_or(0);
+        if (last_epoch_bigger_timestamp) {
+          epoch_history->back().second = last_loaded_timestamp.value_or(0);
+        }
       } catch (const RecoveryFailure &e) {
         LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
-      }
-
-      if (recovery_info.next_timestamp != 0) {
-        last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
       }
     }
     // The sequence number needs to be recovered even though `LoadWal` didn't
@@ -456,7 +470,12 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  spdlog::info("Set epoch id: {}  with commit timestamp {}", std::string(repl_storage_state.epoch_.id()),
+               repl_storage_state.last_commit_timestamp_);
 
+  std::for_each(repl_storage_state.history.begin(), repl_storage_state.history.end(), [](auto &history) {
+    spdlog::info("epoch id: {}  with commit timestamp {}", std::string(history.first), history.second);
+  });
   return recovery_info;
 }
 

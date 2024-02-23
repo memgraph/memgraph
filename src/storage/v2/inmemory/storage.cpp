@@ -110,6 +110,7 @@ InMemoryStorage::InMemoryStorage(Config config)
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_commit_timestamp) {
         repl_storage_state_.last_commit_timestamp_ = *info->last_commit_timestamp;
+        spdlog::info("Recovering last commit timestamp {}", *info->last_commit_timestamp);
       }
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
