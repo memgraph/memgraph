@@ -285,7 +285,7 @@ case $command in
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml down
       else
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml down mgbuild_${toolchain_version}_${os}
+        docker stop mgbuild_${toolchain_version}_${os}
       fi
     ;;
     build-memgraph)
