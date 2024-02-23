@@ -41,6 +41,64 @@ print_help () {
     exit 1
 }
 
+check_support() {
+  local is_supported=false
+  case "$1" in
+    arch)
+      for e in "${SUPPORTED_ARCHS[@]}"; do
+        if [[ "$e" == "$1" ]]; then
+          is_supported=true
+          break
+        fi
+      done
+      if [[ "$is_supported" == false ]]; then
+        echo -e "Architecture $1 isn't supported, choose from  ${SUPPORTED_ARCHS[*]}"
+        exit 1
+      fi
+    ;;
+    build_type)
+      for e in "${SUPPORTED_BUILD_TYPES[@]}"; do
+        if [[ "$e" == "$1" ]]; then
+          is_supported=true
+          break
+        fi
+      done
+      if [[ "$is_supported" == false ]]; then
+        echo -e "Build type $1 isn't supported, choose from  ${SUPPORTED_BUILD_TYPES[*]}"
+        exit 1
+      fi
+    ;;
+    os)
+      for e in "${SUPPORTED_OS[@]}"; do
+        if [[ "$e" == "$1" ]]; then
+          is_supported=true
+          break
+        fi
+      done
+      if [[ "$is_supported" == false ]]; then
+        echo -e "OS $1 isn't supported, choose from  ${SUPPORTED_OS[*]}"
+        exit 1
+      fi
+    ;;
+    toolchain)
+      for e in "${SUPPORTED_TOOLCHAINS[@]}"; do
+        if [[ "$e" == "$1" ]]; then
+          is_supported=true
+          break
+        fi
+      done
+      if [[ "$is_supported" == false ]]; then
+        echo -e "Toolchain version $1 isn't supported, choose from  ${SUPPORTED_TOOLCHAINS[*]}"
+        exit 1
+      fi
+    ;;
+    *)
+      echo -e "This function can only check arch, build_type, os and toolchain version"
+      exit 1
+    ;;
+  esac
+}
+
 make_package () {
     toolchain_version="$1"
     os="$2"
@@ -143,7 +201,9 @@ case "$1" in
             print_help
         fi
         toolchain_version="$1"
+        check toolchain $toolchain_version
         arch="$2"
+        check arch $arch
         cd "$SCRIPT_DIR"
         if ! which "docker-compose" >/dev/null; then
             docker_compose_cmd="docker compose"
@@ -176,33 +236,13 @@ case "$1" in
             print_help
         fi
         toolchain_version="$1"
+        check toolchain $toolchain_version
         os="$2"
+        check os $os
         build_type="$3"
+        check build_type $arch
         shift 2
-        is_os_ok=false
-        for supported_os in "${SUPPORTED_OS[@]}"; do
-            if [[ "$supported_os" == "${os}" ]]; then
-                is_os_ok=true
-                break
-            fi
-        done
-        is_build_type_ok=false
-        for supported_build_type in "${SUPPORTED_BUILD_TYPES[@]}"; do
-            if [[ "$supported_build_type" == "${build_type}" ]]; then
-                is_build_type_ok=true
-                break
-            fi
-        done
-        if [[ "$is_os_ok" == true && "$is_build_type_ok" == true ]]; then
-            make_package "$toolchain_version" "$os" "$build_type" "$@"
-        else
-            if [[ "$is_os_ok" == false ]]; then
-                echo "Unsupported OS: $os"
-            elif [[ "$is_build_type_ok" == false ]]; then
-                echo "Unsupported build type: $build_type"
-            fi
-            print_help
-        fi
+        make_package "$toolchain_version" "$os" "$build_type" "$@"
     ;;
 
     build)
@@ -210,10 +250,10 @@ case "$1" in
       if [[ "$#" -ne 2 ]]; then
           print_help
       fi
-      # in the vX format, e.g. v5
       toolchain_version="$1"
-      # a name of the os folder, e.g. ubuntu-22.04-arm
+      check toolchain $toolchain_version
       os="$2"
+      check os $os
       cd "$SCRIPT_DIR/$os"
       docker build -f Dockerfile --build-arg TOOLCHAIN_VERSION="toolchain-$toolchain_version" -t "memgraph/memgraph-builder:v${toolchain_version}_$os" .
     ;;
