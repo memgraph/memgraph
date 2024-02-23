@@ -34,37 +34,40 @@ SUPPORTED_TESTS=(
     gql-behave cppcheck-and-clang-format leftover-CTest
 )
 DEFAULT_THREADS=$(nproc)
-
+DEFAULT_ENTERPRISE_LICENSE=""
+DEFAULT_ORGANIZATION_NAME="memgraph"
 # TODO(deda): create toolchain + OS combinations
 print_help () {
   echo -e "\nUsage: ./run.sh [OPTIONS] COMMAND"
   echo -e "\nInteract with mgbuild containers"
 
   echo -e "\nCommands:"
-  echo -e "  build                    Build mgbuild image"
-  echo -e "  run                      Run mgbuild container"
-  echo -e "  stop OPTIONS             Stop mgbuild container"
-  echo -e "  build-memgraph OPTIONS   Build memgraph inside mgbuild container"
-  echo -e "  package-memgraph         Build memgraph and create deb package"
-  echo -e "  test-memgraph TEST       Run a specific test on memgraph"
-  echo -e "  copy                     Copy an artifact from mgbuild container"
+  echo -e "  build                         Build mgbuild image"
+  echo -e "  run                           Run mgbuild container"
+  echo -e "  stop OPTIONS                  Stop mgbuild container"
+  echo -e "  build-memgraph OPTIONS        Build memgraph inside mgbuild container"
+  echo -e "  package-memgraph              Build memgraph and create deb package"
+  echo -e "  test-memgraph TEST            Run a specific test on memgraph"
+  echo -e "  copy                          Copy an artifact from mgbuild container"
 
   echo -e "\nGlobal options:"
-  echo -e "  --arch string            Specify target architecture (\"${SUPPORTED_ARCHS[*]}\") (default \"$DEFAULT_ARCH\")"
-  echo -e "  --build-type string      Specify build type (\"${SUPPORTED_BUILD_TYPES[*]}\") (default \"$DEFAULT_BUILD_TYPE\")"
-  echo -e "  --toolchain string       Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
-  echo -e "  --os string              Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
-  echo -e "  --threads int            Specify the number of threads a command will use (default \"\$(nproc)\")"
+  echo -e "  --arch string                 Specify target architecture (\"${SUPPORTED_ARCHS[*]}\") (default \"$DEFAULT_ARCH\")"
+  echo -e "  --enterprise-license string   Specify the enterprise license (default \"\")"
+  echo -e "  --build-type string           Specify build type (\"${SUPPORTED_BUILD_TYPES[*]}\") (default \"$DEFAULT_BUILD_TYPE\")"
+  echo -e "  --organization-name string    Specify the organization name (default \"memgraph\")"
+  echo -e "  --os string                   Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
+  echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\")"
+  echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
 
   echo -e "\nSupported tests:"
   echo -e "  \"${SUPPORTED_TESTS[*]}\""
 
   echo -e "\nbuild-memgraph options:"
-  echo -e "  --for-docker             <ADD INFO>"
-  echo -e "  --for-platform           <ADD INFO>"
+  echo -e "  --for-docker                  <ADD INFO>"
+  echo -e "  --for-platform                <ADD INFO>"
 
   echo -e "\nstop options:"
-  echo -e "  --remove                 Remove the stopped mgbuild container"
+  echo -e "  --remove                      Remove the stopped mgbuild container"
 
   # echo -e "\ncopy options:"
   # echo -e "  --binary                 Copy built memgraph binary"
@@ -240,37 +243,41 @@ copy_memgraph() {
 ##################################################
 test_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
+  local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local BUILD_DIR="/memgraph/build"
+  local ROOT_DIR="/memgraph"
   build_container="mgbuild_${toolchain_version}_${os}"
   echo "Running $1 test on $build_container..."
 
   case "$1" in
     unit)
-      docker exec $build_container bash -c "cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN $$ ctest -R memgraph__unit --output-on-failure -j$threads"
+      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -R memgraph__unit --output-on-failure -j$threads"
+      echo "DEBUG"
     ;;
     leftover-CTest)
-      docker exec $build_container bash -c "cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -E \"(memgraph__unit|memgraph__benchmark)\" --output-on-failure"
+      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -E \"(memgraph__unit|memgraph__benchmark)\" --output-on-failure"
     ;;
     drivers)
-      docker exec $build_container bash -c "cd $ROOT_DIR && ./tests/drivers/run.sh"
+      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR && ./tests/drivers/run.sh"
     ;;
     integration)
-      docker exec $build_container bash -c "cd $ROOT_DIR && tests/integration/run.sh"
+      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR && tests/integration/run.sh"
     ;;
     cppcheck-and-clang-format)
-      docker exec $build_container bash -c "cd $ROOT_DIR/tools/github && $ACTIVATE_TOOLCHAIN && ./cppcheck_and_clang_format diff"
+      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tools/github && $ACTIVATE_TOOLCHAIN && ./cppcheck_and_clang_format diff"
     ;;
     stress-plain)
-      docker exec $build_container bash -c "cd $ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration"
+      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration"
     ;;
     stress-ssl)
-      docker exec $build_container bash -c "cd $ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration --use-ssl"
+      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration --use-ssl"
     ;;
     durability)
-      docker exec $build_container bash -c "cd $ROOT_DIR/tests/stress && source ve3/bin/activate && python3 durability --num-steps 5"
+      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tests/stress && source ve3/bin/activate && python3 durability --num-steps 5"
     ;;
     gql-behave)
-      docker exec $build_container bash -c "cd $ROOT_DIR/tests/gql_behave && $ACTIVATE_TOOLCHAIN && ./continuous_integration"
+      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tests/gql_behave && $ACTIVATE_TOOLCHAIN && ./continuous_integration"
     ;;
     *)
       echo "Error: Unknown test '$1'"
@@ -289,6 +296,8 @@ if [ "$#" -eq 0 ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
 fi
 arch=$DEFAULT_ARCH
 build_type=$DEFAULT_BUILD_TYPE
+enterprise_license=$DEFAULT_ENTERPRISE_LICENSE
+organization_name=$DEFAULT_ORGANIZATION_NAME
 os=$DEFAULT_OS
 threads=$DEFAULT_THREADS
 toolchain_version=$DEFAULT_TOOLCHAIN
@@ -302,6 +311,14 @@ while [[ $# -gt 0 ]]; do
     --build-type)
         build_type=$2
         check_support build_type $build_type
+        shift 2
+    ;;
+    --enterprise-license)
+        enterprise_license=$2
+        shift 2
+    ;;
+    --organization-name)
+        organization_name=$2
         shift 2
     ;;
     --os)
