@@ -5,9 +5,6 @@ script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 MEMGRAPH_BUILD_PATH="$script_dir/../../build"
 MEMGRAPH_BINARY_PATH="$MEMGRAPH_BUILD_PATH/memgraph"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
-# NOTE: On Ubuntu 22.04 v0.3.2 uses non-existing docker compose --compatibility flag.
-# NOTE: On Ubuntu 22.04 v0.3.0 and v0.3.1 seems to be runnable.
-# TODO(gitbuda): Make sure Memgraph can be testes with Jepsen >= 0.3.0
 JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.5}"
 JEPSEN_ACTIVE_NODES_NO=5
 CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
@@ -25,7 +22,7 @@ PRINT_CONTEXT() {
 
 HELP_EXIT() {
     echo ""
-    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-cleanup|cluster-dealloc|mgbuild|test|test-all-individually [args]"
+    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-nodes-cleanup|cluster-dealloc|mgbuild|test|test-all-individually [args]"
     echo ""
     echo "    test args --binary                 MEMGRAPH_BINARY_PATH"
     echo "              --ignore-run-stdout-logs Ignore lein run stdout logs."
@@ -54,14 +51,8 @@ if ! command -v docker > /dev/null 2>&1 || ! command -v docker-compose > /dev/nu
 fi
 
 if [ ! -d "$script_dir/jepsen" ]; then
+    # TODO(deda): install apt get docker-compose-plugin on all build machines.
     git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
-    if [ "$JEPSEN_VERSION" == "v0.3.0" ]; then
-        if [ -f "$script_dir/jepsen_0.3.0.patch" ]; then
-            cd "$script_dir/jepsen"
-            git apply "$script_dir/jepsen_0.3.0.patch"
-            cd "$script_dir"
-        fi
-    fi
 fi
 
 PROCESS_ARGS() {
@@ -200,7 +191,7 @@ CLUSTER_UP() {
 }
 
 CLUSTER_DEALLOC() {
-  ps=$(docker ps --filter name=jepsen* --filter status=running -q)
+  ps=$(docker ps -a --filter name=jepsen* -q)
   if [[ ! -z ${ps} ]]; then
       echo "Killing ${ps}"
       docker rm -f ${ps}
@@ -214,6 +205,7 @@ CLUSTER_DEALLOC() {
   else
       echo "No Jepsen containers detected!"
   fi
+  echo "Cluster dealloc DONE"
 }
 
 # Initialize testing context by copying source/binary files. Inside CI,
@@ -240,7 +232,7 @@ case $1 in
         CLUSTER_DEALLOC
     ;;
 
-    cluster-cleanup)
+    cluster-nodes-cleanup)
         jepsen_control_exec="docker exec jepsen-control bash -c"
         INFO "Deleting /jepsen/memgraph/store/* on jepsen-control"
         $jepsen_control_exec "rm -rf /jepsen/memgraph/store/*"
