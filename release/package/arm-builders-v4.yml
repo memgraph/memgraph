@@ -2,6 +2,7 @@ version: "3"
 
 services:
   mgbuild_v4_debian-11-arm:
+    image: "memgraph/mgbuild_v4_debian-11-arm"
     build:
       context: debian-11-arm
       args:
@@ -9,6 +10,7 @@ services:
     container_name: "mgbuild_v4_debian-11-arm"
 
   mgbuild_v4_ubuntu_v4_22.04-arm:
+    image: "memgraph/mgbuild_v4_ubuntu-22.04-arm"
     build:
       context: ubuntu-22.04-arm
       args:
