@@ -27,6 +27,7 @@ std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "e
 class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
   std::optional<memgraph::system::System> system;
+  std::optional<memgraph::query::AllowEverythingAuthChecker> auth_checker;
   std::optional<memgraph::query::InterpreterContext> interpreter_context;
   std::optional<memgraph::query::Interpreter> interpreter;
   std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
@@ -43,6 +44,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     auto &db_acc = *db_acc_opt;
 
     system.emplace();
+    auth_checker.emplace();
     interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value(), *system
 #ifdef MG_ENTERPRISE
                                 ,
@@ -73,13 +75,15 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     }
 
     interpreter.emplace(&*interpreter_context, std::move(db_acc));
+    interpreter->SetUser(auth_checker->GenQueryUser(std::nullopt, std::nullopt));
   }
 
   void TearDown(const benchmark::State &) override {
     interpreter = std::nullopt;
     interpreter_context = std::nullopt;
-    system.reset();
     db_gk.reset();
+    auth_checker.reset();
+    system.reset();
     std::filesystem::remove_all(data_directory);
   }
 };
