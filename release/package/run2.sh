@@ -298,37 +298,37 @@ test_memgraph() {
 
   case "$1" in
     unit)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -R memgraph__unit --output-on-failure -j$threads"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$threads'
       echo "DEBUG"
     ;;
     leftover-CTest)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -E \"(memgraph__unit|memgraph__benchmark)\" --output-on-failure"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -E \"(memgraph__unit|memgraph__benchmark)\" --output-on-failure'
     ;;
     drivers)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && ./tests/drivers/run.sh"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& ./tests/drivers/run.sh'
     ;;
     integration)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && tests/integration/run.sh"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& tests/integration/run.sh'
     ;;
     cppcheck-and-clang-format)
       local test_output_path="$MGBUILD_ROOT_DIR/tools/github/cppcheck_and_clang_format.txt"
       local test_output_host_dest="$PROJECT_ROOT/tools/github/cppcheck_and_clang_format.txt"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/github && $ACTIVATE_TOOLCHAIN && ./cppcheck_and_clang_format diff"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/github && $ACTIVATE_TOOLCHAIN "'&& ./cppcheck_and_clang_format diff'
       docker cp $build_container:$test_output_path $test_output_host_dest
     ;;
     stress-plain)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& ./continuous_integration'
     ;;
     stress-ssl)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration --use-ssl"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& ./continuous_integration --use-ssl'
     ;;
     durability)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate && python3 durability --num-steps 5"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& python3 durability --num-steps 5'
     ;;
     gql-behave)
       local test_output_dir="$MGBUILD_ROOT_DIR/tests/gql_behave"
       local test_output_host_dest="$PROJECT_ROOT/tests/gql_behave"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && cd $MGBUILD_ROOT_DIR/tests/gql_behave && ./continuous_integration"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && cd $MGBUILD_ROOT_DIR/tests/gql_behave "'&& ./continuous_integration'
       docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status.csv
       docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status.html
     ;;
