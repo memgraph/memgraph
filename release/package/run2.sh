@@ -36,7 +36,9 @@ SUPPORTED_TESTS=(
 DEFAULT_THREADS=$(nproc)
 DEFAULT_ENTERPRISE_LICENSE=""
 DEFAULT_ORGANIZATION_NAME="memgraph"
-# TODO(deda): create toolchain + OS combinations
+# TODO(deda): 
+# * create toolchain + OS combinations
+# * add option for selecting server for push and pull
 print_help () {
   echo -e "\nUsage: ./run.sh [OPTIONS] COMMAND"
   echo -e "\nInteract with mgbuild containers"
@@ -44,8 +46,10 @@ print_help () {
   echo -e "\nCommands:"
   echo -e "  build                         Build mgbuild image"
   echo -e "  run                           Run mgbuild container"
-  echo -e "  stop OPTIONS                  Stop mgbuild container"
-  echo -e "  build-memgraph OPTIONS        Build memgraph inside mgbuild container"
+  echo -e "  stop [OPTIONS]                Stop mgbuild container"
+  echo -e "  pull                          Pull mgbuild image from dockerhub"
+  echo -e "  push OPTIONS                  Push mgbuild image to dockerhub"
+  echo -e "  build-memgraph [OPTIONS]      Build memgraph inside mgbuild container"
   echo -e "  package-memgraph              Build memgraph and create deb package"
   echo -e "  test-memgraph TEST            Run a specific test on memgraph"
   echo -e "  copy                          Copy an artifact from mgbuild container"
@@ -68,6 +72,10 @@ print_help () {
 
   echo -e "\nstop options:"
   echo -e "  --remove                      Remove the stopped mgbuild container"
+
+  echo -e "\npush options:"
+  echo -e "  -p, --password string         Specify password for docker login"
+  echo -e "  -u, --username string         Specify username for docker login"
 
   # echo -e "\ncopy options:"
   # echo -e "  --binary                 Copy built memgraph binary"
@@ -184,8 +192,8 @@ build_memgraph () {
   # wihout reruning the build containers.
   # TODO(gitbuda+deda): Make a decision on this, (deda thinks we should move this to the Dockerfiles to save on time)
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
-  docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
-  docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
+  docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || /memgraph/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
+  docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || /memgraph/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
   echo "Building targeted package..."
   # Fix issue with git marking directory as not safe
@@ -392,6 +400,13 @@ case $command in
           docker rm mgbuild_${toolchain_version}_${os}
         fi
       fi
+    ;;
+    pull)
+      docker pull memgraph/mgbuild_${toolchain_version}_${os}
+    ;;
+    pull)
+      docker login $@
+      docker push memgraph/mgbuild_${toolchain_version}_${os}
     ;;
     build-memgraph)
       build_memgraph $@
