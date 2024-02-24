@@ -148,20 +148,19 @@ check_support() {
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
 build_memgraph () {
-  build_container="mgbuild_${toolchain_version}_${os}"
+  local build_container="mgbuild_${toolchain_version}_${os}"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  echo "Building Memgraph for $os on $build_container..."
-  
+  local container_build_dir="/memgraph/build"
+  local container_output_dir="$container_build_dir/output"
+  local arm_flag=""
   if [[ "$arch" == "arm" ]] || [[ "$os" =~ "-arm" ]]; then
     arm_flag="-DMG_ARCH="ARM64""
-  else
-    arm_flag=""
   fi
-  telemetry_id_override_flag=""
-  community_flag=""
-  init_only=false
-  for_docker=false
-  for_platform=false
+  local telemetry_id_override_flag=""
+  local community_flag=""
+  local init_only=false
+  local for_docker=false
+  local for_platform=false
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -197,6 +196,7 @@ build_memgraph () {
     esac
   done
 
+  echo "Building Memgraph for $os on $build_container..."
   echo "Copying project files..."
   # If master is not the current branch, fetch it, because the get_version
   # script depends on it. If we are on master, the fetch command is going to
@@ -213,9 +213,6 @@ build_memgraph () {
 
   # TODO(gitbuda): Revisit copying the whole repo -> makese sense under CI.
   docker cp "$ROOT_DIR/." "$build_container:/memgraph/"
-
-  container_build_dir="/memgraph/build"
-  container_output_dir="$container_build_dir/output"
 
   # TODO(gitbuda): TOOLCHAIN_RUN_DEPS should be installed during the Docker
   # image build phase, but that is not easy at this point because the
@@ -242,7 +239,7 @@ build_memgraph () {
   docker exec "$build_container" bash -c "cd /memgraph && git remote set-url origin https://github.com/memgraph/memgraph.git"
 
   # Define cmake command
-  cmake_cmd="cmake -DCMAKE_BUILD_TYPE=$build_type $arm_flag $community_flag $telemetry_id_override_flag .."
+  local cmake_cmd="cmake -DCMAKE_BUILD_TYPE=$build_type $arm_flag $community_flag $telemetry_id_override_flag .."
   docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $cmake_cmd"
   
   # ' is used instead of " because we need to run make within the allowed
@@ -254,8 +251,9 @@ build_memgraph () {
 
 package_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  container_output_dir="/memgraph/build/output"
-  package_command=""
+  local build_container="mgbuild_${toolchain_version}_${os}"
+  local container_output_dir="/memgraph/build/output"
+  local package_command=""
   if [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"fedora".* ]] || [[ "$os" =~ ^"amzn".* ]]; then
       docker exec "$build_container" bash -c "yum -y update"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
@@ -272,13 +270,14 @@ package_memgraph() {
 }
 
 copy_memgraph() {
-  container_output_dir="/memgraph/build/output"
+  local container_output_dir="/memgraph/build/output"
+  local build_container="mgbuild_${toolchain_version}_${os}"
   echo "Copying targeted package to host..."
-  last_package_name=$(docker exec "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
+  local last_package_name=$(docker exec "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
   # The operating system folder is introduced because multiple different
   # packages could be preserved during the same build "session".
   mkdir -p "$HOST_OUTPUT_DIR/$os"
-  package_host_destination="$HOST_OUTPUT_DIR/$os/$last_package_name"
+  local package_host_destination="$HOST_OUTPUT_DIR/$os/$last_package_name"
   docker cp "$build_container:$container_output_dir/$last_package_name" "$package_host_destination"
   echo "Package saved to $package_host_destination."
 }
@@ -294,7 +293,7 @@ test_memgraph() {
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local BUILD_DIR="/memgraph/build"
   local ROOT_DIR="/memgraph"
-  build_container="mgbuild_${toolchain_version}_${os}"
+  local build_container="mgbuild_${toolchain_version}_${os}"
   echo "Running $1 test on $build_container..."
 
   case "$1" in
