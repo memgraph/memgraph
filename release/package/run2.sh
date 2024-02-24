@@ -67,7 +67,6 @@ print_help () {
   echo -e "  \"${SUPPORTED_TESTS[*]}\""
 
   echo -e "\nbuild-memgraph options:"
-  echo -e "  --no-init                     Skip running init script before build"
   echo -e "  --init-only                   Only run init script"
   echo -e "  --for-docker                  <ADD INFO>"
   echo -e "  --for-platform                <ADD INFO>"
@@ -153,26 +152,13 @@ build_memgraph () {
   echo "Building Memgraph for $os on $build_container..."
 
   telemetry_id_override_flag=""
-  init=true
   init_only=false
   for_docker=false
   for_platform=false
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
-      --no-init)
-        init=false
-        if [[ "$init_only" == "true" ]]; then
-          echo "Error: Cannot combine --no-init and --init-only flags"
-          exit 1
-        fi
-        shift 1
-      ;;
       --init-only)
         init_only=true
-        if [[ "$init" == "false" ]]; then
-          echo "Error: Cannot combine --no-init and --init-only flags"
-          exit 1
-        fi
         shift 1
       ;;
       --for-docker)
@@ -235,9 +221,7 @@ build_memgraph () {
   echo "Building targeted package..."
   # Fix issue with git marking directory as not safe
   docker exec "$build_container" bash -c "cd /memgraph && git config --global --add safe.directory '*'"
-  if [[ "$init" == "true" ]]; then
-    docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init --ci"
-  fi
+  docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init --ci"
   if [[ "$init_only" == "true" ]]; then
     return
   fi
