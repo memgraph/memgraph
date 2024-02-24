@@ -54,6 +54,10 @@ class EdgeAccessor final {
     return impl_.GetProperty(key, view);
   }
 
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
+    return impl_.GetPropertySize(key, view);
+  }
+
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
@@ -127,6 +131,10 @@ class VertexAccessor final {
 
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
     return impl_.GetProperty(key, view);
+  }
+
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
+    return impl_.GetPropertySize(key, view);
   }
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
@@ -266,6 +274,10 @@ class SubgraphVertexAccessor final {
 
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
     return impl_.GetProperty(view, key);
+  }
+
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
+    return impl_.GetPropertySize(key, view);
   }
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
@@ -529,6 +541,10 @@ class DbAccessor final {
 
   storage::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }
 
+  std::optional<storage::PropertyId> NameToPropertyIfExists(std::string_view name) const {
+    return accessor_->NameToPropertyIfExists(name);
+  }
+
   storage::LabelId NameToLabel(const std::string_view name) { return accessor_->NameToLabel(name); }
 
   storage::EdgeTypeId NameToEdgeType(const std::string_view name) { return accessor_->NameToEdgeType(name); }
@@ -560,9 +576,7 @@ class DbAccessor final {
 
   void TextIndexAddVertex(const VertexAccessor &vertex) { accessor_->TextIndexAddVertex(vertex.impl_); }
 
-  void TextIndexUpdateVertex(const VertexAccessor &vertex) { accessor_->TextIndexUpdateVertex(vertex.impl_); }
-
-  void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<storage::LabelId> &removed_labels) {
+  void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<storage::LabelId> &removed_labels = {}) {
     accessor_->TextIndexUpdateVertex(vertex.impl_, removed_labels);
   }
 

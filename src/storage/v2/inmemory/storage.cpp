@@ -2099,7 +2099,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
-                                                const std::string &text_index_name, LabelId label,
+                                                const std::optional<std::string> text_index_name, LabelId label,
                                                 const std::set<PropertyId> &properties, LabelIndexStats stats,
                                                 LabelPropertyIndexStats property_stats,
                                                 uint64_t final_commit_timestamp) {
@@ -2112,12 +2112,13 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 const std::set<PropertyId> &properties,
                                                 LabelPropertyIndexStats property_stats,
                                                 uint64_t final_commit_timestamp) {
-  return AppendToWalDataDefinition(operation, "", label, properties, {}, property_stats, final_commit_timestamp);
+  return AppendToWalDataDefinition(operation, std::nullopt, label, properties, {}, property_stats,
+                                   final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                                 LabelIndexStats stats, uint64_t final_commit_timestamp) {
-  return AppendToWalDataDefinition(operation, "", label, {}, stats, {}, final_commit_timestamp);
+  return AppendToWalDataDefinition(operation, std::nullopt, label, {}, stats, {}, final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -2132,9 +2133,9 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
-                                                const std::string &index_name, LabelId label,
+                                                const std::optional<std::string> text_index_name, LabelId label,
                                                 uint64_t final_commit_timestamp) {
-  return AppendToWalDataDefinition(operation, index_name, label, {}, {}, {}, final_commit_timestamp);
+  return AppendToWalDataDefinition(operation, text_index_name, label, {}, {}, {}, final_commit_timestamp);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(

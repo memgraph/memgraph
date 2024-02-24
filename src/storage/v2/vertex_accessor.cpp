@@ -15,8 +15,6 @@
 #include <tuple>
 #include <utility>
 
-#include <fmt/format.h>
-
 #include "query/exceptions.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -28,7 +26,6 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
-#include "text_search.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -442,6 +439,26 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(value);
 }
+
+Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view) const {
+  {
+    auto guard = std::shared_lock{vertex_->lock};
+    Delta *delta = vertex_->delta;
+    if (!delta) {
+      return vertex_->properties.PropertySize(property);
+    }
+  }
+
+  auto property_result = this->GetProperty(property, view);
+  if (property_result.HasError()) {
+    return property_result.GetError();
+  }
+
+  auto property_store = storage::PropertyStore();
+  property_store.SetProperty(property, *property_result);
+
+  return property_store.PropertySize(property);
+};
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view) const {
   bool exists = true;

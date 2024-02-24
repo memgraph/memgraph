@@ -31,6 +31,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/procedure/cypher_types.hpp"
+#include "query/procedure/fmt.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
 #include "storage/v2/property_value.hpp"
@@ -3359,24 +3360,23 @@ mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int
 }
 
 mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memory *memory) {
-  auto maybe_vertex = std::visit([graph, id](auto *impl) { return impl->FindVertex(id, graph->view); }, graph->impl);
-  if (maybe_vertex) {
-    return std::visit(memgraph::utils::Overloaded{
-                          [memory, graph, maybe_vertex](memgraph::query::DbAccessor *) {
-                            return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
-                          },
-                          [memory, graph, maybe_vertex](memgraph::query::SubgraphDbAccessor *impl) {
-                            return NewRawMgpObject<mgp_vertex>(
-                                memory, memgraph::query::SubgraphVertexAccessor(*maybe_vertex, impl->getGraph()),
-                                graph);
-                          }},
-                      graph->impl);
-  }
-  return nullptr;
+  auto get_vertex_by_gid = memgraph::utils::Overloaded{
+      [graph, id, memory](memgraph::query::DbAccessor *impl) -> mgp_vertex * {
+        auto maybe_vertex = impl->FindVertex(id, graph->view);
+        if (!maybe_vertex) return nullptr;
+        return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
+      },
+      [graph, id, memory](memgraph::query::SubgraphDbAccessor *impl) -> mgp_vertex * {
+        auto maybe_vertex = impl->FindVertex(id, graph->view);
+        if (!maybe_vertex) return nullptr;
+        return NewRawMgpObject<mgp_vertex>(
+            memory, memgraph::query::SubgraphVertexAccessor(*maybe_vertex, impl->getGraph()), graph);
+      }};
+  return std::visit(get_vertex_by_gid, graph->impl);
 }
 
-void WrapTextSearch(std::vector<memgraph::storage::Gid> vertex_ids, std::string error_msg, mgp_graph *graph,
-                    mgp_memory *memory, mgp_map **result) {
+void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
+                    const std::vector<memgraph::storage::Gid> &vertex_ids = {}, const std::string &error_msg = "") {
   if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving text search results failed during creation of a mgp_map");
   }
@@ -3429,7 +3429,7 @@ mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, 
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
-    WrapTextSearch(search_results, error_msg, graph, memory, result);
+    WrapTextSearch(graph, memory, result, search_results, error_msg);
   });
 }
 

@@ -123,6 +123,10 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(c
 void TextIndex::LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::json &properties,
                                       const std::string &all_property_values_string,
                                       const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
+  if (applicable_text_indices.empty()) {
+    return;
+  }
+
   // NOTE: Text indexes are presently all-property indices. If we allow text indexes restricted to specific properties,
   // an indexable document should be created for each applicable index.
   nlohmann::json document = {};
@@ -158,24 +162,14 @@ void TextIndex::CommitLoadedNodes(mgcxx::text_search::Context &index_context) {
 }
 
 void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
-                        const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
+                        std::optional<std::vector<mgcxx::text_search::Context *>> applicable_text_indices) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
   auto vertex_properties = vertex_after_update->properties.Properties();
   LoadNodeToTextIndices(vertex_after_update->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                        CopyPropertyValuesToString(vertex_properties), applicable_text_indices);
-}
-
-void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
-  auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update->labels);
-  if (applicable_text_indices.empty()) return;
-  AddNode(vertex_after_update, name_id_mapper, applicable_text_indices);
+                        applicable_text_indices.value_or(GetApplicableTextIndices(vertex_after_update->labels)));
 }
 
 void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
@@ -196,7 +190,7 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_ma
 }
 
 void TextIndex::RemoveNode(Vertex *vertex_after_update,
-                           const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
+                           std::optional<std::vector<mgcxx::text_search::Context *>> applicable_text_indices) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -204,7 +198,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update,
   auto search_node_to_be_deleted =
       mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
 
-  for (auto *index_context : applicable_text_indices) {
+  for (auto *index_context : applicable_text_indices.value_or(GetApplicableTextIndices(vertex_after_update->labels))) {
     try {
       mgcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, kDoSkipCommit);
     } catch (const std::exception &e) {
@@ -213,17 +207,11 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update,
   }
 }
 
-void TextIndex::RemoveNode(Vertex *vertex_after_update) {
+void TextIndex::CreateIndex(const std::string &index_name, LabelId label, memgraph::query::DbAccessor *db) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
-  auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update->labels);
-  if (applicable_text_indices.empty()) return;
-  RemoveNode(vertex_after_update, applicable_text_indices);
-}
-
-void TextIndex::CreateIndex(const std::string &index_name, LabelId label, memgraph::query::DbAccessor *db) {
   CreateEmptyIndex(index_name, label);
 
   for (const auto &v : db->Vertices(View::NEW)) {
@@ -241,6 +229,10 @@ void TextIndex::CreateIndex(const std::string &index_name, LabelId label, memgra
 
 void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
                              memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    throw query::TextSearchDisabledException();
+  }
+
   CreateEmptyIndex(index_name, label);
 
   for (const auto &v : vertices) {
@@ -248,7 +240,6 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
       continue;
     }
 
-    nlohmann::json document = {};
     auto vertex_properties = v.properties.Properties();
     LoadNodeToTextIndices(v.gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                           CopyPropertyValuesToString(vertex_properties), {&index_.at(index_name).context_});
@@ -364,12 +355,20 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
 }
 
 void TextIndex::Commit() {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    throw query::TextSearchDisabledException();
+  }
+
   for (auto &[_, index_data] : index_) {
     mgcxx::text_search::commit(index_data.context_);
   }
 }
 
 void TextIndex::Rollback() {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    throw query::TextSearchDisabledException();
+  }
+
   for (auto &[_, index_data] : index_) {
     mgcxx::text_search::rollback(index_data.context_);
   }
@@ -383,7 +382,5 @@ std::vector<std::pair<std::string, LabelId>> TextIndex::ListIndices() const {
   }
   return ret;
 }
-
-std::uint64_t TextIndex::ApproximateVertexCount(const std::string &index_name) const { return 10; }
 
 }  // namespace memgraph::storage

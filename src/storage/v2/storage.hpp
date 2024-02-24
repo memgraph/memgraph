@@ -236,11 +236,7 @@ class Storage {
       storage_->indices_.text_index_.AddNode(vertex.vertex_, storage_->name_id_mapper_.get());
     }
 
-    void TextIndexUpdateVertex(const VertexAccessor &vertex) {
-      storage_->indices_.text_index_.UpdateNode(vertex.vertex_, storage_->name_id_mapper_.get());
-    }
-
-    void TextIndexUpdateVertex(const VertexAccessor &vertex, std::vector<LabelId> removed_labels) {
+    void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<LabelId> &removed_labels = {}) {
       storage_->indices_.text_index_.UpdateNode(vertex.vertex_, storage_->name_id_mapper_.get(), removed_labels);
     }
 
@@ -274,6 +270,10 @@ class Storage {
     LabelId NameToLabel(std::string_view name) { return storage_->NameToLabel(name); }
 
     PropertyId NameToProperty(std::string_view name) { return storage_->NameToProperty(name); }
+
+    std::optional<PropertyId> NameToPropertyIfExists(std::string_view name) const {
+      return storage_->NameToPropertyIfExists(name);
+    }
 
     EdgeTypeId NameToEdgeType(std::string_view name) { return storage_->NameToEdgeType(name); }
 
@@ -345,6 +345,14 @@ class Storage {
 
   PropertyId NameToProperty(const std::string_view name) const {
     return PropertyId::FromUint(name_id_mapper_->NameToId(name));
+  }
+
+  std::optional<PropertyId> NameToPropertyIfExists(std::string_view name) const {
+    const auto id = name_id_mapper_->NameToIdIfExists(name);
+    if (!id) {
+      return std::nullopt;
+    }
+    return PropertyId::FromUint(*id);
   }
 
   EdgeTypeId NameToEdgeType(const std::string_view name) const {

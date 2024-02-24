@@ -11,7 +11,6 @@ target_sources(mg-coordination
         include/coordination/coordinator_slk.hpp
         include/coordination/coordinator_instance.hpp
         include/coordination/coordinator_handlers.hpp
-        include/coordination/constants.hpp
         include/coordination/instance_status.hpp
         include/coordination/replication_instance.hpp
         include/coordination/raft_state.hpp

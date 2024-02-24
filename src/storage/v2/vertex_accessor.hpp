@@ -80,6 +80,9 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
+  /// Returns the size of the encoded vertex property in bytes.
+  Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
+
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 

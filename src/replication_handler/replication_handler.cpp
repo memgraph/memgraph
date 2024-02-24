@@ -103,7 +103,8 @@ void RecoverReplication(memgraph::replication::ReplicationState &repl_state,
 
 inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
     utils::BasicResult<replication::RegisterReplicaError, replication::ReplicationClient *> &instance_client) {
-  if (instance_client.HasError()) switch (instance_client.GetError()) {
+  if (instance_client.HasError()) {
+    switch (instance_client.GetError()) {
       case replication::RegisterReplicaError::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");
         return {};
@@ -116,6 +117,7 @@ inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
       case replication::RegisterReplicaError::SUCCESS:
         break;
     }
+  }
   return {};
 }
 
@@ -192,12 +194,12 @@ bool ReplicationHandler::SetReplicationRoleMain() {
 
 bool ReplicationHandler::SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
                                                    const std::optional<utils::UUID> &main_uuid) {
-  return SetReplicationRoleReplica_<false>(config, main_uuid);
+  return SetReplicationRoleReplica_<true>(config, main_uuid);
 }
 
 bool ReplicationHandler::TrySetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
                                                       const std::optional<utils::UUID> &main_uuid) {
-  return SetReplicationRoleReplica_<true>(config, main_uuid);
+  return SetReplicationRoleReplica_<false>(config, main_uuid);
 }
 
 bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) {
@@ -226,16 +228,14 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
 };
 
 // as MAIN, define and connect to REPLICAs
-auto ReplicationHandler::TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config,
-                                            bool send_swap_uuid)
+auto ReplicationHandler::TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
     -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
-  return RegisterReplica_<true>(config, send_swap_uuid);
+  return RegisterReplica_<true>(config);
 }
 
-auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config,
-                                         bool send_swap_uuid)
+auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
     -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
-  return RegisterReplica_<false>(config, send_swap_uuid);
+  return RegisterReplica_<false>(config);
 }
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> memgraph::query::UnregisterReplicaResult {

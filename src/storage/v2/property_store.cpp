@@ -93,6 +93,19 @@ enum class Size : uint8_t {
   INT64 = 0x03,
 };
 
+uint64_t SizeToByteSize(Size size) {
+  switch (size) {
+    case Size::INT8:
+      return 1;
+    case Size::INT16:
+      return 2;
+    case Size::INT32:
+      return 4;
+    case Size::INT64:
+      return 8;
+  }
+}
+
 // All of these values must have the lowest 4 bits set to zero because they are
 // used to store two `Size` values as described in the comment above.
 enum class Type : uint8_t {
@@ -486,6 +499,27 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader) {
   return TemporalData{static_cast<TemporalType>(*type_value), *microseconds_value};
 }
 
+std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
+  uint64_t temporal_data_size = 0;
+
+  auto metadata = reader.ReadMetadata();
+  if (!metadata || metadata->type != Type::TEMPORAL_DATA) return std::nullopt;
+
+  temporal_data_size += 1;
+
+  auto type_value = reader.ReadUint(metadata->id_size);
+  if (!type_value) return std::nullopt;
+
+  temporal_data_size += SizeToByteSize(metadata->id_size);
+
+  auto microseconds_value = reader.ReadInt(metadata->payload_size);
+  if (!microseconds_value) return std::nullopt;
+
+  temporal_data_size += SizeToByteSize(metadata->payload_size);
+
+  return temporal_data_size;
+}
+
 }  // namespace
 
 // Function used to decode a PropertyValue from a byte stream.
@@ -567,6 +601,92 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader) {
       if (!maybe_temporal_data) return false;
       value = PropertyValue(*maybe_temporal_data);
 
+      return true;
+    }
+  }
+}
+
+[[nodiscard]] bool DecodePropertyValueSize(Reader *reader, Type type, Size payload_size, uint64_t &property_size) {
+  switch (type) {
+    case Type::EMPTY: {
+      return false;
+    }
+    case Type::NONE:
+    case Type::BOOL: {
+      return true;
+    }
+    case Type::INT: {
+      reader->ReadInt(payload_size);
+      property_size += SizeToByteSize(payload_size);
+      return true;
+    }
+    case Type::DOUBLE: {
+      reader->ReadDouble(payload_size);
+      property_size += SizeToByteSize(payload_size);
+      return true;
+    }
+    case Type::STRING: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+      property_size += SizeToByteSize(payload_size);
+
+      std::string str_v(*size, '\0');
+      if (!reader->SkipBytes(*size)) return false;
+      property_size += *size;
+
+      return true;
+    }
+    case Type::LIST: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+
+      uint64_t list_property_size = SizeToByteSize(payload_size);
+
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return false;
+
+        list_property_size += 1;
+        if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, list_property_size)) return false;
+      }
+
+      property_size += list_property_size;
+      return true;
+    }
+    case Type::MAP: {
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+
+      uint64_t map_property_size = SizeToByteSize(payload_size);
+
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return false;
+
+        map_property_size += 1;
+
+        auto key_size = reader->ReadUint(metadata->id_size);
+        if (!key_size) return false;
+
+        map_property_size += SizeToByteSize(metadata->id_size);
+
+        std::string key(*key_size, '\0');
+        if (!reader->ReadBytes(key.data(), *key_size)) return false;
+
+        map_property_size += *key_size;
+
+        if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, map_property_size)) return false;
+      }
+
+      property_size += map_property_size;
+      return true;
+    }
+
+    case Type::TEMPORAL_DATA: {
+      const auto maybe_temporal_data_size = DecodeTemporalDataSize(*reader);
+      if (!maybe_temporal_data_size) return false;
+
+      property_size += *maybe_temporal_data_size;
       return true;
     }
   }
@@ -788,6 +908,27 @@ enum class ExpectedPropertyStatus {
                                                      : ExpectedPropertyStatus::GREATER;
 }
 
+[[nodiscard]] ExpectedPropertyStatus DecodeExpectedPropertySize(Reader *reader, PropertyId expected_property,
+                                                                uint64_t &size) {
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return ExpectedPropertyStatus::MISSING_DATA;
+
+  auto property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return ExpectedPropertyStatus::MISSING_DATA;
+
+  if (*property_id == expected_property.AsUint()) {
+    // Add one byte for reading metadata + add the number of bytes for the property key
+    size += (1 + SizeToByteSize(metadata->id_size));
+    if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, size))
+      return ExpectedPropertyStatus::MISSING_DATA;
+    return ExpectedPropertyStatus::EQUAL;
+  }
+  // Don't load the value if this isn't the expected property.
+  if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return ExpectedPropertyStatus::MISSING_DATA;
+  return (*property_id < expected_property.AsUint()) ? ExpectedPropertyStatus::SMALLER
+                                                     : ExpectedPropertyStatus::GREATER;
+}
+
 // Function used to check a property exists (PropertyId) from a byte stream.
 // It will skip the encoded PropertyValue.
 //
@@ -873,6 +1014,13 @@ enum class ExpectedPropertyStatus {
       return ret;
     }
   }
+}
+
+[[nodiscard]] ExpectedPropertyStatus FindSpecificPropertySize(Reader *reader, PropertyId property, uint64_t &size) {
+  ExpectedPropertyStatus ret = ExpectedPropertyStatus::SMALLER;
+  while ((ret = DecodeExpectedPropertySize(reader, property, size)) == ExpectedPropertyStatus::SMALLER) {
+  }
+  return ret;
 }
 
 // Function used to find if property is set. It relies on the fact that the properties
@@ -983,6 +1131,31 @@ std::pair<uint64_t, uint8_t *> GetSizeData(const uint8_t *buffer) {
   return {size, data};
 }
 
+struct BufferInfo {
+  uint64_t size;
+  uint8_t *data{nullptr};
+  bool in_local_buffer;
+};
+
+template <size_t N>
+BufferInfo GetBufferInfo(const uint8_t (&buffer)[N]) {
+  uint64_t size = 0;
+  const uint8_t *data = nullptr;
+  bool in_local_buffer = false;
+  std::tie(size, data) = GetSizeData(buffer);
+  if (size % 8 != 0) {
+    // We are storing the data in the local buffer.
+    size = sizeof(buffer) - 1;
+    data = &buffer[1];
+    in_local_buffer = true;
+  }
+
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  auto *non_const_data = const_cast<uint8_t *>(data);
+
+  return {size, non_const_data, in_local_buffer};
+}
+
 void SetSizeData(uint8_t *buffer, uint64_t size, uint8_t *data) {
   memcpy(buffer, &size, sizeof(uint64_t));
   memcpy(buffer + sizeof(uint64_t), &data, sizeof(uint8_t *));
@@ -1023,30 +1196,27 @@ PropertyStore::~PropertyStore() {
 }
 
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
-  uint64_t size;
-  const uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+  Reader reader(buffer_info.data, buffer_info.size);
+
   PropertyValue value;
   if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return {};
   return value;
 }
 
+uint64_t PropertyStore::PropertySize(PropertyId property) const {
+  auto data_size_localbuffer = GetBufferInfo(buffer_);
+  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
+
+  uint64_t property_size = 0;
+  if (FindSpecificPropertySize(&reader, property, property_size) != ExpectedPropertyStatus::EQUAL) return 0;
+  return property_size;
+}
+
 bool PropertyStore::HasProperty(PropertyId property) const {
-  uint64_t size;
-  const uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+  Reader reader(buffer_info.data, buffer_info.size);
+
   return ExistsSpecificProperty(&reader, property) == ExpectedPropertyStatus::EQUAL;
 }
 
@@ -1081,32 +1251,20 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
 }
 
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
-  uint64_t size;
-  const uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+  Reader reader(buffer_info.data, buffer_info.size);
+
   auto info = FindSpecificPropertyAndBufferInfo(&reader, property);
   if (info.property_size == 0) return value.IsNull();
-  Reader prop_reader(data + info.property_begin, info.property_size);
+  Reader prop_reader(buffer_info.data + info.property_begin, info.property_size);
   if (!CompareExpectedProperty(&prop_reader, property, value)) return false;
   return prop_reader.GetPosition() == info.property_size;
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
-  uint64_t size;
-  const uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  Reader reader(data, size);
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+  Reader reader(buffer_info.data, buffer_info.size);
+
   std::map<PropertyId, PropertyValue> props;
   while (true) {
     PropertyValue value;
@@ -1340,33 +1498,20 @@ bool PropertyStore::InitProperties(std::vector<std::pair<storage::PropertyId, st
 }
 
 bool PropertyStore::ClearProperties() {
-  bool in_local_buffer = false;
-  uint64_t size;
-  uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-    in_local_buffer = true;
-  }
-  if (!size) return false;
-  if (!in_local_buffer) delete[] data;
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+
+  if (!buffer_info.size) return false;
+  if (!buffer_info.in_local_buffer) delete[] buffer_info.data;
   SetSizeData(buffer_, 0, nullptr);
   return true;
 }
 
 std::string PropertyStore::StringBuffer() const {
-  uint64_t size = 0;
-  const uint8_t *data = nullptr;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {  // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  }
-  std::string arr(size, ' ');
-  for (uint i = 0; i < size; ++i) {
-    arr[i] = static_cast<char>(data[i]);
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+
+  std::string arr(buffer_info.size, ' ');
+  for (uint i = 0; i < buffer_info.size; ++i) {
+    arr[i] = static_cast<char>(buffer_info.data[i]);
   }
   return arr;
 }

@@ -1554,15 +1554,15 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
     // for the given (edge, vertex) pair checks if they satisfy the
     // "where" condition. if so, places them in the to_visit_ structure.
-    auto expand_pair = [this, &evaluator, &frame, &context](EdgeAccessor edge, VertexAccessor vertex) {
+    auto expand_pair = [this, &evaluator, &frame, &context](EdgeAccessor edge, VertexAccessor vertex) -> bool {
       // if we already processed the given vertex it doesn't get expanded
-      if (processed_.find(vertex) != processed_.end()) return;
+      if (processed_.find(vertex) != processed_.end()) return false;
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(vertex, storage::View::OLD,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-        return;
+        return false;
       }
 #endif
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;
@@ -1581,9 +1581,9 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
         switch (result.type()) {
           case TypedValue::Type::Null:
-            return;
+            return true;
           case TypedValue::Type::Bool:
-            if (!result.ValueBool()) return;
+            if (!result.ValueBool()) return true;
             break;
           default:
             throw QueryRuntimeException("Expansion condition must evaluate to boolean or null.");
@@ -1591,10 +1591,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       }
       to_visit_next_.emplace_back(edge, vertex, std::move(curr_acc_path));
       processed_.emplace(vertex, edge);
+      return true;
     };
 
-    auto restore_frame_state_after_expansion = [this, &frame]() {
-      if (self_.filter_lambda_.accumulated_path_symbol) {
+    auto restore_frame_state_after_expansion = [this, &frame](bool was_expanded) {
+      if (was_expanded && self_.filter_lambda_.accumulated_path_symbol) {
         frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath().Shrink();
       }
     };
@@ -1606,15 +1607,15 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
-          expand_pair(edge, edge.To());
-          restore_frame_state_after_expansion();
+          bool was_expanded = expand_pair(edge, edge.To());
+          restore_frame_state_after_expansion(was_expanded);
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) {
-          expand_pair(edge, edge.From());
-          restore_frame_state_after_expansion();
+          bool was_expanded = expand_pair(edge, edge.From());
+          restore_frame_state_after_expansion(was_expanded);
         }
       }
     };
@@ -1805,18 +1806,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_pair = [this, &evaluator, &frame, &create_state, &context](
-                           const EdgeAccessor &edge, const VertexAccessor &vertex, const TypedValue &total_weight,
-                           int64_t depth) {
-#ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !(context.auth_checker->Has(vertex, storage::View::OLD,
-                                      memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-            context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-        return;
-      }
-#endif
-
+    auto expand_pair = [this, &evaluator, &frame, &create_state](const EdgeAccessor &edge, const VertexAccessor &vertex,
+                                                                 const TypedValue &total_weight, int64_t depth) {
       frame[self_.weight_lambda_->inner_edge_symbol] = edge;
       frame[self_.weight_lambda_->inner_node_symbol] = vertex;
       TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
@@ -1859,11 +1850,19 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // Populates the priority queue structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &expand_pair, &restore_frame_state_after_expansion](
+    auto expand_from_vertex = [this, &context, &expand_pair, &restore_frame_state_after_expansion](
                                   const VertexAccessor &vertex, const TypedValue &weight, int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : out_edges) {
+#ifdef MG_ENTERPRISE
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+              !(context.auth_checker->Has(edge.To(), storage::View::OLD,
+                                          memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            continue;
+          }
+#endif
           expand_pair(edge, edge.To(), weight, depth);
           restore_frame_state_after_expansion();
         }
@@ -1871,6 +1870,14 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
         for (const auto &edge : in_edges) {
+#ifdef MG_ENTERPRISE
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+              !(context.auth_checker->Has(edge.From(), storage::View::OLD,
+                                          memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            continue;
+          }
+#endif
           expand_pair(edge, edge.From(), weight, depth);
           restore_frame_state_after_expansion();
         }
