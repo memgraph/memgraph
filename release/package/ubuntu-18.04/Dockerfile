@@ -15,4 +15,11 @@ RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOL
     && tar xzvf toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-18.04-amd64.tar.gz -C /opt \
     && rm toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-18.04-amd64.tar.gz
 
+# Install toolchain run deps and memgraph build deps
+SHELL ["/bin/bash", "-c"]
+RUN git clone https://github.com/memgraph/memgraph.git \
+    && cd memgraph \
+    && ./environment/os/ubuntu-18.04.sh install TOOLCHAIN_RUN_DEPS \
+    && ./environment/os/ubuntu-18.04.sh install MEMGRAPH_BUILD_DEPS \
+
 ENTRYPOINT ["sleep", "infinity"]
