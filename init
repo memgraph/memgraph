@@ -50,6 +50,7 @@ else
           --ci)
               shift
               ci=true
+          ;;
           *)
               # unknown option
               echo "Invalid argument provided: $1"
