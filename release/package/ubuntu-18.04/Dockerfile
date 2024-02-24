@@ -23,4 +23,8 @@ RUN git clone https://github.com/memgraph/memgraph.git \
     && ./environment/os/ubuntu-18.04.sh install MEMGRAPH_BUILD_DEPS \
     && cd .. && rm -rf memgraph
 
+# Create mg user and set as default
+RUN useradd -m -s /bin/bash mg
+USER mg
+
 ENTRYPOINT ["sleep", "infinity"]
