@@ -15,15 +15,16 @@ RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOL
     && tar xzvf toolchain-${TOOLCHAIN_VERSION}-binaries-debian-12-amd64.tar.gz -C /opt \
     && rm toolchain-${TOOLCHAIN_VERSION}-binaries-debian-12-amd64.tar.gz
 
-# Create mg user and set as default
-RUN useradd -m -s /bin/bash mg
-USER mg
-
 # Install toolchain run deps and memgraph build deps
 SHELL ["/bin/bash", "-c"]
 RUN git clone https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/debian-12.sh install TOOLCHAIN_RUN_DEPS \
-    && ./environment/os/debian-12.sh install MEMGRAPH_BUILD_DEPS
+    && ./environment/os/debian-12.sh install MEMGRAPH_BUILD_DEPS \
+    && cd / && rm -rf memgraph
+
+# Create mg user and set as default
+RUN useradd -m -s /bin/bash mg
+USER mg
 
 ENTRYPOINT ["sleep", "infinity"]
