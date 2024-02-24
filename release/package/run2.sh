@@ -1,8 +1,10 @@
 #!/bin/bash
 set -Eeuo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-ROOT_DIR="$SCRIPT_DIR/../.."
-HOST_OUTPUT_DIR="$ROOT_DIR/build/output"
+PROJECT_ROOT="$SCRIPT_DIR/../.."
+HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
+MGBUILD_HOME_DIR="/home/mg"
+MGBUILD_ROOT_DIR="$MGBUILD_HOME_DIR/memgraph"
 
 DEFAULT_TOOLCHAIN="v5"
 SUPPORTED_TOOLCHAINS=(
@@ -150,7 +152,7 @@ check_support() {
 build_memgraph () {
   local build_container="mgbuild_${toolchain_version}_${os}"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  local container_build_dir="/memgraph/build"
+  local container_build_dir="$MGBUILD_ROOT_DIR/build"
   local container_output_dir="$container_build_dir/output"
   local arm_flag=""
   if [[ "$arch" == "arm" ]] || [[ "$os" =~ "-arm" ]]; then
@@ -202,17 +204,16 @@ build_memgraph () {
   # script depends on it. If we are on master, the fetch command is going to
   # fail so that's why there is the explicit check.
   # Required here because Docker build container can't access remote.
-  cd "$ROOT_DIR"
+  cd "$PROJECT_ROOT"
   if [[ "$(git rev-parse --abbrev-ref HEAD)" != "master" ]]; then
       git fetch origin master:master
   fi
 
   # Ensure we have a clean build directory
-  docker exec "$build_container" rm -rf /memgraph
-  docker exec "$build_container" mkdir -p /memgraph
+  docker exec -u mg "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR && mkdir -p $MGBUILD_ROOT_DIR"
 
   # TODO(gitbuda): Revisit copying the whole repo -> makese sense under CI.
-  docker cp "$ROOT_DIR/." "$build_container:/memgraph/"
+  docker cp "$PROJECT_ROOT/." "$build_container:$MGBUILD_ROOT_DIR/"
 
   # TODO(gitbuda): TOOLCHAIN_RUN_DEPS should be installed during the Docker
   # image build phase, but that is not easy at this point because the
@@ -223,57 +224,57 @@ build_memgraph () {
   # wihout reruning the build containers.
   # TODO(gitbuda+deda): Make a decision on this, (deda thinks we should move this to the Dockerfiles to save on time)
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
-  docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || /memgraph/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
-  docker exec "$build_container" bash -c "/memgraph/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || /memgraph/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
+  docker exec -u root "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && /environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || /environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
+  docker exec -u root "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && /environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || /environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
   echo "Building targeted package..."
   # Fix issue with git marking directory as not safe
-  docker exec "$build_container" bash -c "cd /memgraph && git config --global --add safe.directory '*'"
-  docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init --ci"
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git config --global --add safe.directory '*'"
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && ./init --ci"
   if [[ "$init_only" == "true" ]]; then
     return
   fi
 
-  docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
+  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
   # Fix cmake failing locally if remote is clone via ssh
-  docker exec "$build_container" bash -c "cd /memgraph && git remote set-url origin https://github.com/memgraph/memgraph.git"
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git remote set-url origin https://github.com/memgraph/memgraph.git"
 
   # Define cmake command
   local cmake_cmd="cmake -DCMAKE_BUILD_TYPE=$build_type $arm_flag $community_flag $telemetry_id_override_flag .."
-  docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $cmake_cmd"
+  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $cmake_cmd"
   
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
   # shellcheck disable=SC2016
-  docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads'
-  docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads -B mgconsole'
+  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads'
+  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads -B mgconsole'
 }
 
 package_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local build_container="mgbuild_${toolchain_version}_${os}"
-  local container_output_dir="/memgraph/build/output"
+  local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
   local package_command=""
   if [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"fedora".* ]] || [[ "$os" =~ ^"amzn".* ]]; then
-      docker exec "$build_container" bash -c "yum -y update"
+      docker exec -u mg "$build_container" bash -c "yum -y update"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
   fi
   if [[ "$os" =~ ^"debian".* ]]; then
-      docker exec "$build_container" bash -c "apt --allow-releaseinfo-change -y update"
+      docker exec -u mg "$build_container" bash -c "apt --allow-releaseinfo-change -y update"
       package_command=" cpack -G DEB --config ../CPackConfig.cmake "
   fi
   if [[ "$os" =~ ^"ubuntu".* ]]; then
-      docker exec "$build_container" bash -c "apt update"
+      docker exec -u mg "$build_container" bash -c "apt update"
       package_command=" cpack -G DEB --config ../CPackConfig.cmake "
   fi
-  docker exec "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
+  docker exec -u mg "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
 }
 
 copy_memgraph() {
-  local container_output_dir="/memgraph/build/output"
+  local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
   local build_container="mgbuild_${toolchain_version}_${os}"
   echo "Copying targeted package to host..."
-  local last_package_name=$(docker exec "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
+  local last_package_name=$(docker exec -u mg "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
   # The operating system folder is introduced because multiple different
   # packages could be preserved during the same build "session".
   mkdir -p "$HOST_OUTPUT_DIR/$os"
@@ -291,39 +292,45 @@ test_memgraph() {
   local ACTIVATE_VENV="./setup.sh /opt/toolchain-${toolchain_version}/activate"
   local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
-  local BUILD_DIR="/memgraph/build"
-  local ROOT_DIR="/memgraph"
+  local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
   local build_container="mgbuild_${toolchain_version}_${os}"
   echo "Running $1 test on $build_container..."
 
   case "$1" in
     unit)
-      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -R memgraph__unit --output-on-failure -j$threads"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -R memgraph__unit --output-on-failure -j$threads"
       echo "DEBUG"
     ;;
     leftover-CTest)
-      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -E \"(memgraph__unit|memgraph__benchmark)\" --output-on-failure"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && ctest -E \"(memgraph__unit|memgraph__benchmark)\" --output-on-failure"
     ;;
     drivers)
-      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR && ./tests/drivers/run.sh"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && ./tests/drivers/run.sh"
     ;;
     integration)
-      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR && tests/integration/run.sh"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && tests/integration/run.sh"
     ;;
     cppcheck-and-clang-format)
-      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tools/github && $ACTIVATE_TOOLCHAIN && ./cppcheck_and_clang_format diff"
+      local test_output_path="$MGBUILD_ROOT_DIR/tools/github/cppcheck_and_clang_format.txt"
+      local test_output_host_dest="$PROJECT_ROOT/tools/github/cppcheck_and_clang_format.txt"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/github && $ACTIVATE_TOOLCHAIN && ./cppcheck_and_clang_format diff"
+      docker cp $build_container:$test_output_path $test_output_host_dest
     ;;
     stress-plain)
-      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration"
     ;;
     stress-ssl)
-      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration --use-ssl"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate && ./continuous_integration --use-ssl"
     ;;
     durability)
-      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tests/stress && source ve3/bin/activate && python3 durability --num-steps 5"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate && python3 durability --num-steps 5"
     ;;
     gql-behave)
-      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tests && $ACTIVATE_VENV && cd $ROOT_DIR/tests/gql_behave && ./continuous_integration"
+      local test_output_dir="$MGBUILD_ROOT_DIR/tests/gql_behave"
+      local test_output_host_dest="$PROJECT_ROOT/tests/gql_behave"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && cd $MGBUILD_ROOT_DIR/tests/gql_behave && ./continuous_integration"
+      docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status.csv
+      docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status.html
     ;;
     *)
       echo "Error: Unknown test '$1'"
