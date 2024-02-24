@@ -67,9 +67,10 @@ print_help () {
   echo -e "  \"${SUPPORTED_TESTS[*]}\""
 
   echo -e "\nbuild-memgraph options:"
+  echo -e "  --community                   Build community version"
   echo -e "  --init-only                   Only run init script"
-  echo -e "  --for-docker                  <ADD INFO>"
-  echo -e "  --for-platform                <ADD INFO>"
+  echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
+  echo -e "  --for-platform                Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM to cmake"
 
   echo -e "\nstop options:"
   echo -e "  --remove                      Remove the stopped mgbuild container"
@@ -150,13 +151,23 @@ build_memgraph () {
   build_container="mgbuild_${toolchain_version}_${os}"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   echo "Building Memgraph for $os on $build_container..."
-
+  
+  if [[ "$arch" == "arm" ]] || [[ "$os" =~ "-arm" ]]; then
+    arm_flag="-DMG_ARCH="ARM64""
+  else
+    arm_flag=""
+  fi
   telemetry_id_override_flag=""
+  community_flag=""
   init_only=false
   for_docker=false
   for_platform=false
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
+      --community)
+        community_flag="-DMG_ENTERPRISE=OFF"
+        shift 1
+      ;;
       --init-only)
         init_only=true
         shift 1
@@ -229,11 +240,15 @@ build_memgraph () {
   docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
   # Fix cmake failing locally if remote is clone via ssh
   docker exec "$build_container" bash -c "cd /memgraph && git remote set-url origin https://github.com/memgraph/memgraph.git"
-  if [[ "$os" =~ "-arm" ]]; then
-      docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=$build_type -DMG_ARCH="ARM64" $telemetry_id_override_flag .."
-  else
-      docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=$build_type $telemetry_id_override_flag .."
-  fi
+
+  # Define cmake command
+  cmake_cmd="cmake -DCMAKE_BUILD_TYPE=$build_type $arm_flag $community_flag $telemetry_id_override_flag .."
+
+  # if [[ "$os" =~ "-arm" ]]; then
+  #     docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=$build_type -DMG_ARCH="ARM64" $telemetry_id_override_flag .."
+  # else
+  #     docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=$build_type $telemetry_id_override_flag .."
+  # fi
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
   # shellcheck disable=SC2016
