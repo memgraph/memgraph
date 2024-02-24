@@ -404,7 +404,7 @@ case $command in
     pull)
       docker pull memgraph/mgbuild_${toolchain_version}_${os}
     ;;
-    pull)
+    push)
       docker login $@
       docker push memgraph/mgbuild_${toolchain_version}_${os}
     ;;
