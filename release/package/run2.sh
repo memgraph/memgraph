@@ -152,7 +152,7 @@ run_init() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   echo "Running init script for $os on $build_container"
   docker exec "$build_container" bash -c "cd /memgraph && git config --global --add safe.directory '*'"
-  docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init"
+  docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init --ci"
 }
 
 build_memgraph () {
@@ -219,7 +219,7 @@ build_memgraph () {
   # Fix issue with git marking directory as not safe
   docker exec "$build_container" bash -c "cd /memgraph && git config --global --add safe.directory '*'"
   if [[ "$init" == "true" ]]; then
-    docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init"
+    docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init --ci"
   fi
   docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
   # Fix cmake failing locally if remote is clone via ssh
