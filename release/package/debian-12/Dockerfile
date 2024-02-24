@@ -21,7 +21,7 @@ RUN git clone https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/debian-12.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/debian-12.sh install MEMGRAPH_BUILD_DEPS \
-    && cd / && rm -rf memgraph
+    && cd .. && rm -rf memgraph
 
 # Create mg user and set as default
 RUN useradd -m -s /bin/bash mg
