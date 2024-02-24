@@ -153,12 +153,12 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph cppcheck-and-clang-format
-
-      # - name: Save cppcheck and clang-format errors
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: "Code coverage(Debug build)"
-      #     path: tools/github/cppcheck_and_clang_format.txt
+      
+      - name: Save cppcheck and clang-format errors
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Code coverage(Debug build)"
+          path: tools/github/cppcheck_and_clang_format.txt
 
       - name: Stop mgbuild container
         if: always()
@@ -217,13 +217,13 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph gql-behave
 
-      # - name: Save quality assurance status
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: "GQL Behave Status"
-      #     path: |
-      #       tests/gql_behave/gql_behave_status.csv
-      #       tests/gql_behave/gql_behave_status.html
+      - name: Save quality assurance status
+        uses: actions/upload-artifact@v4
+        with:
+          name: "GQL Behave Status"
+          path: |
+            tests/gql_behave/gql_behave_status.csv
+            tests/gql_behave/gql_behave_status.html
 
       - name: Run unit tests
         run: |
@@ -288,25 +288,28 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph durability
 
-      # - name: Create enterprise DEB package
-      #   run: |
-      #     # Activate toolchain.
-      #     source /opt/toolchain-v4/activate
-      #     cd build
-      #
-      #     # create mgconsole
-      #     # we use the -B to force the build
-      #     make -j$THREADS -B mgconsole
-      #
-      #     # Create enterprise DEB package.
-      #     mkdir output && cd output
-      #     cpack -G DEB --config ../CPackConfig.cmake
-      #
-      # - name: Save enterprise DEB package
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: "Enterprise DEB package"
-      #     path: build/output/memgraph*.deb
+      - name: Create enterprise DEB package
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          package
+          mkdir output
+          
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy
+
+      - name: Save enterprise DEB package
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Enterprise DEB package"
+          path: build/output/memgraph*.deb
       #
       # - name: Save test data
       #   uses: actions/upload-artifact@v4
