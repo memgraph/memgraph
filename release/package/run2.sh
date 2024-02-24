@@ -49,6 +49,7 @@ print_help () {
   echo -e "  stop [OPTIONS]                Stop mgbuild container"
   echo -e "  pull                          Pull mgbuild image from dockerhub"
   echo -e "  push OPTIONS                  Push mgbuild image to dockerhub"
+  echo -e "  run-init-memgraph             Run init script inside mgbuild container"
   echo -e "  build-memgraph [OPTIONS]      Build memgraph inside mgbuild container"
   echo -e "  package-memgraph              Build memgraph and create deb package"
   echo -e "  test-memgraph TEST            Run a specific test on memgraph"
@@ -67,6 +68,7 @@ print_help () {
   echo -e "  \"${SUPPORTED_TESTS[*]}\""
 
   echo -e "\nbuild-memgraph options:"
+  echo -e "  --init                        Run init script before build"
   echo -e "  --for-docker                  <ADD INFO>"
   echo -e "  --for-platform                <ADD INFO>"
 
@@ -145,23 +147,41 @@ check_support() {
 ##################################################
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
+run_init() {
+  build_container="mgbuild_${toolchain_version}_${os}"
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  echo "Running init script for $os on $build_container"
+  docker exec "$build_container" bash -c "cd /memgraph && git config --global --add safe.directory '*'"
+  docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init"
+}
+
 build_memgraph () {
   build_container="mgbuild_${toolchain_version}_${os}"
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   echo "Building Memgraph for $os on $build_container..."
 
-  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-
   telemetry_id_override_flag=""
-  if [[ "$#" -gt 3 ]]; then
-      if [[ "$4" == "--for-docker" ]]; then
-          telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER "
-      elif [[ "$4" == "--for-platform" ]]; then
-          telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM"
-      else
-        echo "Error: Unknown flag '$4'"
+  init=false
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --init)
+        init=true
+        shift 1
+      ;;
+      --for-docker)
+        telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER "
+        shift 1
+      ;;
+      --for-platform)
+        telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM "
+        shift 1
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
         exit 1
-      fi
-  fi
+      ;;
+    esac
+  done
 
   echo "Copying project files..."
   # If master is not the current branch, fetch it, because the get_version
@@ -198,7 +218,9 @@ build_memgraph () {
   echo "Building targeted package..."
   # Fix issue with git marking directory as not safe
   docker exec "$build_container" bash -c "cd /memgraph && git config --global --add safe.directory '*'"
-  docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init"
+  if [[ "$init" == "true" ]]; then
+    docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init"
+  fi
   docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
   # Fix cmake failing locally if remote is clone via ssh
   docker exec "$build_container" bash -c "cd /memgraph && git remote set-url origin https://github.com/memgraph/memgraph.git"
@@ -251,6 +273,7 @@ copy_memgraph() {
 ##################################################
 test_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  local ACTIVATE_VENV="./setup.sh /opt/toolchain-${toolchain_version}/activate"
   local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local BUILD_DIR="/memgraph/build"
@@ -285,7 +308,7 @@ test_memgraph() {
       docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tests/stress && source ve3/bin/activate && python3 durability --num-steps 5"
     ;;
     gql-behave)
-      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tests/gql_behave && $ACTIVATE_TOOLCHAIN && ./continuous_integration"
+      docker exec $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $ROOT_DIR/tests && $ACTIVATE_VENV && cd $ROOT_DIR/tests/gql_behave && ./continuous_integration"
     ;;
     *)
       echo "Error: Unknown test '$1'"
@@ -407,6 +430,9 @@ case $command in
     push)
       docker login $@
       docker push memgraph/mgbuild_${toolchain_version}_${os}
+    ;;
+    run-init-memgraph)
+      run_init
     ;;
     build-memgraph)
       build_memgraph $@
