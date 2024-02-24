@@ -20,6 +20,6 @@ SHELL ["/bin/bash", "-c"]
 RUN git clone https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/debian-10.sh install TOOLCHAIN_RUN_DEPS \
-    && ./environment/os/debian-10.sh install MEMGRAPH_BUILD_DEPS \
+    && ./environment/os/debian-10.sh install MEMGRAPH_BUILD_DEPS
 
 ENTRYPOINT ["sleep", "infinity"]

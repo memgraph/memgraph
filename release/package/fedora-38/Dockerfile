@@ -18,6 +18,6 @@ SHELL ["/bin/bash", "-c"]
 RUN git clone https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/fedora-38.sh install TOOLCHAIN_RUN_DEPS \
-    && ./environment/os/fedora-38.sh install MEMGRAPH_BUILD_DEPS \
+    && ./environment/os/fedora-38.sh install MEMGRAPH_BUILD_DEPS
 
 ENTRYPOINT ["sleep", "infinity"]
