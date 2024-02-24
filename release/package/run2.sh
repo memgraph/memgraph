@@ -238,7 +238,7 @@ build_memgraph () {
   if [[ "$init" == "true" ]]; then
     docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init --ci"
   fi
-  if [[ "$init_only" == "true"]]; then
+  if [[ "$init_only" == "true" ]]; then
     return
   fi
 
