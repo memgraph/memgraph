@@ -214,6 +214,8 @@ build_memgraph () {
 
   # TODO(gitbuda): Revisit copying the whole repo -> makese sense under CI.
   docker cp "$PROJECT_ROOT/." "$build_container:$MGBUILD_ROOT_DIR/"
+  # Change ownership of copied files so the mg user inside container can access them
+  docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR" 
 
   # TODO(gitbuda): TOOLCHAIN_RUN_DEPS should be installed during the Docker
   # image build phase, but that is not easy at this point because the
