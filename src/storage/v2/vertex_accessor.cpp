@@ -31,8 +31,6 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/variant_helpers.hpp"
 
-#include <fmt/format.h>
-
 namespace memgraph::storage {
 
 namespace detail {
