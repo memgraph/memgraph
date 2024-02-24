@@ -119,7 +119,7 @@ fi
 # Install precommit hook except on old operating systems because we don't
 # develop on them -> pre-commit hook not required -> we can use latest
 # packages.
-if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ] && [ "${DISTRO}" != "amzn-2" ]; then
+if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ] && [ "${DISTRO}" != "amzn-2" ] && [ "${DISTRO}" != "debian-12" ]; then
   python3 -m pip install pre-commit
   python3 -m pre_commit install
   # Install py format tools for usage during the development.
@@ -129,7 +129,7 @@ if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}
   python3 -m pip install isort==5.12.*
 fi
 # The saga with pre-commit continues...
-if [ "${DISTRO}" != "debian-12" ]; then
+if [ "${DISTRO}" == "debian-12" ]; then
   python3 -m pip install pre-commit --break-system-packages
   python3 -m pre_commit install
   # Install py format tools for usage during the development.
