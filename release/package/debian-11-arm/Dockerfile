@@ -27,6 +27,9 @@ RUN git clone https://github.com/memgraph/memgraph.git \
 RUN useradd -m -s /bin/bash mg
 USER mg
 
+# Install rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
 # Fix node
 RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash
 
