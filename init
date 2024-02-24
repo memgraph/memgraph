@@ -128,6 +128,20 @@ if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}
   echo "Install isort"
   python3 -m pip install isort==5.12.*
 fi
+# The saga with pre-commit continues...
+if [ "${DISTRO}" != "debian-12" ]; then
+  python3 -m pip install pre-commit --break-system-packages
+  python3 -m pre_commit install
+  # Install py format tools for usage during the development.
+  echo "Install black formatter"
+  python3 -m pip install black==23.1.* --break-system-packages
+  echo "Install isort"
+  python3 -m pip install isort==5.12.* --break-system-packages
+fi
+# TODO(gitbuda): The proper solution is to install everything under a single
+# venv or using pipx. This is a bigger change across memgraph repo, probably
+# setting up a single venv for the whole repo or somehow integrating this with
+# the toolchain activation script.
 
 # Link `include/mgp.py` with `release/mgp/mgp.py`
 ln -v -f include/mgp.py release/mgp/mgp.py
