@@ -224,8 +224,8 @@ build_memgraph () {
   # wihout reruning the build containers.
   # TODO(gitbuda+deda): Make a decision on this, (deda thinks we should move this to the Dockerfiles to save on time)
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
-  docker exec -u root "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && /environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || /environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
-  docker exec -u root "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && /environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || /environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
+  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || /environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
+  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || /environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
   echo "Building targeted package..."
   # Fix issue with git marking directory as not safe
