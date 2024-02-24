@@ -243,12 +243,8 @@ build_memgraph () {
 
   # Define cmake command
   cmake_cmd="cmake -DCMAKE_BUILD_TYPE=$build_type $arm_flag $community_flag $telemetry_id_override_flag .."
-
-  # if [[ "$os" =~ "-arm" ]]; then
-  #     docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=$build_type -DMG_ARCH="ARM64" $telemetry_id_override_flag .."
-  # else
-  #     docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && cmake -DCMAKE_BUILD_TYPE=$build_type $telemetry_id_override_flag .."
-  # fi
+  docker exec "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $cmake_cmd"
+  
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
   # shellcheck disable=SC2016
