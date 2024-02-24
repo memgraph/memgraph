@@ -14,6 +14,7 @@ function print_help () {
     echo "Optional arguments:"
     echo -e "  -h\tdisplay this help and exit"
     echo -e "  --without-libs-setup\tskip the step for setting up libs"
+    echo -e "  --ci\tscript is being run inside ci"
 }
 
 function setup_virtualenv () {
@@ -35,6 +36,7 @@ function setup_virtualenv () {
 }
 
 setup_libs=true
+ci=false
 if [[ $# -eq 1 && "$1" == "-h" ]]; then
     print_help
     exit 0
@@ -45,6 +47,9 @@ else
               shift
               setup_libs=false
           ;;
+          --ci)
+              shift
+              ci=true
           *)
               # unknown option
               echo "Invalid argument provided: $1"
@@ -76,11 +81,13 @@ if [[ "$setup_libs" == "true" ]]; then
 fi
 
 # Fix for centos 7 during release
-if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "debian-11" ] || [ "${DISTRO}" = "amzn-2" ]; then
-  if python3 -m pip show virtualenv >/dev/null 2>/dev/null; then
-    python3 -m pip uninstall -y virtualenv
+if [[ "$ci" == "false" ]]; then
+  if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "debian-11" ] || [ "${DISTRO}" = "amzn-2" ]; then
+    if python3 -m pip show virtualenv >/dev/null 2>/dev/null; then
+      python3 -m pip uninstall -y virtualenv
+    fi
+    python3 -m pip install virtualenv
   fi
-  python3 -m pip install virtualenv
 fi
 
 # setup gql_behave dependencies
@@ -119,14 +126,16 @@ fi
 # Install precommit hook except on old operating systems because we don't
 # develop on them -> pre-commit hook not required -> we can use latest
 # packages.
-if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ] && [ "${DISTRO}" != "amzn-2" ]; then
-  python3 -m pip install pre-commit
-  python3 -m pre_commit install
-  # Install py format tools for usage during the development.
-  echo "Install black formatter"
-  python3 -m pip install black==23.1.*
-  echo "Install isort"
-  python3 -m pip install isort==5.12.*
+if [[ "$ci" == "false" ]]; then
+  if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ] && [ "${DISTRO}" != "amzn-2" ]; then
+    python3 -m pip install pre-commit
+    python3 -m pre_commit install
+    # Install py format tools for usage during the development.
+    echo "Install black formatter"
+    python3 -m pip install black==23.1.*
+    echo "Install isort"
+    python3 -m pip install isort==5.12.*
+  fi
 fi
 
 # Link `include/mgp.py` with `release/mgp/mgp.py`
