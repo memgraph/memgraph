@@ -49,7 +49,6 @@ print_help () {
   echo -e "  stop [OPTIONS]                Stop mgbuild container"
   echo -e "  pull                          Pull mgbuild image from dockerhub"
   echo -e "  push OPTIONS                  Push mgbuild image to dockerhub"
-  echo -e "  run-init-memgraph             Run init script inside mgbuild container"
   echo -e "  build-memgraph [OPTIONS]      Build memgraph inside mgbuild container"
   echo -e "  package-memgraph              Build memgraph and create deb package"
   echo -e "  test-memgraph TEST            Run a specific test on memgraph"
@@ -68,7 +67,8 @@ print_help () {
   echo -e "  \"${SUPPORTED_TESTS[*]}\""
 
   echo -e "\nbuild-memgraph options:"
-  echo -e "  --init                        Run init script before build"
+  echo -e "  --no-init                     Skip running init script before build"
+  echo -e "  --init-only                   Only run init script"
   echo -e "  --for-docker                  <ADD INFO>"
   echo -e "  --for-platform                <ADD INFO>"
 
@@ -147,32 +147,49 @@ check_support() {
 ##################################################
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
-run_init() {
-  build_container="mgbuild_${toolchain_version}_${os}"
-  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  echo "Running init script for $os on $build_container"
-  docker exec "$build_container" bash -c "cd /memgraph && git config --global --add safe.directory '*'"
-  docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init --ci"
-}
-
 build_memgraph () {
   build_container="mgbuild_${toolchain_version}_${os}"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   echo "Building Memgraph for $os on $build_container..."
 
   telemetry_id_override_flag=""
-  init=false
+  init=true
+  init_only=false
+  for_docker=false
+  for_platform=false
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
-      --init)
-        init=true
+      --no-init)
+        init=false
+        if [[ "$init_only" == "true" ]]; then
+          echo "Error: Cannot combine --no-init and --init-only flags"
+          exit 1
+        fi
+        shift 1
+      ;;
+      --init-only)
+        init_only=true
+        if [[ "$init" == "false" ]]; then
+          echo "Error: Cannot combine --no-init and --init-only flags"
+          exit 1
+        fi
         shift 1
       ;;
       --for-docker)
+        for_docker=true
+        if [[ "$for_platform" == "true" ]]; then
+          echo "Error: Cannot combine --for-docker and --for-platform flags"
+          exit 1
+        fi
         telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER "
         shift 1
       ;;
       --for-platform)
+        for_platform=true
+        if [[ "$for_docker" == "true" ]]; then
+          echo "Error: Cannot combine --for-docker and --for-platform flags"
+          exit 1
+        fi
         telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM "
         shift 1
       ;;
@@ -221,6 +238,10 @@ build_memgraph () {
   if [[ "$init" == "true" ]]; then
     docker exec "$build_container" bash -c "cd /memgraph && $ACTIVATE_TOOLCHAIN && ./init --ci"
   fi
+  if [[ "$init_only" == "true"]]; then
+    return
+  fi
+
   docker exec "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
   # Fix cmake failing locally if remote is clone via ssh
   docker exec "$build_container" bash -c "cd /memgraph && git remote set-url origin https://github.com/memgraph/memgraph.git"
@@ -430,9 +451,6 @@ case $command in
     push)
       docker login $@
       docker push memgraph/mgbuild_${toolchain_version}_${os}
-    ;;
-    run-init-memgraph)
-      run_init
     ;;
     build-memgraph)
       build_memgraph $@
