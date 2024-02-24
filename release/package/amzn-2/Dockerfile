@@ -17,8 +17,8 @@ RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOL
 SHELL ["/bin/bash", "-c"]
 RUN git clone https://github.com/memgraph/memgraph.git \
     && cd memgraph \
-    && ./environment/os/$OS.sh install TOOLCHAIN_RUN_DEPS \
-    && ./environment/os/$OS.sh install MEMGRAPH_BUILD_DEPS \
+    && ./environment/os/amzn-2.sh install TOOLCHAIN_RUN_DEPS \
+    && ./environment/os/amzn-2.sh install MEMGRAPH_BUILD_DEPS \
     && cd .. && rm -rf memgraph
 
 ENTRYPOINT ["sleep", "infinity"]
