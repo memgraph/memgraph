@@ -22,4 +22,11 @@ RUN git clone https://github.com/memgraph/memgraph.git \
     && ./environment/os/ubuntu-22.04.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/ubuntu-22.04.sh install MEMGRAPH_BUILD_DEPS
 
+# Create mg user and set as default
+RUN useradd -m -s /bin/bash mg
+USER mg
+
+# Fix node
+RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash
+
 ENTRYPOINT ["sleep", "infinity"]
