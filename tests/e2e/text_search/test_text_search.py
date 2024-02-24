@@ -119,7 +119,7 @@ def test_update_text_property_of_indexed_node(memgraph_with_text_indexed_data):
     assert len(result) == 1 and result == [{"title": "Rules2030", "version": 1}]
 
 
-def test_add_unindexable_dexable_property_to_indexed_node(memgraph_with_text_indexed_data):
+def test_add_unindexable_property_to_indexed_node(memgraph_with_text_indexed_data):
     try:
         memgraph_with_text_indexed_data.execute("""MATCH (n:Document {version:1}) SET n.randomList = [2, 3, 4, 5];""")
     except Exception:
@@ -135,7 +135,7 @@ def test_remove_indexable_property_from_indexed_node(memgraph_with_text_indexed_
         assert False
 
 
-def test_remove_unindexable_dexable_property_from_indexed_node(memgraph_with_text_indexed_data):
+def test_remove_unindexable_property_from_indexed_node(memgraph_with_text_indexed_data):
     try:
         memgraph_with_text_indexed_data.execute_and_fetch(
             """MATCH (n:Document {date: date("2023-12-15")}) REMOVE n.date;"""
