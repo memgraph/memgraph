@@ -14,9 +14,164 @@ on:
       - "licenses/*"
 
 jobs:
+  community_build:
+    name: "Community build"
+    runs-on: [self-hosted, deadpool]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: debian-11
+      TOOLCHAIN: v5
+      ARCH: amd
+      BUILD_TYPE: RelWithDebInfo
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build release binaries
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph --community
+
+      - name: Run unit tests
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph unit
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+  debug_build:
+    name: "Debug build"
+    runs-on: [self-hosted, hulk]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: debian-11
+      TOOLCHAIN: v5
+      ARCH: amd
+      BUILD_TYPE: Debug
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build release binaries
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph
+
+      - name: Run leftover CTest tests
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph leftover-CTest
+
+      - name: Run drivers tests
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph drivers
+
+      - name: Run integration tests
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph integration
+
+      - name: Run cppcheck and clang-format
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph cppcheck-and-clang-format
+
+      # - name: Save cppcheck and clang-format errors
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: "Code coverage(Debug build)"
+      #     path: tools/github/cppcheck_and_clang_format.txt
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, deadpool]
+    runs-on: [self-hosted, black-widow]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
