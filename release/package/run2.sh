@@ -304,7 +304,7 @@ test_memgraph() {
       echo "DEBUG"
     ;;
     leftover-CTest)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -E \"(memgraph__unit|memgraph__benchmark)\" --output-on-failure'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure'
     ;;
     drivers)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& ./tests/drivers/run.sh'
@@ -468,7 +468,7 @@ case $command in
       copy_memgraph $@
     ;;
     *)
-        echo "Error: Unknown command '$1'"
+        echo "Error: Unknown command '$command'"
         exit 1
     ;;
 esac    

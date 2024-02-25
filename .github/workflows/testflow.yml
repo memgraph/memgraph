@@ -296,9 +296,10 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          package
+          package-memgraph
+
           mkdir output
-          
+
           ./release/package/run2.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
