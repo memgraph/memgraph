@@ -310,7 +310,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: "Enterprise DEB package"
-          path: build/output/memgraph*.deb
+          path: build/output/${{ env.OS }}/memgraph*.deb
       #
       # - name: Save test data
       #   uses: actions/upload-artifact@v4
@@ -329,3 +329,213 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
+
+  release_benchmarks:
+    name: "Release benchmarks"
+    runs-on: [self-hosted, magneto]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: ubuntu-20.04
+      TOOLCHAIN: v5
+      ARCH: amd
+      BUILD_TYPE: Release
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build release binaries
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph
+
+      - name: Run macro benchmarks
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph macro-benchmark
+
+      - name: Get branch name (merge)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+
+      - name: Get branch name (pull request)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
+
+      - name: Upload macro benchmark results
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "macro_benchmark" \
+          --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      # TODO (andi) No need for path flags and for --disk-storage and --in-memory-analytical
+      - name: Run mgbench
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $toolchain \
+          --os $os \
+          --arch $arch \
+          --enterprise-license $memgraph_enterprise_license \
+          --organization-name $memgraph_organization_name \
+          test-memgraph mgbench
+
+      - name: Upload mgbench results
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "mgbench" \
+          --benchmark-results "../../tests/mgbench/benchmark_result.json" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+  code_analysis:
+    name: "Code analysis"
+    runs-on: [self-hosted, gamora]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: debian-11
+      TOOLCHAIN: v5
+      ARCH: amd
+      BUILD_TYPE: Release
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+        # This is also needed if we want do to comparison against other branches
+        # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
+      - name: Fetch all history for all tags and branches
+        run: git fetch
+
+      - name: Initialize deps
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph --init-only
+
+      - name: Set base branch
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
+
+      - name: Set base branch # if we manually dispatch or push to master
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
+
+      - name: Python code analysis
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph code-analysis --base-branch "${{ env.BASE_BRANCH }}"
+
+      - name: Build combined ASAN, UBSAN and coverage binaries
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph --coverage --asan --ubsan
+          # make -j$THREADS memgraph__unit
+
+      - name: Run unit tests
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $toolchain \
+          --os $os \
+          --arch $arch \
+          --enterprise-license $memgraph_enterprise_license \
+          --organization-name $memgraph_organization_name \
+          test-memgraph unit-coverage
+
+      - name: Compute code coverage
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $toolchain \
+          --os $os \
+          --arch $arch \
+          --enterprise-license $memgraph_enterprise_license \
+          --organization-name $memgraph_organization_name \
+          test-memgraph code-coverage
+
+      - name: Save code coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Code coverage(Code analysis)"
+          path: tools/github/generated/code_coverage.tar.gz
+
+      - name: Run clang-tidy
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"

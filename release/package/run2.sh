@@ -34,6 +34,7 @@ SUPPORTED_ARCHS=(
 SUPPORTED_TESTS=(
     unit stress-plain stress-ssl drivers integration durability
     gql-behave cppcheck-and-clang-format leftover-CTest
+    macro-benchmark mgbbench upload-to-bench-graph
 )
 DEFAULT_THREADS=$(nproc)
 DEFAULT_ENTERPRISE_LICENSE=""
@@ -158,8 +159,12 @@ build_memgraph () {
   if [[ "$arch" == "arm" ]] || [[ "$os" =~ "-arm" ]]; then
     arm_flag="-DMG_ARCH="ARM64""
   fi
+  local build_type_flag="-DCMAKE_BUILD_TYPE=$build_type"
   local telemetry_id_override_flag=""
   local community_flag=""
+  local coverage_flag=""
+  local asan_flag=""
+  local ubsan_flag=""
   local init_only=false
   local for_docker=false
   local for_platform=false
@@ -189,6 +194,18 @@ build_memgraph () {
           exit 1
         fi
         telemetry_id_override_flag=" -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM "
+        shift 1
+      ;;
+      --coverage)
+        coverage_flag="-DTEST_COVERAGE=ON"
+        shift 1
+      ;;
+      --asan)
+        asan_flag="-DASAN=ON"
+        shift 1
+      ;;
+      --ubsan)
+        ubsan_flag="-DUBSAN=ON"
         shift 1
       ;;
       *)
@@ -242,7 +259,7 @@ build_memgraph () {
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git remote set-url origin https://github.com/memgraph/memgraph.git"
 
   # Define cmake command
-  local cmake_cmd="cmake -DCMAKE_BUILD_TYPE=$build_type $arm_flag $community_flag $telemetry_id_override_flag .."
+  local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $cmake_cmd"
   
   # ' is used instead of " because we need to run make within the allowed
@@ -301,7 +318,10 @@ test_memgraph() {
   case "$1" in
     unit)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$threads'
-      echo "DEBUG"
+    ;;
+    unit-coverage)
+      local setup_lsan_ubsan="export LSAN_OPTIONS=suppressions=$BUILD_DIR/../tools/lsan.supp && export UBSAN_OPTIONS=halt_on_error=1"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && $setup_lsan_ubsan "'&& ctest -R memgraph__unit --output-on-failure -j2'
     ;;
     leftover-CTest)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure'
@@ -333,6 +353,31 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && cd $MGBUILD_ROOT_DIR/tests/gql_behave "'&& ./continuous_integration'
       docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status.csv
       docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status.html
+    ;;
+    macro-benchmark)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/macro_benchmark "'&& ./harness QuerySuite MemgraphRunner --groups aggregation 1000_create unwind_create dense_expand match --no-strict'
+    ;;
+    mgbbench)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbbench "'&& ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*'
+    ;;
+    upload-to-bench-graph)
+      shift 1
+      local setup_ve3_env="virtualenv -p python3 ve3 && source ve3/bin/activate && pip install -r requirements.txt"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/bench-graph-client && $setup_ve3_env && ./main.py $@"
+    ;;
+    code-analysis)
+      shift 1
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/code-analysis && ./python_code_analysis.sh $@"
+    ;;
+    code-coverage)
+      local test_output_path="$MGBUILD_ROOT_DIR/tools/github/generated/code_coverage.tar.gz"
+      local test_output_host_dest="$PROJECT_ROOT/tools/github/generated/code_coverage.tar.gz"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tools/github && ./coverage_convert && cd $MGBUILD_ROOT_DIR/tools/github/generated && tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu"
+      docker cp $build_container:$test_output_path $test_output_host_dest
+    ;;
+    clang-tidy)
+      shift 1
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export THREADS=$threads && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code-analysis && ./clang_tidy.sh $@"
     ;;
     *)
       echo "Error: Unknown test '$1'"
@@ -462,7 +507,7 @@ case $command in
       package_memgraph
     ;;
     test-memgraph)
-      test_memgraph $1
+      test_memgraph $@
     ;;
     copy)
       copy_memgraph $@
