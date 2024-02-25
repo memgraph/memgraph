@@ -332,12 +332,13 @@ jobs:
 
   release_benchmarks:
     name: "Release benchmarks"
+    # Add Gen7
     runs-on: [self-hosted, magneto]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-      OS: ubuntu-20.04
+      OS: debian-11
       TOOLCHAIN: v5
       ARCH: amd
       BUILD_TYPE: Release
@@ -428,6 +429,15 @@ jobs:
           --github-run-id "${{ github.run_id }}" \
           --github-run-number "${{ github.run_number }}" \
           --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
 
   code_analysis:
     name: "Code analysis"
@@ -539,3 +549,12 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
