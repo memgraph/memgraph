@@ -5,13 +5,13 @@ concurrency:
 
 on:
   # UNCOMMENT THIS BEFORE MERGE
-  pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".clang-format"
-      - "CODEOWNERS"
-      - "licenses/*"
+  # pull_request:
+  #   paths-ignore:
+  #     - "docs/**"
+  #     - "**/*.md"
+  #     - ".clang-format"
+  #     - "CODEOWNERS"
+  #     - "licenses/*"
 
 jobs:
   community_build:
