@@ -3,7 +3,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 BASE_BRANCH="origin/master"
 
-if [[ "$#" -ne 1 ]]; then
+if [[ "$#" -ne 2 ]]; then
   echo "Error: This script requires exactly 1 argument '--base-branch string', not $#"
   exit 1
 fi
@@ -20,6 +20,9 @@ while [[ "$#" -gt 0 ]]; do
     ;;
   esac
 done
+
+echo $SCRIPT_DIR
+echo $PROJECT_ROOT
 
 cd $PROJECT_ROOT
 CHANGED_FILES=$(git diff -U0 $BASE_BRANCH ... --name-only --diff-filter=d)
