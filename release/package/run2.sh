@@ -363,7 +363,7 @@ test_memgraph() {
     upload-to-bench-graph)
       shift 1
       local setup_ve3_env="virtualenv -p python3 ve3 && source ve3/bin/activate && pip install -r requirements.txt"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/bench-graph-client && $setup_ve3_env && ./main.py $@"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/bench-graph-client && $setup_ve3_env "'&& ./main.py $@'
     ;;
     code-analysis)
       shift 1
@@ -377,7 +377,7 @@ test_memgraph() {
     ;;
     clang-tidy)
       shift 1
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export THREADS=$threads && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && ./clang_tidy.sh $@"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export THREADS=$threads && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis "'&& ./clang_tidy.sh $@'
     ;;
     *)
       echo "Error: Unknown test '$1'"
