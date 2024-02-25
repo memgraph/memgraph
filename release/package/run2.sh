@@ -55,7 +55,7 @@ print_help () {
   echo -e "  build-memgraph [OPTIONS]      Build memgraph inside mgbuild container"
   echo -e "  package-memgraph              Build memgraph and create deb package"
   echo -e "  test-memgraph TEST            Run a specific test on memgraph"
-  echo -e "  copy                          Copy an artifact from mgbuild container"
+  echo -e "  copy OPTIONS                  Copy an artifact from mgbuild container"
 
   echo -e "\nGlobal options:"
   echo -e "  --arch string                 Specify target architecture (\"${SUPPORTED_ARCHS[*]}\") (default \"$DEFAULT_ARCH\")"
@@ -77,6 +77,10 @@ print_help () {
 
   echo -e "\nstop options:"
   echo -e "  --remove                      Remove the stopped mgbuild container"
+
+  echo -e "\ncopy options:"
+  echo -e "  --binary                      Remove the stopped mgbuild container"
+  echo -e "  --package                     Remove the stopped mgbuild container"
 
   echo -e "\npush options:"
   echo -e "  -p, --password string         Specify password for docker login"
