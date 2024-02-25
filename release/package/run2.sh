@@ -367,7 +367,7 @@ test_memgraph() {
     ;;
     code-analysis)
       shift 1
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/code_analysis && ./python_code_analysis.sh $@"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/code_analysis "'&& ./python_code_analysis.sh $@'
     ;;
     code-coverage)
       local test_output_path="$MGBUILD_ROOT_DIR/tools/github/generated/code_coverage.tar.gz"
