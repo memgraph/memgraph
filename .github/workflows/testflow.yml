@@ -410,8 +410,8 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $arch \
-          --enterprise-license $memgraph_enterprise_license \
-          --organization-name $memgraph_organization_name \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph mgbench
 
       # - name: Upload mgbench results
@@ -518,8 +518,8 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $arch \
-          --enterprise-license $memgraph_enterprise_license \
-          --organization-name $memgraph_organization_name \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit-coverage
 
       - name: Compute code coverage
@@ -528,8 +528,8 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $arch \
-          --enterprise-license $memgraph_enterprise_license \
-          --organization-name $memgraph_organization_name \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph code-coverage
 
       - name: Save code coverage
