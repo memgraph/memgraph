@@ -258,15 +258,15 @@ package_memgraph() {
   local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
   local package_command=""
   if [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"fedora".* ]] || [[ "$os" =~ ^"amzn".* ]]; then
-      docker exec -u mg "$build_container" bash -c "yum -y update"
+      docker exec -u root "$build_container" bash -c "yum -y update"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
   fi
   if [[ "$os" =~ ^"debian".* ]]; then
-      docker exec -u mg "$build_container" bash -c "apt --allow-releaseinfo-change -y update"
+      docker exec -u root "$build_container" bash -c "apt --allow-releaseinfo-change -y update"
       package_command=" cpack -G DEB --config ../CPackConfig.cmake "
   fi
   if [[ "$os" =~ ^"ubuntu".* ]]; then
-      docker exec -u mg "$build_container" bash -c "apt update"
+      docker exec -u root "$build_container" bash -c "apt update"
       package_command=" cpack -G DEB --config ../CPackConfig.cmake "
   fi
   docker exec -u mg "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
