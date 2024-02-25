@@ -16,6 +16,7 @@ while [[ "$#" -gt 0 ]]; do
     ;;
     *)
       echo "Error: Unknown flag '$1'"
+      shift 2
     ;;
   esac
 done
