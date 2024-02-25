@@ -448,7 +448,7 @@ jobs:
       OS: debian-11
       TOOLCHAIN: v5
       ARCH: amd
-      BUILD_TYPE: Release
+      BUILD_TYPE: Debug
 
     steps:
       - name: Set up repository
