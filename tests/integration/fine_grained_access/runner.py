@@ -61,7 +61,12 @@ def execute_filtering(
 
 def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str) -> None:
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name]
+    memgraph_args = [
+        memgraph_binary,
+        "--data-directory",
+        storage_directory.name,
+        "--log-file=/tmp/memgraph_integration/logs/memgraph.log",
+    ]
 
     def execute_admin_queries(queries):
         return execute_tester(

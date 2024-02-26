@@ -73,6 +73,7 @@ def execute_test(memgraph_binary, dump_binary, test_directory, test_type, write_
         "--storage-properties-on-edges",
         "--data-directory",
         working_data_directory.name,
+        "--log-file=/tmp/memgraph_integration/logs/memgraph.log",
     ]
 
     # Start the memgraph binary

@@ -109,6 +109,7 @@ class Memgraph:
             self._storage_directory.name,
             "--auth-module-executable",
             kwargs.pop("module_executable", self._auth_module),
+            "--log-file=/tmp/memgraph_integration/logs/memgraph.log",
         ]
         for key, value in kwargs.items():
             ldap_key = "--auth-module-" + key.replace("_", "-")

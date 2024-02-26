@@ -131,7 +131,12 @@ def check_permissions(query_perms, user_perms):
 
 def execute_test(memgraph_binary, tester_binary, checker_binary):
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name]
+    memgraph_args = [
+        memgraph_binary,
+        "--data-directory",
+        storage_directory.name,
+        "--log-file=/tmp/memgraph_integration/logs/memgraph.log",
+    ]
 
     def execute_admin_queries(queries):
         return execute_tester(

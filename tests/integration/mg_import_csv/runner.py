@@ -51,7 +51,12 @@ def verify_lifetime(memgraph_binary, mg_import_csv_binary):
     storage_directory = tempfile.TemporaryDirectory()
 
     # Generate common args
-    common_args = ["--data-directory", storage_directory.name, "--storage-properties-on-edges=false"]
+    common_args = [
+        "--data-directory",
+        storage_directory.name,
+        "--storage-properties-on-edges=false",
+        "--log-file=/tmp/memgraph_integration/logs/memgraph.log",
+    ]
 
     # Start the memgraph binary
     memgraph_args = [memgraph_binary, "--storage-recover-on-startup"] + common_args
@@ -109,6 +114,7 @@ def execute_test(name, test_path, test_config, memgraph_binary, mg_import_csv_bi
         "--data-directory",
         storage_directory.name,
         "--storage-properties-on-edges=" + str(properties_on_edges).lower(),
+        "--log-file=/tmp/memgraph_integration/logs/memgraph.log",
     ]
 
     # Generate mg_import_csv args using flags specified in the test

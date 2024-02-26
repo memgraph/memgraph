@@ -80,7 +80,7 @@ def execute_test(memgraph_binary, tester_binary):
         "--data-directory",
         storage_directory.name,
         "--audit-enabled",
-        "--log-file=memgraph.log",
+        "--log-file=/tmp/memgraph_integration/logs/memgraph.log",
         "--log-level=TRACE",
     ]
 

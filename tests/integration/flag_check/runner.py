@@ -124,7 +124,12 @@ def test_init_and_init_data_file(flag_checker_binary: str, tester_binary: str, m
 
 def execute_test(memgraph_binary: str, tester_binary: str, flag_checker_binary: str) -> None:
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name]
+    memgraph_args = [
+        memgraph_binary,
+        "--data-directory",
+        storage_directory.name,
+        "--log-file=/tmp/memgraph_integration/logs/memgraph.log",
+    ]
 
     # Start the memgraph binary
     with open(os.path.join(os.getcwd(), "dummy_init_file.cypherl"), "w") as temp_file:

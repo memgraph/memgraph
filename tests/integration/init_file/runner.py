@@ -39,10 +39,28 @@ def terminate_memgraph(memgraph):
 def execute_test_restart_memgraph_with_init_file(memgraph_binary: str, tester_binary: str) -> None:
     storage_directory = tempfile.TemporaryDirectory()
     tester_args = [tester_binary, "--username", "memgraph1", "--password", "1234"]
-    memgraph = prepare_memgraph([memgraph_binary, "--data-directory", storage_directory.name, "--init-file", INIT_FILE])
+    memgraph = prepare_memgraph(
+        [
+            memgraph_binary,
+            "--data-directory",
+            storage_directory.name,
+            "--init-file",
+            INIT_FILE,
+            "--log-file=/tmp/memgraph_integration/logs/memgraph.log",
+        ]
+    )
     subprocess.run(tester_args, stdout=subprocess.PIPE, check=True).check_returncode()
     terminate_memgraph(memgraph)
-    memgraph = prepare_memgraph([memgraph_binary, "--data-directory", storage_directory.name, "--init-file", INIT_FILE])
+    memgraph = prepare_memgraph(
+        [
+            memgraph_binary,
+            "--data-directory",
+            storage_directory.name,
+            "--init-file",
+            INIT_FILE,
+            "--log-file=/tmp/memgraph_integration/logs/memgraph.log",
+        ]
+    )
     subprocess.run(tester_args, stdout=subprocess.PIPE, check=True).check_returncode()
     terminate_memgraph(memgraph)
 

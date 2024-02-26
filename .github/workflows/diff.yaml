@@ -218,7 +218,10 @@ jobs:
         if: always()
         with:
           name: "Test logs (Debug build)"
-          path: build/logs
+          path: |
+            build/logs
+            /tmp/memgraph_drivers/logs
+            /tmp/memgraph_integration/logs
 
   release_build:
     name: "Release build"
