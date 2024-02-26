@@ -9,6 +9,8 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import json
+import re
 import sys
 
 import gqlalchemy
@@ -60,31 +62,48 @@ def test_text_search_given_property(memgraph_with_text_indexed_data):
 
 
 def test_text_search_all_properties(memgraph_with_text_indexed_data):
-    result = list(
-        memgraph_with_text_indexed_data.execute_and_fetch(
-            """CALL text_search.search_all("complianceDocuments", "Rules2024") YIELD node
+    SEARCH_QUERY = "Rules2024"
+
+    ALL_PROPERTIES_QUERY = f"""CALL text_search.search_all("complianceDocuments", "{SEARCH_QUERY}") YIELD node
              RETURN node
              ORDER BY node.version ASC, node.title ASC;"""
-        )
+
+    result = list(memgraph_with_text_indexed_data.execute_and_fetch(ALL_PROPERTIES_QUERY))
+    result_nodes = [record["node"] for record in result]
+
+    assert len(result) == 3 and (
+        result_nodes[0].title == SEARCH_QUERY
+        and result_nodes[1].title == SEARCH_QUERY
+        and SEARCH_QUERY in result_nodes[2].fulltext
     )
 
-    print(result)
 
-    assert True
-
-
-def test_text_search_regex(memgraph_with_text_indexed_data):
-    result = list(
-        memgraph_with_text_indexed_data.execute_and_fetch(
-            """CALL text_search.regex_search("complianceDocuments", "Rules*") YIELD node
+def test_regex_text_search(memgraph_with_text_indexed_data):
+    REGEX_QUERY = """CALL text_search.regex_search("complianceDocuments", "wor.*s") YIELD node
              RETURN node
              ORDER BY node.version ASC, node.title ASC;"""
-        )
+
+    result = list(memgraph_with_text_indexed_data.execute_and_fetch(REGEX_QUERY))
+
+    assert (
+        len(result) == 2
+        and re.search("wor.*s", result[0]["node"].fulltext)
+        and re.search("wor.*s", result[1]["node"].fulltext)
+        # In this test, all values matching the regex string are found in the .node property only ^
     )
 
-    print(result)
 
-    assert True
+def test_text_search_aggregate(memgraph_with_text_indexed_data):
+    input_aggregation = json.dumps({"count": {"value_count": {"field": "metadata.gid"}}}, separators=(",", ":"))
+    expected_aggregation = json.dumps({"count": {"value": 2.0}}, separators=(",", ":"))
+
+    AGGREGATION_QUERY = f"""CALL text_search.aggregate("complianceDocuments", "data.title:Rules2024", '{input_aggregation}')
+                YIELD aggregation
+                RETURN aggregation;"""
+
+    result = list(memgraph_with_text_indexed_data.execute_and_fetch(AGGREGATION_QUERY))
+
+    assert len(result) == 1 and result[0]["aggregation"] == expected_aggregation
 
 
 def test_text_search_query_boolean(memgraph_with_text_indexed_data):

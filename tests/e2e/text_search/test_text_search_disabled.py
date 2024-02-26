@@ -38,5 +38,29 @@ def test_text_search_given_property(memgraph):
         )
 
 
+def test_text_search_all_properties(memgraph):
+    with pytest.raises(gqlalchemy.exceptions.GQLAlchemyDatabaseError, match=TEXT_SEARCH_DISABLED_ERROR) as _:
+        memgraph.execute(
+            """CALL text_search.search_all("complianceDocuments", "Rules2024") YIELD node
+             RETURN node;"""
+        )
+
+
+def test_regex_text_search(memgraph):
+    with pytest.raises(gqlalchemy.exceptions.GQLAlchemyDatabaseError, match=TEXT_SEARCH_DISABLED_ERROR) as _:
+        memgraph.execute(
+            """CALL text_search.regex_search("complianceDocuments", "wor.*s") YIELD node
+             RETURN node;"""
+        )
+
+
+def test_text_search_aggregate(memgraph):
+    with pytest.raises(gqlalchemy.exceptions.GQLAlchemyDatabaseError, match=TEXT_SEARCH_DISABLED_ERROR) as _:
+        memgraph.execute(
+            """CALL text_search.aggregate("complianceDocuments", "wor.*s", "dummyAggregation") YIELD aggregation
+             RETURN aggregation;"""
+        )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
