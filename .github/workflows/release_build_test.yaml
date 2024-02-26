@@ -63,7 +63,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output/release"
+          SOURCE_DIR: "build/output"
           DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
       - name: "Upload package"
         uses: actions/upload-artifact@v4
@@ -91,7 +91,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output/release"
+          SOURCE_DIR: "build/output"
           DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
       - name: "Upload package"
         uses: actions/upload-artifact@v4
@@ -120,7 +120,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output/release"
+          SOURCE_DIR: "build/output"
           DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
       - name: "Upload package"
         uses: actions/upload-artifact@v4
@@ -148,7 +148,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output/release"
+          SOURCE_DIR: "build/output"
           DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
       - name: "Upload package"
         uses: actions/upload-artifact@v4
@@ -177,7 +177,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output/release"
+          SOURCE_DIR: "build/output"
           DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
       - name: "Upload package"
         uses: actions/upload-artifact@v4
