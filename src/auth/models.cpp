@@ -425,10 +425,11 @@ Role::Role(const std::string &rolename, const Permissions &permissions)
     : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions) {}
 #ifdef MG_ENTERPRISE
 Role::Role(const std::string &rolename, const Permissions &permissions,
-           FineGrainedAccessHandler fine_grained_access_handler)
+           FineGrainedAccessHandler fine_grained_access_handler, Databases db_access)
     : rolename_(utils::ToLowerCase(rolename)),
       permissions_(permissions),
-      fine_grained_access_handler_(std::move(fine_grained_access_handler)) {}
+      fine_grained_access_handler_(std::move(fine_grained_access_handler)),
+      db_access_(std::move(db_access)) {}
 #endif
 
 const std::string &Role::rolename() const { return rolename_; }
@@ -454,8 +455,10 @@ nlohmann::json Role::Serialize() const {
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     data[kFineGrainedAccessHandler] = fine_grained_access_handler_.Serialize();
+    data[kDatabases] = db_access_.Serialize();
   } else {
     data[kFineGrainedAccessHandler] = {};
+    data[kDatabases] = {};
   }
 #endif
   return data;
@@ -471,12 +474,21 @@ Role Role::Deserialize(const nlohmann::json &data) {
   auto permissions = Permissions::Deserialize(data[kPermissions]);
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    Databases db_access;
+    if (data[kDatabases].is_structured()) {
+      db_access = Databases::Deserialize(data[kDatabases]);
+    } else {
+      // Back-compatibility
+      spdlog::warn("Role without specified database access. Given access to the default database.");
+      db_access.Grant(dbms::kDefaultDB);
+      db_access.SetMain(dbms::kDefaultDB);
+    }
     FineGrainedAccessHandler fine_grained_access_handler;
     // We can have an empty fine_grained if the user was created without a valid license
     if (data[kFineGrainedAccessHandler].is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
     }
-    return {data[kRoleName], permissions, std::move(fine_grained_access_handler)};
+    return {data[kRoleName], permissions, std::move(fine_grained_access_handler), std::move(db_access)};
   }
 #endif
   return {data[kRoleName], permissions};
@@ -493,7 +505,7 @@ bool operator==(const Role &first, const Role &second) {
 }
 
 #ifdef MG_ENTERPRISE
-void Databases::Add(std::string_view db) {
+void Databases::Grant(std::string_view db) {
   if (allow_all_) {
     grants_dbs_.clear();
     allow_all_ = false;
@@ -502,19 +514,19 @@ void Databases::Add(std::string_view db) {
   denies_dbs_.erase(std::string{db});  // TODO: C++23 use transparent key compare
 }
 
-void Databases::Remove(const std::string &db) {
+void Databases::Deny(const std::string &db) {
   denies_dbs_.emplace(db);
   grants_dbs_.erase(db);
 }
 
-void Databases::Delete(const std::string &db) {
+void Databases::Revoke(const std::string &db) {
   denies_dbs_.erase(db);
   if (!allow_all_) {
     grants_dbs_.erase(db);
   }
   // Reset if default deleted
-  if (default_db_ == db) {
-    default_db_ = "";
+  if (main_db_ == db) {
+    main_db_ = "";
   }
 }
 
@@ -530,9 +542,16 @@ void Databases::DenyAll() {
   denies_dbs_.clear();
 }
 
-bool Databases::SetDefault(std::string_view db) {
+void Databases::RevokeAll() {
+  allow_all_ = false;
+  grants_dbs_.clear();
+  denies_dbs_.clear();
+  main_db_ = "";
+}
+
+bool Databases::SetMain(std::string_view db) {
   if (!Contains(db)) return false;
-  default_db_ = db;
+  main_db_ = db;
   return true;
 }
 
@@ -540,11 +559,11 @@ bool Databases::SetDefault(std::string_view db) {
   return !denies_dbs_.contains(db) && (allow_all_ || grants_dbs_.contains(db));
 }
 
-const std::string &Databases::GetDefault() const {
-  if (!Contains(default_db_)) {
-    throw AuthException("No access to the set default database \"{}\".", default_db_);
+const std::string &Databases::GetMain() const {
+  if (!Contains(main_db_)) {
+    throw AuthException("No access to the set default database \"{}\".", main_db_);
   }
-  return default_db_;
+  return main_db_;
 }
 
 nlohmann::json Databases::Serialize() const {
@@ -552,7 +571,7 @@ nlohmann::json Databases::Serialize() const {
   data[kGrants] = grants_dbs_;
   data[kDenies] = denies_dbs_;
   data[kAllowAll] = allow_all_;
-  data[kDefault] = default_db_;
+  data[kDefault] = main_db_;
   return data;
 }
 
@@ -719,15 +738,16 @@ User User::Deserialize(const nlohmann::json &data) {
     } else {
       // Back-compatibility
       spdlog::warn("User without specified database access. Given access to the default database.");
-      db_access.Add(dbms::kDefaultDB);
-      db_access.SetDefault(dbms::kDefaultDB);
+      db_access.Grant(dbms::kDefaultDB);
+      db_access.SetMain(dbms::kDefaultDB);
     }
     FineGrainedAccessHandler fine_grained_access_handler;
     // We can have an empty fine_grained if the user was created without a valid license
     if (data[kFineGrainedAccessHandler].is_object()) {
       fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data[kFineGrainedAccessHandler]);
     }
-    return {data[kUsername], std::move(password_hash), permissions, std::move(fine_grained_access_handler), db_access};
+    return {data[kUsername], std::move(password_hash), permissions, std::move(fine_grained_access_handler),
+            std::move(db_access)};
   }
 #endif
   return {data[kUsername], std::move(password_hash), permissions};

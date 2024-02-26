@@ -22,6 +22,7 @@
 #include "gtest/gtest.h"
 
 #include "communication/result_stream_faker.hpp"
+#include "query/auth_checker.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/stream/streams.hpp"
@@ -36,6 +37,7 @@ class QueryExecution : public testing::Test {
   const std::string testSuite = "query_plan_edge_cases";
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
   std::optional<memgraph::query::InterpreterContext> interpreter_context_;
+  std::optional<memgraph::query::AllowEverythingAuthChecker> auth_checker_;
   std::optional<memgraph::query::Interpreter> interpreter_;
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
@@ -73,11 +75,14 @@ class QueryExecution : public testing::Test {
                                  nullptr
 #endif
     );
+    auth_checker_.emplace();
     interpreter_.emplace(&*interpreter_context_, *db_acc_);
+    interpreter_->SetUser(auth_checker_->GenQueryUser(std::nullopt, std::nullopt));
   }
 
   void TearDown() override {
     interpreter_ = std::nullopt;
+    auth_checker_.reset();
     interpreter_context_ = std::nullopt;
     system_state.reset();
     db_acc_.reset();

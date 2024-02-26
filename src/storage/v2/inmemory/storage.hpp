@@ -368,9 +368,8 @@ class InMemoryStorage final : public Storage {
   bool InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch);
   void FinalizeWalFile();
 
-  StorageInfo GetBaseInfo(bool force_directory) override;
-  StorageInfo GetInfo(bool force_directory,
-                      memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
+  StorageInfo GetBaseInfo() override;
+  StorageInfo GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
