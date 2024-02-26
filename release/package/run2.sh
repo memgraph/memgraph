@@ -405,8 +405,8 @@ test_memgraph() {
     ;;
     e2e)
       local setup_hostnames="export KAFKA_HOSTNAME=kafka && PULSAR_HOSTNAME=pulsar"
-      docker connect kafka_kafka_1 package_default
-      docker connect pulsar_pulsar_1 package_default
+      docker network connect package_default kafka_kafka_1
+      docker network connect package_default pulsar_pulsar_1
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $setup_hostnames && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
     *)
