@@ -95,6 +95,7 @@ std::string TextIndex::CopyPropertyValuesToString(const std::map<PropertyId, Pro
       case PropertyValue::Type::String:
         indexable_properties_as_string.push_back(prop_value.ValueString());
         break;
+      // NOTE: As the following types aren‘t indexed in Tantivy, they don’t appear in the property value string either.
       case PropertyValue::Type::Null:
       case PropertyValue::Type::List:
       case PropertyValue::Type::Map:
