@@ -302,7 +302,7 @@ class DbmsHandler {
       auto db_acc_opt = db_gk.access();
       if (db_acc_opt) {
         auto &db_acc = *db_acc_opt;
-        const auto &info = db_acc->GetInfo(false, replication_role);
+        const auto &info = db_acc->GetInfo(replication_role);
         const auto &storage_info = info.storage_info;
         stats.num_vertex += storage_info.vertex_count;
         stats.num_edges += storage_info.edge_count;
@@ -338,7 +338,7 @@ class DbmsHandler {
       auto db_acc_opt = db_gk.access();
       if (db_acc_opt) {
         auto &db_acc = *db_acc_opt;
-        res.push_back(db_acc->GetInfo(false, replication_role));
+        res.push_back(db_acc->GetInfo(replication_role));
       }
     }
     return res;
