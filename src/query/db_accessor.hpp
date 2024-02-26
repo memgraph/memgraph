@@ -585,6 +585,11 @@ class DbAccessor final {
     return accessor_->TextIndexSearch(index_name, search_query, search_mode);
   }
 
+  std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                 const std::string &aggregation_query) const {
+    return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
+  }
+
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
   }

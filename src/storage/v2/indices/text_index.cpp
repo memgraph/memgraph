@@ -162,14 +162,20 @@ void TextIndex::CommitLoadedNodes(mgcxx::text_search::Context &index_context) {
 }
 
 void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
-                        std::optional<std::vector<mgcxx::text_search::Context *>> applicable_text_indices) {
+                        std::optional<std::vector<mgcxx::text_search::Context *>> maybe_applicable_text_indices) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
+  auto applicable_text_indices =
+      maybe_applicable_text_indices.value_or(GetApplicableTextIndices(vertex_after_update->labels));
+  if (applicable_text_indices.empty()) {
+    return;
+  }
+
   auto vertex_properties = vertex_after_update->properties.Properties();
   LoadNodeToTextIndices(vertex_after_update->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                        applicable_text_indices.value_or(GetApplicableTextIndices(vertex_after_update->labels)));
+                        CopyPropertyValuesToString(vertex_properties), applicable_text_indices);
 }
 
 void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
@@ -274,13 +280,7 @@ bool TextIndex::IndexExists(const std::string &index_name) const { return index_
 
 mgcxx::text_search::SearchOutput TextIndex::TQLSearch(const std::string &index_name, const std::string &search_query) {
   auto input = mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"data", "metadata"}};
-  // // Basic check for search fields in the query (Tantivy syntax delimits them with a `:` to the right)
-  // if (search_query.find(":") == std::string::npos) {
-  //   input.search_fields = {"data"};
-  // }
-
   mgcxx::text_search::SearchOutput search_results;
-
   try {
     search_results = mgcxx::text_search::search(index_.at(index_name).context_, input);
   } catch (const std::exception &e) {
@@ -352,6 +352,33 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
     found_nodes.push_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()));
   }
   return found_nodes;
+}
+
+std::string TextIndex::Aggregate(const std::string &index_name, const std::string &search_query,
+                                 const std::string &aggregation_query) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    throw query::TextSearchDisabledException();
+  }
+
+  if (!index_.contains(index_name)) {
+    throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
+  }
+
+  mgcxx::text_search::DocumentOutput aggregation_result;
+  try {
+    aggregation_result = mgcxx::text_search::aggregate(
+        index_.at(index_name).context_,
+        mgcxx::text_search::SearchInput{
+            .search_fields = {"all"}, .search_query = search_query, .aggregation_query = aggregation_query});
+
+  } catch (const std::exception &e) {
+    throw query::TextSearchException("Tantivy error: {}", e.what());
+  }
+  // The CXX .data() method (https://cxx.rs/binding/string.html) may overestimate string length, causing JSON parsing
+  // errors downstream. We prevent this by resizing the converted string with the correctly-working .length() method.
+  std::string result_string = aggregation_result.data.data();
+  result_string.resize(aggregation_result.data.length());
+  return result_string;
 }
 
 void TextIndex::Commit() {

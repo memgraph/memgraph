@@ -245,6 +245,11 @@ class Storage {
       return storage_->indices_.text_index_.Search(index_name, search_query, search_mode);
     }
 
+    std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                   const std::string &aggregation_query) const {
+      return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
+    }
+
     virtual IndicesInfo ListAllIndices() const = 0;
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;

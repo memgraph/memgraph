@@ -85,6 +85,9 @@ class TextIndex {
   std::vector<Gid> Search(const std::string &index_name, const std::string &search_query,
                           const std::string &search_mode);
 
+  std::string Aggregate(const std::string &index_name, const std::string &search_query,
+                        const std::string &aggregation_query);
+
   void Commit();
 
   void Rollback();

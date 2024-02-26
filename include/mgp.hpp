@@ -4349,8 +4349,8 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
   return List(label_property_indices);
 }
 
-inline List RunTextSearchQuery(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
-                               std::string_view search_mode) {
+inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
+                            std::string_view search_mode) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_index, memgraph_graph, index_name.data(),
                                                       search_query.data(), search_mode.data()));
   auto maybe_error = results_or_error["error_msg"].ValueString();
@@ -4359,6 +4359,18 @@ inline List RunTextSearchQuery(mgp_graph *memgraph_graph, std::string_view index
   }
 
   return results_or_error["search_results"].ValueList();
+}
+
+inline std::string AggregateOverTextIndex(mgp_graph *memgraph_graph, std::string_view index_name,
+                                          std::string_view search_query, std::string_view search_mode) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_aggregate_over_text_index, memgraph_graph,
+                                                      index_name.data(), search_query.data(), search_mode.data()));
+  auto maybe_error = results_or_error["error_msg"].ValueString();
+  if (!maybe_error.empty()) {
+    throw TextSearchException(maybe_error.data());
+  }
+
+  return results_or_error["aggregation_results"].ValueString().data();
 }
 
 inline bool CreateExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label,

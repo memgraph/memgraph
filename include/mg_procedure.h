@@ -892,14 +892,22 @@ enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex
                                           struct mgp_vertex **result);
 
 /// Result is non-zero if the index with the given name exists.
-/// Current implementation always returns without errors.
+/// The current implementation always returns without errors.
 enum mgp_error mgp_graph_has_text_index(struct mgp_graph *graph, const char *index_name, int *result);
 
 /// Search the named text index for the given query. The result is a list of the vertices whose text properties match
 /// the given query.
-/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate search result vertices.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
+/// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
 enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, const char *index_name, const char *search_query,
                                            const char *search_mode, struct mgp_memory *memory, struct mgp_map **result);
+
+/// Search the named text index for the given query and aggregate over the search results.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
+/// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
+enum mgp_error mgp_graph_aggregate_over_text_index(struct mgp_graph *graph, const char *index_name,
+                                                   const char *search_query, const char *aggregation_query,
+                                                   struct mgp_memory *memory, struct mgp_map **result);
 
 /// Creates label index for given label.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.
