@@ -149,12 +149,12 @@ def test_distributed_automatic_failover():
         return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "main"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 

@@ -1265,14 +1265,13 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Only coordinator can run SHOW INSTANCES.");
       }
 
-      callback.header = {"name", "raft_socket_address", "coordinator_socket_address", "alive", "role"};
+      callback.header = {"name", "raft_socket_address", "coordinator_socket_address", "health", "role"};
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      replica_nfields = callback.header.size()]() mutable {
         auto const instances = handler.ShowInstances();
         auto const converter = [](const auto &status) -> std::vector<TypedValue> {
           return {TypedValue{status.instance_name}, TypedValue{status.raft_socket_address},
-                  TypedValue{status.coord_socket_address}, TypedValue{status.is_alive},
-                  TypedValue{status.cluster_role}};
+                  TypedValue{status.coord_socket_address}, TypedValue{status.health}, TypedValue{status.cluster_role}};
         };
 
         return utils::fmap(converter, instances);
