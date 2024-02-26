@@ -457,7 +457,7 @@ jobs:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       OS: debian-10
-      TOOLCHAIN: v5
+      TOOLCHAIN: v4
       ARCH: amd
       BUILD_TYPE: RelWithDebInfo
 
