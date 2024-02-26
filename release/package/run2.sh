@@ -2,7 +2,6 @@
 set -Eeuo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR/../.."
-HOST_OUTPUT_DIR="$PROJECT_ROOT/build/output"
 MGBUILD_HOME_DIR="/home/mg"
 MGBUILD_ROOT_DIR="$MGBUILD_HOME_DIR/memgraph"
 
@@ -297,16 +296,32 @@ package_memgraph() {
 }
 
 copy_memgraph() {
-  local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
   local build_container="mgbuild_${toolchain_version}_${os}"
-  echo "Copying targeted package to host..."
-  local last_package_name=$(docker exec -u mg "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
-  # The operating system folder is introduced because multiple different
-  # packages could be preserved during the same build "session".
-  mkdir -p "$HOST_OUTPUT_DIR/$os"
-  local package_host_destination="$HOST_OUTPUT_DIR/$os/$last_package_name"
-  docker cp "$build_container:$container_output_dir/$last_package_name" "$package_host_destination"
-  echo "Package saved to $package_host_destination."
+  case "$1" in
+    --binary)
+      echo "Copying memgraph binary to host..."
+      local container_output_path="$MGBUILD_ROOT_DIR/build/memgraph"
+      local host_output_path="$PROJECT_ROOT/build/memgraph"
+      mkdir -p "$PROJECT_ROOT/build"
+      docker cp -L $build_container:$container_output_path $host_output_path 
+      echo "Binary saved to $host_output_path"
+    ;;
+    --package)
+      echo "Copying memgraph package to host..."
+      local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
+      local host_output_dir="$PROJECT_ROOT/build/output/$os"
+      local last_package_name=$(docker exec -u mg "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
+      # The operating system folder is introduced because multiple different
+      # packages could be preserved during the same build "session".
+      mkdir -p "$host_output_dir"
+      docker cp "$build_container:$container_output_dir/$last_package_name" "$host_output_dir/$last_package_name"
+      echo "Package saved to $host_output_dir/$last_package_name"
+    ;;
+    *)
+      echo "Error: Unknown flag '$1'"
+      exit 1
+    ;;
+  esac
 }
 
 
