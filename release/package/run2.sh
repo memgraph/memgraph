@@ -32,9 +32,12 @@ SUPPORTED_ARCHS=(
     arm
 )
 SUPPORTED_TESTS=(
-    unit stress-plain stress-ssl drivers integration durability
-    gql-behave cppcheck-and-clang-format leftover-CTest
-    macro-benchmark mgbbench upload-to-bench-graph
+    clang-tidy cppcheck-and-clang-format code-analysis
+    code-coverage drivers durability gql-behave
+    integration leftover-CTest macro-benchmark
+    mgbench stress-plain stress-ssl 
+    unit unit-coverage upload-to-bench-graph
+
 )
 DEFAULT_THREADS=$(nproc)
 DEFAULT_ENTERPRISE_LICENSE=""
@@ -362,7 +365,7 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export USER=mg && export LANG=$(echo $LANG) && cd $MGBUILD_ROOT_DIR/tests/macro_benchmark "'&& ./harness QuerySuite MemgraphRunner --groups aggregation 1000_create unwind_create dense_expand match --no-strict'
     ;;
     mgbench)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbbench "'&& ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench "'&& ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*'
     ;;
     upload-to-bench-graph)
       shift 1
@@ -376,7 +379,8 @@ test_memgraph() {
     code-coverage)
       local test_output_path="$MGBUILD_ROOT_DIR/tools/github/generated/code_coverage.tar.gz"
       local test_output_host_dest="$PROJECT_ROOT/tools/github/generated/code_coverage.tar.gz"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tools/github && ./coverage_convert && cd $MGBUILD_ROOT_DIR/tools/github/generated && tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tools/github "'&& ./coverage_convert'
+      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tools/github/generated && tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu"
       docker cp $build_container:$test_output_path $test_output_host_dest
     ;;
     clang-tidy)

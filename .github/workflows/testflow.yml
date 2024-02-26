@@ -15,7 +15,7 @@ on:
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, deadpool]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -71,9 +71,129 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+  code_analysis:
+    name: "Code analysis"
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: debian-11
+      TOOLCHAIN: v5
+      ARCH: amd
+      BUILD_TYPE: Debug
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+        # This is also needed if we want do to comparison against other branches
+        # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
+      - name: Fetch all history for all tags and branches
+        run: git fetch
+
+      - name: Initialize deps
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph --init-only
+
+      - name: Set base branch
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
+
+      - name: Set base branch # if we manually dispatch or push to master
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
+
+      - name: Python code analysis
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph code-analysis --base-branch "${{ env.BASE_BRANCH }}"
+
+      - name: Build combined ASAN, UBSAN and coverage binaries
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph --coverage --asan --ubsan
+          # make -j$THREADS memgraph__unit
+
+      - name: Run unit tests
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph unit-coverage
+
+      - name: Compute code coverage
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph code-coverage
+
+      - name: Save code coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Code coverage(Code analysis)"
+          path: tools/github/generated/code_coverage.tar.gz
+
+      - name: Run clang-tidy
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, hulk]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -170,7 +290,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, black-widow]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -331,8 +451,7 @@ jobs:
 
   release_benchmarks:
     name: "Release benchmarks"
-    # Add Gen7
-    runs-on: [self-hosted, magneto]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -428,126 +547,6 @@ jobs:
       #     --github-run-id "${{ github.run_id }}" \
       #     --github-run-number "${{ github.run_number }}" \
       #     --head-branch-name "${{ env.BRANCH_NAME }}"
-
-      - name: Stop mgbuild container
-        if: always()
-        run: |
-          ./release/package/run2.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          stop --remove
-
-  code_analysis:
-    name: "Code analysis"
-    runs-on: [self-hosted, gamora]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-      OS: debian-11
-      TOOLCHAIN: v5
-      ARCH: amd
-      BUILD_TYPE: Debug
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v4
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Spin up mgbuild container
-        run: |
-          ./release/package/run2.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run
-
-        # This is also needed if we want do to comparison against other branches
-        # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
-      - name: Fetch all history for all tags and branches
-        run: git fetch
-
-      - name: Initialize deps
-        run: |
-          ./release/package/run2.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --build-type $BUILD_TYPE \
-          --threads $THREADS \
-          build-memgraph --init-only
-
-      - name: Set base branch
-        if: ${{ github.event_name == 'pull_request' }}
-        run: |
-          echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
-
-      - name: Set base branch # if we manually dispatch or push to master
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
-
-      - name: Python code analysis
-        run: |
-          ./release/package/run2.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph code-analysis --base-branch "${{ env.BASE_BRANCH }}"
-
-      - name: Build combined ASAN, UBSAN and coverage binaries
-        run: |
-          ./release/package/run2.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --build-type $BUILD_TYPE \
-          --threads $THREADS \
-          build-memgraph --coverage --asan --ubsan
-          # make -j$THREADS memgraph__unit
-
-      - name: Run unit tests
-        run: |
-          ./release/package/run2.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph unit-coverage
-
-      - name: Compute code coverage
-        run: |
-          ./release/package/run2.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph code-coverage
-
-      - name: Save code coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: "Code coverage(Code analysis)"
-          path: tools/github/generated/code_coverage.tar.gz
-
-      - name: Run clang-tidy
-        run: |
-          ./release/package/run2.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --threads $THREADS \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"
 
       - name: Stop mgbuild container
         if: always()
