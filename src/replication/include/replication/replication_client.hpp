@@ -14,7 +14,9 @@
 #include "replication/config.hpp"
 #include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 
@@ -114,8 +116,9 @@ struct ReplicationClient {
   enum class State {
     BEHIND,
     READY,
+    RECOVERY,
   };
-  utils::Synchronized<State> state_{State::BEHIND};
+  utils::Synchronized<State, utils::WritePrioritizedRWLock> state_{State::BEHIND};
 
   replication_coordination_glue::ReplicationMode mode_{replication_coordination_glue::ReplicationMode::SYNC};
   // This thread pool is used for background tasks so we don't
