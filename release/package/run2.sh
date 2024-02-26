@@ -462,7 +462,7 @@ while [[ $# -gt 0 ]]; do
     ;;
     --toolchain)
         toolchain_version=$2
-        check_support toolchain $toolchain
+        check_support toolchain $toolchain_version
         shift 2
     ;;
     *)
