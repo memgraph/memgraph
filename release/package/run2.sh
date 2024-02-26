@@ -33,7 +33,7 @@ SUPPORTED_ARCHS=(
 )
 SUPPORTED_TESTS=(
     clang-tidy cppcheck-and-clang-format code-analysis
-    code-coverage drivers durability gql-behave
+    code-coverage drivers durability e2e gql-behave
     integration leftover-CTest macro-benchmark
     mgbench stress-plain stress-ssl 
     unit unit-coverage upload-to-bench-graph
@@ -381,11 +381,18 @@ test_memgraph() {
       local test_output_host_dest="$PROJECT_ROOT/tools/github/generated/code_coverage.tar.gz"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tools/github "'&& ./coverage_convert'
       docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tools/github/generated && tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu"
+      mkdir -p $PROJECT_ROOT/tools/github/generated
       docker cp $build_container:$test_output_path $test_output_host_dest
     ;;
     clang-tidy)
       shift 1
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export THREADS=$threads && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis "'&& ./clang_tidy.sh $@'
+    ;;
+    e2e)
+      local setup_hostnames="export KAFKA_HOSTNAME=kafka && PULSAR_HOSTNAME=pulsar"
+      docker connect kafka_kafka_1 package_default
+      docker connect pulsar_pulsar_1 package_default
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $setup_hostnames && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
     *)
       echo "Error: Unknown test '$1'"
