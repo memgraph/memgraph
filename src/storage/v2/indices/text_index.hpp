@@ -46,7 +46,8 @@ class TextIndex {
 
   void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
 
-  mgcxx::text_search::SearchOutput TQLSearch(const std::string &index_name, const std::string &search_query);
+  mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
+                                                         const std::string &search_query);
 
   mgcxx::text_search::SearchOutput RegexSearch(const std::string &index_name, const std::string &search_query);
 

@@ -279,7 +279,8 @@ LabelId TextIndex::DropIndex(const std::string &index_name) {
 
 bool TextIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
 
-mgcxx::text_search::SearchOutput TextIndex::TQLSearch(const std::string &index_name, const std::string &search_query) {
+mgcxx::text_search::SearchOutput TextIndex::SearchGivenProperties(const std::string &index_name,
+                                                                  const std::string &search_query) {
   auto input = mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"data", "metadata"}};
   mgcxx::text_search::SearchOutput search_results;
   try {
@@ -334,13 +335,15 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
 
   mgcxx::text_search::SearchOutput search_results;
   if (search_mode == "specify_property") {
-    search_results = TQLSearch(index_name, search_query);
+    search_results = SearchGivenProperties(index_name, search_query);
   } else if (search_mode == "regex") {
     search_results = RegexSearch(index_name, search_query);
   } else if (search_mode == "all_properties") {
     search_results = SearchAllProperties(index_name, search_query);
   } else {
-    throw query::TextSearchException("Unsupported search type");  // TODO improve
+    throw query::TextSearchException(
+        "Unsupported search mode: please use one of text_search.search, text_search.search_all, or "
+        "text_search.regex_search.");
   }
 
   std::vector<Gid> found_nodes;
