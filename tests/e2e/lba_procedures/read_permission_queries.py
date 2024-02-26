@@ -107,17 +107,20 @@ def execute_read_node_assertion(
     operation_case: List[str], queries: List[str], create_index: bool, expected_size: int, switch: bool
 ) -> None:
     admin_cursor = get_admin_cursor()
-    user_cursor = get_user_cursor()
 
     if switch:
         create_multi_db(admin_cursor)
         switch_db(admin_cursor)
-        switch_db(user_cursor)
 
     reset_permissions(admin_cursor, create_index)
 
     for operation in operation_case:
         execute_and_fetch_all(admin_cursor, operation)
+
+    # Connect after possible auth changes
+    user_cursor = get_user_cursor()
+    if switch:
+        switch_db(user_cursor)
 
     for mq in queries:
         results = execute_and_fetch_all(user_cursor, mq)
