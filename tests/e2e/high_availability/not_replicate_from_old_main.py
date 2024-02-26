@@ -67,7 +67,13 @@ def test_replication_works_on_failover():
     # 2
     main_cursor = connect(host="localhost", port=7687).cursor()
     expected_data_on_main = [
-        ("shared_replica", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        (
+            "shared_replica",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
     assert actual_data_on_main == expected_data_on_main
@@ -82,8 +88,20 @@ def test_replication_works_on_failover():
         return sorted(list(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;")))
 
     expected_data_on_new_main = [
-        ("replica", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("shared_replica", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        (
+            "replica",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "shared_replica",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
 

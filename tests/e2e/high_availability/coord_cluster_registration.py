@@ -312,8 +312,20 @@ def test_unregister_replicas(kill_instance):
     ]
 
     expected_replicas = [
-        ("instance_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
 
     mg_sleep_and_assert(expected_cluster, check_coordinator3)
@@ -330,7 +342,13 @@ def test_unregister_replicas(kill_instance):
     ]
 
     expected_replicas = [
-        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
 
     mg_sleep_and_assert(expected_cluster, check_coordinator3)
@@ -406,7 +424,13 @@ def test_unregister_main():
     ]
 
     expected_replicas = [
-        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
 
     main_cursor = connect(host="localhost", port=7687).cursor()

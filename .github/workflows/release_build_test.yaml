@@ -56,6 +56,15 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package debian-10 $BUILD_TYPE
+      - name: Upload to S3
+        uses: jakejarvis/s3-sync-action@v0.5.1
+        env:
+          AWS_S3_BUCKET: "deps.memgraph.io"
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          SOURCE_DIR: "build/output"
+          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
       - name: "Upload package"
         uses: actions/upload-artifact@v4
         with:
@@ -75,6 +84,15 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package ubuntu-22.04 $BUILD_TYPE
+      - name: Upload to S3
+        uses: jakejarvis/s3-sync-action@v0.5.1
+        env:
+          AWS_S3_BUCKET: "deps.memgraph.io"
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          SOURCE_DIR: "build/output"
+          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
       - name: "Upload package"
         uses: actions/upload-artifact@v4
         with:
@@ -86,7 +104,7 @@ jobs:
     needs: [Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
     # M1 Mac mini is sometimes slower
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v4
@@ -95,6 +113,15 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package ubuntu-22.04-arm $BUILD_TYPE
+      - name: Upload to S3
+        uses: jakejarvis/s3-sync-action@v0.5.1
+        env:
+          AWS_S3_BUCKET: "deps.memgraph.io"
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          SOURCE_DIR: "build/output"
+          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
       - name: "Upload package"
         uses: actions/upload-artifact@v4
         with:
@@ -114,6 +141,15 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package debian-11 $BUILD_TYPE
+      - name: Upload to S3
+        uses: jakejarvis/s3-sync-action@v0.5.1
+        env:
+          AWS_S3_BUCKET: "deps.memgraph.io"
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "eu-west-1"
+          SOURCE_DIR: "build/output"
+          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
       - name: "Upload package"
         uses: actions/upload-artifact@v4
         with:
@@ -125,7 +161,7 @@ jobs:
     needs: [Debian10, Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
     # M1 Mac mini is sometimes slower
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v4
@@ -134,23 +170,6 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package debian-11-arm $BUILD_TYPE
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: debian-11-aarch64
-          path: build/output/debian-11-arm/memgraph*.deb
-
-  PushToS3:
-    if: github.ref_type == 'tag'
-    needs: [PackageDebian10, PackageDebian11, PackageDebian11_ARM, PackageUbuntu20_04, PackageUbuntu20_04_ARM]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          # name: # if name input parameter is not provided, all artifacts are downloaded
-                  # and put in directories named after each one.
-          path: build/output/release
       - name: Upload to S3
         uses: jakejarvis/s3-sync-action@v0.5.1
         env:
@@ -158,5 +177,10 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output/release"
+          SOURCE_DIR: "build/output"
           DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
+      - name: "Upload package"
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-11-aarch64
+          path: build/output/debian-11-arm/memgraph*.deb

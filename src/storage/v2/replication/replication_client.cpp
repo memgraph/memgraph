@@ -95,7 +95,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) {
   TimestampInfo info;
   info.current_timestamp_of_replica = 0;
-  info.current_number_of_timestamp_behind_master = 0;
+  info.current_number_of_timestamp_behind_main = 0;
 
   try {
     auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(main_uuid_, storage->uuid())};
@@ -104,9 +104,9 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
 
     auto main_time_stamp = storage->repl_storage_state_.last_commit_timestamp_.load();
     info.current_timestamp_of_replica = response.current_commit_timestamp;
-    info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
+    info.current_number_of_timestamp_behind_main = response.current_commit_timestamp - main_time_stamp;
 
-    if (!is_success || info.current_number_of_timestamp_behind_master != 0) {
+    if (!is_success || info.current_number_of_timestamp_behind_main != 0) {
       replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
     }

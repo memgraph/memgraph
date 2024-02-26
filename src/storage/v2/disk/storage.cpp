@@ -825,7 +825,7 @@ uint64_t DiskStorage::GetDiskSpaceUsage() const {
          durability_disk_storage_size;
 }
 
-StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
+StorageInfo DiskStorage::GetBaseInfo() {
   StorageInfo info{};
   info.vertex_count = vertex_count_;
   info.edge_count = edge_count_.load(std::memory_order_acquire);
@@ -838,9 +838,8 @@ StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
   return info;
 }
 
-StorageInfo DiskStorage::GetInfo(bool force_dir,
-                                 memgraph::replication_coordination_glue::ReplicationRole replication_role) {
-  StorageInfo info = GetBaseInfo(force_dir);
+StorageInfo DiskStorage::GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+  StorageInfo info = GetBaseInfo();
   {
     auto access = Access(replication_role);
     const auto &lbl = access->ListAllIndices();
