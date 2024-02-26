@@ -17,7 +17,7 @@ import tempfile
 import interactive_mg_runner
 import pytest
 from common import connect, execute_and_fetch_all, safe_execute
-from mg_utils import mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -123,11 +123,23 @@ def test_distributed_automatic_failover():
 
     main_cursor = connect(host="localhost", port=7689).cursor()
     expected_data_on_main = [
-        ("instance_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
     actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
-    assert actual_data_on_main == expected_data_on_main
+    assert actual_data_on_main == sorted(expected_data_on_main)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
@@ -152,18 +164,42 @@ def test_distributed_automatic_failover():
         return sorted(list(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;")))
 
     expected_data_on_new_main = [
-        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("instance_3", "127.0.0.1:10003", "sync", 0, 0, "invalid"),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "instance_3",
+            "127.0.0.1:10003",
+            "sync",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
     ]
-    mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
+    mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
     expected_data_on_new_main_old_alive = [
-        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("instance_3", "127.0.0.1:10003", "sync", 0, 0, "ready"),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "instance_3",
+            "127.0.0.1:10003",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
     ]
 
-    mg_sleep_and_assert(expected_data_on_new_main_old_alive, retrieve_data_show_replicas)
+    mg_sleep_and_assert_collection(expected_data_on_new_main_old_alive, retrieve_data_show_replicas)
 
 
 if __name__ == "__main__":
