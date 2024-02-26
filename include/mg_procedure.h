@@ -900,7 +900,7 @@ enum mgp_error mgp_graph_has_text_index(struct mgp_graph *graph, const char *ind
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
 enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, const char *index_name, const char *search_query,
-                                           const char *search_mode, struct mgp_memory *memory, struct mgp_map **result);
+                                           int search_mode, struct mgp_memory *memory, struct mgp_map **result);
 
 /// Search the named text index for the given query and aggregate over the search results.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.

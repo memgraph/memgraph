@@ -42,7 +42,8 @@ void TextSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
   try {
     const auto *index_name = arguments[0].ValueString().data();
     const auto *search_query = arguments[1].ValueString().data();
-    for (const auto &node : mgp::SearchTextIndex(memgraph_graph, index_name, search_query, "specify_property")) {
+    for (const auto &node :
+         mgp::SearchTextIndex(memgraph_graph, index_name, search_query, mgp::TextSearchMode::SPECIFIED_PROPERTIES)) {
       auto record = record_factory.NewRecord();
       record.Insert(TextSearch::kReturnNode.data(), node.ValueNode());
     }
@@ -59,7 +60,8 @@ void TextSearch::RegexSearch(mgp_list *args, mgp_graph *memgraph_graph, mgp_resu
   try {
     const auto *index_name = arguments[0].ValueString().data();
     const auto *search_query = arguments[1].ValueString().data();
-    for (const auto &node : mgp::SearchTextIndex(memgraph_graph, index_name, search_query, "regex")) {
+    for (const auto &node :
+         mgp::SearchTextIndex(memgraph_graph, index_name, search_query, mgp::TextSearchMode::REGEX)) {
       auto record = record_factory.NewRecord();
       record.Insert(TextSearch::kReturnNode.data(), node.ValueNode());
     }
@@ -77,7 +79,8 @@ void TextSearch::SearchAllProperties(mgp_list *args, mgp_graph *memgraph_graph, 
   try {
     const auto *index_name = arguments[0].ValueString().data();
     const auto search_query = kSearchAllPrefix + std::string(arguments[1].ValueString());
-    for (const auto &node : mgp::SearchTextIndex(memgraph_graph, index_name, search_query, "all_properties")) {
+    for (const auto &node :
+         mgp::SearchTextIndex(memgraph_graph, index_name, search_query, mgp::TextSearchMode::ALL_PROPERTIES)) {
       auto record = record_factory.NewRecord();
       record.Insert(TextSearch::kReturnNode.data(), node.ValueNode());
     }
@@ -95,9 +98,10 @@ void TextSearch::Aggregate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result
     const auto *index_name = arguments[0].ValueString().data();
     const auto *search_query = arguments[1].ValueString().data();
     const auto *aggregation_query = arguments[2].ValueString().data();
-    const auto result = mgp::AggregateOverTextIndex(memgraph_graph, index_name, search_query, aggregation_query);
+    const auto aggregation_result =
+        mgp::AggregateOverTextIndex(memgraph_graph, index_name, search_query, aggregation_query);
     auto record = record_factory.NewRecord();
-    record.Insert(TextSearch::kReturnAggregation.data(), result);
+    record.Insert(TextSearch::kReturnAggregation.data(), aggregation_result.data());
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
   }

@@ -241,7 +241,7 @@ class Storage {
     }
 
     std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                     const std::string &search_mode) const {
+                                     TextSearchMode search_mode) const {
       return storage_->indices_.text_index_.Search(index_name, search_query, search_mode);
     }
 

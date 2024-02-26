@@ -27,6 +27,12 @@ struct TextIndexData {
   LabelId scope_;
 };
 
+enum class TextSearchMode : uint8_t {
+  SPECIFIED_PROPERTIES = 0,
+  REGEX = 1,
+  ALL_PROPERTIES = 2,
+};
+
 class TextIndex {
  private:
   static constexpr bool kDoSkipCommit = true;
@@ -36,12 +42,12 @@ class TextIndex {
   template <typename T>
   nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, T *name_resolver);
 
-  std::string CopyPropertyValuesToString(const std::map<PropertyId, PropertyValue> &properties);
+  std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(const std::vector<LabelId> &labels);
 
   void LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::json &properties,
-                             const std::string &all_property_values_string,
+                             const std::string &property_values_as_str,
                              const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
   void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
@@ -83,8 +89,7 @@ class TextIndex {
 
   bool IndexExists(const std::string &index_name) const;
 
-  std::vector<Gid> Search(const std::string &index_name, const std::string &search_query,
-                          const std::string &search_mode);
+  std::vector<Gid> Search(const std::string &index_name, const std::string &search_query, TextSearchMode search_mode);
 
   std::string Aggregate(const std::string &index_name, const std::string &search_query,
                         const std::string &aggregation_query);

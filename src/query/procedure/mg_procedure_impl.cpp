@@ -34,6 +34,7 @@
 #include "query/procedure/fmt.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
+#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
@@ -3450,7 +3451,7 @@ void WrapTextIndexAggregation(mgp_memory *memory, mgp_map **result, const std::s
 }
 
 mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
-                                      const char *search_mode, mgp_memory *memory, mgp_map **result) {
+                                      int search_mode, mgp_memory *memory, mgp_map **result) {
   return WrapExceptions([graph, memory, index_name, search_query, search_mode, result]() {
     std::vector<memgraph::storage::Gid> search_results;
     std::string error_msg;

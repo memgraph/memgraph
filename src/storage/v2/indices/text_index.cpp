@@ -79,7 +79,7 @@ nlohmann::json TextIndex::SerializeProperties(const std::map<PropertyId, Propert
   return serialized_properties;
 }
 
-std::string TextIndex::CopyPropertyValuesToString(const std::map<PropertyId, PropertyValue> &properties) {
+std::string TextIndex::StringifyProperties(const std::map<PropertyId, PropertyValue> &properties) {
   std::vector<std::string> indexable_properties_as_string;
   for (const auto &[_, prop_value] : properties) {
     switch (prop_value.type()) {
@@ -122,7 +122,7 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(c
 }
 
 void TextIndex::LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::json &properties,
-                                      const std::string &all_property_values_string,
+                                      const std::string &property_values_as_str,
                                       const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
   if (applicable_text_indices.empty()) {
     return;
@@ -132,7 +132,7 @@ void TextIndex::LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::js
   // an indexable document should be created for each applicable index.
   nlohmann::json document = {};
   document["data"] = properties;
-  document["all"] = all_property_values_string;
+  document["all"] = property_values_as_str;
   document["metadata"] = {};
   document["metadata"]["gid"] = gid;
   document["metadata"]["deleted"] = false;
@@ -176,7 +176,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mappe
 
   auto vertex_properties = vertex_after_update->properties.Properties();
   LoadNodeToTextIndices(vertex_after_update->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                        CopyPropertyValuesToString(vertex_properties), applicable_text_indices);
+                        StringifyProperties(vertex_properties), applicable_text_indices);
 }
 
 void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
@@ -228,7 +228,7 @@ void TextIndex::CreateIndex(const std::string &index_name, LabelId label, memgra
 
     auto vertex_properties = v.Properties(View::NEW).GetValue();
     LoadNodeToTextIndices(v.Gid().AsInt(), SerializeProperties(vertex_properties, db),
-                          CopyPropertyValuesToString(vertex_properties), {&index_.at(index_name).context_});
+                          StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
   }
 
   CommitLoadedNodes(index_.at(index_name).context_);
@@ -249,7 +249,7 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
 
     auto vertex_properties = v.properties.Properties();
     LoadNodeToTextIndices(v.gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                          CopyPropertyValuesToString(vertex_properties), {&index_.at(index_name).context_});
+                          StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
   }
 
   CommitLoadedNodes(index_.at(index_name).context_);
@@ -282,14 +282,13 @@ bool TextIndex::IndexExists(const std::string &index_name) const { return index_
 mgcxx::text_search::SearchOutput TextIndex::SearchGivenProperties(const std::string &index_name,
                                                                   const std::string &search_query) {
   auto input = mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"data", "metadata"}};
-  mgcxx::text_search::SearchOutput search_results;
   try {
-    search_results = mgcxx::text_search::search(index_.at(index_name).context_, input);
+    return mgcxx::text_search::search(index_.at(index_name).context_, input);
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
 
-  return search_results;
+  return mgcxx::text_search::SearchOutput{};
 }
 
 mgcxx::text_search::SearchOutput TextIndex::RegexSearch(const std::string &index_name,
@@ -299,12 +298,12 @@ mgcxx::text_search::SearchOutput TextIndex::RegexSearch(const std::string &index
   mgcxx::text_search::SearchOutput search_results;
 
   try {
-    search_results = mgcxx::text_search::regex_search(index_.at(index_name).context_, input);
+    return mgcxx::text_search::regex_search(index_.at(index_name).context_, input);
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
 
-  return search_results;
+  return mgcxx::text_search::SearchOutput{};
 }
 
 mgcxx::text_search::SearchOutput TextIndex::SearchAllProperties(const std::string &index_name,
@@ -315,16 +314,16 @@ mgcxx::text_search::SearchOutput TextIndex::SearchAllProperties(const std::strin
   mgcxx::text_search::SearchOutput search_results;
 
   try {
-    search_results = mgcxx::text_search::search(index_.at(index_name).context_, input);
+    return mgcxx::text_search::search(index_.at(index_name).context_, input);
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
 
-  return search_results;
+  return mgcxx::text_search::SearchOutput{};
 }
 
 std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::string &search_query,
-                                   const std::string &search_mode) {
+                                   TextSearchMode search_mode) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -334,16 +333,20 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
   }
 
   mgcxx::text_search::SearchOutput search_results;
-  if (search_mode == "specify_property") {
-    search_results = SearchGivenProperties(index_name, search_query);
-  } else if (search_mode == "regex") {
-    search_results = RegexSearch(index_name, search_query);
-  } else if (search_mode == "all_properties") {
-    search_results = SearchAllProperties(index_name, search_query);
-  } else {
-    throw query::TextSearchException(
-        "Unsupported search mode: please use one of text_search.search, text_search.search_all, or "
-        "text_search.regex_search.");
+  switch (search_mode) {
+    case TextSearchMode::SPECIFIED_PROPERTIES:
+      search_results = SearchGivenProperties(index_name, search_query);
+      break;
+    case TextSearchMode::REGEX:
+      search_results = RegexSearch(index_name, search_query);
+      break;
+    case TextSearchMode::ALL_PROPERTIES:
+      search_results = SearchAllProperties(index_name, search_query);
+      break;
+    default:
+      throw query::TextSearchException(
+          "Unsupported search mode: please use one of text_search.search, text_search.search_all, or "
+          "text_search.regex_search.");
   }
 
   std::vector<Gid> found_nodes;
