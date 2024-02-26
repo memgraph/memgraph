@@ -216,8 +216,21 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   auto &dba = *context.db_accessor;
   auto new_node = dba.InsertVertex();
   context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
+  // Evaluator should use the latest accessors, as modified in this query, when
+  // setting properties on new nodes.
+  ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
   for (auto label : node_info.labels) {
-    auto maybe_error = new_node.AddLabel(label);
+    auto maybe_error = std::invoke([&] {
+      if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
+        return new_node.AddLabel(*label_atom);
+      } else {
+        // auto key = evaluator.Visit(*std::get<Expression *>(label));
+        // return new_node.AddLabel(dba.NameToLabel(key.ValueString()));
+        auto expression = std::get<Expression *>(label);
+        return new_node.AddLabel(dba.NameToLabel(expression->Accept(evaluator).ValueString()));
+      }
+    });
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
@@ -232,10 +245,6 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
     }
     context.execution_stats[ExecutionStats::Key::CREATED_LABELS] += 1;
   }
-  // Evaluator should use the latest accessors, as modified in this query, when
-  // setting properties on new nodes.
-  ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                storage::View::NEW);
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
   std::map<storage::PropertyId, storage::PropertyValue> properties;
@@ -275,10 +284,22 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("CreateNode");
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
+  std::vector<storage::LabelId> labels;
+  for (auto &label : self_.node_info_.labels) {
+    if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
+      labels.emplace_back(*label_atom);
+    } else {
+      // auto key = evaluator.Visit(*std::get<Expression *>(label));
+      // labels.emplace_back(context.db_accessor->NameToLabel(key.ValueString()));
+      auto expression = std::get<Expression *>(label);
+      labels.emplace_back(context.db_accessor->NameToLabel(expression->Accept(evaluator).ValueString()));
+    }
+  }
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(self_.node_info_.labels,
-                                 memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Vertex not created due to not having enough permission!");
   }
 #endif
@@ -368,8 +389,19 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   if (!input_cursor_->Pull(frame, context)) return false;
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
 
 #ifdef MG_ENTERPRISE
+  std::vector<storage::LabelId> labels;
+  for (auto label : self_.node_info_.labels) {
+    if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
+      labels.emplace_back(*label_atom);
+    } else {
+      auto expression = std::get<Expression *>(label);
+      labels.emplace_back(context.db_accessor->NameToLabel(expression->Accept(evaluator).ValueString()));
+    }
+  }
   if (license::global_license_checker.IsEnterpriseValidFast()) {
     const auto fine_grained_permission = self_.existing_node_
                                              ? memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE
@@ -379,7 +411,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
     if (context.auth_checker &&
         !(context.auth_checker->Has(self_.edge_info_.edge_type,
                                     memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
-          context.auth_checker->Has(self_.node_info_.labels, fine_grained_permission))) {
+          context.auth_checker->Has(labels, fine_grained_permission))) {
       throw QueryRuntimeException("Edge not created due to not having enough permission!");
     }
   }
@@ -388,12 +420,6 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   TypedValue &vertex_value = frame[self_.input_symbol_];
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &v1 = vertex_value.ValueVertex();
-
-  // Similarly to CreateNode, newly created edges and nodes should use the
-  // storage::View::NEW.
-  // E.g. we pickup new properties: `CREATE (n {p: 42}) -[:r {ep: n.p}]-> ()`
-  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                storage::View::NEW);
 
   // get the destination vertex (possibly an existing node)
   auto &v2 = OtherVertex(frame, context);

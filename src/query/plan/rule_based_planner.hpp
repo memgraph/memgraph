@@ -311,11 +311,19 @@ class RuleBasedPlanner {
                                                        std::unordered_set<Symbol> &bound_symbols) {
     auto node_to_creation_info = [&](const NodeAtom &node) {
       const auto &node_symbol = symbol_table.at(*node.identifier_);
-      std::vector<storage::LabelId> labels;
-      labels.reserve(node.labels_.size());
-      for (const auto &label : node.labels_) {
-        labels.push_back(GetLabel(label));
-      }
+
+      auto labels = std::invoke([&]() -> std::vector<std::variant<storage::LabelId, Expression *>> {
+        std::vector<std::variant<storage::LabelId, Expression *>> labels;
+        labels.reserve(node.labels_.size());
+        for (const auto &label : node.labels_) {
+          if (const auto *label_atom = std::get_if<LabelIx>(&label)) {
+            labels.emplace_back(GetLabel(*label_atom));
+          } else {
+            labels.emplace_back(std::get<Expression *>(label));
+          }
+        }
+        return labels;
+      });
 
       auto properties = std::invoke([&]() -> std::variant<PropertiesMapList, ParameterLookup *> {
         if (const auto *node_properties =

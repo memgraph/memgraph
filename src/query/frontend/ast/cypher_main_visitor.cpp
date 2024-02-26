@@ -1912,7 +1912,7 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
     anonymous_identifiers.push_back(&node->identifier_);
   }
   if (ctx->nodeLabels()) {
-    node->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
+    node->labels_ = std::any_cast<std::vector<std::variant<LabelIx, Expression *>>>(ctx->nodeLabels()->accept(this));
   }
   if (ctx->properties()) {
     // This can return either properties or parameters
@@ -1926,16 +1926,21 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) {
-  std::vector<LabelIx> labels;
+  std::vector<std::variant<LabelIx, Expression *>> labels;
   for (auto *node_label : ctx->nodeLabel()) {
-    if (node_label->labelName()->symbolicName()) {
-      labels.emplace_back(AddLabel(std::any_cast<std::string>(node_label->accept(this))));
+    if (node_label->labelName()) {
+      if (node_label->labelName()->symbolicName()) {
+        labels.emplace_back(AddLabel(std::any_cast<std::string>(node_label->accept(this))));
+      } else {
+        // If we have a parameter, we have to resolve it.
+        const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
+        const auto label_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
+        labels.emplace_back(storage_->GetLabelIx(label_name));
+        query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
+      }
     } else {
-      // If we have a parameter, we have to resolve it.
-      const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
-      const auto label_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
-      labels.emplace_back(storage_->GetLabelIx(label_name));
-      query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
+      // expression
+      labels.emplace_back(std::any_cast<Expression *>(node_label->accept(this)));
     }
   }
   return labels;

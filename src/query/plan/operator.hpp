@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -290,18 +290,20 @@ struct NodeCreationInfo {
 
   NodeCreationInfo() = default;
 
-  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels,
+  NodeCreationInfo(Symbol symbol, std::vector<std::variant<storage::LabelId, Expression *>> labels,
                    std::variant<PropertiesMapList, ParameterLookup *> properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
 
-  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, PropertiesMapList properties)
+  NodeCreationInfo(Symbol symbol, std::vector<std::variant<storage::LabelId, Expression *>> labels,
+                   PropertiesMapList properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
 
-  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, ParameterLookup *properties)
+  NodeCreationInfo(Symbol symbol, std::vector<std::variant<storage::LabelId, Expression *>> labels,
+                   ParameterLookup *properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{properties} {};
 
   Symbol symbol;
-  std::vector<storage::LabelId> labels;
+  std::vector<std::variant<storage::LabelId, Expression *>> labels;
   std::variant<PropertiesMapList, ParameterLookup *> properties;
 
   NodeCreationInfo Clone(AstStorage *storage) const {
