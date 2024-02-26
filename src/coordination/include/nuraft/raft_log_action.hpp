@@ -27,7 +27,7 @@ enum class RaftLogAction : uint8_t {
   SET_INSTANCE_AS_REPLICA
 };
 
-inline auto ParseRaftLogAction(std::string const &action) -> RaftLogAction {
+inline auto ParseRaftLogAction(std::string_view action) -> RaftLogAction {
   if (action == "register") {
     return RaftLogAction::REGISTER_REPLICATION_INSTANCE;
   }
@@ -40,7 +40,7 @@ inline auto ParseRaftLogAction(std::string const &action) -> RaftLogAction {
   if (action == "demote") {
     return RaftLogAction::SET_INSTANCE_AS_REPLICA;
   }
-  throw InvalidRaftLogActionException("Invalid Raft log action: " + action);
+  throw InvalidRaftLogActionException("Invalid Raft log action: {}.", action);
 }
 
 }  // namespace memgraph::coordination

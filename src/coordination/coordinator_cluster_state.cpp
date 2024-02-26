@@ -15,62 +15,67 @@
 
 namespace memgraph::coordination {
 
+using replication_coordination_glue::ReplicationRole;
+
 auto CoordinatorClusterState::MainExists() const -> bool {
-  return std::any_of(instance_roles.begin(), instance_roles.end(), [](auto const &entry) {
-    return entry.second == replication_coordination_glue::ReplicationRole::MAIN;
-  });
+  return std::ranges::any_of(instance_roles, [](auto const &entry) { return entry.second == ReplicationRole::MAIN; });
 }
 
 auto CoordinatorClusterState::IsMain(std::string const &instance_name) const -> bool {
   auto const it = instance_roles.find(instance_name);
-  return it != instance_roles.end() && it->second == replication_coordination_glue::ReplicationRole::MAIN;
+  return it != instance_roles.end() && it->second == ReplicationRole::MAIN;
 }
 
 auto CoordinatorClusterState::IsReplica(std::string const &instance_name) const -> bool {
   auto const it = instance_roles.find(instance_name);
-  return it != instance_roles.end() && it->second == replication_coordination_glue::ReplicationRole::REPLICA;
+  return it != instance_roles.end() && it->second == ReplicationRole::REPLICA;
 }
 
-auto CoordinatorClusterState::InsertInstance(std::string const &instance_name,
-                                             replication_coordination_glue::ReplicationRole role) -> void {
+auto CoordinatorClusterState::InsertInstance(std::string const &instance_name, ReplicationRole role) -> void {
   instance_roles[instance_name] = role;
 }
 
 auto CoordinatorClusterState::DoAction(std::string const &instance_name, RaftLogAction log_action) -> void {
   switch (log_action) {
-    case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
-      instance_roles[instance_name] = replication_coordination_glue::ReplicationRole::REPLICA;
+    case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
+      instance_roles[instance_name] = ReplicationRole::REPLICA;
+      spdlog::info("Instance {} registered", instance_name);
       break;
-    case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
-      spdlog::info("Unregistering instance: {}", instance_name);
+    }
+    case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE: {
       instance_roles.erase(instance_name);
       spdlog::info("Instance {} unregistered", instance_name);
       break;
-    case RaftLogAction::SET_INSTANCE_AS_MAIN:
-      MG_ASSERT(instance_roles.find(instance_name) != instance_roles.end(),
-                "Instance does not exist as part of raft state!");
-      instance_roles[instance_name] = replication_coordination_glue::ReplicationRole::MAIN;
+    }
+    case RaftLogAction::SET_INSTANCE_AS_MAIN: {
+      auto it = instance_roles.find(instance_name);
+      MG_ASSERT(it != instance_roles.end(), "Instance does not exist as part of raft state!");
+      it->second = ReplicationRole::MAIN;
+      spdlog::info("Instance {} set as main", instance_name);
       break;
-    case RaftLogAction::SET_INSTANCE_AS_REPLICA:
-      MG_ASSERT(instance_roles.find(instance_name) != instance_roles.end(),
-                "Instance does not exist as part of raft state!");
-      instance_roles[instance_name] = replication_coordination_glue::ReplicationRole::REPLICA;
+    }
+    case RaftLogAction::SET_INSTANCE_AS_REPLICA: {
+      auto it = instance_roles.find(instance_name);
+      MG_ASSERT(it != instance_roles.end(), "Instance does not exist as part of raft state!");
+      it->second = ReplicationRole::REPLICA;
+      spdlog::info("Instance {} set as replica", instance_name);
       break;
+    }
   }
 }
 
 auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
-  auto const role_to_string = [](auto const &role) {
+  auto const role_to_string = [](auto const &role) -> std::string_view {
     switch (role) {
-      case replication_coordination_glue::ReplicationRole::MAIN:
+      case ReplicationRole::MAIN:
         return "main";
-      case replication_coordination_glue::ReplicationRole::REPLICA:
+      case ReplicationRole::REPLICA:
         return "replica";
     }
   };
 
   auto const entry_to_string = [&role_to_string](auto const &entry) {
-    return entry.first + "_" + role_to_string(entry.second);
+    return fmt::format("{}_{}", entry.first, role_to_string(entry.second));
   };
 
   auto instances_str_view = instance_roles | ranges::views::transform(entry_to_string);
@@ -84,11 +89,11 @@ auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
 }
 
 auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterState {
-  auto const str_to_role = [](auto const &str) {
+  auto const str_to_role = [](auto const &str) -> ReplicationRole {
     if (str == "main") {
-      return replication_coordination_glue::ReplicationRole::MAIN;
+      return ReplicationRole::MAIN;
     }
-    return replication_coordination_glue::ReplicationRole::REPLICA;
+    return ReplicationRole::REPLICA;
   };
 
   CoordinatorClusterState cluster_state;
@@ -106,9 +111,9 @@ auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterSta
 auto CoordinatorClusterState::GetInstances() const -> std::vector<std::pair<std::string, std::string>> {
   auto const role_to_string = [](auto const &role) -> std::string {
     switch (role) {
-      case replication_coordination_glue::ReplicationRole::MAIN:
+      case ReplicationRole::MAIN:
         return "main";
-      case replication_coordination_glue::ReplicationRole::REPLICA:
+      case ReplicationRole::REPLICA:
         return "replica";
     }
   };

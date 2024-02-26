@@ -52,9 +52,6 @@ class ReplicationInstance {
   auto InstanceName() const -> std::string;
   auto SocketAddress() const -> std::string;
 
-  auto IsReplica() const -> bool;
-  auto IsMain() const -> bool;
-
   auto PromoteToMain(utils::UUID uuid, ReplicationClientsInfo repl_clients_info,
                      HealthCheckInstanceCallback main_succ_cb, HealthCheckInstanceCallback main_fail_cb) -> bool;
   auto DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
