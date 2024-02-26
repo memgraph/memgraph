@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import json
 import sys
 
 import gqlalchemy
@@ -56,9 +57,11 @@ def test_regex_text_search(memgraph):
 
 def test_text_search_aggregate(memgraph):
     with pytest.raises(gqlalchemy.exceptions.GQLAlchemyDatabaseError, match=TEXT_SEARCH_DISABLED_ERROR) as _:
+        input_aggregation = json.dumps({"count": {"value_count": {"field": "metadata.gid"}}}, separators=(",", ":"))
+
         memgraph.execute(
-            """CALL text_search.aggregate("complianceDocuments", "wor.*s", "dummyAggregation") YIELD aggregation
-             RETURN aggregation;"""
+            f"""CALL text_search.aggregate("complianceDocuments", "wor.*s", '{input_aggregation}') YIELD aggregation
+            RETURN aggregation;"""
         )
 
 
