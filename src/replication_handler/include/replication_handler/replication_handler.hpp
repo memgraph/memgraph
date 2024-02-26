@@ -39,10 +39,12 @@ void SystemRestore(replication::ReplicationClient &client, system::System &syste
                    const utils::UUID &main_uuid, auth::SynchedAuth &auth) {
   // Check if system is up to date
   if (client.state_.WithLock(
-          [](auto &state) { return state == memgraph::replication::ReplicationClient::State::READY; }))
+          [](auto &state) { return state != memgraph::replication::ReplicationClient::State::BEHIND; }))
     return;
 
   // Try to recover...
+  client.state_.WithLock(
+      [](auto &state) { return state != memgraph::replication::ReplicationClient::State::RECOVERY; });
   {
     using enum memgraph::flags::Experiments;
     bool full_system_replication =
@@ -138,6 +140,9 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   auto GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole override;
   bool IsMain() const override;
   bool IsReplica() const override;
+
+  auto ShowReplicas() const
+      -> utils::BasicResult<memgraph::query::ShowReplicaError, memgraph::query::ReplicasInfos> override;
 
   auto GetReplState() const -> const memgraph::replication::ReplicationState &;
   auto GetReplState() -> memgraph::replication::ReplicationState &;
