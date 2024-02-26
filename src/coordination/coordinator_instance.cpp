@@ -542,24 +542,6 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string instance_name
     return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
 
-  if (!raft_state_.RequestLeadership()) {
-    return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
-  }
-
-  auto const res = raft_state_.AppendSetInstanceAsMain(instance_name);
-  if (!res->get_accepted()) {
-    spdlog::error(
-        "Failed to accept request for promoting instance {}. Most likely the reason is that the instance is not "
-        "the leader.",
-        instance_name);
-    return SetInstanceToMainCoordinatorStatus::RAFT_COULD_NOT_ACCEPT;
-  }
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to promote instance {} with error code {}", instance_name, res->get_result_code());
-    return SetInstanceToMainCoordinatorStatus::RAFT_COULD_NOT_APPEND;
-  }
-
   new_main->PauseFrequentCheck();
   utils::OnScopeExit scope_exit{[&new_main] { new_main->ResumeFrequentCheck(); }};
 
@@ -587,6 +569,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string instance_name
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
 
+  // TODO: (andi) This should be replicated across all coordinator instances with Raft log
   SetMainUUID(new_main_uuid);
   spdlog::info("Instance {} promoted to main", instance_name);
   return SetInstanceToMainCoordinatorStatus::SUCCESS;

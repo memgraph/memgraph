@@ -48,10 +48,6 @@ class CoordinatorInstance {
 
   auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
 
-  auto GetMainUUID() const -> utils::UUID;
-
-  auto SetMainUUID(utils::UUID new_uuid) -> void;
-
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance &;
 
   void MainFailCallback(std::string_view);
