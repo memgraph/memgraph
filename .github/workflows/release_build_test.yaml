@@ -104,7 +104,7 @@ jobs:
     needs: [Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
     # M1 Mac mini is sometimes slower
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v4
@@ -161,7 +161,7 @@ jobs:
     needs: [Debian10, Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
     # M1 Mac mini is sometimes slower
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v4
