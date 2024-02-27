@@ -113,6 +113,22 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package ubuntu-22.04-arm $BUILD_TYPE
+      - name: "Upload package"
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-22.04-aarch64
+          path: build/output/ubuntu-22.04-arm/memgraph*.deb
+
+  PushToS3Ubuntu20_04_ARM:
+    if: github.ref_type == 'tag'
+    needs: [PackageUbuntu20_04_ARM]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download package
+        uses: actions/download-artifact@v4
+        with:
+          name: ubuntu-22.04-aarch64
+          path: build/output/release
       - name: Upload to S3
         uses: jakejarvis/s3-sync-action@v0.5.1
         env:
@@ -120,13 +136,8 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output"
+          SOURCE_DIR: "build/output/release"
           DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-22.04-aarch64
-          path: build/output/ubuntu-22.04-arm/memgraph*.deb
 
   PackageDebian11:
     if: github.ref_type == 'tag'
@@ -170,6 +181,22 @@ jobs:
       - name: "Build package"
         run: |
           ./release/package/run.sh package debian-11-arm $BUILD_TYPE
+      - name: "Upload package"
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-11-aarch64
+          path: build/output/debian-11-arm/memgraph*.deb
+
+  PushToS3Debian11_ARM:
+    if: github.ref_type == 'tag'
+    needs: [PackageDebian11_ARM]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download package
+        uses: actions/download-artifact@v4
+        with:
+          name: debian-11-aarch64
+          path: build/output/release
       - name: Upload to S3
         uses: jakejarvis/s3-sync-action@v0.5.1
         env:
@@ -177,10 +204,5 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output"
+          SOURCE_DIR: "build/output/release"
           DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: debian-11-aarch64
-          path: build/output/debian-11-arm/memgraph*.deb
