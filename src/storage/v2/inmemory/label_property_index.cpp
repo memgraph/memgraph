@@ -140,13 +140,15 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndi
   return ret;
 }
 
-void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                                       utils::BloomFilter<Vertex *> const *filter) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
   for (auto &[label_property, index] : index_) {
-    auto [label_id, prop_id] = label_property;
     // before starting index, check if stop_requested
     if (token.stop_requested()) return;
+
+    auto [label_id, prop_id] = label_property;
 
     auto index_acc = index.access();
     auto it = index_acc.begin();
@@ -163,7 +165,8 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
       if (it->timestamp < oldest_active_start_timestamp) {
         bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->value == next_it->value;
         if (redundant_duplicate ||
-            !AnyVersionHasLabelProperty(*it->vertex, label_id, prop_id, it->value, oldest_active_start_timestamp)) {
+            ((!filter || filter->maybe_contains(it->vertex)) &&
+             !AnyVersionHasLabelProperty(*it->vertex, label_id, prop_id, it->value, oldest_active_start_timestamp))) {
           index_acc.remove(*it);
         }
       }

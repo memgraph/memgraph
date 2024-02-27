@@ -33,7 +33,8 @@ struct Indices {
   /// This function should be called from garbage collection to clean-up the
   /// index.
   /// TODO: unused in disk indices
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
+                             std::optional<utils::BloomFilter<Vertex *>> filter) const;
 
   /// Surgical removal of entries that was inserted this transaction
   /// TODO: unused in disk indices
