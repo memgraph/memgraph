@@ -160,7 +160,7 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
         continue;
       }
 
-      if ((next_it != index_acc.end() && it->vertex == next_it->vertex && it->value == next_it->value) ||
+      if ((next_it != index_acc.end() && it->vertex == next_it->vertex) ||
           !AnyVersionHasLabelProperty(*it->vertex, label_property.first, label_property.second, it->value,
                                       oldest_active_start_timestamp)) {
         index_acc.remove(*it);
