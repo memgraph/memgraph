@@ -148,7 +148,8 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
 
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                            const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+                            const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                            std::optional<std::filesystem::path> storage_dir) {
   spdlog::info("Recreating indices from metadata.");
 
   // Recover label indices.
@@ -203,7 +204,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     auto &mem_text_index = indices->text_index_;
     for (const auto &[index_name, label] : indices_metadata.text_indices) {
       try {
-        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper);
+        mem_text_index.RecoverIndex(storage_dir.value(), index_name, label, vertices->access(), name_id_mapper);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }
@@ -335,8 +336,13 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
 
     if (!utils::DirExists(wal_directory_)) {
+      std::optional<std::filesystem::path> storage_dir = std::nullopt;
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        storage_dir = config.durability.storage_directory;
+      }
+
       RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper,
-                             GetParallelExecInfoIndices(recovery_info, config));
+                             GetParallelExecInfoIndices(recovery_info, config), storage_dir);
       RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
                          GetParallelExecInfo(recovery_info, config));
       return recovered_snapshot->recovery_info;
@@ -465,8 +471,13 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     spdlog::info("All necessary WAL files are loaded successfully.");
   }
 
+  std::optional<std::filesystem::path> storage_dir = std::nullopt;
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    storage_dir = config.durability.storage_directory;
+  }
+
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper,
-                         GetParallelExecInfoIndices(recovery_info, config));
+                         GetParallelExecInfoIndices(recovery_info, config), storage_dir);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
                      GetParallelExecInfo(recovery_info, config));
 

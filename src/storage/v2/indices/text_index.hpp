@@ -36,8 +36,11 @@ enum class TextSearchMode : uint8_t {
 class TextIndex {
  private:
   static constexpr bool kDoSkipCommit = true;
+  static constexpr std::string_view kTextIndicesDirectory = "text_indices";
 
-  void CreateEmptyIndex(const std::string &index_name, LabelId label);
+  inline std::string MakeIndexPath(const std::filesystem::path &storage_dir, const std::string &index_name);
+
+  void CreateEmptyIndex(const std::filesystem::path &storage_dir, const std::string &index_name, LabelId label);
 
   template <typename T>
   nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, T *name_resolver);
@@ -80,12 +83,13 @@ class TextIndex {
   void RemoveNode(Vertex *vertex,
                   std::optional<std::vector<mgcxx::text_search::Context *>> applicable_text_indices = std::nullopt);
 
-  void CreateIndex(const std::string &index_name, LabelId label, memgraph::query::DbAccessor *db);
+  void CreateIndex(const std::filesystem::path &storage_dir, const std::string &index_name, LabelId label,
+                   memgraph::query::DbAccessor *db);
 
-  void RecoverIndex(const std::string &index_name, LabelId label, memgraph::utils::SkipList<Vertex>::Accessor vertices,
-                    NameIdMapper *name_id_mapper);
+  void RecoverIndex(const std::filesystem::path &storage_dir, const std::string &index_name, LabelId label,
+                    memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper);
 
-  LabelId DropIndex(const std::string &index_name);
+  LabelId DropIndex(const std::filesystem::path &storage_dir, const std::string &index_name);
 
   bool IndexExists(const std::string &index_name) const;
 
