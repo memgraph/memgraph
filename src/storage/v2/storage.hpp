@@ -20,6 +20,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
+#include "mg_procedure.h"
 #include "query/exceptions.hpp"
 #include "replication/config.hpp"
 #include "replication/replication_server.hpp"
@@ -241,7 +242,7 @@ class Storage {
     }
 
     std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                     TextSearchMode search_mode) const {
+                                     text_search_mode search_mode) const {
       return storage_->indices_.text_index_.Search(index_name, search_query, search_mode);
     }
 

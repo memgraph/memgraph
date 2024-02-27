@@ -6,6 +6,8 @@ project(memgraph_query_modules)
 
 disallow_in_source_build()
 
+find_package(fmt REQUIRED)
+
 # Everything that is installed here, should be under the "query_modules" component.
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "query_modules")
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
@@ -61,7 +63,7 @@ install(FILES schema.cpp DESTINATION lib/memgraph/query_modules/src)
 add_library(text SHARED text_search_module.cpp)
 target_include_directories(text PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(text PRIVATE -Wall)
-target_link_libraries(text PRIVATE -static-libgcc -static-libstdc++)
+target_link_libraries(text PRIVATE -static-libgcc -static-libstdc++ fmt::fmt)
 # Strip C++ example in release build.
 if (lower_build_type STREQUAL "release")
   add_custom_command(TARGET text POST_BUILD

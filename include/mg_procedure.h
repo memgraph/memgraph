@@ -895,12 +895,20 @@ enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex
 /// The current implementation always returns without errors.
 enum mgp_error mgp_graph_has_text_index(struct mgp_graph *graph, const char *index_name, int *result);
 
+/// Available modes of searching text indices.
+MGP_ENUM_CLASS text_search_mode{
+    SPECIFIED_PROPERTIES,
+    REGEX,
+    ALL_PROPERTIES,
+};
+
 /// Search the named text index for the given query. The result is a list of the vertices whose text properties match
 /// the given query.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
 enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, const char *index_name, const char *search_query,
-                                           int search_mode, struct mgp_memory *memory, struct mgp_map **result);
+                                           enum text_search_mode search_mode, struct mgp_memory *memory,
+                                           struct mgp_map **result);
 
 /// Search the named text index for the given query and aggregate over the search results.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.

@@ -149,7 +149,7 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                            std::optional<std::filesystem::path> storage_dir) {
+                            const std::optional<std::filesystem::path> &storage_dir) {
   spdlog::info("Recreating indices from metadata.");
 
   // Recover label indices.
@@ -204,6 +204,10 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     auto &mem_text_index = indices->text_index_;
     for (const auto &[index_name, label] : indices_metadata.text_indices) {
       try {
+        if (!storage_dir.has_value()) {
+          throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
+        }
+
         mem_text_index.RecoverIndex(storage_dir.value(), index_name, label, vertices->access(), name_id_mapper);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");

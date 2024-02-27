@@ -3451,7 +3451,7 @@ void WrapTextIndexAggregation(mgp_memory *memory, mgp_map **result, const std::s
 }
 
 mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
-                                      int search_mode, mgp_memory *memory, mgp_map **result) {
+                                      text_search_mode search_mode, mgp_memory *memory, mgp_map **result) {
   return WrapExceptions([graph, memory, index_name, search_query, search_mode, result]() {
     std::vector<memgraph::storage::Gid> search_results;
     std::string error_msg;

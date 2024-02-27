@@ -103,7 +103,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
-                            std::optional<std::filesystem::path> storage_dir = std::nullopt);
+                            const std::optional<std::filesystem::path> &storage_dir = std::nullopt);
 
 // Helper function used to recover all discovered constraints. The
 // constraints must be recovered after the data recovery is done

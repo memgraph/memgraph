@@ -581,8 +581,8 @@ class DbAccessor final {
   }
 
   std::vector<storage::Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                            uint8_t search_mode) const {
-    return accessor_->TextIndexSearch(index_name, search_query, static_cast<storage::TextSearchMode>(search_mode));
+                                            text_search_mode search_mode) const {
+    return accessor_->TextIndexSearch(index_name, search_query, search_mode);
   }
 
   std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,

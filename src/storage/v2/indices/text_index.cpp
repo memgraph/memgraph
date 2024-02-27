@@ -167,8 +167,9 @@ void TextIndex::CommitLoadedNodes(mgcxx::text_search::Context &index_context) {
   }
 }
 
-void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
-                        std::optional<std::vector<mgcxx::text_search::Context *>> maybe_applicable_text_indices) {
+void TextIndex::AddNode(
+    Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
+    const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -201,8 +202,9 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_ma
   AddNode(vertex_after_update, name_id_mapper, applicable_text_indices);
 }
 
-void TextIndex::RemoveNode(Vertex *vertex_after_update,
-                           std::optional<std::vector<mgcxx::text_search::Context *>> applicable_text_indices) {
+void TextIndex::RemoveNode(
+    Vertex *vertex_after_update,
+    const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -210,7 +212,8 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update,
   auto search_node_to_be_deleted =
       mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
 
-  for (auto *index_context : applicable_text_indices.value_or(GetApplicableTextIndices(vertex_after_update->labels))) {
+  for (auto *index_context :
+       maybe_applicable_text_indices.value_or(GetApplicableTextIndices(vertex_after_update->labels))) {
     try {
       mgcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, kDoSkipCommit);
     } catch (const std::exception &e) {
@@ -332,7 +335,7 @@ mgcxx::text_search::SearchOutput TextIndex::SearchAllProperties(const std::strin
 }
 
 std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::string &search_query,
-                                   TextSearchMode search_mode) {
+                                   text_search_mode search_mode) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -343,13 +346,13 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
 
   mgcxx::text_search::SearchOutput search_results;
   switch (search_mode) {
-    case TextSearchMode::SPECIFIED_PROPERTIES:
+    case text_search_mode::SPECIFIED_PROPERTIES:
       search_results = SearchGivenProperties(index_name, search_query);
       break;
-    case TextSearchMode::REGEX:
+    case text_search_mode::REGEX:
       search_results = RegexSearch(index_name, search_query);
       break;
-    case TextSearchMode::ALL_PROPERTIES:
+    case text_search_mode::ALL_PROPERTIES:
       search_results = SearchAllProperties(index_name, search_query);
       break;
     default:

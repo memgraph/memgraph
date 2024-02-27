@@ -26,7 +26,7 @@ constexpr std::string_view kParameterSearchQuery = "search_query";
 constexpr std::string_view kParameterAggregationQuery = "aggregation_query";
 constexpr std::string_view kReturnNode = "node";
 constexpr std::string_view kReturnAggregation = "aggregation";
-const std::string kSearchAllPrefix = "all:";
+const std::string kSearchAllPrefix = "all";
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void RegexSearch(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
@@ -43,7 +43,7 @@ void TextSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *r
     const auto *index_name = arguments[0].ValueString().data();
     const auto *search_query = arguments[1].ValueString().data();
     for (const auto &node :
-         mgp::SearchTextIndex(memgraph_graph, index_name, search_query, mgp::TextSearchMode::SPECIFIED_PROPERTIES)) {
+         mgp::SearchTextIndex(memgraph_graph, index_name, search_query, text_search_mode::SPECIFIED_PROPERTIES)) {
       auto record = record_factory.NewRecord();
       record.Insert(TextSearch::kReturnNode.data(), node.ValueNode());
     }
@@ -60,8 +60,7 @@ void TextSearch::RegexSearch(mgp_list *args, mgp_graph *memgraph_graph, mgp_resu
   try {
     const auto *index_name = arguments[0].ValueString().data();
     const auto *search_query = arguments[1].ValueString().data();
-    for (const auto &node :
-         mgp::SearchTextIndex(memgraph_graph, index_name, search_query, mgp::TextSearchMode::REGEX)) {
+    for (const auto &node : mgp::SearchTextIndex(memgraph_graph, index_name, search_query, text_search_mode::REGEX)) {
       auto record = record_factory.NewRecord();
       record.Insert(TextSearch::kReturnNode.data(), node.ValueNode());
     }
@@ -78,9 +77,9 @@ void TextSearch::SearchAllProperties(mgp_list *args, mgp_graph *memgraph_graph, 
 
   try {
     const auto *index_name = arguments[0].ValueString().data();
-    const auto search_query = kSearchAllPrefix + std::string(arguments[1].ValueString());
+    const auto *search_query = fmt::format("{}:{}", kSearchAllPrefix, arguments[1].ValueString()).data();
     for (const auto &node :
-         mgp::SearchTextIndex(memgraph_graph, index_name, search_query, mgp::TextSearchMode::ALL_PROPERTIES)) {
+         mgp::SearchTextIndex(memgraph_graph, index_name, search_query, text_search_mode::ALL_PROPERTIES)) {
       auto record = record_factory.NewRecord();
       record.Insert(TextSearch::kReturnNode.data(), node.ValueNode());
     }

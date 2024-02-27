@@ -4349,12 +4349,6 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
   return List(label_property_indices);
 }
 
-enum class TextSearchMode : uint8_t {
-  SPECIFIED_PROPERTIES = 0,
-  REGEX = 1,
-  ALL_PROPERTIES = 2,
-};
-
 namespace {
 constexpr std::string_view kErrorMsgKey = "error_msg";
 constexpr std::string_view kSearchResultsKey = "search_results";
@@ -4362,9 +4356,9 @@ constexpr std::string_view kAggregationResultsKey = "aggregation_results";
 }  // namespace
 
 inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
-                            TextSearchMode search_mode) {
+                            text_search_mode search_mode) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_index, memgraph_graph, index_name.data(),
-                                                      search_query.data(), static_cast<int>(search_mode)));
+                                                      search_query.data(), search_mode));
   if (!results_or_error.KeyExists(kErrorMsgKey) || !results_or_error.KeyExists(kSearchResultsKey)) {
     throw TextSearchException{"Incomplete text index search results!"};
   }
