@@ -3541,7 +3541,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   }
 
   MG_ASSERT(current_db.db_acc_, "Database info query expects a current DB");
-  MG_ASSERT(current_db.db_transactional_accessor_, "Database ifo query expects a current DB transaction");
+  MG_ASSERT(current_db.db_transactional_accessor_, "Database info query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
   auto *info_query = utils::Downcast<DatabaseInfoQuery>(parsed_query.query);
@@ -3570,8 +3570,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                TypedValue(storage->PropertyToName(item.second)),
                TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, item.second)))});
         }
-        for (const auto &item : info.text_indices) {
-          results.push_back({TypedValue(text_index_mark), TypedValue(item.first), TypedValue(), TypedValue()});
+        for (const auto &[index_name, label] : info.text_indices) {
+          results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
+                             TypedValue(storage->LabelToName(label)), TypedValue(), TypedValue()});
         }
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();

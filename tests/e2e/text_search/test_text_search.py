@@ -28,7 +28,9 @@ def test_create_index(memgraph):
 
     index_info = memgraph.execute_and_fetch("""SHOW INDEX INFO""")
 
-    assert list(index_info) == [{"index type": "text", "label": "exampleIndex", "property": None, "count": None}]
+    assert list(index_info) == [
+        {"index type": "text (name: exampleIndex)", "label": "Document", "property": None, "count": None}
+    ]
 
 
 def test_drop_index(memgraph):
