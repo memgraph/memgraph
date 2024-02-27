@@ -284,6 +284,8 @@ class Storage {
     virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                    const std::set<PropertyId> &properties) = 0;
 
+    auto GetTransaction() -> Transaction * { return std::addressof(transaction_); }
+
    protected:
     Storage *storage_;
     std::shared_lock<utils::ResourceLock> storage_guard_;
@@ -336,9 +338,15 @@ class Storage {
 
   StorageMode GetStorageMode() const noexcept;
 
-  virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) = 0;
+  virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) = 0;
 
-  void FreeMemory() { FreeMemory({}); }
+  void FreeMemory() {
+    if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+      FreeMemory(std::unique_lock{main_lock_}, false);
+    } else {
+      FreeMemory({}, false);
+    }
+  }
 
   virtual std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                            std::optional<IsolationLevel> override_isolation_level) = 0;

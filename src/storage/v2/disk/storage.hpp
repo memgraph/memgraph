@@ -310,7 +310,7 @@ class DiskStorage final : public Storage {
   StorageInfo GetBaseInfo() override;
   StorageInfo GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
-  void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
+  void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/, bool /*periodic*/) override {}
 
   void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 
