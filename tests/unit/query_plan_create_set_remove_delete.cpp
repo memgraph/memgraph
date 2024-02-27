@@ -497,7 +497,7 @@ class MatchCreateNodeWithAuthFixture : public QueryPlanTest<StorageType> {
     NodeCreationInfo m{};
 
     m.symbol = symbol_table.CreateSymbol("m", true);
-    std::vector<memgraph::storage::LabelId> labels{dba.NameToLabel("l2")};
+    std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels{dba.NameToLabel("l2")};
     m.labels = labels;
     // creation op
     auto create_node = std::make_shared<CreateNode>(n_scan_all.op_, m);
@@ -627,7 +627,7 @@ class MatchCreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
     // data for the second node
     NodeCreationInfo m;
     m.symbol = cycle ? n_scan_all.sym_ : symbol_table.CreateSymbol("m", true);
-    std::vector<memgraph::storage::LabelId> labels{dba.NameToLabel("l2")};
+    std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels{dba.NameToLabel("l2")};
     m.labels = labels;
 
     EdgeCreationInfo r;

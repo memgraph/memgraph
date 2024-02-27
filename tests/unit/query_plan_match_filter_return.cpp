@@ -315,11 +315,13 @@ TYPED_TEST(QueryPlan, NodeFilterLabelsAndProperties) {
 
   // make a scan all
   auto n = MakeScanAll(this->storage, symbol_table, "n");
-  n.node_->labels_.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label)));
+  // n.node_->labels_.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label)));
+  std::vector<memgraph::query::LabelIx> labels;
+  labels.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label)));
   std::get<0>(n.node_->properties_)[this->storage.GetPropertyIx(property.first)] = LITERAL(42);
 
   // node filtering
-  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, labels),
                           EQ(PROPERTY_LOOKUP(dba, n.node_->identifier_, property), LITERAL(42)));
   auto node_filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
@@ -366,11 +368,14 @@ TYPED_TEST(QueryPlan, NodeFilterMultipleLabels) {
 
   // make a scan all
   auto n = MakeScanAll(this->storage, symbol_table, "n");
-  n.node_->labels_.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label1)));
-  n.node_->labels_.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label2)));
+  // n.node_->labels_.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label1)));
+  // n.node_->labels_.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label2)));
+  std::vector<memgraph::query::LabelIx> labels;
+  labels.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label1)));
+  labels.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label2)));
 
   // node filtering
-  auto *filter_expr = this->storage.template Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
+  auto *filter_expr = this->storage.template Create<LabelsTest>(n.node_->identifier_, labels);
   auto node_filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
   // make a named expression and a produce
@@ -2805,9 +2810,11 @@ TYPED_TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   // OPTIONAL MATCH (n :missing)
   auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto label_missing = "missing";
-  n.node_->labels_.emplace_back(this->storage.GetLabelIx(label_missing));
+  // n.node_->labels_.emplace_back(this->storage.GetLabelIx(label_missing));
+  std::vector<memgraph::query::LabelIx> labels;
+  labels.emplace_back(this->storage.GetLabelIx(label_missing));
 
-  auto *filter_expr = this->storage.template Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
+  auto *filter_expr = this->storage.template Create<LabelsTest>(n.node_->identifier_, labels);
   auto node_filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
   auto optional = std::make_shared<plan::Optional>(nullptr, node_filter, std::vector<Symbol>{n.sym_});
   // WITH n
@@ -3619,7 +3626,9 @@ class ExistsFixture : public testing::Test {
     exists_expression->MapTo(symbol_table.CreateAnonymousSymbol());
 
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
-    scan_all.node_->labels_.emplace_back(storage.GetLabelIx(match_label));
+    // scan_all.node_->labels_.emplace_back(storage.GetLabelIx(match_label));
+    std::vector<memgraph::query::LabelIx> labels;
+    labels.emplace_back(storage.GetLabelIx(match_label));
 
     std::shared_ptr<LogicalOperator> last_op = std::make_shared<Expand>(
         nullptr, scan_all.sym_, dest_sym, edge_sym, direction, edge_types, false, memgraph::storage::View::OLD);
@@ -3656,8 +3665,7 @@ class ExistsFixture : public testing::Test {
     last_op = std::make_shared<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
     last_op = std::make_shared<EvaluatePatternFilter>(std::move(last_op), symbol_table.at(*exists_expression));
 
-    auto *total_expression =
-        AND(storage.Create<LabelsTest>(scan_all.node_->identifier_, scan_all.node_->labels_), exists_expression);
+    auto *total_expression = AND(storage.Create<LabelsTest>(scan_all.node_->identifier_, labels), exists_expression);
 
     auto filter = std::make_shared<Filter>(scan_all.op_, std::vector<std::shared_ptr<LogicalOperator>>{last_op},
                                            total_expression);
@@ -3709,7 +3717,9 @@ class ExistsFixture : public testing::Test {
     exists_expression2->MapTo(symbol_table.CreateAnonymousSymbol());
 
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
-    scan_all.node_->labels_.emplace_back(storage.GetLabelIx(match_label));
+    // scan_all.node_->labels_.emplace_back(storage.GetLabelIx(match_label));
+    std::vector<memgraph::query::LabelIx> labels;
+    labels.emplace_back(storage.GetLabelIx(match_label));
 
     std::shared_ptr<LogicalOperator> last_op = std::make_shared<Expand>(
         nullptr, scan_all.sym_, dest_sym, edge_sym, direction, first_edge_type, false, memgraph::storage::View::OLD);
@@ -3721,7 +3731,7 @@ class ExistsFixture : public testing::Test {
     last_op2 = std::make_shared<Limit>(std::move(last_op2), storage.Create<PrimitiveLiteral>(1));
     last_op2 = std::make_shared<EvaluatePatternFilter>(std::move(last_op2), symbol_table.at(*exists_expression2));
 
-    Expression *total_expression = storage.Create<LabelsTest>(scan_all.node_->identifier_, scan_all.node_->labels_);
+    Expression *total_expression = storage.Create<LabelsTest>(scan_all.node_->identifier_, labels);
 
     if (or_flag) {
       total_expression = AND(total_expression, OR(exists_expression, exists_expression2));
@@ -3841,7 +3851,11 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilter) {
   // MATCH (n) WHERE n.prop = 2 CALL { MATCH (m) RETURN m } RETURN n, m
 
   auto n = MakeScanAll(this->storage, this->symbol_table, "n");
-  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+  std::vector<memgraph::query::LabelIx> labels;
+  for (const auto &label : n.node_->labels_) {
+    labels.emplace_back(std::get<memgraph::query::LabelIx>(label));
+  }
+  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, labels),
                           EQ(PROPERTY_LOOKUP(this->dba, n.node_->identifier_, this->prop), LITERAL(2)));
   auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
@@ -3866,11 +3880,15 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilterInsideSubquery) {
   // MATCH (n) CALL { MATCH (m) WHERE m.prop = 2 RETURN m } RETURN n, m
 
   auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  std::vector<memgraph::query::LabelIx> labels;
+  for (const auto &label : n.node_->labels_) {
+    labels.emplace_back(std::get<memgraph::query::LabelIx>(label));
+  }
   auto return_n =
       NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
 
   auto m = MakeScanAll(this->storage, this->symbol_table, "m");
-  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, labels),
                           EQ(PROPERTY_LOOKUP(this->dba, n.node_->identifier_, this->prop), LITERAL(2)));
   auto filter = std::make_shared<Filter>(m.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
@@ -3891,7 +3909,11 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilterNoResults) {
   // MATCH (n) WHERE n.prop = 3 CALL { MATCH (m) RETURN m } RETURN n, m
 
   auto n = MakeScanAll(this->storage, this->symbol_table, "n");
-  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+  std::vector<memgraph::query::LabelIx> labels;
+  for (const auto &label : n.node_->labels_) {
+    labels.emplace_back(std::get<memgraph::query::LabelIx>(label));
+  }
+  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, labels),
                           EQ(PROPERTY_LOOKUP(this->dba, n.node_->identifier_, this->prop), LITERAL(3)));
   auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
