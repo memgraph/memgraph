@@ -293,9 +293,10 @@ bool TextIndex::IndexExists(const std::string &index_name) const { return index_
 
 mgcxx::text_search::SearchOutput TextIndex::SearchGivenProperties(const std::string &index_name,
                                                                   const std::string &search_query) {
-  auto input = mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"data", "metadata"}};
   try {
-    return mgcxx::text_search::search(index_.at(index_name).context_, input);
+    return mgcxx::text_search::search(
+        index_.at(index_name).context_,
+        mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata"}});
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
@@ -305,12 +306,11 @@ mgcxx::text_search::SearchOutput TextIndex::SearchGivenProperties(const std::str
 
 mgcxx::text_search::SearchOutput TextIndex::RegexSearch(const std::string &index_name,
                                                         const std::string &search_query) {
-  auto input = mgcxx::text_search::SearchInput{
-      .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}};
-  mgcxx::text_search::SearchOutput search_results;
-
   try {
-    return mgcxx::text_search::regex_search(index_.at(index_name).context_, input);
+    return mgcxx::text_search::regex_search(
+        index_.at(index_name).context_,
+        mgcxx::text_search::SearchInput{
+            .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
@@ -320,13 +320,11 @@ mgcxx::text_search::SearchOutput TextIndex::RegexSearch(const std::string &index
 
 mgcxx::text_search::SearchOutput TextIndex::SearchAllProperties(const std::string &index_name,
                                                                 const std::string &search_query) {
-  auto input = mgcxx::text_search::SearchInput{
-      .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}};
-
-  mgcxx::text_search::SearchOutput search_results;
-
   try {
-    return mgcxx::text_search::search(index_.at(index_name).context_, input);
+    return mgcxx::text_search::search(
+        index_.at(index_name).context_,
+        mgcxx::text_search::SearchInput{
+            .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
