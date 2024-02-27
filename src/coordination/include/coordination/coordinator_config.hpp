@@ -35,7 +35,11 @@ struct CoordinatorClientConfig {
   std::chrono::seconds instance_down_timeout_sec{5};
   std::chrono::seconds instance_get_uuid_frequency_sec{10};
 
-  auto SocketAddress() const -> std::string { return fmt::format("{}:{}", ip_address, port); }
+  auto CoordinatorSocketAddress() const -> std::string { return fmt::format("{}:{}", ip_address, port); }
+  auto ReplicationSocketAddress() const -> std::string {
+    return fmt::format("{}:{}", replication_client_info.replication_ip_address,
+                       replication_client_info.replication_port);
+  }
 
   struct ReplicationClientInfo {
     // TODO: (andi) Do we even need here instance_name for this struct?

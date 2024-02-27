@@ -478,9 +478,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
-      case ENDPOINT_EXISTS:
+      case COORD_ENDPOINT_EXISTS:
         throw QueryRuntimeException(
-            "Couldn't register replica instance since instance with such endpoint already exists!");
+            "Couldn't register replica instance since instance with such coordinator endpoint already exists!");
+      case REPL_ENDPOINT_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance since instance with such replication endpoint already exists!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("REGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER:
@@ -491,10 +494,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "instance is not a leader!");
       case RAFT_COULD_NOT_APPEND:
         throw QueryRuntimeException("Couldn't register replica instance since raft server couldn't append the log!");
-      case RPC_FAILED:
-        throw QueryRuntimeException(
-            "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
-            "find out more info!");
       case SUCCESS:
         break;
     }

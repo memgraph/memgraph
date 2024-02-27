@@ -53,7 +53,7 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
 
-  static auto MakeRaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb,
+  static auto MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb,
                             OnRaftCommitCb raft_commit_cb) -> RaftState;
 
   auto InstanceName() const -> std::string;

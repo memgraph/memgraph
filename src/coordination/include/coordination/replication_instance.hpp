@@ -51,7 +51,8 @@ class ReplicationInstance {
   auto IsAlive() const -> bool;
 
   auto InstanceName() const -> std::string;
-  auto SocketAddress() const -> std::string;
+  auto CoordinatorSocketAddress() const -> std::string;
+  auto ReplicationSocketAddress() const -> std::string;
 
   auto PromoteToMainAsLeader(utils::UUID uuid, ReplicationClientsInfo repl_clients_info,
                              HealthCheckInstanceCallback main_succ_cb, HealthCheckInstanceCallback main_fail_cb)
@@ -62,8 +63,10 @@ class ReplicationInstance {
 
   auto DemoteToReplicaAsLeader(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
       -> bool;
+
   auto DemoteToReplicaAsFollower(HealthCheckInstanceCallback replica_succ_cb,
                                  HealthCheckInstanceCallback replica_fail_cb) -> void;
+
   auto SendDemoteToReplicaRpc() -> bool;
 
   auto StartFrequentCheck() -> void;

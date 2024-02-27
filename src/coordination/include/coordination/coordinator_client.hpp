@@ -46,7 +46,8 @@ class CoordinatorClient {
   void ResumeFrequentCheck();
 
   auto InstanceName() const -> std::string;
-  auto SocketAddress() const -> std::string;
+  auto CoordinatorSocketAddress() const -> std::string;
+  auto ReplicationSocketAddress() const -> std::string;
 
   [[nodiscard]] auto DemoteToReplica() const -> bool;
 

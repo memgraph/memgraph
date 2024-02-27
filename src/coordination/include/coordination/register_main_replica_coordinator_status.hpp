@@ -19,9 +19,9 @@ namespace memgraph::coordination {
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS,
-  ENDPOINT_EXISTS,
+  COORD_ENDPOINT_EXISTS,
+  REPL_ENDPOINT_EXISTS,
   NOT_COORDINATOR,
-  RPC_FAILED,
   NOT_LEADER,
   RAFT_COULD_NOT_ACCEPT,
   RAFT_COULD_NOT_APPEND,

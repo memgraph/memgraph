@@ -1302,7 +1302,10 @@ def test_registering_replica_fails_endpoint_exists():
             coord_cursor,
             "REGISTER INSTANCE instance_5 ON '127.0.0.1:10011' WITH '127.0.0.1:10005';",
         )
-    assert str(e.value) == "Couldn't register replica instance since instance with such endpoint already exists!"
+    assert (
+        str(e.value)
+        == "Couldn't register replica instance since instance with such coordinator endpoint already exists!"
+    )
 
 
 def test_replica_instance_restarts():

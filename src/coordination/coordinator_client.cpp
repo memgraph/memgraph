@@ -41,7 +41,9 @@ CoordinatorClient::CoordinatorClient(CoordinatorInstance *coord_instance, Coordi
       fail_cb_{std::move(fail_cb)} {}
 
 auto CoordinatorClient::InstanceName() const -> std::string { return config_.instance_name; }
-auto CoordinatorClient::SocketAddress() const -> std::string { return rpc_client_.Endpoint().SocketAddress(); }
+
+auto CoordinatorClient::CoordinatorSocketAddress() const -> std::string { return config_.CoordinatorSocketAddress(); }
+auto CoordinatorClient::ReplicationSocketAddress() const -> std::string { return config_.ReplicationSocketAddress(); }
 
 auto CoordinatorClient::InstanceDownTimeoutSec() const -> std::chrono::seconds {
   return config_.instance_down_timeout_sec;
@@ -64,7 +66,7 @@ void CoordinatorClient::StartFrequentCheck() {
       [this, instance_name = config_.instance_name] {
         try {
           spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
-                        rpc_client_.Endpoint().SocketAddress());
+                        config_.CoordinatorSocketAddress());
           {  // NOTE: This is intentionally scoped so that stream lock could get released.
             auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
             stream.AwaitResponse();

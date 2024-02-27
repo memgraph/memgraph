@@ -45,7 +45,8 @@ auto ReplicationInstance::IsReadyForUUIDPing() -> bool {
 }
 
 auto ReplicationInstance::InstanceName() const -> std::string { return client_.InstanceName(); }
-auto ReplicationInstance::SocketAddress() const -> std::string { return client_.SocketAddress(); }
+auto ReplicationInstance::CoordinatorSocketAddress() const -> std::string { return client_.CoordinatorSocketAddress(); }
+auto ReplicationInstance::ReplicationSocketAddress() const -> std::string { return client_.ReplicationSocketAddress(); }
 auto ReplicationInstance::IsAlive() const -> bool { return is_alive_; }
 
 auto ReplicationInstance::PromoteToMainAsLeader(utils::UUID new_uuid, ReplicationClientsInfo repl_clients_info,

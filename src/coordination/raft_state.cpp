@@ -90,7 +90,7 @@ auto RaftState::InitRaftServer() -> void {
   throw RaftServerStartException("Failed to initialize raft server on {}:{}", raft_address_, raft_port_);
 }
 
-auto RaftState::MakeRaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb,
+auto RaftState::MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb,
                               OnRaftCommitCb raft_commit_cb) -> RaftState {
   uint32_t raft_server_id{0};
   uint32_t raft_port{0};
