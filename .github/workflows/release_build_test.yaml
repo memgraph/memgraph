@@ -124,9 +124,9 @@ jobs:
     needs: [PackageUbuntu20_04_ARM]
     runs-on: ubuntu-latest
     steps:
-      - name: Download artifacts
+      - name: Download package
         uses: actions/download-artifact@v4
-        with:image:
+        with:
           name: ubuntu-22.04-aarch64
           path: build/output/release
       - name: Upload to S3
@@ -192,9 +192,9 @@ jobs:
     needs: [PackageDebian11_ARM]
     runs-on: ubuntu-latest
     steps:
-      - name: Download artifacts
+      - name: Download package
         uses: actions/download-artifact@v4
-        with:image:
+        with:
           name: debian-11-aarch64
           path: build/output/release
       - name: Upload to S3
