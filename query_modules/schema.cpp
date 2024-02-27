@@ -38,6 +38,7 @@ constexpr std::string_view kParameterIndices = "indices";
 constexpr std::string_view kParameterUniqueConstraints = "unique_constraints";
 constexpr std::string_view kParameterExistenceConstraints = "existence_constraints";
 constexpr std::string_view kParameterDropExisting = "drop_existing";
+constexpr int kInitialNumberOfPropertyOccurances = 1;
 
 std::string TypeOf(const mgp::Type &type);
 
@@ -113,9 +114,9 @@ struct PropertyInfo {
   std::unordered_set<std::string> property_types;  // property types
   int64_t number_of_property_occurrences = 0;
 
-  PropertyInfo() = default;
-  explicit PropertyInfo(std::string property_type)
-      : property_types({property_type}), number_of_property_occurrences(1) {}
+  explicit PropertyInfo(std::string &&property_type)
+      : property_types({std::move(property_type)}),
+        number_of_property_occurrences(Schema::kInitialNumberOfPropertyOccurances) {}
 };
 
 struct LabelsInfo {
@@ -152,9 +153,9 @@ void Schema::NodeTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, 
 
       auto &labels_info = node_types_properties.at(labels_set);
       for (const auto &[key, prop] : node.Properties()) {
-        const auto &prop_type = TypeOf(prop.Type());
+        auto prop_type = TypeOf(prop.Type());
         if (labels_info.properties.find(key) == labels_info.properties.end()) {
-          labels_info.properties[key] = PropertyInfo{prop_type};
+          labels_info.properties[key] = PropertyInfo{std::move(prop_type)};
         } else {
           labels_info.properties[key].property_types.emplace(prop_type);
           labels_info.properties[key].number_of_property_occurrences++;
@@ -208,9 +209,9 @@ void Schema::RelTypeProperties(mgp_list * /*args*/, mgp_graph *memgraph_graph, m
 
       auto &labels_info = rel_types_properties.at(rel_type);
       for (auto &[key, prop] : rel.Properties()) {
-        const auto prop_type = TypeOf(prop.Type());
+        auto prop_type = TypeOf(prop.Type());
         if (labels_info.properties.find(key) == labels_info.properties.end()) {
-          labels_info.properties[key] = PropertyInfo{prop_type};
+          labels_info.properties[key] = PropertyInfo{std::move(prop_type)};
         } else {
           labels_info.properties[key].property_types.emplace(prop_type);
           labels_info.properties[key].number_of_property_occurrences++;
