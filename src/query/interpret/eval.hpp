@@ -254,7 +254,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     auto value2 = op.expression2_->Accept(*this);
     try {
-      return value2;
+      return value1 && value2;
     } catch (const TypedValueException &) {
       throw QueryRuntimeException("Invalid types: {} and {} for AND.", value1.type(), value2.type());
     }
@@ -268,7 +268,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     auto value2 = op.expression2_->Accept(*this);
     try {
-      return value2;
+      return value1 || value2;
     } catch (const TypedValueException &) {
       throw QueryRuntimeException("Invalid types: {} and {} for OR.", value1.type(), value2.type());
     }
