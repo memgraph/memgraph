@@ -48,9 +48,9 @@ auto ReplicationInstance::InstanceName() const -> std::string { return client_.I
 auto ReplicationInstance::SocketAddress() const -> std::string { return client_.SocketAddress(); }
 auto ReplicationInstance::IsAlive() const -> bool { return is_alive_; }
 
-auto ReplicationInstance::PromoteToMain(utils::UUID new_uuid, ReplicationClientsInfo repl_clients_info,
-                                        HealthCheckInstanceCallback main_succ_cb,
-                                        HealthCheckInstanceCallback main_fail_cb) -> bool {
+auto ReplicationInstance::PromoteToMainAsLeader(utils::UUID new_uuid, ReplicationClientsInfo repl_clients_info,
+                                                HealthCheckInstanceCallback main_succ_cb,
+                                                HealthCheckInstanceCallback main_fail_cb) -> bool {
   if (!client_.SendPromoteReplicaToMainRpc(new_uuid, std::move(repl_clients_info))) {
     return false;
   }
@@ -60,6 +60,13 @@ auto ReplicationInstance::PromoteToMain(utils::UUID new_uuid, ReplicationClients
   fail_cb_ = main_fail_cb;
 
   return true;
+}
+
+auto ReplicationInstance::PromoteToMainAsFollower(utils::UUID new_uuid, HealthCheckInstanceCallback main_succ_cb,
+                                                  HealthCheckInstanceCallback main_fail_cb) -> void {
+  main_uuid_ = new_uuid;
+  succ_cb_ = main_succ_cb;
+  fail_cb_ = main_fail_cb;
 }
 
 auto ReplicationInstance::SendDemoteToReplicaRpc() -> bool { return client_.DemoteToReplica(); }

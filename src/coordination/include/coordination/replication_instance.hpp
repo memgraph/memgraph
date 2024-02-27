@@ -53,12 +53,16 @@ class ReplicationInstance {
   auto InstanceName() const -> std::string;
   auto SocketAddress() const -> std::string;
 
-  auto PromoteToMain(utils::UUID uuid, ReplicationClientsInfo repl_clients_info,
-                     HealthCheckInstanceCallback main_succ_cb, HealthCheckInstanceCallback main_fail_cb) -> bool;
+  auto PromoteToMainAsLeader(utils::UUID uuid, ReplicationClientsInfo repl_clients_info,
+                             HealthCheckInstanceCallback main_succ_cb, HealthCheckInstanceCallback main_fail_cb)
+      -> bool;
 
-  auto SendDemoteToReplicaRpc() -> bool;
+  auto PromoteToMainAsFollower(utils::UUID uuid, HealthCheckInstanceCallback main_succ_cb,
+                               HealthCheckInstanceCallback main_fail_cb) -> void;
+
   auto DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
       -> bool;
+  auto SendDemoteToReplicaRpc() -> bool;
 
   auto StartFrequentCheck() -> void;
   auto StopFrequentCheck() -> void;
