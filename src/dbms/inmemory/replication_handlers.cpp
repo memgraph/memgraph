@@ -304,7 +304,6 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   }
   storage_guard.unlock();
 
-  // TODO AF: Do we update last_commit_timestamp here
   storage::replication::SnapshotRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
 
