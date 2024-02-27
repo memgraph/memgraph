@@ -62,7 +62,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     // main didn't have that epoch, but why is here branching point
     if (epoch_info_iter == history.crend()) {
       branching_point = 0;
-    } else if (epoch_info_iter->second != replica.current_commit_timestamp) {  // check for < if we support that
+    } else if (epoch_info_iter->second != replica.current_commit_timestamp) {
       branching_point = epoch_info_iter->second;
     }
   }
