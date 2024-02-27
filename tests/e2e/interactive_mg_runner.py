@@ -160,6 +160,12 @@ def kill(context, name, keep_directories=True):
         MEMGRAPH_INSTANCES.pop(name)
 
 
+def kill_all(context, keep_directories=True):
+    for key in MEMGRAPH_INSTANCES.keys():
+        MEMGRAPH_INSTANCES[key].kill(keep_directories)
+    MEMGRAPH_INSTANCES.clear()
+
+
 def cleanup_directories_on_exit(value=True):
     CLEANUP_DIRECTORIES_ON_EXIT = value
 

@@ -825,7 +825,7 @@ uint64_t DiskStorage::GetDiskSpaceUsage() const {
          durability_disk_storage_size;
 }
 
-StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
+StorageInfo DiskStorage::GetBaseInfo() {
   StorageInfo info{};
   info.vertex_count = vertex_count_;
   info.edge_count = edge_count_.load(std::memory_order_acquire);
@@ -838,9 +838,8 @@ StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
   return info;
 }
 
-StorageInfo DiskStorage::GetInfo(bool force_dir,
-                                 memgraph::replication_coordination_glue::ReplicationRole replication_role) {
-  StorageInfo info = GetBaseInfo(force_dir);
+StorageInfo DiskStorage::GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+  StorageInfo info = GetBaseInfo();
   {
     auto access = Access(replication_role);
     const auto &lbl = access->ListAllIndices();
@@ -1278,7 +1277,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 /// std::map<dst_vertex_gid, ...>
 /// Here we also do flushing of too many things, we don't need to serialize edges in read-only txn, check that...
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushModifiedEdges(
-    Transaction *transaction, const auto &edge_acc) {
+    Transaction *transaction, const auto &edges_acc) {
   for (const auto &modified_edge : transaction->modified_edges_) {
     const std::string edge_gid = modified_edge.first.ToString();
     const Delta::Action root_action = modified_edge.second.delta_action;
@@ -1304,8 +1303,8 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
         return StorageManipulationError{SerializationError{}};
       }
 
-      const auto &edge = edge_acc.find(modified_edge.first);
-      MG_ASSERT(edge != edge_acc.end(),
+      const auto &edge = edges_acc.find(modified_edge.first);
+      MG_ASSERT(edge != edges_acc.end(),
                 "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
 
       /// TODO: (andi) I think this is not wrong but it would be better to use AtomicWrites across column families.
@@ -1693,9 +1692,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
     if (edge_import_mode_active) {
-      if (auto res =
-              disk_storage->FlushModifiedEdges(&transaction_, disk_storage->edge_import_mode_cache_->AccessToEdges());
-          res.HasError()) {
+      auto edges_acc = disk_storage->edge_import_mode_cache_->AccessToEdges();
+      if (auto res = disk_storage->FlushModifiedEdges(&transaction_, edges_acc); res.HasError()) {
         Abort();
         return res;
       }
@@ -1717,7 +1715,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         return del_vertices_res.GetError();
       }
 
-      if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, transaction_.edges_->access());
+      auto tx_edges_acc = transaction_.edges_->access();
+      if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, tx_edges_acc);
           modified_edges_res.HasError()) {
         Abort();
         return modified_edges_res.GetError();

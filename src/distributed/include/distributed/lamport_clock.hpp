@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <compare>
 #include <cstdint>

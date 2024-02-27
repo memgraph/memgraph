@@ -177,8 +177,9 @@ authQuery : createRole
           | showPrivileges
           | showRoleForUser
           | showUsersForRole
-          | grantDatabaseToUser
-          | revokeDatabaseFromUser
+          | grantDatabaseToUserOrRole
+          | denyDatabaseFromUserOrRole
+          | revokeDatabaseFromUserOrRole
           | showDatabasePrivileges
           | setMainDatabase
           ;
@@ -191,6 +192,7 @@ replicationQuery : setReplicationRole
                  ;
 
 coordinatorQuery : registerInstanceOnCoordinator
+                 | unregisterInstanceOnCoordinator
                  | setInstanceToMain
                  | showInstances
                  | addCoordinatorInstance
@@ -303,13 +305,15 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRol
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
-grantDatabaseToUser : GRANT DATABASE db=wildcardName TO user=symbolicName ;
+grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO userOrRole=userOrRoleName ;
 
-revokeDatabaseFromUser : REVOKE DATABASE db=wildcardName FROM user=symbolicName ;
+denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM userOrRole=userOrRoleName ;
 
-showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR user=symbolicName ;
+revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM userOrRole=userOrRoleName ;
 
-setMainDatabase : SET MAIN DATABASE db=symbolicName FOR user=symbolicName ;
+showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR userOrRole=userOrRoleName ;
+
+setMainDatabase : SET MAIN DATABASE db=symbolicName FOR userOrRole=userOrRoleName ;
 
 privilege : CREATE
           | DELETE
@@ -392,6 +396,8 @@ registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
 
 registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ON coordinatorSocketAddress ( AS ASYNC ) ? WITH replicationSocketAddress ;
+
+unregisterInstanceOnCoordinator : UNREGISTER INSTANCE instanceName ;
 
 setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 

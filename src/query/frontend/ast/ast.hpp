@@ -2819,6 +2819,7 @@ class AuthQuery : public memgraph::query::Query {
     SHOW_ROLE_FOR_USER,
     SHOW_USERS_FOR_ROLE,
     GRANT_DATABASE_TO_USER,
+    DENY_DATABASE_FROM_USER,
     REVOKE_DATABASE_FROM_USER,
     SHOW_DATABASE_PRIVILEGES,
     SET_MAIN_DATABASE,
@@ -3034,8 +3035,6 @@ class ReplicationQuery : public memgraph::query::Query {
 
   enum class SyncMode { SYNC, ASYNC };
 
-  enum class ReplicaState { READY, REPLICATING, RECOVERY, MAYBE_BEHIND, DIVERGED_FROM_MAIN };
-
   ReplicationQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
@@ -3071,7 +3070,13 @@ class CoordinatorQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { REGISTER_INSTANCE, SET_INSTANCE_TO_MAIN, SHOW_INSTANCES, ADD_COORDINATOR_INSTANCE };
+  enum class Action {
+    REGISTER_INSTANCE,
+    UNREGISTER_INSTANCE,
+    SET_INSTANCE_TO_MAIN,
+    SHOW_INSTANCES,
+    ADD_COORDINATOR_INSTANCE
+  };
 
   enum class SyncMode { SYNC, ASYNC };
 

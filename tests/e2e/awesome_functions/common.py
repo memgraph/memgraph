@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,24 +9,21 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import typing
-
-import mgclient
-
-
-def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
-    cursor.execute(query, params)
-    return cursor.fetchall()
+import pytest
+from gqlalchemy import Memgraph
 
 
-def connect(**kwargs) -> mgclient.Connection:
-    connection = mgclient.connect(**kwargs)
-    connection.autocommit = True
-    return connection
+@pytest.fixture
+def memgraph(**kwargs) -> Memgraph:
+    memgraph = Memgraph()
+
+    yield memgraph
+
+    memgraph.drop_indexes()
+    memgraph.ensure_constraints([])
+    memgraph.drop_database()
 
 
-def safe_execute(function, *args):
-    try:
-        function(*args)
-    except:
-        pass
+def get_bytes(memgraph, prop_name):
+    res = list(memgraph.execute_and_fetch(f"MATCH (n) RETURN propertySize(n, '{prop_name}') AS size"))
+    return res[0]["size"]

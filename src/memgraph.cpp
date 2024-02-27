@@ -27,6 +27,7 @@
 #include "helpers.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/config.hpp"
 #include "query/discard_value_stream.hpp"
@@ -57,8 +58,13 @@ constexpr uint64_t kMgVmMaxMapCount = 262144;
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
                          std::string cypherl_file_path, memgraph::audit::Log *audit_log = nullptr) {
   memgraph::query::Interpreter interpreter(&ctx, db_acc);
-  std::ifstream file(cypherl_file_path);
+  // Temporary empty user
+  // TODO: Double check with buda
+  memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
+  auto tmp_user = tmp_auth_checker.GenQueryUser(std::nullopt, std::nullopt);
+  interpreter.SetUser(tmp_user);
 
+  std::ifstream file(cypherl_file_path);
   if (!file.is_open()) {
     spdlog::trace("Could not find init file {}", cypherl_file_path);
     return;
@@ -356,6 +362,11 @@ int main(int argc, char **argv) {
   memgraph::query::InterpreterConfig interp_config{
       .query = {.allow_load_csv = FLAGS_allow_load_csv},
       .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
+#ifdef MG_ENTERPRISE
+      .instance_down_timeout_sec = std::chrono::seconds(FLAGS_instance_down_timeout_sec),
+      .instance_health_check_frequency_sec = std::chrono::seconds(FLAGS_instance_health_check_frequency_sec),
+      .instance_get_uuid_frequency_sec = std::chrono::seconds(FLAGS_instance_get_uuid_frequency_sec),
+#endif
       .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
       .default_pulsar_service_url = FLAGS_pulsar_service_url,
       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,

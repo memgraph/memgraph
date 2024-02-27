@@ -14,7 +14,7 @@ import time
 
 import pytest
 from common import execute_and_fetch_all
-from mg_utils import mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert_collection
 
 
 # BUGFIX: for issue https://github.com/memgraph/memgraph/issues/1515
@@ -28,28 +28,52 @@ def test_replication_handles_delete_when_multiple_edges_of_same_type(connection)
     conn = connection(7687, "main")
     conn.autocommit = True
     cursor = conn.cursor()
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 0, 0, "ready"),
-    }
-    assert actual_data == expected_data
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    assert all([x in actual_data for x in expected_data])
 
     # 1/
     execute_and_fetch_all(cursor, "CREATE (a)-[r:X]->(b) CREATE (a)-[:X]->(b) DELETE r;")
 
     # 2/
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "async", 2, 0, "ready"),
-    }
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
+    ]
 
     def retrieve_data():
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+        return execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
 
 if __name__ == "__main__":

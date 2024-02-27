@@ -11,12 +11,11 @@
 
 #pragma once
 
-#ifdef MG_ENTERPRISE
-namespace memgraph::coordination {
+#if FMT_VERSION > 90000
+#include <fmt/ostream.h>
 
-struct CoordinatorClusterConfig {
-  static constexpr int alive_response_time_difference_sec_{5};
-};
+#include "io/network/endpoint.hpp"
 
-}  // namespace memgraph::coordination
+template <>
+class fmt::formatter<memgraph::io::network::Endpoint> : public fmt::ostream_formatter {};
 #endif

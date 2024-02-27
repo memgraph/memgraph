@@ -197,7 +197,7 @@ class DiskStorage final : public Storage {
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedVertices(Transaction *transaction);
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushDeletedEdges(Transaction *transaction);
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushModifiedEdges(Transaction *transaction,
-                                                                                      const auto &edge_acc);
+                                                                                      const auto &edges_acc);
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> ClearDanglingVertices(Transaction *transaction);
 
   /// Writing methods
@@ -309,9 +309,8 @@ class DiskStorage final : public Storage {
   std::vector<std::pair<std::string, std::string>> SerializeVerticesForLabelPropertyIndex(LabelId label,
                                                                                           PropertyId property);
 
-  StorageInfo GetBaseInfo(bool force_directory) override;
-  StorageInfo GetInfo(bool force_directory,
-                      memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
+  StorageInfo GetBaseInfo() override;
+  StorageInfo GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
 

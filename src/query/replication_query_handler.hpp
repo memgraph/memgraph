@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "replication/replication_client.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
@@ -31,11 +33,53 @@ enum class RegisterReplicaError : uint8_t {
   COULD_NOT_BE_PERSISTED,
   ERROR_ACCEPTING_MAIN
 };
+
 enum class UnregisterReplicaResult : uint8_t {
   NOT_MAIN,
   COULD_NOT_BE_PERSISTED,
   CAN_NOT_UNREGISTER,
   SUCCESS,
+};
+
+enum class ShowReplicaError : uint8_t {
+  NOT_MAIN,
+};
+
+struct ReplicaSystemInfoState {
+  uint64_t ts_;
+  uint64_t behind_;
+  replication::ReplicationClient::State state_;
+};
+
+struct ReplicaInfoState {
+  ReplicaInfoState(uint64_t ts, uint64_t behind, storage::replication::ReplicaState state)
+      : ts_(ts), behind_(behind), state_(state) {}
+
+  uint64_t ts_;
+  uint64_t behind_;
+  storage::replication::ReplicaState state_;
+};
+
+struct ReplicasInfo {
+  ReplicasInfo(std::string name, std::string socket_address, replication_coordination_glue::ReplicationMode sync_mode,
+               ReplicaSystemInfoState system_info, std::map<std::string, ReplicaInfoState> data_info)
+      : name_(std::move(name)),
+        socket_address_(std::move(socket_address)),
+        sync_mode_(sync_mode),
+        system_info_(std::move(system_info)),
+        data_info_(std::move(data_info)) {}
+
+  std::string name_;
+  std::string socket_address_;
+  memgraph::replication_coordination_glue::ReplicationMode sync_mode_;
+  ReplicaSystemInfoState system_info_;
+  std::map<std::string, ReplicaInfoState> data_info_;
+};
+
+struct ReplicasInfos {
+  explicit ReplicasInfos(std::vector<ReplicasInfo> entries) : entries_(std::move(entries)) {}
+
+  std::vector<ReplicasInfo> entries_;
 };
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
@@ -49,11 +93,14 @@ struct ReplicationQueryHandler {
   virtual bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
                                          const std::optional<utils::UUID> &main_uuid) = 0;
 
+  virtual bool TrySetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
+                                            const std::optional<utils::UUID> &main_uuid) = 0;
+
   // as MAIN, define and connect to REPLICAs
-  virtual auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
+  virtual auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterReplicaError> = 0;
 
-  virtual auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config, bool send_swap_uuid)
+  virtual auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
       -> utils::BasicResult<RegisterReplicaError> = 0;
 
   // as MAIN, remove a REPLICA connection
@@ -63,6 +110,8 @@ struct ReplicationQueryHandler {
   virtual auto GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole = 0;
   virtual bool IsMain() const = 0;
   virtual bool IsReplica() const = 0;
+
+  virtual auto ShowReplicas() const -> utils::BasicResult<ShowReplicaError, ReplicasInfos> = 0;
 };
 
 }  // namespace memgraph::query
