@@ -295,16 +295,10 @@ set_path_external_library(jemalloc STATIC
 
 import_header_library(rangev3 ${CMAKE_CURRENT_SOURCE_DIR}/rangev3/include)
 
-if(NOT DEFINED MGCXX_GIT_TAG)
-  set(MGCXX_GIT_TAG "v0.0.3" CACHE STRING "mgcxx git tag")
-else()
-  set(MGCXX_GIT_TAG "${MGCXX_GIT_TAG}" CACHE STRING "mgcxx git tag")
-endif()
-
 ExternalProject_Add(mgcxx-proj
   PREFIX         mgcxx-proj
   GIT_REPOSITORY https://github.com/memgraph/mgcxx
-  GIT_TAG        "origin/regex-queries"
+  GIT_TAG        "v0.0.4"
   CMAKE_ARGS
     "-DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>"
     "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
