@@ -76,9 +76,9 @@ void EnableWritingOnMainRes::Load(EnableWritingOnMainRes *self, memgraph::slk::R
   memgraph::slk::Load(self, reader);
 }
 
-void EnableWritingOnMainReq::Save(EnableWritingOnMainReq const &self, memgraph::slk::Builder *builder) {}
+void EnableWritingOnMainReq::Save(EnableWritingOnMainReq const & /*self*/, memgraph::slk::Builder * /*builder*/) {}
 
-void EnableWritingOnMainReq::Load(EnableWritingOnMainReq *self, memgraph::slk::Reader *reader) {}
+void EnableWritingOnMainReq::Load(EnableWritingOnMainReq * /*self*/, memgraph::slk::Reader * /*reader*/) {}
 
 // GetInstanceUUID
 void GetInstanceUUIDReq::Save(const GetInstanceUUIDReq &self, memgraph::slk::Builder *builder) {
@@ -97,13 +97,14 @@ void GetInstanceUUIDRes::Load(GetInstanceUUIDRes *self, memgraph::slk::Reader *r
   memgraph::slk::Load(self, reader);
 }
 
-// GetInstanceUUID
-void GetDatabaseHistoriesReq::Save(const GetDatabaseHistoriesReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
+// GetDatabaseHistoriesRpc
+
+void GetDatabaseHistoriesReq::Save(const GetDatabaseHistoriesReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
+  /* nothing to serialize */
 }
 
-void GetDatabaseHistoriesReq::Load(GetDatabaseHistoriesReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
+void GetDatabaseHistoriesReq::Load(GetDatabaseHistoriesReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
+  /* nothing to serialize */
 }
 
 void GetDatabaseHistoriesRes::Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder) {
@@ -237,14 +238,6 @@ void Load(memgraph::coordination::GetInstanceUUIDRes *self, memgraph::slk::Reade
 }
 
 // GetInstanceTimestampsReq
-
-void Save(const memgraph::coordination::GetDatabaseHistoriesReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
-  /* nothing to serialize*/
-}
-
-void Load(memgraph::coordination::GetDatabaseHistoriesReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
-  /* nothing to serialize*/
-}
 
 void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.database_histories, builder);

@@ -11,7 +11,8 @@
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
-#include "coordination/utils.hpp"
+#include "coordination/coordinator_instance.hpp"
+#include "dbms/constants.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "utils/functional.hpp"
 
@@ -33,8 +34,6 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
   // replica  3: A(24)  B(36)  C(48) D(50) E(51)
   std::vector<std::pair<std::string, memgraph::replication_coordination_glue::DatabaseHistories>>
       instance_database_histories;
-  std::optional<std::string> latest_epoch;
-  std::optional<uint64_t> latest_commit_timestamp;
 
   std::vector<std::pair<memgraph::utils::UUID, uint64_t>> histories;
   histories.emplace_back(memgraph::utils::UUID{}, 24);
@@ -63,9 +62,10 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
 
   memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
+  memgraph::coordination::CoordinatorInstance instance;
 
-  auto instance_name = memgraph::coordination::ChooseMostUpToDateInstance(instance_database_histories, latest_epoch,
-                                                                          latest_commit_timestamp);
+  auto [instance_name, latest_epoch, latest_commit_timestamp] =
+      instance.ChooseMostUpToDateInstance(instance_database_histories);
   ASSERT_TRUE(instance_name == "instance_1" || instance_name == "instance_2" || instance_name == "instance_3");
   ASSERT_TRUE(*latest_epoch == db_histories.back().first);
   ASSERT_TRUE(*latest_commit_timestamp == db_histories.back().second);
@@ -80,8 +80,6 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
   // replica  3: A(24)  B(12)  C(15) D(17) E(59)
   std::vector<std::pair<std::string, memgraph::replication_coordination_glue::DatabaseHistories>>
       instance_database_histories;
-  std::optional<std::string> latest_epoch;
-  std::optional<uint64_t> latest_commit_timestamp;
 
   std::vector<std::pair<memgraph::utils::UUID, uint64_t>> histories;
   histories.emplace_back(memgraph::utils::UUID{}, 24);
@@ -118,8 +116,10 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
   memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history3};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
-  auto instance_name = memgraph::coordination::ChooseMostUpToDateInstance(instance_database_histories, latest_epoch,
-                                                                          latest_commit_timestamp);
+  memgraph::coordination::CoordinatorInstance instance;
+  auto [instance_name, latest_epoch, latest_commit_timestamp] =
+      instance.ChooseMostUpToDateInstance(instance_database_histories);
+
   ASSERT_TRUE(instance_name == "instance_3");
   ASSERT_TRUE(*latest_epoch == db_histories.back().first);
   ASSERT_TRUE(*latest_commit_timestamp == db_histories.back().second);
@@ -134,8 +134,6 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
   // replica  3: A(24)  B(36)  C(48) D(50) E(51)  X     X     X  up
   std::vector<std::pair<std::string, memgraph::replication_coordination_glue::DatabaseHistories>>
       instance_database_histories;
-  std::optional<std::string> latest_epoch;
-  std::optional<uint64_t> latest_commit_timestamp;
 
   std::vector<std::pair<memgraph::utils::UUID, uint64_t>> histories;
   histories.emplace_back(memgraph::utils::UUID{}, 24);
@@ -176,8 +174,10 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
   memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history_longest};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
-  auto instance_name = memgraph::coordination::ChooseMostUpToDateInstance(instance_database_histories, latest_epoch,
-                                                                          latest_commit_timestamp);
+  memgraph::coordination::CoordinatorInstance instance;
+  auto [instance_name, latest_epoch, latest_commit_timestamp] =
+      instance.ChooseMostUpToDateInstance(instance_database_histories);
+
   ASSERT_TRUE(instance_name == "instance_3");
   ASSERT_TRUE(*latest_epoch == db_histories_longest.back().first);
   ASSERT_TRUE(*latest_commit_timestamp == db_histories_longest.back().second);
@@ -191,8 +191,6 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
   // replica  3: A(1)  B(2)    X     D(4)   X up
   std::vector<std::pair<std::string, memgraph::replication_coordination_glue::DatabaseHistories>>
       instance_database_histories;
-  std::optional<std::string> latest_epoch;
-  std::optional<uint64_t> latest_commit_timestamp;
 
   std::vector<std::pair<memgraph::utils::UUID, uint64_t>> histories;
   histories.emplace_back(memgraph::utils::UUID{}, 1);
@@ -238,8 +236,10 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
   memgraph::replication_coordination_glue::DatabaseHistories instance_2_db_histories_{history_2};
   instance_database_histories.emplace_back("instance_2", instance_2_db_histories_);
 
-  auto instance_name = memgraph::coordination::ChooseMostUpToDateInstance(instance_database_histories, latest_epoch,
-                                                                          latest_commit_timestamp);
+  memgraph::coordination::CoordinatorInstance instance;
+  auto [instance_name, latest_epoch, latest_commit_timestamp] =
+      instance.ChooseMostUpToDateInstance(instance_database_histories);
+
   ASSERT_TRUE(instance_name == "instance_3");
   ASSERT_TRUE(*latest_epoch == std::string(newest_different_epoch));
   ASSERT_TRUE(*latest_commit_timestamp == oldest_commit_timestamp);

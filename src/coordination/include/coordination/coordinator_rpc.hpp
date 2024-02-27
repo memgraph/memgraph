@@ -210,18 +210,18 @@ void Save(const memgraph::coordination::GetInstanceUUIDReq &self, memgraph::slk:
 void Load(memgraph::coordination::GetInstanceUUIDReq *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::GetInstanceUUIDRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::GetInstanceUUIDRes *self, memgraph::slk::Reader *reader);
+
 // UnregisterReplicaRpc
 void Save(memgraph::coordination::UnregisterReplicaRes const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::UnregisterReplicaRes *self, memgraph::slk::Reader *reader);
 void Save(memgraph::coordination::UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
 
+// EnableWritingOnMainRpc
 void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
 
-// GetInstanceTimestampsRpc
-void Save(const memgraph::coordination::GetDatabaseHistoriesReq &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::GetDatabaseHistoriesReq *self, memgraph::slk::Reader *reader);
+// GetDatabaseHistoriesRpc
 void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
 

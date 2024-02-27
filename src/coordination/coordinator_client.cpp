@@ -70,10 +70,9 @@ void CoordinatorClient::StartFrequentCheck() {
             stream.AwaitResponse();
           }
           // Subtle race condition:
-          // lock is acquired only in callback,
-          // but we might have changed which callback needs to be called
-          // (imagine case of failover where instance is promoted to MAIN)
-          // which means this instance will execute REPLICA callback instead of MAIN callback
+          // acquiring of lock needs to happen before function call, as function callback can be changed
+          // for instance after lock is already acquired
+          // (failover case when instance is promoted to MAIN)
           succ_cb_(coord_instance_, instance_name);
         } catch (rpc::RpcFailedException const &) {
           fail_cb_(coord_instance_, instance_name);

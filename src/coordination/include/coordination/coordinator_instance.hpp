@@ -26,6 +26,13 @@
 
 namespace memgraph::coordination {
 
+struct NewMainRes {
+  std::string most_up_to_date_instance;
+  std::optional<std::string> latest_epoch;
+  std::optional<uint64_t> latest_commit_timestamp;
+};
+using InstanceNameDbHistories = std::pair<std::string, replication_coordination_glue::DatabaseHistories>;
+
 class CoordinatorInstance {
  public:
   CoordinatorInstance();
@@ -47,13 +54,15 @@ class CoordinatorInstance {
 
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance &;
 
-  void MainFailCallback(std::string_view repl_instance_name, std::unique_lock<utils::ResourceLock> lock);
+  void MainFailCallback(ReplicationInstance &);
 
-  void MainSuccessCallback(std::string_view repl_instance_name, std::unique_lock<utils::ResourceLock> lock);
+  void MainSuccessCallback(ReplicationInstance &);
 
-  void ReplicaSuccessCallback(std::string_view repl_instance_name, std::unique_lock<utils::ResourceLock> lock);
+  void ReplicaSuccessCallback(ReplicationInstance &);
 
-  void ReplicaFailCallback(std::string_view repl_instance_name, std::unique_lock<utils::ResourceLock> lock);
+  void ReplicaFailCallback(ReplicationInstance &);
+
+  static auto ChooseMostUpToDateInstance(const std::vector<InstanceNameDbHistories> &) -> NewMainRes;
 
  private:
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;

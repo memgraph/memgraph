@@ -269,8 +269,7 @@ auto ReplicationHandler::GetRole() const -> replication_coordination_glue::Repli
 auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories {
   replication_coordination_glue::DatabaseHistories results;
   dbms_handler_.ForEach([&results](memgraph::dbms::DatabaseAccess db_acc) {
-    auto *storage = db_acc->storage();
-    auto &repl_storage_state = storage->repl_storage_state_;
+    auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
 
     std::vector<std::pair<std::string, uint64_t>> history =
         utils::fmap([](const auto &elem) { return std::pair<std::string, uint64_t>(elem.first, elem.second); },

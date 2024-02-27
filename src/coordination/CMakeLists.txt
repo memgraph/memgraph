@@ -15,7 +15,6 @@ target_sources(mg-coordination
         include/coordination/replication_instance.hpp
         include/coordination/raft_state.hpp
         include/coordination/rpc_errors.hpp
-        include/coordination/utils.hpp
 
         include/nuraft/coordinator_log_store.hpp
         include/nuraft/coordinator_state_machine.hpp
