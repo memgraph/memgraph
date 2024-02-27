@@ -114,6 +114,7 @@ struct PropertyInfo {
   std::unordered_set<std::string> property_types;  // property types
   int64_t number_of_property_occurrences = 0;
 
+  PropertyInfo() = default;
   explicit PropertyInfo(std::string &&property_type)
       : property_types({std::move(property_type)}),
         number_of_property_occurrences(Schema::kInitialNumberOfPropertyOccurances) {}
