@@ -518,58 +518,27 @@ auto CoordinatorInstance::TryFailover() -> void {
   auto *new_main = &new_repl_instance;
 >>>>>>> 9081c5c24 (Optional main on unregistering)
 
-  // if (!raft_state_.RequestLeadership()) {
-  //   spdlog::error("Failed to request leadership for promoting instance to main {}.", new_main->InstanceName());
-  //   return;
-  // }
+  if (!raft_state_.RequestLeadership()) {
+    spdlog::error("Failed to request leadership for promoting instance to main {}.", new_main->InstanceName());
+    return;
+  }
 
-  // // TODO: (andi) Improve std::string, appending...
-  // auto const res = raft_state_.AppendSetInstanceAsMain(new_main->InstanceName());
-  // if (!res->get_accepted()) {
-  //   spdlog::error(
-  //       "Failed to accept request for promoting instance {}. Most likely the reason is that the instance is not the "
-  //       "leader.",
-  //       new_main->InstanceName());
-  //   return;
-  // }
+  // TODO: (andi) Improve std::string, appending...
+  auto const res = raft_state_.AppendSetInstanceAsMain(new_main->InstanceName());
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for promoting instance {}. Most likely the reason is that the instance is not the "
+        "leader.",
+        new_main->InstanceName());
+    return;
+  }
 
-  // if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-  //   spdlog::error("Failed to promote instance {} with error code {}", new_main->InstanceName(),
-  //   res->get_result_code()); return;
-  // }
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to promote instance {} with error code {}", new_main->InstanceName(), res->get_result_code());
+    return;
+  }
 
-  // spdlog::info("Request for promoting instance {} accepted", new_main->InstanceName());
-
-  // new_main->PauseFrequentCheck();
-  // utils::OnScopeExit scope_exit{[&new_main] { new_main->ResumeFrequentCheck(); }};
-
-  // auto const is_not_new_main = [&new_main](ReplicationInstance &instance) {
-  //   return instance.InstanceName() != new_main->InstanceName();
-  // };
-
-  // auto const new_main_uuid = utils::UUID{};
-  // // If for some replicas swap fails, for others on successful ping we will revert back on next change
-  // // or we will do failover first again and then it will be consistent again
-  // for (auto &other_replica_instance : alive_replicas | ranges::views::filter(is_not_new_main)) {
-  //   if (!other_replica_instance.SendSwapAndUpdateUUID(new_main_uuid)) {
-  //     spdlog::error(fmt::format("Failed to swap uuid for instance {} which is alive, aborting failover",
-  //                               other_replica_instance.InstanceName()));
-  //     return;
-  //   }
-  // }
-
-  // auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
-  //                          ranges::views::transform(&ReplicationInstance::ReplicationClientInfo) |
-  //                          ranges::to<ReplicationClientsInfo>();
-
-  // if (!new_main->PromoteToMain(new_main_uuid, std::move(repl_clients_info),
-  // &CoordinatorInstance::MainSuccessCallback,
-  //                              &CoordinatorInstance::MainFailCallback)) {
-  //   spdlog::warn("Failover failed since promoting replica to main failed!");
-  //   return;
-  // }
-  // main_uuid_ = new_main_uuid;
-  // spdlog::info("Failover successful! Instance {} promoted to main.", new_main->InstanceName());
+  spdlog::info("Request for promoting instance {} accepted", new_main->InstanceName());
 }
 
 <<<<<<< HEAD
@@ -967,20 +936,6 @@ void CoordinatorInstance::MainSuccessCallback(std::string_view repl_instance_nam
   }
 
   spdlog::info("Request for demoting instance {} accepted", repl_instance_name);
-
-  if (repl_instance.DemoteToReplica(&CoordinatorInstance::ReplicaSuccessCallback,
-                                    &CoordinatorInstance::ReplicaFailCallback)) {
-    repl_instance.OnSuccessPing();
-    spdlog::info("Instance {} demoted to replica", repl_instance_name);
-  } else {
-    spdlog::error("Instance {} failed to become replica", repl_instance_name);
-    return;
-  }
-
-  if (!repl_instance.SendSwapAndUpdateUUID(main_uuid_)) {
-    spdlog::error(fmt::format("Failed to swap uuid for demoted main instance {}", repl_instance.InstanceName()));
-    return;
-  }
 }
 
 void CoordinatorInstance::ReplicaSuccessCallback(std::string_view repl_instance_name,
@@ -1609,6 +1564,28 @@ auto CoordinatorInstance::OnRaftCommitCallback(TRaftLog const &log_entry, RaftLo
       break;
     }
     case RaftLogAction::SET_INSTANCE_AS_REPLICA: {
+      auto const repl_instance_name = std::get<std::string>(log_entry);
+      auto &repl_instance = FindReplicationInstance(repl_instance_name);
+
+      if (raft_state_.IsLeader()) {
+        if (repl_instance.DemoteToReplicaAsLeader(&CoordinatorInstance::ReplicaSuccessCallback,
+                                                  &CoordinatorInstance::ReplicaFailCallback)) {
+          repl_instance.OnSuccessPing();
+        } else {
+          // TODO: (andi) What to do on failure?
+          spdlog::error("Instance {} failed to become replica", repl_instance_name);
+        }
+
+        if (!repl_instance.SendSwapAndUpdateUUID(main_uuid_)) {
+          spdlog::error(fmt::format("Failed to swap uuid for demoted main instance {}", repl_instance.InstanceName()));
+          return;
+        }
+
+      } else {
+        repl_instance.DemoteToReplicaAsFollower(&CoordinatorInstance::ReplicaSuccessCallback,
+                                                &CoordinatorInstance::ReplicaFailCallback);
+      }
+      spdlog::info("Instance {} demoted to replica", repl_instance_name);
       break;
     }
   };

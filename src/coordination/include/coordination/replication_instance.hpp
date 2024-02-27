@@ -60,8 +60,10 @@ class ReplicationInstance {
   auto PromoteToMainAsFollower(utils::UUID uuid, HealthCheckInstanceCallback main_succ_cb,
                                HealthCheckInstanceCallback main_fail_cb) -> void;
 
-  auto DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
+  auto DemoteToReplicaAsLeader(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
       -> bool;
+  auto DemoteToReplicaAsFollower(HealthCheckInstanceCallback replica_succ_cb,
+                                 HealthCheckInstanceCallback replica_fail_cb) -> void;
   auto SendDemoteToReplicaRpc() -> bool;
 
   auto StartFrequentCheck() -> void;

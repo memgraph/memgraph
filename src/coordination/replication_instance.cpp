@@ -71,8 +71,8 @@ auto ReplicationInstance::PromoteToMainAsFollower(utils::UUID new_uuid, HealthCh
 
 auto ReplicationInstance::SendDemoteToReplicaRpc() -> bool { return client_.DemoteToReplica(); }
 
-auto ReplicationInstance::DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb,
-                                          HealthCheckInstanceCallback replica_fail_cb) -> bool {
+auto ReplicationInstance::DemoteToReplicaAsLeader(HealthCheckInstanceCallback replica_succ_cb,
+                                                  HealthCheckInstanceCallback replica_fail_cb) -> bool {
   if (!client_.DemoteToReplica()) {
     return false;
   }
@@ -81,6 +81,12 @@ auto ReplicationInstance::DemoteToReplica(HealthCheckInstanceCallback replica_su
   fail_cb_ = replica_fail_cb;
 
   return true;
+}
+
+auto ReplicationInstance::DemoteToReplicaAsFollower(HealthCheckInstanceCallback replica_succ_cb,
+                                                    HealthCheckInstanceCallback replica_fail_cb) -> void {
+  succ_cb_ = replica_succ_cb;
+  fail_cb_ = replica_fail_cb;
 }
 
 auto ReplicationInstance::StartFrequentCheck() -> void { client_.StartFrequentCheck(); }
