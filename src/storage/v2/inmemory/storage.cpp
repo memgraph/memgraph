@@ -11,6 +11,7 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 #include <algorithm>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include "dbms/constants.hpp"
@@ -1767,7 +1768,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 template void InMemoryStorage::CollectGarbage<true>(std::unique_lock<utils::ResourceLock>);
 template void InMemoryStorage::CollectGarbage<false>(std::unique_lock<utils::ResourceLock>);
 
-StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
+StorageInfo InMemoryStorage::GetBaseInfo() {
   StorageInfo info{};
   info.vertex_count = vertices_.size();
   info.edge_count = edge_count_.load(std::memory_order_acquire);
@@ -1778,27 +1779,23 @@ StorageInfo InMemoryStorage::GetBaseInfo(bool force_directory) {
   info.memory_res = utils::GetMemoryRES();
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {
-    if (!force_directory && std::filesystem::is_directory(dir) && dir.has_filename()) {
-      const auto end = dir.end();
-      auto it = end;
-      --it;
-      if (it != end) {
-        --it;
-        if (it != end && *it != "databases") {
-          // Default DB points to the root (for back-compatibility); update to the "database" dir
-          return dir / dbms::kMultiTenantDir / dbms::kDefaultDB;
-        }
+#ifdef MG_ENTERPRISE
+    if (config_.salient.name == dbms::kDefaultDB) {
+      // Default DB points to the root (for back-compatibility); update to the "database" dir
+      std::filesystem::path new_dir = dir / "databases" / dbms::kDefaultDB;
+      if (std::filesystem::exists(new_dir) && std::filesystem::is_directory(new_dir)) {
+        return new_dir;
       }
     }
+#endif
     return dir;
   };
   info.disk_usage = utils::GetDirDiskUsage<false>(update_path(config_.durability.storage_directory));
   return info;
 }
 
-StorageInfo InMemoryStorage::GetInfo(bool force_directory,
-                                     memgraph::replication_coordination_glue::ReplicationRole replication_role) {
-  StorageInfo info = GetBaseInfo(force_directory);
+StorageInfo InMemoryStorage::GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+  StorageInfo info = GetBaseInfo();
   {
     auto access = Access(replication_role);  // TODO: override isolation level?
     const auto &lbl = access->ListAllIndices();
