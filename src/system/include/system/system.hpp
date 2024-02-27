@@ -34,7 +34,7 @@ struct System {
     if (!system_unique.try_lock_for(try_time)) {
       return std::nullopt;
     }
-    return Transaction{state_, std::move(system_unique), timestamp_++};
+    return Transaction{state_, std::move(system_unique), ++timestamp_};
   }
 
   // TODO: this and LastCommittedSystemTimestamp maybe not needed
@@ -46,7 +46,7 @@ struct System {
  private:
   State state_;
   std::timed_mutex mtx_{};
-  std::uint64_t timestamp_{};
+  std::uint64_t timestamp_{0};
 };
 
 }  // namespace memgraph::system
