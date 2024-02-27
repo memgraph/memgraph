@@ -416,7 +416,7 @@ memgraph::storage::PropertyValue StringToValue(const std::string &str, const std
 std::string GetIdSpace(const std::string &type) {
   // The format of this field is as follows:
   // [START_|END_]ID[(<id_space>)]
-  std::regex format(R"(^(START_|END_)?ID(\(([^\(\)]+)\))?$)", std::regex::extended);
+  static std::regex format(R"(^(START_|END_)?ID(\(([^\(\)]+)\))?$)", std::regex::extended);
   std::smatch res;
   if (!std::regex_match(type, res, format))
     throw LoadException(
