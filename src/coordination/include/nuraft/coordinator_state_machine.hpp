@@ -13,13 +13,18 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_config.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
 #include "nuraft/raft_log_action.hpp"
 
 #include <spdlog/spdlog.h>
 #include <libnuraft/nuraft.hxx>
 
+#include <variant>
+
 namespace memgraph::coordination {
+
+using OnRaftCommitCb = std::function<void(TRaftLog, RaftLogAction)>;
 
 using nuraft::async_result;
 using nuraft::buffer;
@@ -32,7 +37,7 @@ using nuraft::state_machine;
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  CoordinatorStateMachine() = default;
+  explicit CoordinatorStateMachine(OnRaftCommitCb raft_commit_cb);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
@@ -43,9 +48,13 @@ class CoordinatorStateMachine : public state_machine {
   auto IsMain(std::string const &instance_name) const -> bool;
   auto IsReplica(std::string const &instance_name) const -> bool;
 
-  static auto EncodeLogAction(std::string const &instance_name, RaftLogAction log_action) -> ptr<buffer>;
+  static auto CreateLog(std::string const &log) -> ptr<buffer>;
+  static auto SerializeRegisterInstance(CoordinatorClientConfig const &config) -> ptr<buffer>;
+  static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
 
-  static auto DecodeLog(buffer &data) -> std::pair<std::string, RaftLogAction>;
+  static auto DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction>;
 
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
@@ -86,14 +95,15 @@ class CoordinatorStateMachine : public state_machine {
 
   CoordinatorClusterState cluster_state_;
 
-
-  //mutable utils::RWLock lock{utils::RWLock::Priority::READ};
+  // mutable utils::RWLock lock{utils::RWLock::Priority::READ};
 
   std::atomic<uint64_t> last_committed_idx_{0};
 
   // TODO: (andi) Maybe not needed, remove it
   std::map<uint64_t, ptr<SnapshotCtx>> snapshots_;
   std::mutex snapshots_lock_;
+
+  OnRaftCommitCb raft_commit_cb_;
 
   ptr<snapshot> last_snapshot_;
   std::mutex last_snapshot_lock_;

@@ -473,7 +473,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                               .replication_client_info = repl_config,
                                               .ssl = std::nullopt};
 
-    auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config);
+    auto status = coordinator_handler_.RegisterReplicationInstance(std::move(coordinator_client_config));
     switch (status) {
       using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:

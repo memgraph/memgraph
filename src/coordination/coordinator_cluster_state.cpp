@@ -35,30 +35,30 @@ auto CoordinatorClusterState::InsertInstance(std::string const &instance_name, R
   instance_roles[instance_name] = role;
 }
 
-auto CoordinatorClusterState::DoAction(std::string const &instance_name, RaftLogAction log_action) -> void {
+auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void {
   switch (log_action) {
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
+      auto const instance_name = std::get<CoordinatorClientConfig>(log_entry).instance_name;
       instance_roles[instance_name] = ReplicationRole::REPLICA;
-      spdlog::info("Instance {} registered", instance_name);
       break;
     }
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE: {
+      auto const instance_name = std::get<std::string>(log_entry);
       instance_roles.erase(instance_name);
-      spdlog::info("Instance {} unregistered", instance_name);
       break;
     }
     case RaftLogAction::SET_INSTANCE_AS_MAIN: {
+      auto const instance_name = std::get<std::string>(log_entry);
       auto it = instance_roles.find(instance_name);
       MG_ASSERT(it != instance_roles.end(), "Instance does not exist as part of raft state!");
       it->second = ReplicationRole::MAIN;
-      spdlog::info("Instance {} set as main", instance_name);
       break;
     }
     case RaftLogAction::SET_INSTANCE_AS_REPLICA: {
+      auto const instance_name = std::get<std::string>(log_entry);
       auto it = instance_roles.find(instance_name);
       MG_ASSERT(it != instance_roles.end(), "Instance does not exist as part of raft state!");
       it->second = ReplicationRole::REPLICA;
-      spdlog::info("Instance {} set as replica", instance_name);
       break;
     }
   }

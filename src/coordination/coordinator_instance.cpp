@@ -34,6 +34,7 @@ using nuraft::srv_config;
 CoordinatorInstance::CoordinatorInstance()
     : raft_state_(RaftState::MakeRaftState(
           [this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StartFrequentCheck); },
+<<<<<<< HEAD
           [this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StopFrequentCheck); })) {
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -307,10 +308,17 @@ CoordinatorInstance::CoordinatorInstance()
 >>>>>>> 99c53148c (registration backed-up by raft)
 ||||||| parent of 9081c5c24 (Optional main on unregistering)
 =======
+||||||| parent of fab8d3d76 (Shared (Un)Registration networking part with raft)
+          [this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StopFrequentCheck); })) {
+=======
+          [this] { std::ranges::for_each(repl_instances_, &ReplicationInstance::StopFrequentCheck); },
+          [this](TRaftLog const &log_entry, RaftLogAction log_action) {
+            OnRaftCommitCallback(log_entry, log_action);
+          })) {
+>>>>>>> fab8d3d76 (Shared (Un)Registration networking part with raft)
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     auto lock = std::unique_lock{self->coord_instance_lock_};
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
-
     std::invoke(repl_instance.GetSuccessCallback(), self, repl_instance_name, std::move(lock));
   };
 
@@ -563,6 +571,7 @@ auto CoordinatorInstance::TryFailover() -> void {
   spdlog::info("Failover successful! Instance {} promoted to main.", new_main->InstanceName());
 }
 
+<<<<<<< HEAD
 // TODO: (andi) Make sure you cannot put coordinator instance to the main
 auto CoordinatorInstance::SetReplicationInstanceToMain(std::string instance_name)
     -> SetInstanceToMainCoordinatorStatus {
@@ -768,6 +777,132 @@ void CoordinatorInstance::ReplicaFailCallback(std::string_view repl_instance_nam
 }
 
 ||||||| parent of b1af5ceeb (Move ReplRole to ClusterState)
+||||||| parent of fab8d3d76 (Shared (Un)Registration networking part with raft)
+// TODO: (andi) Make sure you cannot put coordinator instance to the main
+auto CoordinatorInstance::SetReplicationInstanceToMain(std::string instance_name)
+    -> SetInstanceToMainCoordinatorStatus {
+  auto lock = std::lock_guard{coord_instance_lock_};
+
+  if (raft_state_.MainExists()) {
+    return SetInstanceToMainCoordinatorStatus::MAIN_ALREADY_EXISTS;
+  }
+
+  auto const is_new_main = [&instance_name](ReplicationInstance const &instance) {
+    return instance.InstanceName() == instance_name;
+  };
+  auto new_main = std::ranges::find_if(repl_instances_, is_new_main);
+
+  if (new_main == repl_instances_.end()) {
+    spdlog::error("Instance {} not registered. Please register it using REGISTER INSTANCE {}", instance_name,
+                  instance_name);
+    return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
+  }
+
+  if (!raft_state_.RequestLeadership()) {
+    return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
+  }
+
+  auto const res = raft_state_.AppendSetInstanceAsMain(instance_name);
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for promoting instance {}. Most likely the reason is that the instance is not "
+        "the leader.",
+        instance_name);
+    return SetInstanceToMainCoordinatorStatus::RAFT_COULD_NOT_ACCEPT;
+  }
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to promote instance {} with error code {}", instance_name, res->get_result_code());
+    return SetInstanceToMainCoordinatorStatus::RAFT_COULD_NOT_APPEND;
+  }
+
+  new_main->PauseFrequentCheck();
+  utils::OnScopeExit scope_exit{[&new_main] { new_main->ResumeFrequentCheck(); }};
+
+  auto const is_not_new_main = [&instance_name](ReplicationInstance const &instance) {
+    return instance.InstanceName() != instance_name;
+  };
+
+  auto const new_main_uuid = utils::UUID{};
+
+  for (auto &other_instance : repl_instances_ | ranges::views::filter(is_not_new_main)) {
+    if (!other_instance.SendSwapAndUpdateUUID(new_main_uuid)) {
+      spdlog::error(
+          fmt::format("Failed to swap uuid for instance {}, aborting failover", other_instance.InstanceName()));
+      return SetInstanceToMainCoordinatorStatus::SWAP_UUID_FAILED;
+    }
+  }
+
+  auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
+                           ranges::views::transform(&ReplicationInstance::ReplicationClientInfo) |
+                           ranges::to<ReplicationClientsInfo>();
+
+  if (!new_main->PromoteToMain(new_main_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
+                               &CoordinatorInstance::MainFailCallback)) {
+    return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
+  }
+
+  main_uuid_ = new_main_uuid;
+  spdlog::info("Instance {} promoted to main", instance_name);
+  return SetInstanceToMainCoordinatorStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig config)
+    -> RegisterInstanceCoordinatorStatus {
+  auto lock = std::lock_guard{coord_instance_lock_};
+
+  auto instance_name = config.instance_name;
+
+  auto const name_matches = [&instance_name](ReplicationInstance const &instance) {
+    return instance.InstanceName() == instance_name;
+  };
+
+  if (std::ranges::any_of(repl_instances_, name_matches)) {
+    return RegisterInstanceCoordinatorStatus::NAME_EXISTS;
+  }
+
+  auto const socket_address_matches = [&config](ReplicationInstance const &instance) {
+    return instance.SocketAddress() == config.SocketAddress();
+  };
+
+  if (std::ranges::any_of(repl_instances_, socket_address_matches)) {
+    return RegisterInstanceCoordinatorStatus::ENDPOINT_EXISTS;
+  }
+
+  if (!raft_state_.RequestLeadership()) {
+    return RegisterInstanceCoordinatorStatus::NOT_LEADER;
+  }
+
+  auto const res = raft_state_.AppendRegisterReplicationInstance(instance_name);
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for registering instance {}. Most likely the reason is that the instance is not "
+        "the "
+        "leader.",
+        config.instance_name);
+    return RegisterInstanceCoordinatorStatus::RAFT_COULD_NOT_ACCEPT;
+  }
+
+  spdlog::info("Request for registering instance {} accepted", instance_name);
+  try {
+    repl_instances_.emplace_back(this, std::move(config), client_succ_cb_, client_fail_cb_,
+                                 &CoordinatorInstance::ReplicaSuccessCallback,
+                                 &CoordinatorInstance::ReplicaFailCallback);
+  } catch (CoordinatorRegisterInstanceException const &) {
+    return RegisterInstanceCoordinatorStatus::RPC_FAILED;
+  }
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to register instance {} with error code {}", instance_name, res->get_result_code());
+    return RegisterInstanceCoordinatorStatus::RAFT_COULD_NOT_APPEND;
+  }
+
+  spdlog::info("Instance {} registered", instance_name);
+  return RegisterInstanceCoordinatorStatus::SUCCESS;
+}
+
+=======
+>>>>>>> fab8d3d76 (Shared (Un)Registration networking part with raft)
 void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name,
                                            std::unique_lock<utils::ResourceLock> lock) {
   MG_ASSERT(lock.owns_lock(), "Callback doesn't own lock");
@@ -890,6 +1025,7 @@ void CoordinatorInstance::ReplicaFailCallback(std::string_view repl_instance_nam
   repl_instance.OnFailPing();
 }
 
+<<<<<<< HEAD
 =======
 >>>>>>> b1af5ceeb (Move ReplRole to ClusterState)
 ||||||| parent of 9081c5c24 (Optional main on unregistering)
@@ -984,6 +1120,124 @@ void CoordinatorInstance::ReplicaFailCallback(std::string_view repl_instance_nam
 }
 
 >>>>>>> 9081c5c24 (Optional main on unregistering)
+||||||| parent of fab8d3d76 (Shared (Un)Registration networking part with raft)
+=======
+// TODO: (andi) Make sure you cannot put coordinator instance to the main
+auto CoordinatorInstance::SetReplicationInstanceToMain(std::string instance_name)
+    -> SetInstanceToMainCoordinatorStatus {
+  auto lock = std::lock_guard{coord_instance_lock_};
+
+  if (raft_state_.MainExists()) {
+    return SetInstanceToMainCoordinatorStatus::MAIN_ALREADY_EXISTS;
+  }
+
+  auto const is_new_main = [&instance_name](ReplicationInstance const &instance) {
+    return instance.InstanceName() == instance_name;
+  };
+  auto new_main = std::ranges::find_if(repl_instances_, is_new_main);
+
+  if (new_main == repl_instances_.end()) {
+    spdlog::error("Instance {} not registered. Please register it using REGISTER INSTANCE {}", instance_name,
+                  instance_name);
+    return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
+  }
+
+  if (!raft_state_.RequestLeadership()) {
+    return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
+  }
+
+  auto const res = raft_state_.AppendSetInstanceAsMain(instance_name);
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for promoting instance {}. Most likely the reason is that the instance is not "
+        "the leader.",
+        instance_name);
+    return SetInstanceToMainCoordinatorStatus::RAFT_COULD_NOT_ACCEPT;
+  }
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to promote instance {} with error code {}", instance_name, res->get_result_code());
+    return SetInstanceToMainCoordinatorStatus::RAFT_COULD_NOT_APPEND;
+  }
+
+  new_main->PauseFrequentCheck();
+  utils::OnScopeExit scope_exit{[&new_main] { new_main->ResumeFrequentCheck(); }};
+
+  auto const is_not_new_main = [&instance_name](ReplicationInstance const &instance) {
+    return instance.InstanceName() != instance_name;
+  };
+
+  auto const new_main_uuid = utils::UUID{};
+
+  for (auto &other_instance : repl_instances_ | ranges::views::filter(is_not_new_main)) {
+    if (!other_instance.SendSwapAndUpdateUUID(new_main_uuid)) {
+      spdlog::error(
+          fmt::format("Failed to swap uuid for instance {}, aborting failover", other_instance.InstanceName()));
+      return SetInstanceToMainCoordinatorStatus::SWAP_UUID_FAILED;
+    }
+  }
+
+  auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
+                           ranges::views::transform(&ReplicationInstance::ReplicationClientInfo) |
+                           ranges::to<ReplicationClientsInfo>();
+
+  if (!new_main->PromoteToMain(new_main_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
+                               &CoordinatorInstance::MainFailCallback)) {
+    return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
+  }
+
+  main_uuid_ = new_main_uuid;
+  spdlog::info("Instance {} promoted to main", instance_name);
+  return SetInstanceToMainCoordinatorStatus::SUCCESS;
+}
+
+// TODO: (andi) Status of registration, maybe not all needed.
+// Incorporate checking of replication socket address.
+auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig config)
+    -> RegisterInstanceCoordinatorStatus {
+  auto lock = std::lock_guard{coord_instance_lock_};
+
+  auto const name_matches = [&config](ReplicationInstance const &instance) {
+    return instance.InstanceName() == config.instance_name;
+  };
+
+  if (std::ranges::any_of(repl_instances_, name_matches)) {
+    return RegisterInstanceCoordinatorStatus::NAME_EXISTS;
+  }
+
+  auto const socket_address_matches = [&config](ReplicationInstance const &instance) {
+    return instance.SocketAddress() == config.SocketAddress();
+  };
+
+  if (std::ranges::any_of(repl_instances_, socket_address_matches)) {
+    return RegisterInstanceCoordinatorStatus::ENDPOINT_EXISTS;
+  }
+
+  if (!raft_state_.RequestLeadership()) {
+    return RegisterInstanceCoordinatorStatus::NOT_LEADER;
+  }
+
+  auto const res = raft_state_.AppendRegisterReplicationInstance(config);
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for registering instance {}. Most likely the reason is that the instance is not "
+        "the "
+        "leader.",
+        config.instance_name);
+    return RegisterInstanceCoordinatorStatus::RAFT_COULD_NOT_ACCEPT;
+  }
+
+  spdlog::info("Request for registering instance {} accepted", config.instance_name);
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to register instance {} with error code {}", config.instance_name, res->get_result_code());
+    return RegisterInstanceCoordinatorStatus::RAFT_COULD_NOT_APPEND;
+  }
+
+  return RegisterInstanceCoordinatorStatus::SUCCESS;
+}
+
+>>>>>>> fab8d3d76 (Shared (Un)Registration networking part with raft)
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string instance_name)
     -> UnregisterInstanceCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
@@ -1024,16 +1278,6 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string instance_nam
     return UnregisterInstanceCoordinatorStatus::RAFT_COULD_NOT_APPEND;
   }
 
-  inst_to_remove->StopFrequentCheck();
-  if (auto curr_main = std::ranges::find_if(repl_instances_, is_main); curr_main != repl_instances_.end()) {
-    if (!curr_main->SendUnregisterReplicaRpc(instance_name)) {
-      // TODO: (andi) Restore state in the RAFT log if needed.
-      inst_to_remove->StartFrequentCheck();
-      return UnregisterInstanceCoordinatorStatus::RPC_FAILED;
-    }
-  }
-  std::erase_if(repl_instances_, name_matches);
-
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
 
@@ -1042,6 +1286,7 @@ auto CoordinatorInstance::AddCoordinatorInstance(uint32_t raft_server_id, uint32
   raft_state_.AddCoordinatorInstance(raft_server_id, raft_port, std::move(raft_address));
 }
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -1142,5 +1387,67 @@ auto CoordinatorInstance::SetMainUUID(utils::UUID new_uuid) -> void { main_uuid_
 
 =======
 >>>>>>> 1b150ee92 (Address PR comments)
+||||||| parent of fab8d3d76 (Shared (Un)Registration networking part with raft)
+=======
+auto CoordinatorInstance::OnRaftCommitCallback(TRaftLog const &log_entry, RaftLogAction log_action) -> void {
+  // TODO: (andi) Solve it locking scheme and write comment.
+  switch (log_action) {
+    case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
+      auto config = std::get<CoordinatorClientConfig>(log_entry);
+      auto *new_instance = &repl_instances_.emplace_back(this, std::move(config), client_succ_cb_, client_fail_cb_,
+                                                         &CoordinatorInstance::ReplicaSuccessCallback,
+                                                         &CoordinatorInstance::ReplicaFailCallback);
+
+      if (raft_state_.IsLeader()) {
+        if (!new_instance->SendDemoteToReplicaRpc()) {
+          throw CoordinatorRegisterInstanceException("Failed to demote instance {} to replica on registration.",
+                                                     new_instance->InstanceName());
+        }
+
+        new_instance->StartFrequentCheck();
+        // TODO: (andi) Pinging for InstanceName() raft_state?
+        spdlog::info("Leader instance {} started frequent check on ", raft_state_.InstanceName(),
+                     new_instance->InstanceName());
+      }
+
+      spdlog::info("Instance {} registered", new_instance->InstanceName());
+      break;
+    }
+    case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE: {
+      auto const instance_name = std::get<std::string>(log_entry);
+
+      auto &inst_to_remove = FindReplicationInstance(instance_name);
+      inst_to_remove.StopFrequentCheck();
+
+      auto const is_main = [this](ReplicationInstance const &instance) {
+        return raft_state_.IsMain(instance.InstanceName());
+      };
+
+      if (auto curr_main = std::ranges::find_if(repl_instances_, is_main); curr_main != repl_instances_.end()) {
+        if (!curr_main->SendUnregisterReplicaRpc(instance_name)) {
+          // TODO: (andi) Restore state in the RAFT log if needed.
+          inst_to_remove.StartFrequentCheck();
+        }
+      }
+
+      auto const name_matches = [&instance_name](ReplicationInstance const &instance) {
+        return instance.InstanceName() == instance_name;
+      };
+
+      std::erase_if(repl_instances_, name_matches);
+
+      spdlog::info("Instance {} unregistered", instance_name);
+      break;
+    }
+    case RaftLogAction::SET_INSTANCE_AS_MAIN: {
+      break;
+    }
+    case RaftLogAction::SET_INSTANCE_AS_REPLICA: {
+      break;
+    }
+  };
+}
+
+>>>>>>> fab8d3d76 (Shared (Un)Registration networking part with raft)
 }  // namespace memgraph::coordination
 #endif

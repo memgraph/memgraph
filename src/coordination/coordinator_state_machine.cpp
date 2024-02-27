@@ -15,6 +15,8 @@
 
 namespace memgraph::coordination {
 
+CoordinatorStateMachine::CoordinatorStateMachine(OnRaftCommitCb raft_commit_cb) : raft_commit_cb_(raft_commit_cb) {}
+
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
 
 auto CoordinatorStateMachine::IsMain(std::string const &instance_name) const -> bool {
@@ -25,37 +27,54 @@ auto CoordinatorStateMachine::IsReplica(std::string const &instance_name) const 
   return cluster_state_.IsReplica(instance_name);
 }
 
-auto CoordinatorStateMachine::EncodeLogAction(std::string const &name, RaftLogAction log_action) -> ptr<buffer> {
-  auto const str_log = [&name, log_action] {
-    switch (log_action) {
-      case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
-        return "register_" + name;
-      case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
-        return "unregister_" + name;
-      case RaftLogAction::SET_INSTANCE_AS_MAIN:
-        return "promote_" + name;
-      case RaftLogAction::SET_INSTANCE_AS_REPLICA:
-        return "demote_" + name;
-    }
-  }();
-
-  ptr<buffer> log = buffer::alloc(sizeof(uint32_t) + str_log.size());
-  buffer_serializer bs(log);
-  bs.put_str(str_log);
-  return log;
+auto CoordinatorStateMachine::CreateLog(std::string const &log) -> ptr<buffer> {
+  ptr<buffer> log_buf = buffer::alloc(sizeof(uint32_t) + log.size());
+  buffer_serializer bs(log_buf);
+  bs.put_str(log);
+  return log_buf;
 }
 
-auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<std::string, RaftLogAction> {
+auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorClientConfig const &config) -> ptr<buffer> {
+  auto const str_log = fmt::format("{}*register", config.ToString());
+  return CreateLog(str_log);
+}
+
+auto CoordinatorStateMachine::SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer> {
+  auto const str_log = fmt::format("{}*unregister", instance_name);
+  return CreateLog(str_log);
+}
+
+auto CoordinatorStateMachine::SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer> {
+  auto const str_log = fmt::format("{}*promote", instance_name);
+  return CreateLog(str_log);
+}
+
+auto CoordinatorStateMachine::SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer> {
+  auto const str_log = fmt::format("{}*demote", instance_name);
+  return CreateLog(str_log);
+}
+
+auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction> {
   buffer_serializer bs(data);
 
   auto const log_str = bs.get_str();
-  auto const sep = log_str.find('_');
-  auto const action = log_str.substr(0, sep);
-  auto const name = log_str.substr(sep + 1);
+  auto const sep = log_str.find('*');
+  auto const action = log_str.substr(sep + 1);
+  auto const info = log_str.substr(0, sep);
 
-  spdlog::info("Decoding log: {} {}", name, action);
-
-  return {name, ParseRaftLogAction(action)};
+  if (action == "register") {
+    return {CoordinatorClientConfig::FromString(info), RaftLogAction::REGISTER_REPLICATION_INSTANCE};
+  }
+  if (action == "unregister") {
+    return {info, RaftLogAction::UNREGISTER_REPLICATION_INSTANCE};
+  }
+  if (action == "promote") {
+    return {info, RaftLogAction::SET_INSTANCE_AS_MAIN};
+  }
+  if (action == "demote") {
+    return {info, RaftLogAction::SET_INSTANCE_AS_REPLICA};
+  }
+  throw std::runtime_error("Unknown action");
 }
 
 auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*data*/) -> ptr<buffer> { return nullptr; }
@@ -64,12 +83,12 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
   // TODO: (andi) think about locking scheme
   buffer_serializer bs(data);
 
-  auto const [instance_name, log_action] = DecodeLog(data);
-  spdlog::info("commit {} : {} {}", log_idx, instance_name, log_action);
-  cluster_state_.DoAction(instance_name, log_action);
-  // push_back(ReplicationInstance)
+  auto const [parsed_data, log_action] = DecodeLog(data);
+  cluster_state_.DoAction(parsed_data, log_action);
+  std::invoke(raft_commit_cb_, parsed_data, log_action);
 
   last_committed_idx_ = log_idx;
+  // TODO: (andi) Don't return nullptr
   return nullptr;
 }
 

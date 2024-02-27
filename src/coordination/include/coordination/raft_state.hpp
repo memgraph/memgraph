@@ -21,6 +21,9 @@
 
 namespace memgraph::coordination {
 
+class CoordinatorInstance;
+struct CoordinatorClientConfig;
+
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
 
@@ -36,8 +39,9 @@ using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
 class RaftState {
  private:
-  explicit RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
-                     uint32_t raft_port, std::string raft_address);
+  explicit RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb,
+                     OnRaftCommitCb raft_commit_cb, uint32_t raft_server_id, uint32_t raft_port,
+                     std::string raft_address);
 
   auto InitRaftServer() -> void;
 
@@ -49,7 +53,8 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
 
-  static auto MakeRaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb) -> RaftState;
+  static auto MakeRaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb,
+                            OnRaftCommitCb raft_commit_cb) -> RaftState;
 
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
@@ -65,10 +70,10 @@ class RaftState {
   auto IsReplica(std::string const &instance_name) const -> bool;
 
   /// TODO: (andi) Add log in the name of methods
-  auto AppendRegisterReplicationInstance(std::string const &instance_name) -> ptr<raft_result>;
-  auto AppendUnregisterReplicationInstance(std::string const &instance_name) -> ptr<raft_result>;
-  auto AppendSetInstanceAsMain(std::string const &instance_name) -> ptr<raft_result>;
-  auto AppendSetInstanceAsReplica(std::string const &instance_name) -> ptr<raft_result>;
+  auto AppendRegisterReplicationInstance(CoordinatorClientConfig const &config) -> ptr<raft_result>;
+  auto AppendUnregisterReplicationInstance(std::string_view instance_name) -> ptr<raft_result>;
+  auto AppendSetInstanceAsMain(std::string_view instance_name) -> ptr<raft_result>;
+  auto AppendSetInstanceAsReplica(std::string_view instance_name) -> ptr<raft_result>;
 
   auto GetInstances() const -> std::vector<std::pair<std::string, std::string>>;
 

@@ -13,6 +13,7 @@
 
 #include "coordination/raft_state.hpp"
 
+#include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "utils/counter.hpp"
 
@@ -29,12 +30,13 @@ using nuraft::raft_server;
 using nuraft::srv_config;
 using raft_result = cmd_result<ptr<buffer>>;
 
-RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
-                     uint32_t raft_port, std::string raft_address)
+RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb,
+                     OnRaftCommitCb raft_commit_cb, uint32_t raft_server_id, uint32_t raft_port,
+                     std::string raft_address)
     : raft_server_id_(raft_server_id),
       raft_port_(raft_port),
       raft_address_(std::move(raft_address)),
-      state_machine_(cs_new<CoordinatorStateMachine>()),
+      state_machine_(cs_new<CoordinatorStateMachine>(raft_commit_cb)),
       state_manager_(
           cs_new<CoordinatorStateManager>(raft_server_id_, raft_address_ + ":" + std::to_string(raft_port_))),
       logger_(nullptr),
@@ -88,7 +90,8 @@ auto RaftState::InitRaftServer() -> void {
   throw RaftServerStartException("Failed to initialize raft server on {}:{}", raft_address_, raft_port_);
 }
 
-auto RaftState::MakeRaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb) -> RaftState {
+auto RaftState::MakeRaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb,
+                              OnRaftCommitCb raft_commit_cb) -> RaftState {
   uint32_t raft_server_id{0};
   uint32_t raft_port{0};
   try {
@@ -98,8 +101,8 @@ auto RaftState::MakeRaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb 
     throw RaftCouldNotParseFlagsException("Failed to parse flags: {}", e.what());
   }
 
-  auto raft_state =
-      RaftState(std::move(become_leader_cb), std::move(become_follower_cb), raft_server_id, raft_port, "127.0.0.1");
+  auto raft_state = RaftState(std::move(become_leader_cb), std::move(become_follower_cb), raft_commit_cb,
+                              raft_server_id, raft_port, "127.0.0.1");
   raft_state.InitRaftServer();
   return raft_state;
 }
@@ -129,24 +132,23 @@ auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 auto RaftState::RequestLeadership() -> bool { return raft_server_->is_leader() || raft_server_->request_leadership(); }
 
-auto RaftState::AppendRegisterReplicationInstance(std::string const &instance_name) -> ptr<raft_result> {
-  auto new_log = CoordinatorStateMachine::EncodeLogAction(instance_name, RaftLogAction::REGISTER_REPLICATION_INSTANCE);
+auto RaftState::AppendRegisterReplicationInstance(CoordinatorClientConfig const &config) -> ptr<raft_result> {
+  auto new_log = CoordinatorStateMachine::SerializeRegisterInstance(config);
   return raft_server_->append_entries({new_log});
 }
 
-auto RaftState::AppendUnregisterReplicationInstance(std::string const &instance_name) -> ptr<raft_result> {
-  auto new_log =
-      CoordinatorStateMachine::EncodeLogAction(instance_name, RaftLogAction::UNREGISTER_REPLICATION_INSTANCE);
+auto RaftState::AppendUnregisterReplicationInstance(std::string_view instance_name) -> ptr<raft_result> {
+  auto new_log = CoordinatorStateMachine::SerializeUnregisterInstance(instance_name);
   return raft_server_->append_entries({new_log});
 }
 
-auto RaftState::AppendSetInstanceAsMain(std::string const &instance_name) -> ptr<raft_result> {
-  auto new_log = CoordinatorStateMachine::EncodeLogAction(instance_name, RaftLogAction::SET_INSTANCE_AS_MAIN);
+auto RaftState::AppendSetInstanceAsMain(std::string_view instance_name) -> ptr<raft_result> {
+  auto new_log = CoordinatorStateMachine::SerializeSetInstanceAsMain(instance_name);
   return raft_server_->append_entries({new_log});
 }
 
-auto RaftState::AppendSetInstanceAsReplica(std::string const &instance_name) -> ptr<raft_result> {
-  auto new_log = CoordinatorStateMachine::EncodeLogAction(instance_name, RaftLogAction::SET_INSTANCE_AS_REPLICA);
+auto RaftState::AppendSetInstanceAsReplica(std::string_view instance_name) -> ptr<raft_result> {
+  auto new_log = CoordinatorStateMachine::SerializeSetInstanceAsReplica(instance_name);
   return raft_server_->append_entries({new_log});
 }
 

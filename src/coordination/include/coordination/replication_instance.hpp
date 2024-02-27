@@ -17,10 +17,11 @@
 #include "coordination/coordinator_exceptions.hpp"
 #include "replication_coordination_glue/role.hpp"
 
-#include <libnuraft/nuraft.hxx>
 #include "utils/resource_lock.hpp"
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
+
+#include <libnuraft/nuraft.hxx>
 
 namespace memgraph::coordination {
 
@@ -54,6 +55,8 @@ class ReplicationInstance {
 
   auto PromoteToMain(utils::UUID uuid, ReplicationClientsInfo repl_clients_info,
                      HealthCheckInstanceCallback main_succ_cb, HealthCheckInstanceCallback main_fail_cb) -> bool;
+
+  auto SendDemoteToReplicaRpc() -> bool;
   auto DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
       -> bool;
 

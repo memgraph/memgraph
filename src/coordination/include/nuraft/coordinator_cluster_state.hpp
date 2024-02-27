@@ -13,6 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_config.hpp"
 #include "nuraft/raft_log_action.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/rw_lock.hpp"
@@ -23,8 +24,11 @@
 #include <map>
 #include <numeric>
 #include <string>
+#include <variant>
 
 namespace memgraph::coordination {
+
+using TRaftLog = std::variant<CoordinatorClientConfig, std::string>;
 
 using nuraft::buffer;
 using nuraft::buffer_serializer;
@@ -40,7 +44,7 @@ class CoordinatorClusterState {
 
   auto InsertInstance(std::string const &instance_name, replication_coordination_glue::ReplicationRole role) -> void;
 
-  auto DoAction(std::string const &instance_name, RaftLogAction log_action) -> void;
+  auto DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void;
 
   auto Serialize(ptr<buffer> &data) -> void;
 

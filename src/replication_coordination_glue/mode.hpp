@@ -12,7 +12,32 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
+#include <stdexcept>
+#include <string>
 
 namespace memgraph::replication_coordination_glue {
+
 enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
+
+inline auto ReplicationModeToString(ReplicationMode mode) -> std::string {
+  switch (mode) {
+    case ReplicationMode::SYNC:
+      return "SYNC";
+    case ReplicationMode::ASYNC:
+      return "ASYNC";
+  }
+  throw std::invalid_argument("Invalid replication mode");
+}
+
+inline auto ReplicationModeFromString(std::string_view mode) -> ReplicationMode {
+  if (mode == "SYNC") {
+    return ReplicationMode::SYNC;
+  }
+  if (mode == "ASYNC") {
+    return ReplicationMode::ASYNC;
+  }
+  throw std::invalid_argument("Invalid replication mode");
+}
+
 }  // namespace memgraph::replication_coordination_glue

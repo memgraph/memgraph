@@ -48,6 +48,11 @@ class CoordinatorInstance {
 
   auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
 
+ private:
+  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
+
+  auto OnRaftCommitCallback(TRaftLog const &log_entry, RaftLogAction log_action) -> void;
+
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance &;
 
   void MainFailCallback(std::string_view);
@@ -59,9 +64,6 @@ class CoordinatorInstance {
   void ReplicaFailCallback(std::string_view);
 
   static auto ChooseMostUpToDateInstance(const std::vector<InstanceNameDbHistories> &) -> NewMainRes;
-
- private:
-  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
 
   // NOTE: Only leader should have repl_instances_, not followers.
   // NOTE: Must be std::list because we rely on pointer stability.

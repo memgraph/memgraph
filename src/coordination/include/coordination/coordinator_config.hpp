@@ -14,11 +14,14 @@
 #ifdef MG_ENTERPRISE
 
 #include "replication_coordination_glue/mode.hpp"
+#include "utils/string.hpp"
 
 #include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
+
+#include <fmt/format.h>
 
 namespace memgraph::coordination {
 
@@ -32,13 +35,30 @@ struct CoordinatorClientConfig {
   std::chrono::seconds instance_down_timeout_sec{5};
   std::chrono::seconds instance_get_uuid_frequency_sec{10};
 
-  auto SocketAddress() const -> std::string { return ip_address + ":" + std::to_string(port); }
+  auto SocketAddress() const -> std::string { return fmt::format("{}:{}", ip_address, port); }
 
   struct ReplicationClientInfo {
+    // TODO: (andi) Do we even need here instance_name for this struct?
     std::string instance_name;
     replication_coordination_glue::ReplicationMode replication_mode{};
     std::string replication_ip_address;
     uint16_t replication_port{};
+
+    auto ToString() const -> std::string {
+      return fmt::format("{}#{}#{}#{}", instance_name, replication_ip_address, replication_port,
+                         replication_coordination_glue::ReplicationModeToString(replication_mode));
+    }
+
+    // TODO: (andi) How can I make use of monadic parsers here?
+    static auto FromString(std::string_view log) -> ReplicationClientInfo {
+      ReplicationClientInfo replication_client_info;
+      auto splitted = utils::Split(log, "#");
+      replication_client_info.instance_name = splitted[0];
+      replication_client_info.replication_ip_address = splitted[1];
+      replication_client_info.replication_port = std::stoi(splitted[2]);
+      replication_client_info.replication_mode = replication_coordination_glue::ReplicationModeFromString(splitted[3]);
+      return replication_client_info;
+    }
 
     friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
   };
@@ -53,6 +73,25 @@ struct CoordinatorClientConfig {
   };
 
   std::optional<SSL> ssl;
+
+  auto ToString() const -> std::string {
+    return fmt::format("{}|{}|{}|{}|{}|{}|{}", instance_name, ip_address, port,
+                       instance_health_check_frequency_sec.count(), instance_down_timeout_sec.count(),
+                       instance_get_uuid_frequency_sec.count(), replication_client_info.ToString());
+  }
+
+  static auto FromString(std::string_view log) -> CoordinatorClientConfig {
+    CoordinatorClientConfig config;
+    auto splitted = utils::Split(log, "|");
+    config.instance_name = splitted[0];
+    config.ip_address = splitted[1];
+    config.port = std::stoi(splitted[2]);
+    config.instance_health_check_frequency_sec = std::chrono::seconds(std::stoi(splitted[3]));
+    config.instance_down_timeout_sec = std::chrono::seconds(std::stoi(splitted[4]));
+    config.instance_get_uuid_frequency_sec = std::chrono::seconds(std::stoi(splitted[5]));
+    config.replication_client_info = ReplicationClientInfo::FromString(splitted[6]);
+    return config;
+  }
 
   friend bool operator==(CoordinatorClientConfig const &, CoordinatorClientConfig const &) = default;
 };
