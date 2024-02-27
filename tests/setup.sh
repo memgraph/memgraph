@@ -34,6 +34,7 @@ PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info[:][1])')
 
 # install pulsar-client
 pip --timeout 1000 install "pulsar-client==3.1.0"
+pip --timeout 1000 install "networkx"
 for pkg in "${PIP_DEPS[@]}"; do
     pip --timeout 1000 install "$pkg"
 done
