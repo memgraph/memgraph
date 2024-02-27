@@ -332,7 +332,7 @@ class InMemoryStorage final : public Storage {
   std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                          std::optional<IsolationLevel> override_isolation_level) override;
 
-  void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) override;
+  void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
@@ -363,7 +363,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   template <bool force>
-  void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard = {});
+  void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic);
 
   bool InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch);
   void FinalizeWalFile();
