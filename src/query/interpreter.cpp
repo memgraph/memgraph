@@ -3190,20 +3190,12 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
 Callback DropGraph(memgraph::dbms::DatabaseAccess &db) {
   Callback callback;
   callback.fn = [&db]() mutable {
-    if (!db.try_exclusively([](auto &in) {
-          spdlog::info("Woohooooo!!");
-          auto current_storage_mode = in.GetStorageMode();
-          if (current_storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-            throw utils::BasicException("Drop graph can not be used without IN_MEMORY_ANALYTICAL storage mode!");
-          }
-
-          std::this_thread::sleep_for(std::chrono::seconds(10));
-          in.UniqueAccess()->DropGraph();
-        })) {  // Try exclusively failed
-      throw utils::BasicException(
-          "Drop graph command failed! Ensure that you're the only transaction currently running!");
+    auto storage = db->UniqueAccess();
+    auto storage_mode = db->GetStorageMode();
+    if (storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+      throw utils::BasicException("Drop graph can not be used without IN_MEMORY_ANALYTICAL storage mode!");
     }
-
+    storage->DropGraph();
     return std::vector<std::vector<TypedValue>>();
   };
 

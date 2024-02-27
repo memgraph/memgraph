@@ -2162,8 +2162,6 @@ void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guar
 }
 
 void InMemoryStorage::DropGraph() {
-  std::unique_lock main_guard{main_lock_};
-
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
     for (auto &delta : deltas) {
       auto prev = delta.prev.Get();
