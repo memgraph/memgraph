@@ -18,7 +18,7 @@ import mgclient
 import pytest
 from common import memgraph, memgraph_with_mixed_data, memgraph_with_text_indexed_data
 
-GET_RULES_2024_DOCUMENT = """CALL text_search.search("complianceDocuments", "data.title:Rules2024") YIELD node
+GET_RULES_2024_DOCUMENT = """CALL libtext.search("complianceDocuments", "data.title:Rules2024") YIELD node
              RETURN node.title AS title, node.version AS version
              ORDER BY version ASC, title ASC;"""
 
@@ -64,7 +64,7 @@ def test_text_search_given_property(memgraph_with_text_indexed_data):
 def test_text_search_all_properties(memgraph_with_text_indexed_data):
     SEARCH_QUERY = "Rules2024"
 
-    ALL_PROPERTIES_QUERY = f"""CALL text_search.search_all("complianceDocuments", "{SEARCH_QUERY}") YIELD node
+    ALL_PROPERTIES_QUERY = f"""CALL libtext.search_all("complianceDocuments", "{SEARCH_QUERY}") YIELD node
              RETURN node
              ORDER BY node.version ASC, node.title ASC;"""
 
@@ -79,7 +79,7 @@ def test_text_search_all_properties(memgraph_with_text_indexed_data):
 
 
 def test_regex_text_search(memgraph_with_text_indexed_data):
-    REGEX_QUERY = """CALL text_search.regex_search("complianceDocuments", "wor.*s") YIELD node
+    REGEX_QUERY = """CALL libtext.regex_search("complianceDocuments", "wor.*s") YIELD node
              RETURN node
              ORDER BY node.version ASC, node.title ASC;"""
 
@@ -97,7 +97,7 @@ def test_text_search_aggregate(memgraph_with_text_indexed_data):
     input_aggregation = json.dumps({"count": {"value_count": {"field": "metadata.gid"}}}, separators=(",", ":"))
     expected_aggregation = json.dumps({"count": {"value": 2.0}}, separators=(",", ":"))
 
-    AGGREGATION_QUERY = f"""CALL text_search.aggregate("complianceDocuments", "data.title:Rules2024", '{input_aggregation}')
+    AGGREGATION_QUERY = f"""CALL libtext.aggregate("complianceDocuments", "data.title:Rules2024", '{input_aggregation}')
                 YIELD aggregation
                 RETURN aggregation;"""
 
@@ -107,7 +107,7 @@ def test_text_search_aggregate(memgraph_with_text_indexed_data):
 
 
 def test_text_search_query_boolean(memgraph_with_text_indexed_data):
-    BOOLEAN_QUERY = """CALL text_search.search("complianceDocuments", "(data.title:Rules2023 OR data.title:Rules2024) AND data.fulltext:words") YIELD node
+    BOOLEAN_QUERY = """CALL libtext.search("complianceDocuments", "(data.title:Rules2023 OR data.title:Rules2024) AND data.fulltext:words") YIELD node
                 RETURN node.title AS title, node.version AS version
                 ORDER BY version ASC, title ASC;"""
 
@@ -157,7 +157,7 @@ def test_update_text_property_of_indexed_node(memgraph_with_text_indexed_data):
 
     result = list(
         memgraph_with_text_indexed_data.execute_and_fetch(
-            """CALL text_search.search("complianceDocuments", "data.title:Rules2030") YIELD node
+            """CALL libtext.search("complianceDocuments", "data.title:Rules2030") YIELD node
              RETURN node.title AS title, node.version AS version
              ORDER BY version ASC, title ASC;"""
         )
@@ -192,7 +192,7 @@ def test_remove_unindexable_property_from_indexed_node(memgraph_with_text_indexe
 
 
 def test_text_search_nonexistent_index(memgraph_with_text_indexed_data):
-    NONEXISTENT_INDEX_QUERY = """CALL text_search.search("noSuchIndex", "data.fulltext:words") YIELD node
+    NONEXISTENT_INDEX_QUERY = """CALL libtext.search("noSuchIndex", "data.fulltext:words") YIELD node
                 RETURN node.title AS title, node.version AS version
                 ORDER BY version ASC, title ASC;"""
 

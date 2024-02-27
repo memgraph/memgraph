@@ -34,7 +34,7 @@ def test_drop_index(memgraph):
 def test_text_search_given_property(memgraph):
     with pytest.raises(gqlalchemy.exceptions.GQLAlchemyDatabaseError, match=TEXT_SEARCH_DISABLED_ERROR) as _:
         memgraph.execute(
-            """CALL text_search.search("complianceDocuments", "data.title:Rules2024") YIELD node
+            """CALL libtext.search("complianceDocuments", "data.title:Rules2024") YIELD node
              RETURN node;"""
         )
 
@@ -42,7 +42,7 @@ def test_text_search_given_property(memgraph):
 def test_text_search_all_properties(memgraph):
     with pytest.raises(gqlalchemy.exceptions.GQLAlchemyDatabaseError, match=TEXT_SEARCH_DISABLED_ERROR) as _:
         memgraph.execute(
-            """CALL text_search.search_all("complianceDocuments", "Rules2024") YIELD node
+            """CALL libtext.search_all("complianceDocuments", "Rules2024") YIELD node
              RETURN node;"""
         )
 
@@ -50,7 +50,7 @@ def test_text_search_all_properties(memgraph):
 def test_regex_text_search(memgraph):
     with pytest.raises(gqlalchemy.exceptions.GQLAlchemyDatabaseError, match=TEXT_SEARCH_DISABLED_ERROR) as _:
         memgraph.execute(
-            """CALL text_search.regex_search("complianceDocuments", "wor.*s") YIELD node
+            """CALL libtext.regex_search("complianceDocuments", "wor.*s") YIELD node
              RETURN node;"""
         )
 
@@ -60,7 +60,7 @@ def test_text_search_aggregate(memgraph):
         input_aggregation = json.dumps({"count": {"value_count": {"field": "metadata.gid"}}}, separators=(",", ":"))
 
         memgraph.execute(
-            f"""CALL text_search.aggregate("complianceDocuments", "wor.*s", '{input_aggregation}') YIELD aggregation
+            f"""CALL libtext.aggregate("complianceDocuments", "wor.*s", '{input_aggregation}') YIELD aggregation
             RETURN aggregation;"""
         )
 
