@@ -143,9 +143,7 @@ InMemoryStorage::InMemoryStorage(Config config)
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     // TODO: move out of storage have one global gc_runner_
-    gc_runner_.Run("Storage GC", config_.gc.interval, [this] {
-      this->FreeMemory(std::unique_lock<utils::ResourceLock>{main_lock_, std::defer_lock});
-    });
+    gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->FreeMemory({}, true); });
   }
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
@@ -1425,28 +1423,27 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
     }
 
     storage_mode_ = new_storage_mode;
-    FreeMemory(std::move(main_guard));
+    FreeMemory(std::move(main_guard), false);
   }
 }
 
-template <bool force>
-void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard) {
+template <bool aggressive = true>
+void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
   // NOTE: You do not need to consider cleanup of deleted object that occurred in
   // different storage modes within the same CollectGarbage call. This is because
   // SetStorageMode will ensure CollectGarbage is called before any new transactions
   // with the new storage mode can start.
 
   // SetStorageMode will pass its unique_lock of main_lock_. We will use that lock,
-  // as reacquiring the lock would cause  deadlock. Otherwise, we need to get our own
+  // as reacquiring the lock would cause deadlock. Otherwise, we need to get our own
   // lock.
   if (!main_guard.owns_lock()) {
-    if constexpr (force) {
-      // We take the unique lock on the main storage lock, so we can forcefully clean
-      // everything we can
-      if (!main_lock_.try_lock()) {
-        CollectGarbage<false>();
-        return;
-      }
+    if constexpr (aggressive) {
+      // We tried to be aggressive but we do not already have main lock continue as not aggressive
+      // Perf note: Do not try to get unique lock if it was not already passed in. GC maybe expensive,
+      // do not assume it is fast, unique lock will blocks all new storage transactions.
+      CollectGarbage<false>({}, periodic);
+      return;
     } else {
       // Because the garbage collector iterates through the indices and constraints
       // to clean them up, it must take the main lock for reading to make sure that
@@ -1458,16 +1455,23 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
 
   utils::OnScopeExit lock_releaser{[&] {
-    if (!main_guard.owns_lock()) {
-      if constexpr (force) {
-        main_lock_.unlock();
-      } else {
-        main_lock_.unlock_shared();
-      }
-    } else {
+    if (main_guard.owns_lock()) {
       main_guard.unlock();
+    } else {
+      main_lock_.unlock_shared();
     }
   }};
+
+  // Only one gc run at a time
+  std::unique_lock<std::mutex> gc_guard(gc_lock_, std::try_to_lock);
+  if (!gc_guard.owns_lock()) {
+    return;
+  }
+
+  // Diagnostic trace
+  spdlog::trace("Storage GC on '{}' started [{}]", name(), periodic ? "periodic" : "forced");
+  auto trace_on_exit = utils::OnScopeExit{
+      [&] { spdlog::trace("Storage GC on '{}' finished [{}]", name(), periodic ? "periodic" : "forced"); }};
 
   // Garbage collection must be performed in two phases. In the first phase,
   // deltas that won't be applied by any transaction anymore are unlinked from
@@ -1476,27 +1480,29 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // chain traversal. They are instead marked for deletion and will be deleted
   // in the second GC phase in this GC iteration or some of the following
   // ones.
-  std::unique_lock<std::mutex> gc_guard(gc_lock_, std::try_to_lock);
-  if (!gc_guard.owns_lock()) {
-    return;
-  }
 
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
 
-  // Deltas from previous GC runs or from aborts can be cleaned up here
-  garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-    if constexpr (force) {
-      // if force is set to true we can simply delete all the leftover undos because
-      // no transaction is active
-      garbage_undo_buffers.clear();
-    } else {
-      // garbage_undo_buffers is ordered, pop until we can't
-      while (!garbage_undo_buffers.empty() &&
-             garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
-        garbage_undo_buffers.pop_front();
+  {
+    std::unique_lock<utils::SpinLock> guard(engine_lock_);
+    uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
+
+    // Deltas from previous GC runs or from aborts can be cleaned up here
+    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
+      guard.unlock();
+      if (aggressive or mark_timestamp == oldest_active_start_timestamp) {
+        // We know no transaction is active, it is safe to simply delete all the garbage undos
+        // Nothing can be reading them
+        garbage_undo_buffers.clear();
+      } else {
+        // garbage_undo_buffers is ordered, pop until we can't
+        while (!garbage_undo_buffers.empty() &&
+               garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
+          garbage_undo_buffers.pop_front();
+        }
       }
-    }
-  });
+    });
+  }
 
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
@@ -1694,7 +1700,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     std::unique_lock<utils::SpinLock> guard(engine_lock_);
     uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
-    if (force or mark_timestamp == oldest_active_start_timestamp) {
+    if (aggressive or mark_timestamp == oldest_active_start_timestamp) {
+      guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them now
       unlinked_undo_buffers.clear();
@@ -1756,8 +1763,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 }
 
 // tell the linker he can find the CollectGarbage definitions here
-template void InMemoryStorage::CollectGarbage<true>(std::unique_lock<utils::ResourceLock>);
-template void InMemoryStorage::CollectGarbage<false>(std::unique_lock<utils::ResourceLock>);
+template void InMemoryStorage::CollectGarbage<true>(std::unique_lock<utils::ResourceLock> main_guard, bool periodic);
+template void InMemoryStorage::CollectGarbage<false>(std::unique_lock<utils::ResourceLock> main_guard, bool periodic);
 
 StorageInfo InMemoryStorage::GetBaseInfo() {
   StorageInfo info{};
@@ -2108,50 +2115,35 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
     memgraph::replication_coordination_glue::ReplicationRole replication_role) {
-  if (replication_role == memgraph::replication_coordination_glue::ReplicationRole::REPLICA) {
+  using memgraph::replication_coordination_glue::ReplicationRole;
+  if (replication_role == ReplicationRole::REPLICA) {
     return InMemoryStorage::CreateSnapshotError::DisabledForReplica;
   }
-  auto const &epoch = repl_storage_state_.epoch_;
-  auto snapshot_creator = [this, &epoch]() {
-    utils::Timer timer;
-    auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_,
-                                         memgraph::replication_coordination_glue::ReplicationRole::MAIN);
-    durability::CreateSnapshot(this, &transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
-                               &edges_, uuid_, epoch, repl_storage_state_.history, &file_retainer_);
-    // Finalize snapshot transaction.
-    commit_log_->MarkFinished(transaction.start_timestamp);
-
-    memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
-                               std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
-  };
 
   std::lock_guard snapshot_guard(snapshot_lock_);
 
-  auto should_try_shared{true};
-  auto max_num_tries{10};
-  while (max_num_tries) {
-    if (should_try_shared) {
-      std::shared_lock storage_guard(main_lock_);
-      if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
-        snapshot_creator();
-        return {};
-      }
+  auto accessor = std::invoke([&]() {
+    if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+      // For analytical no other txn can be in play
+      return UniqueAccess(ReplicationRole::MAIN, IsolationLevel::SNAPSHOT_ISOLATION);
     } else {
-      std::unique_lock main_guard{main_lock_};
-      if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-        snapshot_creator();
-        return {};
-      }
+      return Access(ReplicationRole::MAIN, IsolationLevel::SNAPSHOT_ISOLATION);
     }
-    should_try_shared = !should_try_shared;
-    max_num_tries--;
-  }
+  });
 
-  return CreateSnapshotError::ReachedMaxNumTries;
+  utils::Timer timer;
+  Transaction *transaction = accessor->GetTransaction();
+  auto const &epoch = repl_storage_state_.epoch_;
+  durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
+                             &edges_, uuid_, epoch, repl_storage_state_.history, &file_retainer_);
+
+  memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
+                             std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  return {};
 }
 
-void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) {
-  CollectGarbage<true>(std::move(main_guard));
+void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+  CollectGarbage(std::move(main_guard), periodic);
 
   static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
   static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
