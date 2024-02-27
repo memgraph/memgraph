@@ -37,14 +37,13 @@ CoordinatorInstance::CoordinatorInstance()
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     auto lock = std::unique_lock{self->coord_instance_lock_};
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
-
-    std::invoke(repl_instance.GetSuccessCallback(), self, repl_instance);
+    std::invoke(repl_instance.GetSuccessCallback(), self, repl_instance_name);
   };
 
   client_fail_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     auto lock = std::unique_lock{self->coord_instance_lock_};
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
-    std::invoke(repl_instance.GetFailCallback(), self, repl_instance);
+    std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
 }
 
@@ -271,7 +270,8 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
   return RegisterInstanceCoordinatorStatus::SUCCESS;
 }
 
-void CoordinatorInstance::MainFailCallback(ReplicationInstance &repl_instance) {
+void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) {
+  auto &repl_instance = FindReplicationInstance(repl_instance_name);
   repl_instance.OnFailPing();
   const auto &repl_instance_uuid = repl_instance.GetMainUUID();
   MG_ASSERT(repl_instance_uuid.has_value(), "Instance must have uuid set");
@@ -282,8 +282,8 @@ void CoordinatorInstance::MainFailCallback(ReplicationInstance &repl_instance) {
   }
 }
 
-void CoordinatorInstance::MainSuccessCallback(ReplicationInstance &repl_instance) {
-  const auto &repl_instance_name = repl_instance.InstanceName();
+void CoordinatorInstance::MainSuccessCallback(std::string_view repl_instance_name) {
+  auto &repl_instance = FindReplicationInstance(repl_instance_name);
   spdlog::trace("Instance {} performing main successful callback", repl_instance_name);
 
   if (repl_instance.IsAlive()) {
@@ -320,8 +320,8 @@ void CoordinatorInstance::MainSuccessCallback(ReplicationInstance &repl_instance
   }
 }
 
-void CoordinatorInstance::ReplicaSuccessCallback(ReplicationInstance &repl_instance) {
-  const auto &repl_instance_name = repl_instance.InstanceName();
+void CoordinatorInstance::ReplicaSuccessCallback(std::string_view repl_instance_name) {
+  auto &repl_instance = FindReplicationInstance(repl_instance_name);
   if (!repl_instance.IsReplica()) {
     spdlog::error("Aborting replica callback since instance {} is not replica anymore", repl_instance_name);
     return;
@@ -339,8 +339,8 @@ void CoordinatorInstance::ReplicaSuccessCallback(ReplicationInstance &repl_insta
   repl_instance.OnSuccessPing();
 }
 
-void CoordinatorInstance::ReplicaFailCallback(ReplicationInstance &repl_instance) {
-  const auto &repl_instance_name = repl_instance.InstanceName();
+void CoordinatorInstance::ReplicaFailCallback(std::string_view repl_instance_name) {
+  auto &repl_instance = FindReplicationInstance(repl_instance_name);
   if (!repl_instance.IsReplica()) {
     spdlog::error("Aborting replica fail callback since instance {} is not replica anymore", repl_instance_name);
     return;

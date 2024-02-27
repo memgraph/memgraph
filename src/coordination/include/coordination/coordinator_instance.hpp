@@ -54,13 +54,13 @@ class CoordinatorInstance {
 
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance &;
 
-  void MainFailCallback(ReplicationInstance &);
+  void MainFailCallback(std::string_view);
 
-  void MainSuccessCallback(ReplicationInstance &);
+  void MainSuccessCallback(std::string_view);
 
-  void ReplicaSuccessCallback(ReplicationInstance &);
+  void ReplicaSuccessCallback(std::string_view);
 
-  void ReplicaFailCallback(ReplicationInstance &);
+  void ReplicaFailCallback(std::string_view);
 
   static auto ChooseMostUpToDateInstance(const std::vector<InstanceNameDbHistories> &) -> NewMainRes;
 

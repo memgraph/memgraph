@@ -27,7 +27,7 @@ namespace memgraph::coordination {
 class CoordinatorInstance;
 class ReplicationInstance;
 
-using HealthCheckInstanceCallback = void (CoordinatorInstance::*)(ReplicationInstance &);
+using HealthCheckInstanceCallback = void (CoordinatorInstance::*)(std::string_view);
 
 class ReplicationInstance {
  public:
