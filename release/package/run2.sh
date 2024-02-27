@@ -384,12 +384,14 @@ test_memgraph() {
     ;;
     upload-to-bench-graph)
       shift 1
-      local setup_ve3_env="virtualenv -p python3 ve3 && source ve3/bin/activate && pip install -r requirements.txt"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/bench-graph-client && $setup_ve3_env "'&& ./main.py $@'
+      local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""
+      local SETUP_VE3_ENV="virtualenv -p python3 ve3 && source ve3/bin/activate && pip install -r requirements.txt"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/bench-graph-client && $SETUP_VE3_ENV && $SETUP_PASSED_ARGS "'&& ./main.py $PASSED_ARGS'
     ;;
     code-analysis)
       shift 1
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/code_analysis "'&& ./python_code_analysis.sh $@'
+      local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./python_code_analysis.sh $PASSED_ARGS'
     ;;
     code-coverage)
       local test_output_path="$MGBUILD_ROOT_DIR/tools/github/generated/code_coverage.tar.gz"
@@ -401,7 +403,8 @@ test_memgraph() {
     ;;
     clang-tidy)
       shift 1
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export THREADS=$threads && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis "'&& ./clang_tidy.sh $@'
+      local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export THREADS=$threads && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
     ;;
     e2e)
       local kafka_container="kafka_kafka_1"
@@ -412,6 +415,7 @@ test_memgraph() {
       local build_container_network=$(docker inspect $build_container --format='{{ .HostConfig.NetworkMode }}')
       docker network connect --alias $kafka_hostname $build_container_network $kafka_container  > /dev/null 2>&1 || echo "Kafka container already inside correct network or something went wrong ..."
       docker network connect --alias $pulsar_hostname $build_container_network $pulsar_container  > /dev/null 2>&1 || echo "Kafka container already inside correct network or something went wrong ..."
+      docker exec -u mg $build_container bash -c "pip install networkx & pip3 install networkx"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $setup_hostnames && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
     *)
