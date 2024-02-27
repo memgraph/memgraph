@@ -163,13 +163,8 @@ class DbmsHandler {
 
     spdlog::debug("Different UUIDs");
 
-    // This case can happen in following scenarios:
-    // 1. INSTANCE was down and set --data-recover-on-startup=false so we have DB which are created as new
-    // For replication to work --recover-replication-on-startup must be true
-    // Instance can only make progress if not coordinator managed
     // TODO: Fix this hack
     if (config.name == kDefaultDB) {
-      // If we have replication cluster, for REPLICAs which where down we
       spdlog::debug("Last commit timestamp for DB {} is {}", kDefaultDB,
                     db->storage()->repl_storage_state_.last_commit_timestamp_);
       // This seems correct, if database made progress
@@ -184,10 +179,8 @@ class DbmsHandler {
       return db;
     }
 
-    // TODO AF: In case of MT we might not have any issue at all?
-    // we will have issues if they set --data-recovery-on-startup=true if it fails and comes back up but was ahead
-
-    spdlog::debug("Dropping database and recreating with the correct UUID");
+    spdlog::debug("Dropping database {} with UUID: {} and recreating with the correct UUID: {}", config.name,
+                  std::string(db->uuid()), std::string(config.uuid));
     // Defer drop
     (void)Delete_(db->name());
     // Second attempt

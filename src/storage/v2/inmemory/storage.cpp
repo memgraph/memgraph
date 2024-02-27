@@ -100,7 +100,6 @@ InMemoryStorage::InMemoryStorage(Config config)
               "process!",
               config_.durability.storage_directory);
   }
-  spdlog::trace("Config durability recover on startup is {}", config_.durability.recover_on_startup);
   if (config_.durability.recover_on_startup) {
     auto info = recovery_.RecoverData(&uuid_, repl_storage_state_, &vertices_, &edges_, &edge_count_,
                                       name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);

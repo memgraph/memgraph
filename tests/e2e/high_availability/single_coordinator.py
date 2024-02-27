@@ -198,12 +198,27 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
 
     # 2
     main_cursor = connect(host="localhost", port=7687).cursor()
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
     expected_data_on_main = [
-        ("instance_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
     ]
-    actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
-    assert actual_data_on_main == expected_data_on_main
+    mg_sleep_and_assert_collection(expected_data_on_main, retrieve_data_show_replicas)
 
     # 3
     execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:1});")
@@ -409,20 +424,42 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
         },
     }
 
-    # 1. We start all replicas, main and coordinator manually
+    # 1
 
     interactive_mg_runner.start_all(MEMGRAPH_INNER_INSTANCES_DESCRIPTION)
 
-    main_cursor = connect(host="localhost", port=7687).cursor()
     expected_data_on_main = [
-        ("instance_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("instance_4", "127.0.0.1:10004", "sync", 0, 0, "ready"),
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_4",
+            "127.0.0.1:10004",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
     ]
-    actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
-    assert actual_data_on_main == expected_data_on_main
 
-    # 2. Main does commit
+    main_cursor = connect(host="localhost", port=7687).cursor()
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
+    mg_sleep_and_assert_collection(expected_data_on_main, retrieve_data_show_replicas)
+
+    # 2
 
     execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:1});")
     execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:2});")
@@ -435,7 +472,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
     assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
 
-    # 3. instance_2 down
+    # 3
 
     interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_2")
 
@@ -453,7 +490,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
-    # 4. Main commits more
+    # 4
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:1});")
@@ -462,11 +499,11 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     assert execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
     assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
 
-    # 5. Main down
+    # 5
 
     interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
 
-    # 6. Instance_1 new main
+    # 6
 
     expected_data_on_coord = [
         ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
@@ -477,21 +514,21 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
-    # 7. Instance 1 commits
+    # 7
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch2Vertex {prop:1});")
     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
 
-    # 8. Instance 4 gets data
+    # 8
 
     assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 4
 
-    # 8. Instance 1 dies
+    # 9
 
     interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
 
-    # 9. Instance 4 new main
+    # 10
 
     expected_data_on_coord = [
         ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
@@ -502,13 +539,13 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
-    # 10 Instance 4 commits
+    # 11
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_4_cursor, "CREATE (:Epoch3Vertex {prop:1});")
     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
 
-    # 11 Instance 2 wakes up
+    # 12
 
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_2")
 
@@ -521,7 +558,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
-    # 12 Instance 2 gets data from old epochs
+    # 13
 
     instance_2_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -530,7 +567,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
 
     mg_sleep_and_assert(5, get_vertex_count)
 
-    # 12. All other instances wake up
+    # 14
 
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
@@ -544,7 +581,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
-    # 13. Everything is replicated
+    # 15
     instance_1_cursor = connect(host="localhost", port=7688).cursor()
     instance_4_cursor = connect(host="localhost", port=7691).cursor()
 
@@ -705,12 +742,35 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
 
     main_cursor = connect(host="localhost", port=7687).cursor()
     expected_data_on_main = [
-        ("instance_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("instance_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("instance_4", "127.0.0.1:10004", "sync", 0, 0, "ready"),
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_4",
+            "127.0.0.1:10004",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
     ]
-    actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
-    assert actual_data_on_main == expected_data_on_main
+
+    main_cursor = connect(host="localhost", port=7687).cursor()
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
+    mg_sleep_and_assert_collection(expected_data_on_main, retrieve_data_show_replicas)
 
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
@@ -893,7 +953,6 @@ def test_replication_works_on_failover_simple():
     ]
     mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
-
     # 5
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(new_main_cursor, "CREATE ();")
@@ -917,14 +976,14 @@ def test_replication_works_on_failover_simple():
             "127.0.0.1:10002",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
         ),
         (
             "instance_3",
             "127.0.0.1:10003",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
         ),
     ]
     mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)

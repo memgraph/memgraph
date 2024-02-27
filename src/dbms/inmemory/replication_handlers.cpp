@@ -291,10 +291,6 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     storage->vertex_id_ = recovery_info.next_vertex_id;
     storage->edge_id_ = recovery_info.next_edge_id;
     storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
-    // Is this correct?
-    // storage->repl_storage_state_.last_commit_timestamp_ =
-    // std::max(storage->repl_storage_state_.last_commit_timestamp_.load(),
-    // recovered_snapshot.snapshot_info.start_timestamp);
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
     memgraph::storage::durability::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices,
