@@ -1554,7 +1554,7 @@ class Return {
 class QueryExecution {
  public:
   QueryExecution(mgp_graph *graph);
-  void ExecuteQuery(std::string_view query);
+  void ExecuteQuery(std::string_view query) const;
 
  private:
   mgp_graph *graph_;
