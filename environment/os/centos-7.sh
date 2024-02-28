@@ -43,6 +43,7 @@ MEMGRAPH_BUILD_DEPS=(
     readline-devel # for memgraph console
     python3-devel # for query modules
     openssl-devel
+    openssl
     libseccomp-devel
     python3 python-virtualenv python3-pip nmap-ncat # for qa, macro_benchmark and stress tests
     #
