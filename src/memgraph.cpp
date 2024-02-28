@@ -435,12 +435,12 @@ int main(int argc, char **argv) {
 
   auto db_acc = dbms_handler.Get();
 
-  memgraph::query::InterpreterContext interpreter_context_(interp_config, &dbms_handler, &repl_state, system,
+  auto *interpreter_context_ =
+      memgraph::query::InterpreterContext::getInstance(interp_config, &dbms_handler, &repl_state, system,
 #ifdef MG_ENTERPRISE
-                                                           &coordinator_state,
+                                                       &coordinator_state,
 #endif
-                                                           auth_handler.get(), auth_checker.get(),
-                                                           &replication_handler);
+                                                       auth_handler.get(), auth_checker.get(), &replication_handler);
   MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
@@ -453,9 +453,9 @@ int main(int argc, char **argv) {
     spdlog::info("Running init file...");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file, &audit_log);
+      InitFromCypherlFile(*interpreter_context_, db_acc, FLAGS_init_file, &audit_log);
     } else {
-      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file);
+      InitFromCypherlFile(*interpreter_context_, db_acc, FLAGS_init_file);
     }
 #else
     InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file);
@@ -463,20 +463,20 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
-  dbms_handler.RestoreTriggers(&interpreter_context_);
-  dbms_handler.RestoreStreams(&interpreter_context_);
+  dbms_handler.RestoreTriggers(interpreter_context_);
+  dbms_handler.RestoreStreams(interpreter_context_);
 #else
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
     // the triggers
     auto storage_accessor = db_acc->Access();
     auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-    db_acc->trigger_store()->RestoreTriggers(&interpreter_context_.ast_cache, &dba, interpreter_context_.config.query,
+    db_acc->trigger_store()->RestoreTriggers(interpreter_context_.ast_cache, &dba, interpreter_context_.config.query,
                                              interpreter_context_.auth_checker);
   }
 
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
-  db_acc->streams()->RestoreStreams(db_acc, &interpreter_context_);
+  db_acc->streams()->RestoreStreams(db_acc, interpreter_context_);
 #endif
 
   ServerContext context;
@@ -492,9 +492,9 @@ int main(int argc, char **argv) {
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
 #ifdef MG_ENTERPRISE
-  Context session_context{&interpreter_context_, &auth_, &audit_log};
+  Context session_context{interpreter_context_, &auth_, &audit_log};
 #else
-  Context session_context{&interpreter_context_, &auth_};
+  Context session_context{interpreter_context_, &auth_};
 #endif
   memgraph::glue::ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout,
                                  service_name, FLAGS_bolt_num_workers);
@@ -539,14 +539,14 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
                       &metrics_server,
 #endif
-                      &websocket_server, &server, &interpreter_context_] {
+                      &websocket_server, &server, interpreter_context_] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
     // After the server is notified to stop accepting and processing
     // connections we tell the execution engine to stop processing all pending
     // queries.
-    interpreter_context_.Shutdown();
+    interpreter_context_->Shutdown();
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
     metrics_server.Shutdown();
@@ -574,12 +574,12 @@ int main(int argc, char **argv) {
     MG_ASSERT(db_acc, "Failed to gain access to the main database");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file, &audit_log);
+      InitFromCypherlFile(*interpreter_context_, db_acc, FLAGS_init_data_file, &audit_log);
     } else {
-      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
+      InitFromCypherlFile(*interpreter_context_, db_acc, FLAGS_init_data_file);
     }
 #else
-    InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
+    InitFromCypherlFile(*interpreter_context_, db_acc, FLAGS_init_data_file);
 #endif
   }
 
