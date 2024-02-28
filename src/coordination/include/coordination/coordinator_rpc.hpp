@@ -15,6 +15,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_config.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 
@@ -161,6 +162,32 @@ struct GetInstanceUUIDRes {
 
 using GetInstanceUUIDRpc = rpc::RequestResponse<GetInstanceUUIDReq, GetInstanceUUIDRes>;
 
+struct GetDatabaseHistoriesReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(GetDatabaseHistoriesReq *self, memgraph::slk::Reader *reader);
+  static void Save(const GetDatabaseHistoriesReq &self, memgraph::slk::Builder *builder);
+
+  GetDatabaseHistoriesReq() = default;
+};
+
+struct GetDatabaseHistoriesRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
+  static void Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
+
+  explicit GetDatabaseHistoriesRes(const replication_coordination_glue::DatabaseHistories &database_histories)
+      : database_histories(database_histories) {}
+  GetDatabaseHistoriesRes() = default;
+
+  replication_coordination_glue::DatabaseHistories database_histories;
+};
+
+using GetDatabaseHistoriesRpc = rpc::RequestResponse<GetDatabaseHistoriesReq, GetDatabaseHistoriesRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -183,14 +210,20 @@ void Save(const memgraph::coordination::GetInstanceUUIDReq &self, memgraph::slk:
 void Load(memgraph::coordination::GetInstanceUUIDReq *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::GetInstanceUUIDRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::GetInstanceUUIDRes *self, memgraph::slk::Reader *reader);
+
 // UnregisterReplicaRpc
 void Save(memgraph::coordination::UnregisterReplicaRes const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::UnregisterReplicaRes *self, memgraph::slk::Reader *reader);
 void Save(memgraph::coordination::UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
 
+// EnableWritingOnMainRpc
 void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
+
+// GetDatabaseHistoriesRpc
+void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

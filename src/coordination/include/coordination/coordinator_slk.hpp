@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_config.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 
@@ -34,5 +35,18 @@ inline void Load(ReplicationClientInfo *obj, Reader *reader) {
   Load(&obj->replication_ip_address, reader);
   Load(&obj->replication_port, reader);
 }
+
+inline void Save(const replication_coordination_glue::DatabaseHistory &obj, Builder *builder) {
+  Save(obj.db_uuid, builder);
+  Save(obj.history, builder);
+  Save(obj.name, builder);
+}
+
+inline void Load(replication_coordination_glue::DatabaseHistory *obj, Reader *reader) {
+  Load(&obj->db_uuid, reader);
+  Load(&obj->history, reader);
+  Load(&obj->name, reader);
+}
+
 }  // namespace memgraph::slk
 #endif
