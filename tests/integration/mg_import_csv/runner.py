@@ -54,7 +54,7 @@ def verify_lifetime(memgraph_binary, mg_import_csv_binary):
     common_args = ["--data-directory", storage_directory.name, "--storage-properties-on-edges=false"]
 
     # Start the memgraph binary
-    memgraph_args = [memgraph_binary, "--storage-recover-on-startup=true"] + common_args
+    memgraph_args = [memgraph_binary, "--storage-recover-on-startup"] + common_args
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
