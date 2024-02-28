@@ -418,17 +418,16 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     // We can also set the last timestamp to 0 if last loaded timestamp
     // is nullopt as this can only happen if the WAL file with seq = 0
     // does not contain any deltas and we didn't find any snapshots.
-    /*
     if (last_loaded_timestamp) {
       epoch_history->emplace_back(repl_storage_state.epoch_.id(), *last_loaded_timestamp);
     }
-    */
+
     for (auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
       }
       previous_seq_num = wal_file.seq_num;
-
+      /*
       if (wal_file.epoch_id != repl_storage_state.epoch_.id()) {
         // This way we skip WALs finalized only because of role change.
         // We can also set the last timestamp to 0 if last loaded timestamp
@@ -439,6 +438,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
         }
         repl_storage_state.epoch_.SetEpoch(std::move(wal_file.epoch_id));
       }
+       */
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
                             edge_count, config.salient.items);
@@ -448,7 +448,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
 
         recovery_info.last_commit_timestamp = info.last_commit_timestamp;
 
-        /*
         if (recovery_info.next_timestamp != 0) {
           last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
         }
@@ -464,7 +463,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
         if (last_epoch_bigger_timestamp) {
           epoch_history->back().second = last_loaded_timestamp.value_or(0);
         }
-         */
 
       } catch (const RecoveryFailure &e) {
         LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
