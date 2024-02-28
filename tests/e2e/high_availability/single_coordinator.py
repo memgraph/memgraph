@@ -234,7 +234,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     # 5
     interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
 
-    # 6.
+    # 6
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:2});")
@@ -242,7 +242,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
 
     assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
 
-    # 7. Kill main
+    # 7
     interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
 
     # 8.
@@ -259,13 +259,13 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
-    # 9. Create vertex on instance 2
+    # 9
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_2_cursor, "CREATE (:Epoch3 {prop:3});")
     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
 
-    # 10. Start instance_1 ( it should have one commit on old epoch and new epoch with new commit shouldn't be replicated)
+    # 10
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
 
     new_expected_data_on_coord = [
@@ -276,7 +276,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     ]
     mg_sleep_and_assert(new_expected_data_on_coord, retrieve_data_show_instances)
 
-    # 11. Expect data to be copied on instance_1
+    # 11
     instance_1_cursor = connect(host="localhost", port=7688).cursor()
 
     def get_vertex_count():
@@ -284,7 +284,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
 
     mg_sleep_and_assert(3, get_vertex_count)
 
-    # 12. Start old MAIN (instance_3)
+    # 12
 
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
 
@@ -296,7 +296,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     ]
     mg_sleep_and_assert(new_expected_data_on_coord, retrieve_data_show_instances)
 
-    # 13. Expect data to be copied to instance_3
+    # 13
 
     instance_3_cursor = connect(host="localhost", port=7687).cursor()
 
@@ -1462,4 +1462,5 @@ def test_disable_multiple_mains():
 
 
 if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-k", "test_replication_correct_replica_chosen_up_to_date_data"]))
     sys.exit(pytest.main([__file__, "-rA"]))

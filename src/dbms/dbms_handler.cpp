@@ -188,7 +188,8 @@ DbmsHandler::DbmsHandler(storage::Config config, replication::ReplicationState &
   if (flags::AreExperimentsEnabled(flags::Experiments::SYSTEM_REPLICATION) && !recovery_on_startup) {
     // This will result in dropping databases on SystemRecoveryHandler
     // for MT case, and for single DB case we might not even set replication as commit timestamp is checked
-    spdlog::warn("Data recovery on startup not set, this will result in dropping database in case o.");
+    spdlog::warn(
+        "Data recovery on startup not set, this will result in dropping database in case of multi-tenancy enabled.");
   }
 
   // TODO: Problem is if user doesn't set this up "database" name won't be recovered
