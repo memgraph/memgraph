@@ -1552,6 +1552,16 @@ class Return {
   mgp_type *GetMGPType() const;
 };
 
+class ExecutionHeaders {
+ public:
+  ExecutionHeaders(mgp_execution_headers *headers);
+  size_t Size() const;
+  std::string At(size_t index) const;
+
+ private:
+  mgp_execution_headers *headers_;
+};
+
 class QueryExecution {
  public:
   QueryExecution(mgp_graph *graph);
@@ -1562,10 +1572,10 @@ class QueryExecution {
 };
 
 class QueryExecutionResult {
-  mgp_query_execution_result *result_;
+  mgp_execution_result *result_;
 
  public:
-  QueryExecutionResult(mgp_query_execution_result *result);
+  QueryExecutionResult(mgp_execution_result *result);
   std::vector<std::string> Headers() const;
 };
 
@@ -4305,13 +4315,21 @@ inline mgp_type *Return::GetMGPType() const {
   return util::ToMGPType(type_);
 }
 
+inline ExecutionHeaders::ExecutionHeaders(mgp_execution_headers *headers) : headers_(headers) {}
+
+inline size_t ExecutionHeaders::Size() const { return mgp::execution_headers_size(headers_); }
+
+inline std::string ExecutionHeaders::At(size_t index) const {
+  return std::string(mgp::execution_headers_at(headers_, index));
+}
+
 inline QueryExecution::QueryExecution(mgp_graph *graph) : graph_(graph) {}
 
 inline QueryExecutionResult QueryExecution::ExecuteQuery(std::string_view query) const {
   mgp::MemHandlerCallback(execute_query, graph_, query.data());
 }
 
-inline QueryExecutionResult::QueryExecutionResult(mgp_query_execution_result *result) : result_(result) {}
+inline QueryExecutionResult::QueryExecutionResult(mgp_execution_result *result) : result_(result) {}
 
 inline std::vector<std::string> QueryExecutionResult::Headers() const {
   return mgp::get_query_execution_headers(result_);

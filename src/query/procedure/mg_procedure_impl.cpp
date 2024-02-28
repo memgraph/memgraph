@@ -4025,13 +4025,6 @@ mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
   });
 }
 
-struct MgProcedureResultStream final {
-  using Row = std::vector<memgraph::query::TypedValue>;
-  using Rows = std::vector<Row>;
-  Rows rows;
-  void Result(const Row &row) { rows.push_back(row); }
-};
-
 std::vector<std::vector<mgp_value>> GetMgpRowsFromTypedValues(
     std::vector<std::vector<memgraph::query::TypedValue>> tv_rows, mgp_graph *graph, mgp_memory *memory) {
   std::vector<std::vector<mgp_value>> mgp_rows;
@@ -4046,17 +4039,41 @@ std::vector<std::vector<mgp_value>> GetMgpRowsFromTypedValues(
   return mgp_rows;
 }
 
-mgp_query_execution_headers::mgp_query_execution_headers(std::vector<std::string> headers) : headers(headers){};
+mgp_execution_headers::mgp_execution_headers(memgraph::utils::pmr::vector<memgraph::utils::pmr::string> &&storage)
+    : headers(std::move(storage)){};
 
-mgp_query_execution_result::mgp_query_execution_result(std::vector<std::string> headers,
-                                                       std::vector<std::vector<memgraph::query::TypedValue>> tv_rows,
-                                                       mgp_graph *graph, mgp_memory *memory)
-    : headers(headers), rows(GetMgpRowsFromTypedValues(std::move(tv_rows), graph, memory)) {}
+mgp_error mgp_execution_headers_size(mgp_execution_headers *headers, size_t *result) {
+  static_assert(noexcept(headers->headers.size()));
+  *result = headers->headers.size();
+  return mgp_error::MGP_ERROR_NO_ERROR;
+}
 
-mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *query,
-                            mgp_query_execution_result **result) {
+mgp_error mgp_execution_headers_at(mgp_execution_headers *headers, size_t index, const char **result) {
   return WrapExceptions(
-      [&]() {
+      [headers, index] {
+        if (index >= Call<size_t>(mgp_execution_headers_size, headers)) {
+          throw std::out_of_range("Header cannot be retrieved, because index exceeds headers' size!");
+        }
+        return headers->headers[index].data();
+      },
+      result);
+}
+
+mgp_execution_result::mgp_execution_result(mgp_execution_headers &&headers,
+                                           std::vector<std::vector<memgraph::query::TypedValue>> tv_rows,
+                                           mgp_graph *graph, mgp_memory *memory)
+    : headers(std::move(headers)), rows(GetMgpRowsFromTypedValues(std::move(tv_rows), graph, memory)) {}
+
+struct MgProcedureResultStream final {
+  using Row = std::vector<memgraph::query::TypedValue>;
+  using Rows = std::vector<Row>;
+  Rows rows;
+  void Result(const Row &row) { rows.push_back(row); }
+};
+
+mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *query, mgp_execution_result **result) {
+  return WrapExceptions(
+      [query, graph, memory]() {
         auto query_string = std::string(query);
         auto *instance = memgraph::query::InterpreterContext::getInstance();
 
@@ -4073,13 +4090,17 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         MgProcedureResultStream stream;
         interpreter.Pull(&stream, {}, prepare_query_result.qid);
 
-        return NewRawMgpObject<mgp_query_execution_result>(memory, std::move(prepare_query_result.headers),
-                                                           std::move(stream.rows), graph, memory);
+        memgraph::utils::pmr::vector<memgraph::utils::pmr::string> headers(memory->impl);
+        for (auto header : prepare_query_result.headers) {
+          headers.emplace_back(header);
+        }
+
+        return NewRawMgpObject<mgp_execution_result>(memory, mgp_execution_headers{std::move(headers)},
+                                                     std::move(stream.rows), graph, memory);
       },
       result);
 }
 
-mgp_error mgp_get_query_execution_headers(mgp_query_execution_result *execution_result,
-                                          mgp_query_execution_headers **result) {
-  return WrapExceptions([&]() { return &execution_result->headers; }, result);
+mgp_error mgp_fetch_execution_headers(mgp_execution_result *exec_result, mgp_execution_headers **result) {
+  return WrapExceptions([exec_result]() { return &exec_result->headers; }, result);
 }

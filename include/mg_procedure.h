@@ -1801,15 +1801,19 @@ enum mgp_error mgp_func_result_set_error_msg(struct mgp_func_result *result, con
 enum mgp_error mgp_func_result_set_value(struct mgp_func_result *result, struct mgp_value *value,
                                          struct mgp_memory *memory);
 
-struct mgp_query_execution_result;
+struct mgp_execution_headers;
 
-enum mgp_error mgp_execute_query(mgp_graph *graph, struct mgp_memory *memory, const char *query,
-                                 struct mgp_query_execution_result **result);
+enum mgp_error mgp_execution_headers_at(struct mgp_execution_headers *headers, size_t index, const char **result);
 
-struct mgp_query_execution_headers;
+enum mgp_error mgp_execution_headers_size(struct mgp_execution_headers *headers, size_t *result);
 
-enum mgp_error mgp_get_query_execution_headers(struct mgp_query_execution_result *query_execution,
-                                               struct mgp_query_execution_headers **result);
+struct mgp_execution_result;
+
+enum mgp_error mgp_execute_query(struct mgp_graph *graph, struct mgp_memory *memory, const char *query,
+                                 struct mgp_execution_result **result);
+
+enum mgp_error mgp_fetch_execution_headers(struct mgp_execution_result *exec_result,
+                                           struct mgp_execution_headers **headers);
 
 /// @}
 

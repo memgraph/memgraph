@@ -995,20 +995,23 @@ bool ContainsDeleted(const mgp_value *val);
 
 memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory);
 
-struct mgp_query_execution_headers {
-  explicit mgp_query_execution_headers(std::vector<std::string> headers);
-  ~mgp_query_execution_headers() = default;
+struct mgp_execution_headers {
+  using allocator_type = memgraph::utils::Allocator<mgp_execution_headers>;
+  using storage_type = memgraph::utils::pmr::vector<memgraph::utils::pmr::string>;
+  explicit mgp_execution_headers(storage_type &&storage);
 
-  std::vector<std::string> headers;
+  ~mgp_execution_headers() = default;
+
+  storage_type headers;
 };
 
-struct mgp_query_execution_result {
-  explicit mgp_query_execution_result(std::vector<std::string> headers,
-                                      std::vector<std::vector<memgraph::query::TypedValue>> tv_rows, mgp_graph *graph,
-                                      mgp_memory *memory);
+struct mgp_execution_result {
+  explicit mgp_execution_result(mgp_execution_headers &&headers,
+                                std::vector<std::vector<memgraph::query::TypedValue>> tv_rows, mgp_graph *graph,
+                                mgp_memory *memory);
 
-  ~mgp_query_execution_result() = default;
+  ~mgp_execution_result() = default;
 
-  mgp_query_execution_headers headers;
+  mgp_execution_headers headers;
   std::vector<std::vector<mgp_value>> rows;
 };

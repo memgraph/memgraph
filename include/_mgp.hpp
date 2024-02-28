@@ -851,12 +851,20 @@ inline void func_result_set_value(mgp_func_result *res, mgp_value *value, mgp_me
   MgInvokeVoid(mgp_func_result_set_value, res, value, memory);
 }
 
-inline mgp_query_execution_result *execute_query(mgp_graph *graph, const char *query, mgp_memory *memory) {
-  return MgInvoke<mgp_query_execution_result *>(mgp_execute_query, graph, memory, query);
+inline mgp_execution_result *execute_query(mgp_graph *graph, const char *query, mgp_memory *memory) {
+  return MgInvoke<mgp_execution_result *>(mgp_execute_query, graph, memory, query);
 }
 
-inline std::vector<std::string> get_query_execution_headers(mgp_query_execution_result *query_execution) {
-  return MgInvoke<std::vector<std::string>>(mgp_get_query_execution_headers, query_execution);
+inline mgp_execution_headers *mgp_fetch_execution_headers(mgp_execution_result *exec_result) {
+  return MgInvoke<mgp_execution_headers *>(mgp_fetch_execution_headers, exec_result);
+}
+
+inline size_t execution_headers_size(mgp_execution_headers *headers) {
+  return MgInvoke<size_t>(mgp_execution_headers_size, headers);
+}
+
+inline const char *execution_headers_at(mgp_execution_headers *headers, size_t index) {
+  return MgInvoke<const char *>(mgp_execution_headers_at, headers, index);
 }
 
 }  // namespace mgp
