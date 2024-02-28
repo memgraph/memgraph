@@ -94,7 +94,7 @@ struct MapItem;
 class Duration;
 class Value;
 class QueryExecution;
-class QueryExecutionResult;
+class ExecutionResult;
 
 struct StealType {};
 inline constexpr StealType steal{};
@@ -1565,17 +1565,17 @@ class ExecutionHeaders {
 class QueryExecution {
  public:
   QueryExecution(mgp_graph *graph);
-  QueryExecutionResult ExecuteQuery(std::string_view query) const;
+  ExecutionResult ExecuteQuery(std::string_view query) const;
 
  private:
   mgp_graph *graph_;
 };
 
-class QueryExecutionResult {
+class ExecutionResult {
   mgp_execution_result *result_;
 
  public:
-  QueryExecutionResult(mgp_execution_result *result);
+  ExecutionResult(mgp_execution_result *result);
   std::vector<std::string> Headers() const;
 };
 
@@ -4325,15 +4325,13 @@ inline std::string ExecutionHeaders::At(size_t index) const {
 
 inline QueryExecution::QueryExecution(mgp_graph *graph) : graph_(graph) {}
 
-inline QueryExecutionResult QueryExecution::ExecuteQuery(std::string_view query) const {
-  mgp::MemHandlerCallback(execute_query, graph_, query.data());
+inline ExecutionResult QueryExecution::ExecuteQuery(std::string_view query) const {
+  return ExecutionResult(mgp::MemHandlerCallback(execute_query, graph_, query.data()));
 }
 
-inline QueryExecutionResult::QueryExecutionResult(mgp_execution_result *result) : result_(result) {}
+inline ExecutionResult::ExecutionResult(mgp_execution_result *result) : result_(result) {}
 
-inline std::vector<std::string> QueryExecutionResult::Headers() const {
-  return mgp::get_query_execution_headers(result_);
-};
+inline std::vector<std::string> ExecutionResult::Headers() const { return mgp::get_query_execution_headers(result_); };
 
 // do not enter
 namespace detail {
