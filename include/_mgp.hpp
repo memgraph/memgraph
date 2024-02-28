@@ -851,8 +851,8 @@ inline void func_result_set_value(mgp_func_result *res, mgp_value *value, mgp_me
   MgInvokeVoid(mgp_func_result_set_value, res, value, memory);
 }
 
-inline void execute_query(mgp_graph *graph, const char *query, mgp_memory *memory) {
-  MgInvokeVoid(mgp_execute_query, graph, memory, query);
+inline mgp_query_execution_result *execute_query(mgp_graph *graph, const char *query, mgp_memory *memory) {
+  return MgInvoke<mgp_query_execution_result *>(mgp_execute_query, graph, memory, query);
 }
 
 }  // namespace mgp
