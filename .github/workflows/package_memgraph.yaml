@@ -38,7 +38,7 @@ on:
 jobs:
   amzn-2:
     if: ${{ github.event.inputs.target_os == 'amzn-2' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
+    runs-on: [self-hosted, mantis]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
