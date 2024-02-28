@@ -1576,7 +1576,7 @@ class ExecutionResult {
 
  public:
   ExecutionResult(mgp_execution_result *result);
-  std::vector<std::string> Headers() const;
+  ExecutionHeaders Headers() const;
 };
 
 enum class ProcedureType : uint8_t {
@@ -4331,7 +4331,7 @@ inline ExecutionResult QueryExecution::ExecuteQuery(std::string_view query) cons
 
 inline ExecutionResult::ExecutionResult(mgp_execution_result *result) : result_(result) {}
 
-inline std::vector<std::string> ExecutionResult::Headers() const { return mgp::get_query_execution_headers(result_); };
+inline ExecutionHeaders ExecutionResult::Headers() const { return mgp::fetch_execution_headers(result_); };
 
 // do not enter
 namespace detail {

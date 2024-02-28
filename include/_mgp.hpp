@@ -855,7 +855,7 @@ inline mgp_execution_result *execute_query(mgp_graph *graph, const char *query, 
   return MgInvoke<mgp_execution_result *>(mgp_execute_query, graph, memory, query);
 }
 
-inline mgp_execution_headers *mgp_fetch_execution_headers(mgp_execution_result *exec_result) {
+inline mgp_execution_headers *fetch_execution_headers(mgp_execution_result *exec_result) {
   return MgInvoke<mgp_execution_headers *>(mgp_fetch_execution_headers, exec_result);
 }
 
