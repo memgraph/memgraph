@@ -57,7 +57,7 @@ class Scheduler {
         // program and there is probably no work to do in scheduled function at
         // the start of the program. Since Server will log some messages on
         // the program start we let him log first and we make sure by first
-        // waiting that funcion f will not log before it.
+        // waiting that function f will not log before it.
         // Check for pause also.
         std::unique_lock<std::mutex> lk(mutex_);
         auto now = std::chrono::system_clock::now();

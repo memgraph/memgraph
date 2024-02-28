@@ -18,8 +18,11 @@
 
 namespace memgraph::utils {
 
-template <class F, class T, class R = typename std::invoke_result<F, T>::type>
-auto fmap(F &&f, std::vector<T> const &v) -> std::vector<R> {
+template <template <typename, typename...> class Container, typename T, typename Allocator = std::allocator<T>,
+          typename F, typename R = std::invoke_result_t<F, T>>
+requires ranges::range<Container<T, Allocator>> &&
+    (!std::same_as<Container<T, Allocator>, std::string>)auto fmap(F &&f, const Container<T, Allocator> &v)
+        -> std::vector<R> {
   return v | ranges::views::transform(std::forward<F>(f)) | ranges::to<std::vector<R>>();
 }
 
