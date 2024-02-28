@@ -2,9 +2,9 @@ stream_args: &stream_args
   - "--bolt-port"
   - "7687"
   - "--log-level=DEBUG"
-  - "--kafka-bootstrap-servers=localhost:9092"
+  - "--kafka-bootstrap-servers=kafka:9092"
   - "--query-execution-timeout-sec=0"
-  - "--pulsar-service-url=pulsar://127.0.0.1:6650"
+  - "--pulsar-service-url=pulsar:6650"
 
 in_memory_cluster: &in_memory_cluster
   cluster:
