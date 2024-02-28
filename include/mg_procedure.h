@@ -902,15 +902,19 @@ MGP_ENUM_CLASS text_search_mode{
     ALL_PROPERTIES,
 };
 
-/// Search the named text index for the given query. The result is a list of the vertices whose text properties match
-/// the given query.
+/// Search the named text index for the given query. The result is a map with the "search_results" and "error_msg" keys.
+/// The "search_results" key contains the vertices whose text-indexed properties match the given query.
+/// In case of a Tantivy error, the "search_results" key is absent, and "error_msg" contains the error message.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
 enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, const char *index_name, const char *search_query,
                                            enum text_search_mode search_mode, struct mgp_memory *memory,
                                            struct mgp_map **result);
 
-/// Search the named text index for the given query and aggregate over the search results.
+/// Aggregate over the results of a search over the named text index. The result is a map with the "aggregation_results"
+/// and "error_msg" keys.
+/// The "aggregation_results" key contains the vertices whose text-indexed properties match the given query.
+/// In case of a Tantivy error, the "aggregation_results" key is absent, and "error_msg" contains the error message.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
 enum mgp_error mgp_graph_aggregate_over_text_index(struct mgp_graph *graph, const char *index_name,
