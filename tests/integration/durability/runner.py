@@ -69,7 +69,7 @@ def execute_test(memgraph_binary, dump_binary, test_directory, test_type, write_
 
     memgraph_args = [
         memgraph_binary,
-        "--data-recovery-on-startup",
+        "--storage-recover-on-startup",
         "--storage-properties-on-edges",
         "--data-directory",
         working_data_directory.name,
