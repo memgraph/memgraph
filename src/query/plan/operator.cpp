@@ -291,10 +291,10 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
     if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
       labels.emplace_back(*label_atom);
     } else {
-      // auto key = evaluator.Visit(*std::get<Expression *>(label));
-      // labels.emplace_back(context.db_accessor->NameToLabel(key.ValueString()));
-      auto expression = std::get<Expression *>(label);
-      labels.emplace_back(context.db_accessor->NameToLabel(expression->Accept(evaluator).ValueString()));
+      // auto expression = std::get<Expression *>(label);
+      // labels.emplace_back(context.db_accessor->NameToLabel(expression->Accept(evaluator).ValueString()));
+      // we can't resolve the label here, because frame is empty
+      continue;
     }
   }
 #ifdef MG_ENTERPRISE
