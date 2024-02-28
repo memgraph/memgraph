@@ -1720,17 +1720,12 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.parameters = parameters;
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
-  if (!user_or_role) {
-    ctx_.user_info = {.mode = UserExecutionContextInfo::UserMode::NONE, .name = ""};
-  } else {
-    ctx_.user_info = {.mode = user_or_role->username() ? UserExecutionContextInfo::UserMode::USER
-                                                       : UserExecutionContextInfo::UserMode::ROLE,
-                      .name = user_or_role->key()};
-  }
+  ctx_.user_or_role = user_or_role;
+
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role && dba) {
     // Create only if an explicit user is defined
-    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(std::move(user_or_role), dba);
+    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, dba);
 
     // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
     // otherwise, we do assign the auth checker to check for label access control

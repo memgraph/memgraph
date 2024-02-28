@@ -23,6 +23,7 @@
 #include <utility>
 #include <variant>
 
+#include "glue/auth.hpp"
 #include "license/license.hpp"
 #include "mg_procedure.h"
 #include "module.hpp"
@@ -4028,20 +4029,16 @@ mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
 mgp_error mgp_execute_query(mgp_graph *graph, const char *query) {
   return WrapExceptions([&]() {
     auto query_string = std::string(query);
-    auto user_info = graph->ctx->user_info;
     auto *instance = memgraph::query::InterpreterContext::getInstance();
 
     memgraph::query::Interpreter interpreter(instance);
+    interpreter.SetUser(graph->ctx->user_or_role);
 
     instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.insert(&interpreter); });
 
     memgraph::utils::OnScopeExit erase_interpreter([&] {
       instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.erase(&interpreter); });
     });
-
-    memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
-    auto tmp_user = tmp_auth_checker.GenQueryUser(std::nullopt, std::nullopt);
-    interpreter.SetUser(tmp_user);
 
     auto results = interpreter.Prepare(query_string, {}, {});
     memgraph::query::DiscardValueResultStream stream;

@@ -92,7 +92,7 @@ struct ExecutionContext {
   TriggerContextCollector *trigger_context_collector{nullptr};
   FrameChangeCollector *frame_change_collector{nullptr};
   std::shared_ptr<utils::AsyncTimer> timer;
-  UserExecutionContextInfo user_info;
+  std::shared_ptr<QueryUserOrRole> user_or_role;
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
