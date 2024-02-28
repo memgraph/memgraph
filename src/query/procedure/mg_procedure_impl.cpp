@@ -4046,9 +4046,12 @@ std::vector<std::vector<mgp_value>> GetMgpRowsFromTypedValues(
   return mgp_rows;
 }
 
-mgp_query_execution_result::mgp_query_execution_result(std::vector<std::vector<memgraph::query::TypedValue>> tv_rows,
+mgp_query_execution_headers::mgp_query_execution_headers(std::vector<std::string> headers) : headers(headers){};
+
+mgp_query_execution_result::mgp_query_execution_result(std::vector<std::string> headers,
+                                                       std::vector<std::vector<memgraph::query::TypedValue>> tv_rows,
                                                        mgp_graph *graph, mgp_memory *memory)
-    : rows(GetMgpRowsFromTypedValues(std::move(tv_rows), graph, memory)) {}
+    : headers(headers), rows(GetMgpRowsFromTypedValues(std::move(tv_rows), graph, memory)) {}
 
 mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *query,
                             mgp_query_execution_result **result) {
@@ -4057,7 +4060,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         auto query_string = std::string(query);
         auto *instance = memgraph::query::InterpreterContext::getInstance();
 
-        memgraph::query::Interpreter interpreter(instance);
+        memgraph::query::Interpreter interpreter(instance, instance->dbms_handler->Get());
         interpreter.SetUser(graph->ctx->user_or_role);
 
         instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.insert(&interpreter); });
@@ -4066,11 +4069,17 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
           instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.erase(&interpreter); });
         });
 
-        auto results = interpreter.Prepare(query_string, {}, {});
+        auto prepare_query_result = interpreter.Prepare(query_string, {}, {});
         MgProcedureResultStream stream;
-        interpreter.Pull(&stream, {}, results.qid);
+        interpreter.Pull(&stream, {}, prepare_query_result.qid);
 
-        return NewRawMgpObject<mgp_query_execution_result>(memory, std::move(stream.rows), graph, memory);
+        return NewRawMgpObject<mgp_query_execution_result>(memory, std::move(prepare_query_result.headers),
+                                                           std::move(stream.rows), graph, memory);
       },
       result);
+}
+
+mgp_error mgp_get_query_execution_headers(mgp_query_execution_result *execution_result,
+                                          mgp_query_execution_headers **result) {
+  return WrapExceptions([&]() { return &execution_result->headers; }, result);
 }

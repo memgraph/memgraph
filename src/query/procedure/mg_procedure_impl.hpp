@@ -995,11 +995,20 @@ bool ContainsDeleted(const mgp_value *val);
 
 memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory);
 
+struct mgp_query_execution_headers {
+  explicit mgp_query_execution_headers(std::vector<std::string> headers);
+  ~mgp_query_execution_headers() = default;
+
+  std::vector<std::string> headers;
+};
+
 struct mgp_query_execution_result {
-  explicit mgp_query_execution_result(std::vector<std::vector<memgraph::query::TypedValue>> tv_rows, mgp_graph *graph,
+  explicit mgp_query_execution_result(std::vector<std::string> headers,
+                                      std::vector<std::vector<memgraph::query::TypedValue>> tv_rows, mgp_graph *graph,
                                       mgp_memory *memory);
 
   ~mgp_query_execution_result() = default;
 
+  mgp_query_execution_headers headers;
   std::vector<std::vector<mgp_value>> rows;
 };

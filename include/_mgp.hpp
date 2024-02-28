@@ -855,4 +855,8 @@ inline mgp_query_execution_result *execute_query(mgp_graph *graph, const char *q
   return MgInvoke<mgp_query_execution_result *>(mgp_execute_query, graph, memory, query);
 }
 
+inline std::vector<std::string> get_query_execution_headers(mgp_query_execution_result *query_execution) {
+  return MgInvoke<std::vector<std::string>>(mgp_get_query_execution_headers, query_execution);
+}
+
 }  // namespace mgp

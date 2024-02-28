@@ -1806,6 +1806,11 @@ struct mgp_query_execution_result;
 enum mgp_error mgp_execute_query(mgp_graph *graph, struct mgp_memory *memory, const char *query,
                                  struct mgp_query_execution_result **result);
 
+struct mgp_query_execution_headers;
+
+enum mgp_error mgp_get_query_execution_headers(struct mgp_query_execution_result *query_execution,
+                                               struct mgp_query_execution_headers **result);
+
 /// @}
 
 #ifdef __cplusplus
