@@ -113,8 +113,9 @@ auto RaftState::InstanceName() const -> std::string { return "coordinator_" + st
 
 auto RaftState::RaftSocketAddress() const -> std::string { return raft_address_ + ":" + std::to_string(raft_port_); }
 
-auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void {
-  auto const endpoint = raft_address + ":" + std::to_string(raft_port);
+auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address)
+    -> void {
+  auto const endpoint = fmt::format("{}:{}", raft_address, raft_port);
   srv_config const srv_config_to_add(static_cast<int>(raft_server_id), endpoint);
   if (!raft_server_->add_srv(srv_config_to_add)->get_accepted()) {
     throw RaftAddServerException("Failed to add server {} to the cluster", endpoint);
@@ -154,9 +155,9 @@ auto RaftState::AppendSetInstanceAsReplica(std::string_view instance_name) -> pt
 
 auto RaftState::MainExists() const -> bool { return state_machine_->MainExists(); }
 
-auto RaftState::IsMain(std::string const &instance_name) const -> bool { return state_machine_->IsMain(instance_name); }
+auto RaftState::IsMain(std::string_view instance_name) const -> bool { return state_machine_->IsMain(instance_name); }
 
-auto RaftState::IsReplica(std::string const &instance_name) const -> bool {
+auto RaftState::IsReplica(std::string_view instance_name) const -> bool {
   return state_machine_->IsReplica(instance_name);
 }
 

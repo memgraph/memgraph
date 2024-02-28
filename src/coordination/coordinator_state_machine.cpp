@@ -19,18 +19,18 @@ CoordinatorStateMachine::CoordinatorStateMachine(OnRaftCommitCb raft_commit_cb) 
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
 
-auto CoordinatorStateMachine::IsMain(std::string const &instance_name) const -> bool {
+auto CoordinatorStateMachine::IsMain(std::string_view instance_name) const -> bool {
   return cluster_state_.IsMain(instance_name);
 }
 
-auto CoordinatorStateMachine::IsReplica(std::string const &instance_name) const -> bool {
+auto CoordinatorStateMachine::IsReplica(std::string_view instance_name) const -> bool {
   return cluster_state_.IsReplica(instance_name);
 }
 
-auto CoordinatorStateMachine::CreateLog(std::string const &log) -> ptr<buffer> {
+auto CoordinatorStateMachine::CreateLog(std::string_view log) -> ptr<buffer> {
   ptr<buffer> log_buf = buffer::alloc(sizeof(uint32_t) + log.size());
   buffer_serializer bs(log_buf);
-  bs.put_str(log);
+  bs.put_str(log.data());
   return log_buf;
 }
 

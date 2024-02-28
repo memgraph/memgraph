@@ -410,7 +410,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
       : coordinator_handler_(coordinator_state) {}
 
-  void UnregisterInstance(std::string const &instance_name) override {
+  void UnregisterInstance(std::string_view instance_name) override {
     auto status = coordinator_handler_.UnregisterReplicationInstance(instance_name);
     switch (status) {
       using enum memgraph::coordination::UnregisterInstanceCoordinatorStatus;
@@ -437,20 +437,18 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void RegisterReplicationInstance(std::string const &coordinator_socket_address,
-                                   std::string const &replication_socket_address,
+  void RegisterReplicationInstance(std::string_view coordinator_socket_address,
+                                   std::string_view replication_socket_address,
                                    std::chrono::seconds const &instance_check_frequency,
                                    std::chrono::seconds const &instance_down_timeout,
                                    std::chrono::seconds const &instance_get_uuid_frequency,
-                                   std::string const &instance_name, CoordinatorQuery::SyncMode sync_mode) override {
-    const auto maybe_replication_ip_port =
-        io::network::Endpoint::ParseSocketOrAddress(replication_socket_address, std::nullopt);
+                                   std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) override {
+    const auto maybe_replication_ip_port = io::network::Endpoint::ParseSocketOrAddress(replication_socket_address);
     if (!maybe_replication_ip_port) {
       throw QueryRuntimeException("Invalid replication socket address!");
     }
 
-    const auto maybe_coordinator_ip_port =
-        io::network::Endpoint::ParseSocketOrAddress(coordinator_socket_address, std::nullopt);
+    const auto maybe_coordinator_ip_port = io::network::Endpoint::ParseSocketOrAddress(coordinator_socket_address);
     if (!maybe_replication_ip_port) {
       throw QueryRuntimeException("Invalid replication socket address!");
     }
@@ -458,13 +456,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     const auto [replication_ip, replication_port] = *maybe_replication_ip_port;
     const auto [coordinator_server_ip, coordinator_server_port] = *maybe_coordinator_ip_port;
     const auto repl_config = coordination::CoordinatorClientConfig::ReplicationClientInfo{
-        .instance_name = instance_name,
+        .instance_name = std::string(instance_name),
         .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
         .replication_ip_address = replication_ip,
         .replication_port = replication_port};
 
     auto coordinator_client_config =
-        coordination::CoordinatorClientConfig{.instance_name = instance_name,
+        coordination::CoordinatorClientConfig{.instance_name = std::string(instance_name),
                                               .ip_address = coordinator_server_ip,
                                               .port = coordinator_server_port,
                                               .instance_health_check_frequency_sec = instance_check_frequency,
@@ -473,7 +471,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                               .replication_client_info = repl_config,
                                               .ssl = std::nullopt};
 
-    auto status = coordinator_handler_.RegisterReplicationInstance(std::move(coordinator_client_config));
+    auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config);
     switch (status) {
       using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:
@@ -499,8 +497,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, std::string const &raft_socket_address) -> void override {
-    auto const maybe_ip_and_port = io::network::Endpoint::ParseSocketOrIpAddress(raft_socket_address);
+  auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view raft_socket_address) -> void override {
+    auto const maybe_ip_and_port = io::network::Endpoint::ParseSocketOrAddress(raft_socket_address);
     if (maybe_ip_and_port) {
       auto const [ip, port] = *maybe_ip_and_port;
       spdlog::info("Adding instance {} with raft socket address {}:{}.", raft_server_id, port, ip);
@@ -510,7 +508,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void SetReplicationInstanceToMain(const std::string &instance_name) override {
+  void SetReplicationInstanceToMain(std::string_view instance_name) override {
     auto status = coordinator_handler_.SetReplicationInstanceToMain(instance_name);
     switch (status) {
       using enum memgraph::coordination::SetInstanceToMainCoordinatorStatus;

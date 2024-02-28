@@ -41,7 +41,7 @@ CoordinatorState::CoordinatorState() {
   }
 }
 
-auto CoordinatorState::RegisterReplicationInstance(CoordinatorClientConfig config)
+auto CoordinatorState::RegisterReplicationInstance(CoordinatorClientConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
@@ -56,7 +56,8 @@ auto CoordinatorState::RegisterReplicationInstance(CoordinatorClientConfig confi
       data_);
 }
 
-auto CoordinatorState::UnregisterReplicationInstance(std::string instance_name) -> UnregisterInstanceCoordinatorStatus {
+auto CoordinatorState::UnregisterReplicationInstance(std::string_view instance_name)
+    -> UnregisterInstanceCoordinatorStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot unregister instance since variant holds wrong alternative");
 
@@ -70,7 +71,8 @@ auto CoordinatorState::UnregisterReplicationInstance(std::string instance_name) 
       data_);
 }
 
-auto CoordinatorState::SetReplicationInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus {
+auto CoordinatorState::SetReplicationInstanceToMain(std::string_view instance_name)
+    -> SetInstanceToMainCoordinatorStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
 
@@ -96,8 +98,8 @@ auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
   return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
 }
 
-auto CoordinatorState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)
-    -> void {
+auto CoordinatorState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port,
+                                              std::string_view raft_address) -> void {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(raft_server_id, raft_port, raft_address);

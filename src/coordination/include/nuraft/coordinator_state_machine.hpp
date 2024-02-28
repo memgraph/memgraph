@@ -45,10 +45,10 @@ class CoordinatorStateMachine : public state_machine {
   ~CoordinatorStateMachine() override {}
 
   auto MainExists() const -> bool;
-  auto IsMain(std::string const &instance_name) const -> bool;
-  auto IsReplica(std::string const &instance_name) const -> bool;
+  auto IsMain(std::string_view instance_name) const -> bool;
+  auto IsReplica(std::string_view instance_name) const -> bool;
 
-  static auto CreateLog(std::string const &log) -> ptr<buffer>;
+  static auto CreateLog(std::string_view log) -> ptr<buffer>;
   static auto SerializeRegisterInstance(CoordinatorClientConfig const &config) -> ptr<buffer>;
   static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;

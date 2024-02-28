@@ -21,18 +21,18 @@ auto CoordinatorClusterState::MainExists() const -> bool {
   return std::ranges::any_of(instance_roles, [](auto const &entry) { return entry.second == ReplicationRole::MAIN; });
 }
 
-auto CoordinatorClusterState::IsMain(std::string const &instance_name) const -> bool {
+auto CoordinatorClusterState::IsMain(std::string_view instance_name) const -> bool {
   auto const it = instance_roles.find(instance_name);
   return it != instance_roles.end() && it->second == ReplicationRole::MAIN;
 }
 
-auto CoordinatorClusterState::IsReplica(std::string const &instance_name) const -> bool {
+auto CoordinatorClusterState::IsReplica(std::string_view instance_name) const -> bool {
   auto const it = instance_roles.find(instance_name);
   return it != instance_roles.end() && it->second == ReplicationRole::REPLICA;
 }
 
-auto CoordinatorClusterState::InsertInstance(std::string const &instance_name, ReplicationRole role) -> void {
-  instance_roles[instance_name] = role;
+auto CoordinatorClusterState::InsertInstance(std::string_view instance_name, ReplicationRole role) -> void {
+  instance_roles[instance_name.data()] = role;
 }
 
 auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void {

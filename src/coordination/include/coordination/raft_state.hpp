@@ -59,15 +59,15 @@ class RaftState {
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
+  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
   auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
   auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
 
   auto MainExists() const -> bool;
-  auto IsMain(std::string const &instance_name) const -> bool;
-  auto IsReplica(std::string const &instance_name) const -> bool;
+  auto IsMain(std::string_view instance_name) const -> bool;
+  auto IsReplica(std::string_view instance_name) const -> bool;
 
   /// TODO: (andi) Add log in the name of methods
   auto AppendRegisterReplicationInstance(CoordinatorClientConfig const &config) -> ptr<raft_result>;

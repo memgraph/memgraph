@@ -38,11 +38,11 @@ class CoordinatorClusterState {
  public:
   auto MainExists() const -> bool;
 
-  auto IsMain(std::string const &instance_name) const -> bool;
+  auto IsMain(std::string_view instance_name) const -> bool;
 
-  auto IsReplica(std::string const &instance_name) const -> bool;
+  auto IsReplica(std::string_view instance_name) const -> bool;
 
-  auto InsertInstance(std::string const &instance_name, replication_coordination_glue::ReplicationRole role) -> void;
+  auto InsertInstance(std::string_view instance_name, replication_coordination_glue::ReplicationRole role) -> void;
 
   auto DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void;
 
@@ -53,7 +53,7 @@ class CoordinatorClusterState {
   auto GetInstances() const -> std::vector<std::pair<std::string, std::string>>;
 
  private:
-  std::map<std::string, replication_coordination_glue::ReplicationRole> instance_roles;
+  std::map<std::string, replication_coordination_glue::ReplicationRole, std::less<>> instance_roles;
 };
 
 }  // namespace memgraph::coordination
