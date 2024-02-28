@@ -12,4 +12,6 @@ RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${TOOLCHAIN_VERS
     && tar xzvf ${TOOLCHAIN_VERSION}-binaries-amzn-2-x86_64.tar.gz -C /opt \
     && rm ${TOOLCHAIN_VERSION}-binaries-amzn-2-x86_64.tar.gz
 
+RUN yum install libuuid-devel.x86_64 -y
+
 ENTRYPOINT ["sleep", "infinity"]
