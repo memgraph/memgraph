@@ -15,9 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
-        uses: dawidd6/action-download-artifact@v4
+        uses: dawidd6/action-download-artifact@v2
         with:
-          workflow: package_all.yaml
+          workflow: package_memgraph.yaml
           workflow_conclusion: success
           run_number: "${{ github.event.inputs.run_number }}"
           path: build/output/release
