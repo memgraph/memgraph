@@ -27,7 +27,10 @@
 #include "mg_procedure.h"
 #include "module.hpp"
 #include "query/db_accessor.hpp"
+#include "query/discard_value_stream.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/fmt.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
@@ -4019,5 +4022,29 @@ mgp_error mgp_track_current_thread_allocations(mgp_graph *graph) {
 mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
   return WrapExceptions([&]() {
     std::visit([](auto *db_accessor) -> void { db_accessor->UntrackCurrentThreadAllocations(); }, graph->impl);
+  });
+}
+
+mgp_error mgp_execute_query(mgp_graph *graph, const char *query) {
+  return WrapExceptions([&]() {
+    auto query_string = std::string(query);
+    auto user_info = graph->ctx->user_info;
+    auto *instance = memgraph::query::InterpreterContext::getInstance();
+
+    memgraph::query::Interpreter interpreter(instance);
+
+    instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.insert(&interpreter); });
+
+    memgraph::utils::OnScopeExit erase_interpreter([&] {
+      instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.erase(&interpreter); });
+    });
+
+    memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
+    auto tmp_user = tmp_auth_checker.GenQueryUser(std::nullopt, std::nullopt);
+    interpreter.SetUser(tmp_user);
+
+    auto results = interpreter.Prepare(query_string, {}, {});
+    memgraph::query::DiscardValueResultStream stream;
+    interpreter.Pull(&stream, {}, results.qid);
   });
 }

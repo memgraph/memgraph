@@ -1720,6 +1720,13 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.parameters = parameters;
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
+  if (!user_or_role) {
+    ctx_.user_info = {.mode = UserExecutionContextInfo::UserMode::NONE, .name = ""};
+  } else {
+    ctx_.user_info = {.mode = user_or_role->username() ? UserExecutionContextInfo::UserMode::USER
+                                                       : UserExecutionContextInfo::UserMode::ROLE,
+                      .name = user_or_role->key()};
+  }
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role && dba) {
     // Create only if an explicit user is defined

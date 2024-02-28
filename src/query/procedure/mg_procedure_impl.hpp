@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,7 @@
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
+
 #include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/view.hpp"
@@ -993,3 +994,9 @@ struct mgp_messages {
 bool ContainsDeleted(const mgp_value *val);
 
 memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory);
+
+struct mgp_query_execution {
+  explicit mgp_query_execution(){};
+
+  ~mgp_query_execution() = default;
+};

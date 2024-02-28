@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1800,6 +1800,9 @@ enum mgp_error mgp_func_result_set_error_msg(struct mgp_func_result *result, con
 /// mgp_func_result.
 enum mgp_error mgp_func_result_set_value(struct mgp_func_result *result, struct mgp_value *value,
                                          struct mgp_memory *memory);
+
+enum mgp_error mgp_execute_query(mgp_graph *graph, const char *query);
+
 /// @}
 
 #ifdef __cplusplus

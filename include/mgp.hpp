@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -93,6 +93,7 @@ class Relationship;
 struct MapItem;
 class Duration;
 class Value;
+class QueryExecution;
 
 struct StealType {};
 inline constexpr StealType steal{};
@@ -1548,6 +1549,15 @@ class Return {
   Return(std::string_view name, std::pair<Type, Type> list_type);
 
   mgp_type *GetMGPType() const;
+};
+
+class QueryExecution {
+ public:
+  QueryExecution(mgp_graph *graph);
+  void ExecuteQuery(std::string_view query);
+
+ private:
+  mgp_graph *graph_;
 };
 
 enum class ProcedureType : uint8_t {
@@ -4285,6 +4295,10 @@ inline mgp_type *Return::GetMGPType() const {
 
   return util::ToMGPType(type_);
 }
+
+inline QueryExecution::QueryExecution(mgp_graph *graph) : graph_(graph) {}
+
+inline void QueryExecution::ExecuteQuery(std::string_view query) const { mgp::execute_query(graph_, query.data()); }
 
 // do not enter
 namespace detail {

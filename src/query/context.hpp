@@ -72,6 +72,12 @@ inline std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string
   return labels;
 }
 
+struct UserExecutionContextInfo {
+  enum class UserMode { NONE, USER, ROLE };
+  UserMode mode;
+  std::string name;
+};
+
 struct ExecutionContext {
   DbAccessor *db_accessor{nullptr};
   SymbolTable symbol_table;
@@ -86,6 +92,7 @@ struct ExecutionContext {
   TriggerContextCollector *trigger_context_collector{nullptr};
   FrameChangeCollector *frame_change_collector{nullptr};
   std::shared_ptr<utils::AsyncTimer> timer;
+  UserExecutionContextInfo user_info;
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif

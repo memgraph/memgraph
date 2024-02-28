@@ -27,6 +27,7 @@
 #include "storage/v2/transaction.hpp"
 #include "system/state.hpp"
 #include "system/system.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
@@ -55,6 +56,11 @@ struct QueryUserOrRole;
  */
 struct InterpreterContext {
   static InterpreterContext *instance;
+
+  static InterpreterContext *getInstance() {
+    MG_ASSERT(instance == nullptr, "Interpreter context has not been initialized!");
+    return instance;
+  }
 
   static InterpreterContext *getInstance(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
                                          replication::ReplicationState *rs, memgraph::system::System &system,
