@@ -9,7 +9,24 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-namespace memgraph::coordination {
-enum class GetInstanceUUIDError { NO_RESPONSE, RPC_EXCEPTION };
-enum class GetInstanceTimestampsError { NO_RESPONSE, RPC_EXCEPTION };
-}  // namespace memgraph::coordination
+#pragma once
+
+#include "rpc/client.hpp"
+#include "utils/uuid.hpp"
+
+#include <deque>
+#include "messages.hpp"
+#include "rpc/messages.hpp"
+#include "utils/uuid.hpp"
+
+namespace memgraph::replication_coordination_glue {
+
+struct DatabaseHistory {
+  memgraph::utils::UUID db_uuid;
+  std::vector<std::pair<std::string, uint64_t>> history;
+  std::string name;
+};
+
+using DatabaseHistories = std::vector<DatabaseHistory>;
+
+}  // namespace memgraph::replication_coordination_glue
