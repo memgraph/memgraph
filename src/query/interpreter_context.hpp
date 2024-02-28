@@ -58,7 +58,7 @@ struct InterpreterContext {
   static InterpreterContext *instance;
 
   static InterpreterContext *getInstance() {
-    MG_ASSERT(instance == nullptr, "Interpreter context has not been initialized!");
+    MG_ASSERT(instance != nullptr, "Interpreter context has not been initialized!");
     return instance;
   }
 
