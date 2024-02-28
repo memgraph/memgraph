@@ -94,6 +94,7 @@ struct MapItem;
 class Duration;
 class Value;
 class QueryExecution;
+class QueryExecutionResult;
 
 struct StealType {};
 inline constexpr StealType steal{};
@@ -1554,10 +1555,17 @@ class Return {
 class QueryExecution {
  public:
   QueryExecution(mgp_graph *graph);
-  void ExecuteQuery(std::string_view query) const;
+  QueryExecutionResult ExecuteQuery(std::string_view query) const;
 
  private:
   mgp_graph *graph_;
+};
+
+class QueryExecutionResult {
+  mgp_query_execution_result *result_;
+
+ public:
+  QueryExecutionResult(mgp_query_execution_result *result);
 };
 
 enum class ProcedureType : uint8_t {
@@ -4298,7 +4306,11 @@ inline mgp_type *Return::GetMGPType() const {
 
 inline QueryExecution::QueryExecution(mgp_graph *graph) : graph_(graph) {}
 
-inline void QueryExecution::ExecuteQuery(std::string_view query) const { mgp::execute_query(graph_, query.data()); }
+inline QueryExecutionResult QueryExecution::ExecuteQuery(std::string_view query) const {
+  mgp::MemHandlerCallback(execute_query, graph_, query.data());
+}
+
+inline QueryExecutionResult::QueryExecutionResult(mgp_query_execution_result *result) : result_(result) {}
 
 // do not enter
 namespace detail {

@@ -1801,7 +1801,10 @@ enum mgp_error mgp_func_result_set_error_msg(struct mgp_func_result *result, con
 enum mgp_error mgp_func_result_set_value(struct mgp_func_result *result, struct mgp_value *value,
                                          struct mgp_memory *memory);
 
-enum mgp_error mgp_execute_query(mgp_graph *graph, const char *query);
+struct mgp_query_execution_result;
+
+enum mgp_error mgp_execute_query(mgp_graph *graph, struct mgp_memory *memory, const char *query,
+                                 struct mgp_query_execution_result **result);
 
 /// @}
 

@@ -28,7 +28,6 @@
 #include "mg_procedure.h"
 #include "module.hpp"
 #include "query/db_accessor.hpp"
-#include "query/discard_value_stream.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
@@ -4026,22 +4025,52 @@ mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
   });
 }
 
-mgp_error mgp_execute_query(mgp_graph *graph, const char *query) {
-  return WrapExceptions([&]() {
-    auto query_string = std::string(query);
-    auto *instance = memgraph::query::InterpreterContext::getInstance();
+struct MgProcedureResultStream final {
+  using Row = std::vector<memgraph::query::TypedValue>;
+  using Rows = std::vector<Row>;
+  Rows rows;
+  void Result(const Row &row) { rows.push_back(row); }
+};
 
-    memgraph::query::Interpreter interpreter(instance);
-    interpreter.SetUser(graph->ctx->user_or_role);
+std::vector<std::vector<mgp_value>> GetMgpRowsFromTypedValues(
+    std::vector<std::vector<memgraph::query::TypedValue>> tv_rows, mgp_graph *graph, mgp_memory *memory) {
+  std::vector<std::vector<mgp_value>> mgp_rows;
+  for (auto &row : tv_rows) {
+    std::vector<mgp_value> vals;
+    for (auto &val : row) {
+      vals.emplace_back(val, graph, memory->impl);
+    }
+    mgp_rows.emplace_back(std::move(vals));
+  }
 
-    instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.insert(&interpreter); });
+  return mgp_rows;
+}
 
-    memgraph::utils::OnScopeExit erase_interpreter([&] {
-      instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.erase(&interpreter); });
-    });
+mgp_query_execution_result::mgp_query_execution_result(std::vector<std::vector<memgraph::query::TypedValue>> tv_rows,
+                                                       mgp_graph *graph, mgp_memory *memory)
+    : rows(GetMgpRowsFromTypedValues(std::move(tv_rows), graph, memory)) {}
 
-    auto results = interpreter.Prepare(query_string, {}, {});
-    memgraph::query::DiscardValueResultStream stream;
-    interpreter.Pull(&stream, {}, results.qid);
-  });
+mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *query,
+                            mgp_query_execution_result **result) {
+  return WrapExceptions(
+      [&]() {
+        auto query_string = std::string(query);
+        auto *instance = memgraph::query::InterpreterContext::getInstance();
+
+        memgraph::query::Interpreter interpreter(instance);
+        interpreter.SetUser(graph->ctx->user_or_role);
+
+        instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.insert(&interpreter); });
+
+        memgraph::utils::OnScopeExit erase_interpreter([&] {
+          instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.erase(&interpreter); });
+        });
+
+        auto results = interpreter.Prepare(query_string, {}, {});
+        MgProcedureResultStream stream;
+        interpreter.Pull(&stream, {}, results.qid);
+
+        return NewRawMgpObject<mgp_query_execution_result>(memory, std::move(stream.rows), graph, memory);
+      },
+      result);
 }
