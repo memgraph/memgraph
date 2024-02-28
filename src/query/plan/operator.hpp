@@ -506,7 +506,8 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
     const UniqueCursorPtr input_cursor_;
 
     // Get the existing node (if existing_node_ == true), or create a new node
-    VertexAccessor &OtherVertex(Frame &frame, ExecutionContext &context);
+    VertexAccessor &OtherVertex(Frame &frame, ExecutionContext &context,
+                                std::vector<memgraph::storage::LabelId> &labels, ExpressionEvaluator &evaluator);
   };
 };
 

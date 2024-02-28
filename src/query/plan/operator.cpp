@@ -212,25 +212,13 @@ CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeCreati
 
 // Creates a vertex on this GraphDb. Returns a reference to vertex placed on the
 // frame.
-VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context) {
+VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context,
+                                  std::vector<storage::LabelId> &labels, ExpressionEvaluator &evaluator) {
   auto &dba = *context.db_accessor;
   auto new_node = dba.InsertVertex();
   context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
-  // Evaluator should use the latest accessors, as modified in this query, when
-  // setting properties on new nodes.
-  ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                storage::View::NEW);
-  for (auto label : node_info.labels) {
-    auto maybe_error = std::invoke([&] {
-      if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
-        return new_node.AddLabel(*label_atom);
-      } else {
-        // auto key = evaluator.Visit(*std::get<Expression *>(label));
-        // return new_node.AddLabel(dba.NameToLabel(key.ValueString()));
-        auto expression = std::get<Expression *>(label);
-        return new_node.AddLabel(dba.NameToLabel(expression->Accept(evaluator).ValueString()));
-      }
-    });
+  for (const auto &label : labels) {
+    auto maybe_error = std::invoke([&] { return new_node.AddLabel(label); });
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
@@ -286,26 +274,27 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   SCOPED_PROFILE_OP("CreateNode");
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
-  std::vector<storage::LabelId> labels;
-  for (auto &label : self_.node_info_.labels) {
-    if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
-      labels.emplace_back(*label_atom);
-    } else {
-      // auto expression = std::get<Expression *>(label);
-      // labels.emplace_back(context.db_accessor->NameToLabel(expression->Accept(evaluator).ValueString()));
-      // we can't resolve the label here, because frame is empty
-      continue;
-    }
-  }
-#ifdef MG_ENTERPRISE
-  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-    throw QueryRuntimeException("Vertex not created due to not having enough permission!");
-  }
-#endif
 
   if (input_cursor_->Pull(frame, context)) {
-    auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+    // we have to resolve the labels before we can check for permissions
+    std::vector<storage::LabelId> labels;
+    for (auto label : self_.node_info_.labels) {
+      if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
+        labels.emplace_back(*label_atom);
+      } else {
+        labels.emplace_back(
+            context.db_accessor->NameToLabel(std::get<Expression *>(label)->Accept(evaluator).ValueString()));
+      }
+    }
+
+#ifdef MG_ENTERPRISE
+    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      throw QueryRuntimeException("Vertex not created due to not having enough permission!");
+    }
+#endif
+
+    auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
@@ -398,8 +387,8 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
     if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
       labels.emplace_back(*label_atom);
     } else {
-      auto expression = std::get<Expression *>(label);
-      labels.emplace_back(context.db_accessor->NameToLabel(expression->Accept(evaluator).ValueString()));
+      labels.emplace_back(
+          context.db_accessor->NameToLabel(std::get<Expression *>(label)->Accept(evaluator).ValueString()));
     }
   }
   if (license::global_license_checker.IsEnterpriseValidFast()) {
@@ -422,7 +411,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   auto &v1 = vertex_value.ValueVertex();
 
   // get the destination vertex (possibly an existing node)
-  auto &v2 = OtherVertex(frame, context);
+  auto &v2 = OtherVertex(frame, context, labels, evaluator);
 
   // create an edge between the two nodes
   auto *dba = context.db_accessor;
@@ -453,13 +442,15 @@ void CreateExpand::CreateExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void CreateExpand::CreateExpandCursor::Reset() { input_cursor_->Reset(); }
 
-VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, ExecutionContext &context) {
+VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, ExecutionContext &context,
+                                                              std::vector<storage::LabelId> &labels,
+                                                              ExpressionEvaluator &evaluator) {
   if (self_.existing_node_) {
     TypedValue &dest_node_value = frame[self_.node_info_.symbol];
     ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.ValueVertex();
   } else {
-    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
