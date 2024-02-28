@@ -514,6 +514,15 @@ jobs:
           name: "Jepsen Report"
           path: tests/jepsen/Jepsen.tar.gz
 
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/run2.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
   release_benchmarks:
     name: "Release benchmarks"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
