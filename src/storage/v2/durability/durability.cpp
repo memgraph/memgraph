@@ -429,6 +429,16 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
       }
       previous_seq_num = wal_file.seq_num;
 
+      if (wal_file.epoch_id != repl_storage_state.epoch_.id()) {
+        // This way we skip WALs finalized only because of role change.
+        // We can also set the last timestamp to 0 if last loaded timestamp
+        // is nullopt as this can only happen if the WAL file with seq = 0
+        // does not contain any deltas and we didn't find any snapshots.
+        if (last_loaded_timestamp) {
+          epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
+        }
+        repl_storage_state.epoch_.SetEpoch(std::move(wal_file.epoch_id));
+      }
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
                             edge_count, config.salient.items);
@@ -437,17 +447,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
 
         recovery_info.last_commit_timestamp = info.last_commit_timestamp;
-
-        if (wal_file.epoch_id != repl_storage_state.epoch_.id()) {
-          // This way we skip WALs finalized only because of role change.
-          // We can also set the last timestamp to 0 if last loaded timestamp
-          // is nullopt as this can only happen if the WAL file with seq = 0
-          // does not contain any deltas and we didn't find any snapshots.
-          if (last_loaded_timestamp) {
-            epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
-          }
-          repl_storage_state.epoch_.SetEpoch(std::move(wal_file.epoch_id));
-        }
 
         /*
         if (recovery_info.next_timestamp != 0) {
