@@ -40,6 +40,7 @@ set(mg_query_sources
     db_accessor.cpp
     auth_query_handler.cpp
     interpreter_context.cpp
+    query_user.cpp
 )
 
 add_library(mg-query STATIC ${mg_query_sources})

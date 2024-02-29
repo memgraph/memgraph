@@ -53,11 +53,13 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 #endif
 
   std::optional<uint64_t> branching_point;
+  // different epoch id, replica was main
   if (replica.epoch_id != replStorageState.epoch_.id() && replica.current_commit_timestamp != kTimestampInitialId) {
     auto const &history = replStorageState.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
       return main_epoch_info.first == replica.epoch_id;
     });
+    // main didn't have that epoch, but why is here branching point
     if (epoch_info_iter == history.crend()) {
       branching_point = 0;
     } else if (epoch_info_iter->second != replica.current_commit_timestamp) {
@@ -95,7 +97,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) {
   TimestampInfo info;
   info.current_timestamp_of_replica = 0;
-  info.current_number_of_timestamp_behind_master = 0;
+  info.current_number_of_timestamp_behind_main = 0;
 
   try {
     auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(main_uuid_, storage->uuid())};
@@ -104,9 +106,9 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
 
     auto main_time_stamp = storage->repl_storage_state_.last_commit_timestamp_.load();
     info.current_timestamp_of_replica = response.current_commit_timestamp;
-    info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
+    info.current_number_of_timestamp_behind_main = response.current_commit_timestamp - main_time_stamp;
 
-    if (!is_success || info.current_number_of_timestamp_behind_master != 0) {
+    if (!is_success || info.current_number_of_timestamp_behind_main != 0) {
       replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
     }

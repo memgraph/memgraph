@@ -430,3 +430,11 @@ target_include_directories(${test_prefix}distributed_lamport_clock PRIVATE ${CMA
 
 add_unit_test(query_hint_provider.cpp)
 target_link_libraries(${test_prefix}query_hint_provider mg-query mg-glue)
+
+
+# Test coordination
+if(MG_ENTERPRISE)
+add_unit_test(coordination_utils.cpp)
+target_link_libraries(${test_prefix}coordination_utils gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}coordination_utils PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()

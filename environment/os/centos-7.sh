@@ -1,7 +1,5 @@
 #!/bin/bash
-
 set -Eeuo pipefail
-
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
@@ -45,6 +43,7 @@ MEMGRAPH_BUILD_DEPS=(
     readline-devel # for memgraph console
     python3-devel # for query modules
     openssl-devel
+    openssl
     libseccomp-devel
     python3 python-virtualenv python3-pip nmap-ncat # for qa, macro_benchmark and stress tests
     #
@@ -62,6 +61,8 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     cyrus-sasl-devel
 )
+
+MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp

@@ -242,7 +242,7 @@ std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out, c
   if (src.empty()) return out;
   // TODO: Investigate how much regex allocate and perhaps replace with custom
   // solution doing no allocations.
-  std::regex not_whitespace("[^\\s]+");
+  static std::regex not_whitespace("[^\\s]+");
   auto matches_begin = std::cregex_iterator(src.data(), src.data() + src.size(), not_whitespace);
   auto matches_end = std::cregex_iterator();
   out->reserve(std::distance(matches_begin, matches_end));

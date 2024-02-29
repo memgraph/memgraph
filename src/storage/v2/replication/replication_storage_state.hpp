@@ -65,7 +65,7 @@ struct ReplicationStorageState {
     return replication_clients_.WithLock([replica_name, cb = std::forward<F>(callback)](auto &clients) {
       for (const auto &client : clients) {
         if (client->Name() == replica_name) {
-          cb(client.get());
+          cb(*client);
           return true;
         }
       }

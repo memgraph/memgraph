@@ -317,11 +317,10 @@ class DiskStorage final : public Storage {
   std::vector<std::pair<std::string, std::string>> SerializeVerticesForLabelPropertyIndex(LabelId label,
                                                                                           PropertyId property);
 
-  StorageInfo GetBaseInfo(bool force_directory) override;
-  StorageInfo GetInfo(bool force_directory,
-                      memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
+  StorageInfo GetBaseInfo() override;
+  StorageInfo GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
-  void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
+  void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/, bool /*periodic*/) override {}
 
   void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 

@@ -18,11 +18,9 @@
 #include "utils/enum.hpp"
 
 namespace memgraph::slk {
-
 // Serialize code for auth::Role
-void Save(const auth::Role &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.Serialize().dump(), builder);
-}
+void Save(const auth::Role &self, Builder *builder) { memgraph::slk::Save(self.Serialize().dump(), builder); }
+
 namespace {
 auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   std::string tmp;

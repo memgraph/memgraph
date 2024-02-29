@@ -39,9 +39,10 @@ struct UUID {
 
   UUID() { uuid_generate(uuid.data()); }
   explicit operator std::string() const {
-    auto decoded = std::array<char, UUID_STR_LEN>{};
+    // Note not using UUID_STR_LEN so we can build with older libuuid
+    auto decoded = std::array<char, 37 /*UUID_STR_LEN*/>{};
     uuid_unparse(uuid.data(), decoded.data());
-    return std::string{decoded.data(), UUID_STR_LEN - 1};
+    return std::string{decoded.data(), 37 /*UUID_STR_LEN*/ - 1};
   }
 
   explicit operator arr_t() const { return uuid; }

@@ -144,27 +144,30 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
   auto maybe_stop = utils::ResettableCounter<2048>();
 
   for (auto &[label_property, index] : index_) {
+    auto [label_id, prop_id] = label_property;
     // before starting index, check if stop_requested
     if (token.stop_requested()) return;
 
     auto index_acc = index.access();
-    for (auto it = index_acc.begin(); it != index_acc.end();) {
+    auto it = index_acc.begin();
+    auto end_it = index_acc.end();
+    if (it == end_it) continue;
+    while (true) {
       // Hot loop, don't check stop_requested every time
       if (maybe_stop() && token.stop_requested()) return;
 
       auto next_it = it;
       ++next_it;
 
-      if (it->timestamp >= oldest_active_start_timestamp) {
-        it = next_it;
-        continue;
+      bool has_next = next_it != end_it;
+      if (it->timestamp < oldest_active_start_timestamp) {
+        bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->value == next_it->value;
+        if (redundant_duplicate ||
+            !AnyVersionHasLabelProperty(*it->vertex, label_id, prop_id, it->value, oldest_active_start_timestamp)) {
+          index_acc.remove(*it);
+        }
       }
-
-      if ((next_it != index_acc.end() && it->vertex == next_it->vertex && it->value == next_it->value) ||
-          !AnyVersionHasLabelProperty(*it->vertex, label_property.first, label_property.second, it->value,
-                                      oldest_active_start_timestamp)) {
-        index_acc.remove(*it);
-      }
+      if (!has_next) break;
       it = next_it;
     }
   }
