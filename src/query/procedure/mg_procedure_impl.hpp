@@ -1020,4 +1020,5 @@ struct mgp_execution_result {
 
   mgp_execution_headers headers;
   mgp_execution_rows rows;
+  size_t index{0};
 };

@@ -4105,3 +4105,23 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
 mgp_error mgp_fetch_execution_headers(mgp_execution_result *exec_result, mgp_execution_headers **result) {
   return WrapExceptions([exec_result]() { return &exec_result->headers; }, result);
 }
+
+mgp_error mgp_pull_one(mgp_execution_result *exec_result, mgp_graph *graph, mgp_memory *memory, mgp_map **result) {
+  return WrapExceptions(
+      [exec_result, graph, memory]() {
+        if (exec_result->index >= exec_result->rows.rows.size()) {
+          throw std::out_of_range("No more rows to pull from query execution!");
+        }
+
+        const size_t index_to_fetch = exec_result->index++;
+        const size_t headers_size = exec_result->headers.headers.size();
+        memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(memory->impl);
+        for (size_t idx = 0; idx < headers_size; idx++) {
+          items.emplace(exec_result->headers.headers[idx],
+                        mgp_value{exec_result->rows.rows[index_to_fetch][idx], graph, memory->impl});
+        }
+
+        return NewRawMgpObject<mgp_map>(memory->impl, std::move(items));
+      },
+      result);
+}

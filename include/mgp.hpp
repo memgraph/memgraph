@@ -16,6 +16,7 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <shared_mutex>
 #include <string>
@@ -93,7 +94,9 @@ class Relationship;
 struct MapItem;
 class Duration;
 class Value;
+class ExecutionHeaders;
 class QueryExecution;
+class ExecutionRow;
 class ExecutionResult;
 
 struct StealType {};
@@ -1605,12 +1608,22 @@ class QueryExecution {
   mgp_graph *graph_;
 };
 
-class ExecutionResult {
-  mgp_execution_result *result_;
+class ExecutionRow {
+  mgp_map *row_;
 
  public:
-  ExecutionResult(mgp_execution_result *result);
+  ExecutionRow(mgp_map *row);
+};
+
+class ExecutionResult {
+ public:
+  ExecutionResult(mgp_execution_result *result, mgp_graph *graph);
   ExecutionHeaders Headers() const;
+  std::optional<ExecutionRow> PullOne() const;
+
+ private:
+  mgp_execution_result *result_;
+  mgp_graph *graph_;
 };
 
 enum class ProcedureType : uint8_t {
@@ -4360,12 +4373,17 @@ inline std::string ExecutionHeaders::At(size_t index) const {
 inline QueryExecution::QueryExecution(mgp_graph *graph) : graph_(graph) {}
 
 inline ExecutionResult QueryExecution::ExecuteQuery(std::string_view query) const {
-  return ExecutionResult(mgp::MemHandlerCallback(execute_query, graph_, query.data()));
+  return ExecutionResult(mgp::MemHandlerCallback(execute_query, graph_, query.data()), graph_);
 }
 
-inline ExecutionResult::ExecutionResult(mgp_execution_result *result) : result_(result) {}
+inline ExecutionResult::ExecutionResult(mgp_execution_result *result, mgp_graph *graph)
+    : result_(result), graph_(graph) {}
 
 inline ExecutionHeaders ExecutionResult::Headers() const { return mgp::fetch_execution_headers(result_); };
+
+inline std::optional<ExecutionRow> ExecutionResult::PullOne() const {
+  return ExecutionRow(mgp::MemHandlerCallback(pull_one, result_, graph_));
+}
 
 inline bool ExecutionHeaders::Iterator::operator==(const Iterator &other) const {
   return iterable_ == other.iterable_ && index_ == other.index_;
@@ -4394,6 +4412,8 @@ inline ExecutionHeaders::Iterator ExecutionHeaders::end() { return Iterator(this
 inline ExecutionHeaders::Iterator ExecutionHeaders::cbegin() { return Iterator(this, 0); }
 
 inline ExecutionHeaders::Iterator ExecutionHeaders::cend() { return Iterator(this, Size()); }
+
+inline ExecutionRow::ExecutionRow(mgp_map *row) : row_(row) {}
 
 // do not enter
 namespace detail {

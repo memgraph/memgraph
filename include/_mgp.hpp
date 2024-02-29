@@ -867,4 +867,8 @@ inline const char *execution_headers_at(mgp_execution_headers *headers, size_t i
   return MgInvoke<const char *>(mgp_execution_headers_at, headers, index);
 }
 
+inline mgp_map *pull_one(mgp_execution_result *result, mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_pull_one, result, graph, memory);
+}
+
 }  // namespace mgp

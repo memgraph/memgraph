@@ -1815,6 +1815,9 @@ enum mgp_error mgp_execute_query(struct mgp_graph *graph, struct mgp_memory *mem
 enum mgp_error mgp_fetch_execution_headers(struct mgp_execution_result *exec_result,
                                            struct mgp_execution_headers **headers);
 
+enum mgp_error mgp_pull_one(struct mgp_execution_result *exec_result, struct mgp_graph *graph,
+                            struct mgp_memory *memory, struct mgp_map **result);
+
 /// @}
 
 #ifdef __cplusplus
