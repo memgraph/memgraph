@@ -75,8 +75,11 @@ def test_replication_works_on_failover():
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
-    actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
-    assert actual_data_on_main == expected_data_on_main
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
+    mg_sleep_and_assert(expected_data_on_main, retrieve_data_show_replicas)
 
     # 3
     interactive_mg_runner.start_all_keep_others(MEMGRAPH_SECOND_CLUSTER_DESCRIPTION)
