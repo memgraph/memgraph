@@ -2814,7 +2814,8 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(MemgraphCypher::SetItemContext *ct
   // SetLabels
   auto *set_labels = storage_->Create<SetLabels>();
   set_labels->identifier_ = storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
-  set_labels->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
+  set_labels->labels_ =
+      std::any_cast<std::vector<std::variant<LabelIx, Expression *>>>(ctx->nodeLabels()->accept(this));
   return static_cast<Clause *>(set_labels);
 }
 
@@ -2837,7 +2838,8 @@ antlrcpp::Any CypherMainVisitor::visitRemoveItem(MemgraphCypher::RemoveItemConte
   // RemoveLabels
   auto *remove_labels = storage_->Create<RemoveLabels>();
   remove_labels->identifier_ = storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
-  remove_labels->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
+  remove_labels->labels_ =
+      std::any_cast<std::vector<std::variant<LabelIx, Expression *>>>(ctx->nodeLabels()->accept(this));
   return static_cast<Clause *>(remove_labels);
 }
 

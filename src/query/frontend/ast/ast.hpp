@@ -2632,20 +2632,30 @@ class SetLabels : public memgraph::query::Clause {
   }
 
   memgraph::query::Identifier *identifier_{nullptr};
-  std::vector<memgraph::query::LabelIx> labels_;
+  std::vector<std::variant<memgraph::query::LabelIx, memgraph::query::Expression *>> labels_;
 
   SetLabels *Clone(AstStorage *storage) const override {
     SetLabels *object = storage->Create<SetLabels>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
     object->labels_.resize(labels_.size());
     for (auto i = 0; i < object->labels_.size(); ++i) {
-      object->labels_[i] = storage->GetLabelIx(labels_[i].name);
+      if (const auto *label = std::get_if<LabelIx>(&labels_[i])) {
+        object->labels_[i] = storage->GetLabelIx(label->name);
+      } else {
+        object->labels_[i] = std::get<Expression *>(labels_[i])->Clone(storage);
+      }
     }
     return object;
   }
 
  protected:
-  SetLabels(Identifier *identifier, const std::vector<LabelIx> &labels) : identifier_(identifier), labels_(labels) {}
+  SetLabels(Identifier *identifier, const std::vector<std::variant<LabelIx, Expression *>> &labels)
+      : identifier_(identifier), labels_(labels) {}
+  SetLabels(Identifier *identifier, std::vector<LabelIx> labels) : identifier_(identifier) {
+    for (auto &label : labels) {
+      labels_.emplace_back(label);
+    }
+  }
 
  private:
   friend class AstStorage;
@@ -2695,20 +2705,30 @@ class RemoveLabels : public memgraph::query::Clause {
   }
 
   memgraph::query::Identifier *identifier_{nullptr};
-  std::vector<memgraph::query::LabelIx> labels_;
+  std::vector<std::variant<memgraph::query::LabelIx, memgraph::query::Expression *>> labels_;
 
   RemoveLabels *Clone(AstStorage *storage) const override {
     RemoveLabels *object = storage->Create<RemoveLabels>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
     object->labels_.resize(labels_.size());
     for (auto i = 0; i < object->labels_.size(); ++i) {
-      object->labels_[i] = storage->GetLabelIx(labels_[i].name);
+      if (const auto *label = std::get_if<LabelIx>(&labels_[i])) {
+        object->labels_[i] = storage->GetLabelIx(label->name);
+      } else {
+        object->labels_[i] = std::get<Expression *>(labels_[i])->Clone(storage);
+      }
     }
     return object;
   }
 
  protected:
-  RemoveLabels(Identifier *identifier, const std::vector<LabelIx> &labels) : identifier_(identifier), labels_(labels) {}
+  RemoveLabels(Identifier *identifier, const std::vector<std::variant<LabelIx, Expression *>> &labels)
+      : identifier_(identifier), labels_(labels) {}
+  RemoveLabels(Identifier *identifier, std::vector<LabelIx> labels) : identifier_(identifier) {
+    for (auto &label : labels) {
+      labels_.emplace_back(label);
+    }
+  }
 
  private:
   friend class AstStorage;

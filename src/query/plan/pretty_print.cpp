@@ -634,8 +634,15 @@ bool PlanToJsonVisitor::PreVisit(SetLabels &op) {
   json self;
   self["name"] = "SetLabels";
   self["input_symbol"] = ToJson(op.input_symbol_);
-  self["labels"] = ToJson(op.labels_, *dba_);
-
+  std::vector<storage::LabelId> labels;
+  for (auto label : op.labels_) {
+    if (const auto *label_node = std::get_if<Expression *>(&label)) {
+      labels = {};
+      break;
+    }
+    labels.push_back(std::get<storage::LabelId>(label));
+  }
+  self["labels"] = ToJson(labels, *dba_);
   op.input_->Accept(*this);
   self["input"] = PopOutput();
 
@@ -660,7 +667,16 @@ bool PlanToJsonVisitor::PreVisit(RemoveLabels &op) {
   json self;
   self["name"] = "RemoveLabels";
   self["input_symbol"] = ToJson(op.input_symbol_);
-  self["labels"] = ToJson(op.labels_, *dba_);
+  // not a solution, have to fix it
+  std::vector<storage::LabelId> labels;
+  for (auto label : op.labels_) {
+    if (const auto *label_node = std::get_if<Expression *>(&label)) {
+      labels = {};
+      break;
+    }
+    labels.push_back(std::get<storage::LabelId>(label));
+  }
+  self["labels"] = ToJson(labels, *dba_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

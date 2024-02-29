@@ -414,10 +414,14 @@ class RuleBasedPlanner {
       return std::make_unique<plan::SetProperties>(std::move(input_op), input_symbol, set->expression_, op);
     } else if (auto *set = utils::Downcast<query::SetLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*set->identifier_);
-      std::vector<storage::LabelId> labels;
+      std::vector<std::variant<storage::LabelId, query::Expression *>> labels;
       labels.reserve(set->labels_.size());
       for (const auto &label : set->labels_) {
-        labels.push_back(GetLabel(label));
+        if (const auto *label_atom = std::get_if<LabelIx>(&label)) {
+          labels.emplace_back(GetLabel(*label_atom));
+        } else {
+          labels.emplace_back(std::get<query::Expression *>(label));
+        }
       }
       return std::make_unique<plan::SetLabels>(std::move(input_op), input_symbol, labels);
     } else if (auto *rem = utils::Downcast<query::RemoveProperty>(clause)) {
@@ -425,10 +429,14 @@ class RuleBasedPlanner {
                                                     rem->property_lookup_);
     } else if (auto *rem = utils::Downcast<query::RemoveLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*rem->identifier_);
-      std::vector<storage::LabelId> labels;
+      std::vector<std::variant<storage::LabelId, query::Expression *>> labels;
       labels.reserve(rem->labels_.size());
       for (const auto &label : rem->labels_) {
-        labels.push_back(GetLabel(label));
+        if (const auto *label_atom = std::get_if<LabelIx>(&label)) {
+          labels.emplace_back(GetLabel(*label_atom));
+        } else {
+          labels.emplace_back(std::get<query::Expression *>(label));
+        }
       }
       return std::make_unique<plan::RemoveLabels>(std::move(input_op), input_symbol, labels);
     }

@@ -3142,8 +3142,17 @@ void SetProperties::SetPropertiesCursor::Shutdown() { input_cursor_->Shutdown();
 void SetProperties::SetPropertiesCursor::Reset() { input_cursor_->Reset(); }
 
 SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                     const std::vector<storage::LabelId> &labels)
+                     const std::vector<std::variant<storage::LabelId, query::Expression *>> &labels)
     : input_(input), input_symbol_(std::move(input_symbol)), labels_(labels) {}
+
+SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+                     const std::vector<storage::LabelId> &labels)
+    : input_(input), input_symbol_(std::move(input_symbol)) {
+  this->labels_.reserve(labels.size());
+  for (const auto &label : labels) {
+    this->labels_.emplace_back(label);
+  }
+}
 
 ACCEPT_WITH_INPUT(SetLabels)
 
@@ -3163,10 +3172,21 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetLabels");
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
+  std::vector<storage::LabelId> labels;
+  for (const auto &label : self_.labels_) {
+    if (std::holds_alternative<storage::LabelId>(label)) {
+      labels.push_back(std::get<storage::LabelId>(label));
+    } else {
+      labels.push_back(
+          context.db_accessor->NameToLabel(std::get<query::Expression *>(label)->Accept(evaluator).ValueString()));
+    }
+  }
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(self_.labels_, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
   }
 #endif
@@ -3187,7 +3207,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 #endif
 
-  for (auto label : self_.labels_) {
+  for (auto label : labels) {
     auto maybe_value = vertex.AddLabel(label);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
@@ -3302,8 +3322,17 @@ void RemoveProperty::RemovePropertyCursor::Shutdown() { input_cursor_->Shutdown(
 void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                           const std::vector<storage::LabelId> &labels)
+                           const std::vector<std::variant<storage::LabelId, query::Expression *>> &labels)
     : input_(input), input_symbol_(std::move(input_symbol)), labels_(labels) {}
+
+RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+                           const std::vector<storage::LabelId> &labels)
+    : input_(input), input_symbol_(std::move(input_symbol)) {
+  this->labels_.reserve(labels.size());
+  for (const auto &label : labels) {
+    this->labels_.push_back(label);
+  }
+}
 
 ACCEPT_WITH_INPUT(RemoveLabels)
 
@@ -3323,10 +3352,21 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveLabels");
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
+  std::vector<storage::LabelId> labels;
+  for (const auto &label : self_.labels_) {
+    if (std::holds_alternative<storage::LabelId>(label)) {
+      labels.push_back(std::get<storage::LabelId>(label));
+    } else {
+      labels.push_back(
+          context.db_accessor->NameToLabel(std::get<query::Expression *>(label)->Accept(evaluator).ValueString()));
+    }
+  }
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(self_.labels_, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
   }
 #endif
@@ -3347,7 +3387,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   }
 #endif
 
-  for (auto label : self_.labels_) {
+  for (auto label : labels) {
     auto maybe_value = vertex.RemoveLabel(label);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {

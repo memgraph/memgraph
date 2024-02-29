@@ -1443,6 +1443,8 @@ class SetLabels : public memgraph::query::plan::LogicalOperator {
   SetLabels() = default;
 
   SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+            const std::vector<std::variant<storage::LabelId, query::Expression *>> &labels);
+  SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
             const std::vector<storage::LabelId> &labels);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -1454,7 +1456,7 @@ class SetLabels : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Symbol input_symbol_;
-  std::vector<storage::LabelId> labels_;
+  std::vector<std::variant<storage::LabelId, query::Expression *>> labels_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<SetLabels>();
@@ -1532,6 +1534,8 @@ class RemoveLabels : public memgraph::query::plan::LogicalOperator {
   RemoveLabels() = default;
 
   RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+               const std::vector<std::variant<storage::LabelId, query::Expression *>> &labels);
+  RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                const std::vector<storage::LabelId> &labels);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -1543,7 +1547,7 @@ class RemoveLabels : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Symbol input_symbol_;
-  std::vector<storage::LabelId> labels_;
+  std::vector<std::variant<storage::LabelId, query::Expression *>> labels_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<RemoveLabels>();
