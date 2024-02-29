@@ -3330,7 +3330,7 @@ RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol
     : input_(input), input_symbol_(std::move(input_symbol)) {
   labels_.reserve(labels.size());
   for (const auto &label : labels) {
-    labels_.push_back(label);
+    labels_.emplace_back(label);
   }
 }
 
