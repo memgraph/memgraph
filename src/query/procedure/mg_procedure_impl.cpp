@@ -4025,20 +4025,6 @@ mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
   });
 }
 
-std::vector<std::vector<mgp_value>> GetMgpRowsFromTypedValues(
-    std::vector<std::vector<memgraph::query::TypedValue>> tv_rows, mgp_graph *graph, mgp_memory *memory) {
-  std::vector<std::vector<mgp_value>> mgp_rows;
-  for (auto &row : tv_rows) {
-    std::vector<mgp_value> vals;
-    for (auto &val : row) {
-      vals.emplace_back(val, graph, memory->impl);
-    }
-    mgp_rows.emplace_back(std::move(vals));
-  }
-
-  return mgp_rows;
-}
-
 mgp_execution_headers::mgp_execution_headers(memgraph::utils::pmr::vector<memgraph::utils::pmr::string> &&storage)
     : headers(std::move(storage)){};
 
@@ -4059,16 +4045,31 @@ mgp_error mgp_execution_headers_at(mgp_execution_headers *headers, size_t index,
       result);
 }
 
-mgp_execution_result::mgp_execution_result(mgp_execution_headers &&headers,
-                                           std::vector<std::vector<memgraph::query::TypedValue>> tv_rows,
-                                           mgp_graph *graph, mgp_memory *memory)
-    : headers(std::move(headers)), rows(GetMgpRowsFromTypedValues(std::move(tv_rows), graph, memory)) {}
+mgp_execution_rows::mgp_execution_rows(
+    memgraph::utils::pmr::vector<memgraph::utils::pmr::vector<memgraph::query::TypedValue>> &&tv_rows)
+    : rows(std::move(tv_rows)) {}
+
+mgp_execution_result::mgp_execution_result(mgp_execution_headers &&headers, mgp_execution_rows &&rows)
+    : headers(std::move(headers)), rows(std::move(rows)) {}
 
 struct MgProcedureResultStream final {
+  explicit MgProcedureResultStream(mgp_memory *memory) : rows(memory->impl), memory(memory) {}
   using Row = std::vector<memgraph::query::TypedValue>;
   using Rows = std::vector<Row>;
-  Rows rows;
-  void Result(const Row &row) { rows.push_back(row); }
+  using PmrRow = memgraph::utils::pmr::vector<memgraph::query::TypedValue>;
+  using PmrRows = memgraph::utils::pmr::vector<PmrRow>;
+
+  PmrRows rows;
+  mgp_memory *memory;
+
+  void Result(const Row &row) {
+    PmrRow pmr_row(memory->impl);
+    for (auto &val : row) {
+      pmr_row.emplace_back(std::move(val));
+    }
+
+    rows.emplace_back(std::move(pmr_row));
+  }
 };
 
 mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *query, mgp_execution_result **result) {
@@ -4087,7 +4088,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         });
 
         auto prepare_query_result = interpreter.Prepare(query_string, {}, {});
-        MgProcedureResultStream stream;
+        MgProcedureResultStream stream(memory);
         interpreter.Pull(&stream, {}, prepare_query_result.qid);
 
         memgraph::utils::pmr::vector<memgraph::utils::pmr::string> headers(memory->impl);
@@ -4096,7 +4097,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         }
 
         return NewRawMgpObject<mgp_execution_result>(memory, mgp_execution_headers{std::move(headers)},
-                                                     std::move(stream.rows), graph, memory);
+                                                     mgp_execution_rows{std::move(stream.rows)});
       },
       result);
 }

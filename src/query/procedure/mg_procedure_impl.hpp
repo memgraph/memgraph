@@ -1005,13 +1005,19 @@ struct mgp_execution_headers {
   storage_type headers;
 };
 
+struct mgp_execution_rows {
+  explicit mgp_execution_rows(
+      memgraph::utils::pmr::vector<memgraph::utils::pmr::vector<memgraph::query::TypedValue>> &&tv_rows);
+  ~mgp_execution_rows() = default;
+
+  memgraph::utils::pmr::vector<memgraph::utils::pmr::vector<memgraph::query::TypedValue>> rows;
+};
+
 struct mgp_execution_result {
-  explicit mgp_execution_result(mgp_execution_headers &&headers,
-                                std::vector<std::vector<memgraph::query::TypedValue>> tv_rows, mgp_graph *graph,
-                                mgp_memory *memory);
+  explicit mgp_execution_result(mgp_execution_headers &&headers, mgp_execution_rows &&rows);
 
   ~mgp_execution_result() = default;
 
   mgp_execution_headers headers;
-  std::vector<std::vector<mgp_value>> rows;
+  mgp_execution_rows rows;
 };
