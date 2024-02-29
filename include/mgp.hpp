@@ -4367,6 +4367,17 @@ inline ExecutionResult::ExecutionResult(mgp_execution_result *result) : result_(
 
 inline ExecutionHeaders ExecutionResult::Headers() const { return mgp::fetch_execution_headers(result_); };
 
+inline bool ExecutionHeaders::Iterator::operator==(const Iterator &other) const {
+  return iterable_ == other.iterable_ && index_ == other.index_;
+}
+
+inline bool ExecutionHeaders::Iterator::operator!=(const Iterator &other) const { return !(*this == other); }
+
+inline ExecutionHeaders::Iterator &ExecutionHeaders::Iterator::operator++() {
+  index_++;
+  return *this;
+}
+
 inline std::string_view ExecutionHeaders::Iterator::operator*() const { return (*iterable_)[index_]; }
 
 inline ExecutionHeaders::Iterator::Iterator(const ExecutionHeaders *iterable, size_t index)
