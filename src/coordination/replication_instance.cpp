@@ -26,7 +26,13 @@ ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorC
                                          HealthCheckInstanceCallback fail_instance_cb)
     : client_(peer, std::move(config), std::move(succ_cb), std::move(fail_cb)),
       succ_cb_(succ_instance_cb),
-      fail_cb_(fail_instance_cb) {}
+      fail_cb_(fail_instance_cb) {
+  if (!client_.DemoteToReplica()) {
+    throw CoordinatorRegisterInstanceException("Failed to demote instance {} to replica", client_.InstanceName());
+  }
+
+  client_.StartFrequentCheck();
+}
 
 auto ReplicationInstance::OnSuccessPing() -> void {
   last_response_time_ = std::chrono::system_clock::now();
@@ -49,9 +55,9 @@ auto ReplicationInstance::CoordinatorSocketAddress() const -> std::string { retu
 auto ReplicationInstance::ReplicationSocketAddress() const -> std::string { return client_.ReplicationSocketAddress(); }
 auto ReplicationInstance::IsAlive() const -> bool { return is_alive_; }
 
-auto ReplicationInstance::PromoteToMainAsLeader(utils::UUID new_uuid, ReplicationClientsInfo repl_clients_info,
-                                                HealthCheckInstanceCallback main_succ_cb,
-                                                HealthCheckInstanceCallback main_fail_cb) -> bool {
+auto ReplicationInstance::PromoteToMain(utils::UUID const &new_uuid, ReplicationClientsInfo repl_clients_info,
+                                        HealthCheckInstanceCallback main_succ_cb,
+                                        HealthCheckInstanceCallback main_fail_cb) -> bool {
   if (!client_.SendPromoteReplicaToMainRpc(new_uuid, std::move(repl_clients_info))) {
     return false;
   }
@@ -63,17 +69,8 @@ auto ReplicationInstance::PromoteToMainAsLeader(utils::UUID new_uuid, Replicatio
   return true;
 }
 
-auto ReplicationInstance::PromoteToMainAsFollower(utils::UUID new_uuid, HealthCheckInstanceCallback main_succ_cb,
-                                                  HealthCheckInstanceCallback main_fail_cb) -> void {
-  main_uuid_ = new_uuid;
-  succ_cb_ = main_succ_cb;
-  fail_cb_ = main_fail_cb;
-}
-
-auto ReplicationInstance::SendDemoteToReplicaRpc() -> bool { return client_.DemoteToReplica(); }
-
-auto ReplicationInstance::DemoteToReplicaAsLeader(HealthCheckInstanceCallback replica_succ_cb,
-                                                  HealthCheckInstanceCallback replica_fail_cb) -> bool {
+auto ReplicationInstance::DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb,
+                                          HealthCheckInstanceCallback replica_fail_cb) -> bool {
   if (!client_.DemoteToReplica()) {
     return false;
   }
@@ -82,12 +79,6 @@ auto ReplicationInstance::DemoteToReplicaAsLeader(HealthCheckInstanceCallback re
   fail_cb_ = replica_fail_cb;
 
   return true;
-}
-
-auto ReplicationInstance::DemoteToReplicaAsFollower(HealthCheckInstanceCallback replica_succ_cb,
-                                                    HealthCheckInstanceCallback replica_fail_cb) -> void {
-  succ_cb_ = replica_succ_cb;
-  fail_cb_ = replica_fail_cb;
 }
 
 auto ReplicationInstance::StartFrequentCheck() -> void { client_.StartFrequentCheck(); }
@@ -133,7 +124,7 @@ auto ReplicationInstance::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid
   return true;
 }
 
-auto ReplicationInstance::SendUnregisterReplicaRpc(std::string const &instance_name) -> bool {
+auto ReplicationInstance::SendUnregisterReplicaRpc(std::string_view instance_name) -> bool {
   return client_.SendUnregisterReplicaRpc(instance_name);
 }
 

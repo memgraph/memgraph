@@ -54,20 +54,11 @@ class ReplicationInstance {
   auto CoordinatorSocketAddress() const -> std::string;
   auto ReplicationSocketAddress() const -> std::string;
 
-  auto PromoteToMainAsLeader(utils::UUID uuid, ReplicationClientsInfo repl_clients_info,
-                             HealthCheckInstanceCallback main_succ_cb, HealthCheckInstanceCallback main_fail_cb)
+  auto PromoteToMain(utils::UUID const &uuid, ReplicationClientsInfo repl_clients_info,
+                     HealthCheckInstanceCallback main_succ_cb, HealthCheckInstanceCallback main_fail_cb) -> bool;
+
+  auto DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
       -> bool;
-
-  auto PromoteToMainAsFollower(utils::UUID uuid, HealthCheckInstanceCallback main_succ_cb,
-                               HealthCheckInstanceCallback main_fail_cb) -> void;
-
-  auto DemoteToReplicaAsLeader(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
-      -> bool;
-
-  auto DemoteToReplicaAsFollower(HealthCheckInstanceCallback replica_succ_cb,
-                                 HealthCheckInstanceCallback replica_fail_cb) -> void;
-
-  auto SendDemoteToReplicaRpc() -> bool;
 
   auto StartFrequentCheck() -> void;
   auto StopFrequentCheck() -> void;
@@ -79,7 +70,7 @@ class ReplicationInstance {
   auto EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool;
 
   auto SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool;
-  auto SendUnregisterReplicaRpc(std::string const &instance_name) -> bool;
+  auto SendUnregisterReplicaRpc(std::string_view instance_name) -> bool;
 
   auto SendGetInstanceUUID() -> utils::BasicResult<coordination::GetInstanceUUIDError, std::optional<utils::UUID>>;
   auto GetClient() -> CoordinatorClient &;

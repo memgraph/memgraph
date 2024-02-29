@@ -30,13 +30,12 @@ using nuraft::raft_server;
 using nuraft::srv_config;
 using raft_result = cmd_result<ptr<buffer>>;
 
-RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb,
-                     OnRaftCommitCb raft_commit_cb, uint32_t raft_server_id, uint32_t raft_port,
-                     std::string raft_address)
+RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
+                     uint32_t raft_port, std::string raft_address)
     : raft_server_id_(raft_server_id),
       raft_port_(raft_port),
       raft_address_(std::move(raft_address)),
-      state_machine_(cs_new<CoordinatorStateMachine>(raft_commit_cb)),
+      state_machine_(cs_new<CoordinatorStateMachine>()),
       state_manager_(
           cs_new<CoordinatorStateManager>(raft_server_id_, raft_address_ + ":" + std::to_string(raft_port_))),
       logger_(nullptr),
@@ -90,19 +89,13 @@ auto RaftState::InitRaftServer() -> void {
   throw RaftServerStartException("Failed to initialize raft server on {}:{}", raft_address_, raft_port_);
 }
 
-auto RaftState::MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb,
-                              OnRaftCommitCb raft_commit_cb) -> RaftState {
-  uint32_t raft_server_id{0};
-  uint32_t raft_port{0};
-  try {
-    raft_server_id = FLAGS_raft_server_id;
-    raft_port = FLAGS_raft_server_port;
-  } catch (std::exception const &e) {
-    throw RaftCouldNotParseFlagsException("Failed to parse flags: {}", e.what());
-  }
+auto RaftState::MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb) -> RaftState {
+  uint32_t raft_server_id = FLAGS_raft_server_id;
+  uint32_t raft_port = FLAGS_raft_server_port;
 
-  auto raft_state = RaftState(std::move(become_leader_cb), std::move(become_follower_cb), raft_commit_cb,
-                              raft_server_id, raft_port, "127.0.0.1");
+  auto raft_state =
+      RaftState(std::move(become_leader_cb), std::move(become_follower_cb), raft_server_id, raft_port, "127.0.0.1");
+
   raft_state.InitRaftServer();
   return raft_state;
 }

@@ -24,8 +24,6 @@
 
 namespace memgraph::coordination {
 
-using OnRaftCommitCb = std::function<void(TRaftLog, RaftLogAction)>;
-
 using nuraft::async_result;
 using nuraft::buffer;
 using nuraft::buffer_serializer;
@@ -37,7 +35,7 @@ using nuraft::state_machine;
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  explicit CoordinatorStateMachine(OnRaftCommitCb raft_commit_cb);
+  CoordinatorStateMachine() = default;
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
@@ -102,8 +100,6 @@ class CoordinatorStateMachine : public state_machine {
   // TODO: (andi) Maybe not needed, remove it
   std::map<uint64_t, ptr<SnapshotCtx>> snapshots_;
   std::mutex snapshots_lock_;
-
-  OnRaftCommitCb raft_commit_cb_;
 
   ptr<snapshot> last_snapshot_;
   std::mutex last_snapshot_lock_;

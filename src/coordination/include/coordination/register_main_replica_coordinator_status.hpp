@@ -23,6 +23,7 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   REPL_ENDPOINT_EXISTS,
   NOT_COORDINATOR,
   NOT_LEADER,
+  RPC_FAILED,
   RAFT_COULD_NOT_ACCEPT,
   RAFT_COULD_NOT_APPEND,
   SUCCESS

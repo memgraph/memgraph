@@ -54,6 +54,7 @@ class CoordinatorClusterState {
 
  private:
   std::map<std::string, replication_coordination_glue::ReplicationRole, std::less<>> instance_roles;
+  // TODO: (andi) Good place for separate lock
 };
 
 }  // namespace memgraph::coordination

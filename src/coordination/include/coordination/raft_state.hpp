@@ -39,9 +39,8 @@ using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
 class RaftState {
  private:
-  explicit RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb,
-                     OnRaftCommitCb raft_commit_cb, uint32_t raft_server_id, uint32_t raft_port,
-                     std::string raft_address);
+  explicit RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
+                     uint32_t raft_port, std::string raft_address);
 
   auto InitRaftServer() -> void;
 
@@ -53,8 +52,7 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
 
-  static auto MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb,
-                            OnRaftCommitCb raft_commit_cb) -> RaftState;
+  static auto MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb) -> RaftState;
 
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;

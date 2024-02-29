@@ -492,6 +492,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "instance is not a leader!");
       case RAFT_COULD_NOT_APPEND:
         throw QueryRuntimeException("Couldn't register replica instance since raft server couldn't append the log!");
+      case RPC_FAILED:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
+            "find out more info!");
       case SUCCESS:
         break;
     }
@@ -509,7 +513,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   void SetReplicationInstanceToMain(std::string_view instance_name) override {
-    auto status = coordinator_handler_.SetReplicationInstanceToMain(instance_name);
+    auto const status = coordinator_handler_.SetReplicationInstanceToMain(instance_name);
     switch (status) {
       using enum memgraph::coordination::SetInstanceToMainCoordinatorStatus;
       case NO_INSTANCE_WITH_NAME:

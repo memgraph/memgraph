@@ -119,7 +119,7 @@ auto CoordinatorClient::DemoteToReplica() const -> bool {
   return false;
 }
 
-auto CoordinatorClient::SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bool {
+auto CoordinatorClient::SendSwapMainUUIDRpc(utils::UUID const &uuid) const -> bool {
   try {
     auto stream{rpc_client_.Stream<replication_coordination_glue::SwapMainUUIDRpc>(uuid)};
     if (!stream.AwaitResponse().success) {
@@ -133,9 +133,10 @@ auto CoordinatorClient::SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bo
   return false;
 }
 
-auto CoordinatorClient::SendUnregisterReplicaRpc(std::string const &instance_name) const -> bool {
+auto CoordinatorClient::SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool {
   try {
-    auto stream{rpc_client_.Stream<UnregisterReplicaRpc>(instance_name)};
+    auto stream{rpc_client_.Stream<UnregisterReplicaRpc>(
+        std::string(instance_name))};  // TODO: (andi) Try to change to stream string_view and do just one copy later
     if (!stream.AwaitResponse().success) {
       spdlog::error("Failed to receive successful RPC response for unregistering replica!");
       return false;

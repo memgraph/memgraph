@@ -15,8 +15,6 @@
 
 namespace memgraph::coordination {
 
-CoordinatorStateMachine::CoordinatorStateMachine(OnRaftCommitCb raft_commit_cb) : raft_commit_cb_(raft_commit_cb) {}
-
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
 
 auto CoordinatorStateMachine::IsMain(std::string_view instance_name) const -> bool {
@@ -85,7 +83,7 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
 
   auto const [parsed_data, log_action] = DecodeLog(data);
   cluster_state_.DoAction(parsed_data, log_action);
-  std::invoke(raft_commit_cb_, parsed_data, log_action);
+  // std::invoke(raft_commit_cb_, parsed_data, log_action);
 
   last_committed_idx_ = log_idx;
   // TODO: (andi) Don't return nullptr
