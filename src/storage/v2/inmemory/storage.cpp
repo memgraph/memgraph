@@ -557,12 +557,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
         CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, new_from_vertex, edge_ref);
         to_vertex->in_edges.emplace_back(edge_type, new_from_vertex, edge_ref);
 
-        if (storage_->storage_mode_ != StorageMode::ON_DISK_TRANSACTIONAL) {
-          auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-          auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
-          mem_edge_type_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex,
-                                                        edge_ref, edge_type, transaction_);
-        }
+        auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+        auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
+        mem_edge_type_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex, edge_ref,
+                                                      edge_type, transaction_);
 
         transaction_.manyDeltasCache.Invalidate(new_from_vertex, edge_type, EdgeDirection::OUT);
         transaction_.manyDeltasCache.Invalidate(old_from_vertex, edge_type, EdgeDirection::OUT);
@@ -670,12 +668,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
         CreateAndLinkDelta(&transaction_, new_to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge_ref);
         new_to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge_ref);
 
-        if (storage_->storage_mode_ != StorageMode::ON_DISK_TRANSACTIONAL) {
-          auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-          auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
-          mem_edge_type_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex,
-                                                        edge_ref, edge_type, transaction_);
-        }
+        auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+        auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
+        mem_edge_type_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex, edge_ref,
+                                                      edge_type, transaction_);
 
         transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
         transaction_.manyDeltasCache.Invalidate(old_to_vertex, edge_type, EdgeDirection::IN);

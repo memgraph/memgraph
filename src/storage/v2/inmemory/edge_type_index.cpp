@@ -206,7 +206,12 @@ void InMemoryEdgeTypeIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *o
   }
   auto acc = it->second.access();
 
-  acc.remove(Entry{old_from, old_to, edge_ref.ptr, tx.start_timestamp});
+  auto entry_to_update = std::ranges::find_if(acc, [&](const auto &entry) {
+    return entry.from_vertex == old_from && entry.to_vertex == old_to && entry.edge == edge_ref.ptr;
+  });
+
+  acc.remove(Entry{entry_to_update->from_vertex, entry_to_update->to_vertex, entry_to_update->edge,
+                   entry_to_update->timestamp});
   acc.insert(Entry{new_from, new_to, edge_ref.ptr, tx.start_timestamp});
 }
 
