@@ -1558,6 +1558,40 @@ class ExecutionHeaders {
   size_t Size() const;
   std::string At(size_t index) const;
 
+  std::string_view operator[](size_t index) const;
+
+  class Iterator {
+   private:
+    friend class ExecutionHeaders;
+
+   public:
+    using value_type = ExecutionHeaders;
+    using difference_type = std::ptrdiff_t;
+    using pointer = const ExecutionHeaders *;
+    using reference = const ExecutionHeaders &;
+    using iterator_category = std::forward_iterator_tag;
+
+    bool operator==(const Iterator &other) const;
+
+    bool operator!=(const Iterator &other) const;
+
+    Iterator &operator++();
+
+    std::string_view operator*() const;
+
+   private:
+    Iterator(const ExecutionHeaders *iterable, size_t index);
+
+    const ExecutionHeaders *iterable_;
+    size_t index_;
+  };
+
+  Iterator begin();
+  Iterator end();
+
+  Iterator cbegin();
+  Iterator cend();
+
  private:
   mgp_execution_headers *headers_;
 };
@@ -4332,6 +4366,23 @@ inline ExecutionResult QueryExecution::ExecuteQuery(std::string_view query) cons
 inline ExecutionResult::ExecutionResult(mgp_execution_result *result) : result_(result) {}
 
 inline ExecutionHeaders ExecutionResult::Headers() const { return mgp::fetch_execution_headers(result_); };
+
+inline std::string_view ExecutionHeaders::Iterator::operator*() const { return (*iterable_)[index_]; }
+
+inline ExecutionHeaders::Iterator::Iterator(const ExecutionHeaders *iterable, size_t index)
+    : iterable_(iterable), index_(index) {}
+
+inline std::string_view ExecutionHeaders::operator[](size_t index) const {
+  return std::string_view(mgp::execution_headers_at(headers_, index));
+}
+
+inline ExecutionHeaders::Iterator ExecutionHeaders::begin() { return Iterator(this, 0); }
+
+inline ExecutionHeaders::Iterator ExecutionHeaders::end() { return Iterator(this, Size()); }
+
+inline ExecutionHeaders::Iterator ExecutionHeaders::cbegin() { return Iterator(this, 0); }
+
+inline ExecutionHeaders::Iterator ExecutionHeaders::cend() { return Iterator(this, Size()); }
 
 // do not enter
 namespace detail {
