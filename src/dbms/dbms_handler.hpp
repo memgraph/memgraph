@@ -266,10 +266,6 @@ class DbmsHandler {
   bool IsMain() const { return repl_state_.IsMain(); }
   bool IsReplica() const { return repl_state_.IsReplica(); }
 
-#ifdef MG_ENTERPRISE
-  // coordination::CoordinatorState &CoordinatorState() { return coordinator_state_; }
-#endif
-
   /**
    * @brief Return all active databases.
    *
