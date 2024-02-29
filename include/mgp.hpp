@@ -1609,10 +1609,26 @@ class QueryExecution {
 };
 
 class ExecutionRow {
-  mgp_map *row_;
+ private:
+  Map values;
 
  public:
   ExecutionRow(mgp_map *row);
+
+  /// @brief Returns the size of the map.
+  size_t Size() const;
+
+  /// @brief Returns whether the map is empty.
+  bool Empty() const;
+
+  /// @brief Returns the value at the given `key`.
+  Value operator[](std::string_view key) const;
+
+  /// @brief Returns the value at the given `key`.
+  Value At(std::string_view key) const;
+
+  /// @brief Returns true if the given `key` exists.
+  bool KeyExists(std::string_view key) const;
 };
 
 class ExecutionResult {
@@ -4413,7 +4429,17 @@ inline ExecutionHeaders::Iterator ExecutionHeaders::cbegin() { return Iterator(t
 
 inline ExecutionHeaders::Iterator ExecutionHeaders::cend() { return Iterator(this, Size()); }
 
-inline ExecutionRow::ExecutionRow(mgp_map *row) : row_(row) {}
+inline ExecutionRow::ExecutionRow(mgp_map *row) : values(row) {}
+
+inline size_t ExecutionRow::Size() const { return values.Size(); }
+
+inline bool ExecutionRow::Empty() const { return values.Empty(); }
+
+inline Value ExecutionRow::operator[](std::string_view key) const { return values[key]; }
+
+inline Value ExecutionRow::At(std::string_view key) const { return values.At(key); }
+
+inline bool ExecutionRow::KeyExists(std::string_view key) const { return values.KeyExists(key); }
 
 // do not enter
 namespace detail {
