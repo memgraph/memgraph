@@ -163,7 +163,7 @@ def test_show_streams(kafka_topics, connection):
     complex_values_stream = "complex_values"
 
     common.create_stream(
-            cursor, default_values_stream, kafka_topics[0], "kafka_transform.simple", bootstrap_servers=f"'{KAFKA_HOSTNAME}:29092'"
+            cursor, default_values_stream, kafka_topics[0], "kafka_transform.simple", bootstrap_servers=f"'kafka:29092'"
     )
     common.create_stream(
         cursor,
@@ -256,7 +256,7 @@ def test_restart_after_error(kafka_producer, kafka_topics, connection):
 def test_bootstrap_server(kafka_producer, kafka_topics, connection, transformation):
     assert len(kafka_topics) > 0
     cursor = connection.cursor()
-    local = f"'{KAFKA_HOSTNAME}:29092'"
+    local = f"'kafka:29092'"
     stream_name = "test_bootstrap_server_" + transformation.split(".")[1]
 
     common.create_stream(cursor, stream_name, ",".join(kafka_topics), transformation, bootstrap_servers=local)
@@ -342,7 +342,7 @@ def test_info_procedure(kafka_topics, connection):
     cursor = connection.cursor()
     stream_name = "test_stream"
     configs = {"sasl.username": "michael.scott"}
-    local = f"{KAFKA_HOSTNAME}:29092"
+    local = f"kafka:29092"
     credentials = {"sasl.password": "S3cr3tP4ssw0rd"}
     consumer_group = "ConsumerGr"
 
