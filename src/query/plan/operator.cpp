@@ -4175,7 +4175,7 @@ class OrderByCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
-    if (!did_pull_all_) {
+    if (!did_pull_all_) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
       auto *mem = cache_.get_allocator().GetMemoryResource();
@@ -4190,7 +4190,9 @@ class OrderByCursor : public Cursor {
         // collect the output elements
         utils::pmr::vector<TypedValue> output(mem);
         output.reserve(self_.output_symbols_.size());
-        for (const Symbol &output_sym : self_.output_symbols_) output.emplace_back(frame[output_sym]);
+        for (const Symbol &output_sym : self_.output_symbols_) {
+          output.emplace_back(frame[output_sym]);
+        }
 
         cache_.push_back(Element{std::move(order_by), std::move(output)});
       }
@@ -4198,6 +4200,11 @@ class OrderByCursor : public Cursor {
       std::sort(cache_.begin(), cache_.end(), [this](const auto &pair1, const auto &pair2) {
         return self_.compare_(pair1.order_by, pair2.order_by);
       });
+
+      // Dispose of order by, they are no longer needed
+      for (auto &elem : cache_) {
+        elem.order_by.clear();
+      }
 
       did_pull_all_ = true;
       cache_it_ = cache_.begin();
@@ -4212,11 +4219,11 @@ class OrderByCursor : public Cursor {
                "Number of values does not match the number of output symbols "
                "in OrderBy");
     auto output_sym_it = self_.output_symbols_.begin();
-    for (const TypedValue &output : cache_it_->remember) {
-      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(output_sym_it->name())) {
+    for (TypedValue &output : cache_it_->remember) {
+      if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(output_sym_it->name());
       }
-      frame[*output_sym_it++] = output;
+      frame[*output_sym_it++] = std::move(output);
     }
     cache_it_++;
     return true;
@@ -4493,7 +4500,11 @@ class DistinctCursor : public Cursor {
     SCOPED_PROFILE_OP("Distinct");
 
     while (true) {
-      if (!input_cursor_->Pull(frame, context)) return false;
+      if (!input_cursor_->Pull(frame, context)) {
+        // Nothing left to pull, we can dispose of seen_rows now
+        seen_rows_.clear();
+        return false;
+      }
 
       utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
       row.reserve(self_.value_symbols_.size());
