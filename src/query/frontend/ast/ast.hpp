@@ -1280,6 +1280,17 @@ class LabelsTest : public memgraph::query::Expression {
 
  protected:
   LabelsTest(Expression *expression, const std::vector<LabelIx> &labels) : expression_(expression), labels_(labels) {}
+  LabelsTest(Expression *expression, const std::vector<std::variant<LabelIx, Expression *>> &labels)
+      : expression_(expression) {
+    labels_.reserve(labels.size());
+    for (auto &label : labels) {
+      if (std::holds_alternative<LabelIx>(label)) {
+        labels_.push_back(std::get<LabelIx>(label));
+      } else {
+        throw SemanticException("You can't use expressions in labels test.");
+      }
+    }
+  }
 
  private:
   friend class AstStorage;

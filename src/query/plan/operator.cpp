@@ -380,8 +380,6 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   if (!input_cursor_->Pull(frame, context)) return false;
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
-
-#ifdef MG_ENTERPRISE
   std::vector<storage::LabelId> labels;
   for (auto label : self_.node_info_.labels) {
     if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
@@ -391,6 +389,8 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
           context.db_accessor->NameToLabel(std::get<Expression *>(label)->Accept(evaluator).ValueString()));
     }
   }
+
+#ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast()) {
     const auto fine_grained_permission = self_.existing_node_
                                              ? memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE
@@ -3148,9 +3148,9 @@ SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input
 SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                      const std::vector<storage::LabelId> &labels)
     : input_(input), input_symbol_(std::move(input_symbol)) {
-  this->labels_.reserve(labels.size());
+  labels_.reserve(labels.size());
   for (const auto &label : labels) {
-    this->labels_.emplace_back(label);
+    labels_.emplace_back(label);
   }
 }
 
@@ -3328,9 +3328,9 @@ RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                            const std::vector<storage::LabelId> &labels)
     : input_(input), input_symbol_(std::move(input_symbol)) {
-  this->labels_.reserve(labels.size());
+  labels_.reserve(labels.size());
   for (const auto &label : labels) {
-    this->labels_.push_back(label);
+    labels_.push_back(label);
   }
 }
 
