@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -130,6 +130,7 @@ class EvaluatePatternFilter;
 class Apply;
 class IndexedJoin;
 class HashJoin;
+class RollUpApply;
 
 using LogicalOperatorCompositeVisitor =
     utils::CompositeVisitor<Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange,
@@ -137,7 +138,7 @@ using LogicalOperatorCompositeVisitor =
                             ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
                             RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
                             OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
-                            Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin>;
+                            Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -2632,6 +2633,39 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
     object->hash_join_condition_ = hash_join_condition_ ? hash_join_condition_->Clone(storage) : nullptr;
     return object;
   }
+};
+
+/// RollUpApply operator is used to execute an expression which takes as input a pattern,
+/// and returns a list with content from the matched pattern
+/// It's used for a pattern expression or pattern comprehension in a query.
+class RollUpApply : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  RollUpApply() = default;
+  RollUpApply(const std::shared_ptr<LogicalOperator> &input, std::shared_ptr<LogicalOperator> &&second_branch);
+
+  bool HasSingleInput() const override { return false; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override {
+    throw utils::NotYetImplemented("Execution of Pattern comprehension is currently unsupported.");
+  }
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<RollUpApply>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->second_branch_ = second_branch_ ? second_branch_->Clone(storage) : nullptr;
+    return object;
+  }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> second_branch_;
 };
 
 }  // namespace plan

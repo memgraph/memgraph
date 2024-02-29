@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -140,6 +140,13 @@ bool PlanPrinter::PreVisit(query::plan::Union &op) {
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   Branch(*op.right_op_);
   op.left_op_->Accept(*this);
+  return false;
+}
+
+bool PlanPrinter::PreVisit(query::plan::RollUpApply &op) {
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  Branch(*op.second_branch_);
+  op.input_->Accept(*this);
   return false;
 }
 

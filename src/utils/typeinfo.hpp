@@ -68,6 +68,7 @@ enum class TypeId : uint64_t {
   APPLY,
   INDEXED_JOIN,
   HASH_JOIN,
+  ROLLUP_APPLY,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)

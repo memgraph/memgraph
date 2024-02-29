@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -451,6 +451,18 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(LoadCsv & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(RollUpApply &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    RewriteBranch(&op.second_branch_);
+    return false;
+  }
+
+  bool PostVisit(RollUpApply &) override {
     prev_ops_.pop_back();
     return true;
   }

@@ -3615,7 +3615,7 @@ class PatternComprehension : public memgraph::query::Expression {
   int32_t symbol_pos_{-1};
 
   PatternComprehension *Clone(AstStorage *storage) const override {
-    PatternComprehension *object = storage->Create<PatternComprehension>();
+    auto *object = storage->Create<PatternComprehension>();
     object->pattern_ = pattern_ ? pattern_->Clone(storage) : nullptr;
     object->filter_ = filter_ ? filter_->Clone(storage) : nullptr;
     object->resultExpr_ = resultExpr_ ? resultExpr_->Clone(storage) : nullptr;
