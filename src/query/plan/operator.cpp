@@ -278,7 +278,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   if (input_cursor_->Pull(frame, context)) {
     // we have to resolve the labels before we can check for permissions
     std::vector<storage::LabelId> labels;
-    for (auto label : self_.node_info_.labels) {
+    for (const auto &label : self_.node_info_.labels) {
       if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
         labels.emplace_back(*label_atom);
       } else {
@@ -381,7 +381,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   std::vector<storage::LabelId> labels;
-  for (auto label : self_.node_info_.labels) {
+  for (const auto &label : self_.node_info_.labels) {
     if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
       labels.emplace_back(*label_atom);
     } else {
@@ -3177,10 +3177,10 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (!input_cursor_->Pull(frame, context)) return false;
   std::vector<storage::LabelId> labels;
   for (const auto &label : self_.labels_) {
-    if (std::holds_alternative<storage::LabelId>(label)) {
-      labels.push_back(std::get<storage::LabelId>(label));
+    if (const auto *label_id = std::get_if<storage::LabelId>(&label)) {
+      labels.emplace_back(*label_id);
     } else {
-      labels.push_back(
+      labels.emplace_back(
           context.db_accessor->NameToLabel(std::get<query::Expression *>(label)->Accept(evaluator).ValueString()));
     }
   }
@@ -3356,10 +3356,10 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   if (!input_cursor_->Pull(frame, context)) return false;
   std::vector<storage::LabelId> labels;
   for (const auto &label : self_.labels_) {
-    if (std::holds_alternative<storage::LabelId>(label)) {
-      labels.push_back(std::get<storage::LabelId>(label));
+    if (const auto *label_id = std::get_if<storage::LabelId>(&label)) {
+      labels.emplace_back(*label_id);
     } else {
-      labels.push_back(
+      labels.emplace_back(
           context.db_accessor->NameToLabel(std::get<query::Expression *>(label)->Accept(evaluator).ValueString()));
     }
   }

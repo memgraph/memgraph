@@ -2662,8 +2662,8 @@ class SetLabels : public memgraph::query::Clause {
  protected:
   SetLabels(Identifier *identifier, const std::vector<std::variant<LabelIx, Expression *>> &labels)
       : identifier_(identifier), labels_(labels) {}
-  SetLabels(Identifier *identifier, std::vector<LabelIx> labels) : identifier_(identifier) {
-    for (auto &label : labels) {
+  SetLabels(Identifier *identifier, const std::vector<LabelIx> &labels) : identifier_(identifier) {
+    for (const auto &label : labels) {
       labels_.emplace_back(label);
     }
   }
@@ -2735,8 +2735,8 @@ class RemoveLabels : public memgraph::query::Clause {
  protected:
   RemoveLabels(Identifier *identifier, const std::vector<std::variant<LabelIx, Expression *>> &labels)
       : identifier_(identifier), labels_(labels) {}
-  RemoveLabels(Identifier *identifier, std::vector<LabelIx> labels) : identifier_(identifier) {
-    for (auto &label : labels) {
+  RemoveLabels(Identifier *identifier, const std::vector<LabelIx> &labels) : identifier_(identifier) {
+    for (const auto &label : labels) {
       labels_.emplace_back(label);
     }
   }

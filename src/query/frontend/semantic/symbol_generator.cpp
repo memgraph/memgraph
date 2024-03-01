@@ -627,7 +627,7 @@ bool SymbolGenerator::PostVisit(Pattern &) {
 }
 
 bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
-  auto &scope = scopes_.back();  // change this part of code
+  auto &scope = scopes_.back();
   auto check_node_semantic = [&node_atom, &scope, this](const bool props_or_labels) {
     const auto &node_name = node_atom.identifier_->name_;
     if ((scope.in_create || scope.in_merge) && props_or_labels && HasSymbol(node_name)) {
@@ -641,10 +641,11 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
 
   scope.in_node_atom = true;
 
-  // TODO: check if the node is in create scope, then no need to check for the expression since we don't allow it
-  for (auto &label : node_atom.labels_) {
-    if (auto *expression = std::get_if<Expression *>(&label)) {
-      (*expression)->Accept(*this);
+  if (scope.in_create) {  // you can use expressions with labels only in create
+    for (auto &label : node_atom.labels_) {
+      if (auto *expression = std::get_if<Expression *>(&label)) {
+        (*expression)->Accept(*this);
+      }
     }
   }
 
