@@ -361,31 +361,27 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   // Clear the database
   storage->vertices_.clear();
   storage->edges_.clear();
+  storage->commit_log_.reset();
+  storage->commit_log_.emplace();
 
   storage->constraints_.existence_constraints_ = std::make_unique<storage::ExistenceConstraints>();
   storage->constraints_.unique_constraints_ = std::make_unique<storage::InMemoryUniqueConstraints>();
   storage->indices_.label_index_ = std::make_unique<storage::InMemoryLabelIndex>();
   storage->indices_.label_property_index_ = std::make_unique<storage::InMemoryLabelPropertyIndex>();
-  try {
-    // If this step is present it should always be the first step of
-    // the recovery so we use the UUID we read from snasphost
 
-    // TODO what with this part? check if it is used in WalHandler, snapshot handler and append deltas handler
-    storage->uuid_;
+  // Fine since we will force push when reading from WAL just random epoch with 0 timestamp, as it should be if it
+  // acted as MAIN before
+  storage->repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
+  storage->repl_storage_state_.last_commit_timestamp_ = 0;
 
-    // random fine since we will force push when reading from WAL just random epoch
-    storage->repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
-    storage->repl_storage_state_.last_commit_timestamp_ = 0;
+  storage->repl_storage_state_.history.clear();
+  storage->vertex_id_ = 0;
+  storage->edge_id_ = 0;
+  storage->timestamp_ = storage::kTimestampInitialId;
 
-    storage->repl_storage_state_.history.clear();
-    storage->vertex_id_ = 0;
-    storage->edge_id_ = 0;
-    storage->timestamp_ = storage::kTimestampInitialId;
-
-  } catch (const storage::durability::RecoveryFailure &e) {
-    LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
-  }
-  storage_guard.unlock();
+  storage->CollectGarbage<true>(std::move(storage_guard), false);
+  storage->vertices_.run_gc();
+  storage->edges_.run_gc();
 
   storage::replication::ForceResetStorageRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
