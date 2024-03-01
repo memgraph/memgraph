@@ -9,7 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import os
+# import os
 import pulsar
 import pytest
 from common import NAME, PULSAR_SERVICE_URL, connect, execute_and_fetch_all
@@ -21,9 +21,9 @@ import requests
 # To run these test locally a running Kafka sever is necessery. The test tries
 # to connect on localhost:9092.
 
-KAFKA_HOSTNAME=os.getenv("KAFKA_HOSTNAME", "localhost")
-PULSAR_HOSTNAME=os.getenv("PULSAR_HOSTNAME", "localhost")
-PULSAR_PORT="6652" if PULSAR_HOSTNAME == "localhost" else "8080"
+# KAFKA_HOSTNAME=os.getenv("KAFKA_HOSTNAME", "localhost")
+# PULSAR_HOSTNAME=os.getenv("PULSAR_HOSTNAME", "localhost")
+# PULSAR_PORT="6652" if PULSAR_HOSTNAME == "localhost" else "8080"
 
 @pytest.fixture(autouse=True)
 def connection():
@@ -45,7 +45,7 @@ def get_topics(num):
 
 @pytest.fixture(scope="function")
 def kafka_topics():
-    admin_client = KafkaAdminClient(bootstrap_servers=f"kafka:29092", client_id="test")
+    admin_client = KafkaAdminClient(bootstrap_servers="localhost:29092", client_id="test")
     # The issue arises if we remove default kafka topics, e.g.
     # "__consumer_offsets"
     previous_topics = [topic for topic in admin_client.list_topics() if topic != "__consumer_offsets"]
@@ -64,7 +64,7 @@ def kafka_topics():
 
 @pytest.fixture(scope="function")
 def kafka_producer():
-    yield KafkaProducer(bootstrap_servers=[f"kafka:29092"], api_version_auto_timeout_ms=10000)
+    yield KafkaProducer(bootstrap_servers=["localhost:29092"], api_version_auto_timeout_ms=10000)
 
 
 @pytest.fixture(scope="function")
@@ -76,5 +76,5 @@ def pulsar_client():
 def pulsar_topics():
     topics = get_topics(3)
     for topic in topics:
-        requests.delete(f"http://pulsar:6652/admin/v2/persistent/public/default/{topic}?force=true")
+        requests.delete(f"http://localhost:6652/admin/v2/persistent/public/default/{topic}?force=true")
     yield topics

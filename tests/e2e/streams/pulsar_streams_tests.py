@@ -11,7 +11,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import os
+# import os
 import sys
 import time
 from multiprocessing import Process, Value
@@ -21,7 +21,7 @@ import mgclient
 import pytest
 
 TRANSFORMATIONS_TO_CHECK = ["pulsar_transform.simple", "pulsar_transform.with_parameters"]
-PULSAR_HOSTNAME=os.getenv("PULSAR_HOSTNAME", "127.0.0.1")
+# PULSAR_HOSTNAME=os.getenv("PULSAR_HOSTNAME", "127.0.0.1")
 
 
 def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_byte):
@@ -323,7 +323,7 @@ def test_restart_after_error(pulsar_client, pulsar_topics, connection):
 def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
     assert len(pulsar_topics) > 0
     cursor = connection.cursor()
-    LOCAL = f"pulsar://pulsar:6650"
+    LOCAL = "pulsar://127.0.0.1:6650"
     common.execute_and_fetch_all(
         cursor,
         f"CREATE PULSAR STREAM test TOPICS {','.join(pulsar_topics)} TRANSFORM {transformation} SERVICE_URL '{LOCAL}'",
