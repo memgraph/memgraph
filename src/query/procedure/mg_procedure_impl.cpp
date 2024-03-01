@@ -4107,7 +4107,7 @@ mgp_error mgp_fetch_execution_headers(mgp_execution_result *exec_result, mgp_exe
 }
 
 mgp_error mgp_has_more_rows(mgp_execution_result *exec_result, bool *result) {
-  return WrapExceptions([exec_result]() { return exec_result->index >= exec_result->rows.rows.size(); }, result);
+  return WrapExceptions([exec_result]() { return exec_result->index < exec_result->rows.rows.size(); }, result);
 }
 
 mgp_error mgp_pull_one(mgp_execution_result *exec_result, mgp_graph *graph, mgp_memory *memory, mgp_map **result) {
