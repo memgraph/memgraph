@@ -355,12 +355,12 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
 
-      - name: Ensure Kafka and Pulsar are up
-        run: |
-          cd tests/e2e/streams/kafka
-          docker-compose up -d
-          cd ../pulsar
-          docker-compose up -d
+      # - name: Ensure Kafka and Pulsar are up
+      #   run: |
+      #     cd tests/e2e/streams/kafka
+      #     docker-compose up -d
+      #     cd ../pulsar
+      #     docker-compose up -d
 
       - name: Run e2e tests
         run: |
@@ -372,12 +372,12 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph e2e
 
-      - name: Ensure Kafka and Pulsar are down
-        run: |
-          cd tests/e2e/streams/kafka
-          docker-compose down
-          cd ../pulsar
-          docker-compose down
+      # - name: Ensure Kafka and Pulsar are down
+      #   run: |
+      #     cd tests/e2e/streams/kafka
+      #     docker-compose down
+      #     cd ../pulsar
+      #     docker-compose down
 
       - name: Run stress test (plain)
         run: |
