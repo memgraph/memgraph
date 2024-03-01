@@ -1602,11 +1602,13 @@ class ExecutionHeaders {
 class QueryExecution {
  private:
   friend class Map;
-  mgp_graph *graph_;
 
  public:
   QueryExecution(mgp_graph *graph);
   ExecutionResult ExecuteQuery(std::string_view query, Map params = Map()) const;
+
+ private:
+  mgp_graph *graph_;
 };
 
 class ExecutionRow {
