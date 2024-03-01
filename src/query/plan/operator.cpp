@@ -4455,6 +4455,7 @@ class UnwindCursor : public Cursor {
         if (input_value.type() != TypedValue::Type::List)
           throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
         // Copy the evaluted input_value_list to our vector.
+        // eval memory != query memory
         input_value_ = input_value.ValueList();
         input_value_it_ = input_value_.begin();
       }
@@ -4462,7 +4463,7 @@ class UnwindCursor : public Cursor {
       // if we reached the end of our list of values goto back to top
       if (input_value_it_ == input_value_.end()) continue;
 
-      frame[self_.output_symbol_] = *input_value_it_++;
+      frame[self_.output_symbol_] = std::move(*input_value_it_++);
       if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_.output_symbol_.name_)) {
         context.frame_change_collector->ResetTrackingValue(self_.output_symbol_.name_);
       }
