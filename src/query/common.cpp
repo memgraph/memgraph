@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,13 +15,13 @@ namespace memgraph::query {
 
 namespace impl {
 
-bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
+std::partial_ordering TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   // in ordering null comes after everything else
   // at the same time Null is not less that null
   // first deal with Null < Whatever case
-  if (a.IsNull()) return false;
+  if (a.IsNull()) return std::partial_ordering::greater;
   // now deal with NotNull < Null case
-  if (b.IsNull()) return true;
+  if (b.IsNull()) return std::partial_ordering::less;
 
   // comparisons are from this point legal only between values of
   // the  same type, or int+float combinations
@@ -30,32 +30,32 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
 
   switch (a.type()) {
     case TypedValue::Type::Bool:
-      return !a.ValueBool() && b.ValueBool();
+      return a.ValueBool() <=> b.ValueBool();
     case TypedValue::Type::Int:
       if (b.type() == TypedValue::Type::Double)
-        return a.ValueInt() < b.ValueDouble();
+        return a.ValueInt() <=> b.ValueDouble();
       else
-        return a.ValueInt() < b.ValueInt();
+        return a.ValueInt() <=> b.ValueInt();
     case TypedValue::Type::Double:
       if (b.type() == TypedValue::Type::Int)
-        return a.ValueDouble() < b.ValueInt();
+        return a.ValueDouble() <=> b.ValueInt();
       else
-        return a.ValueDouble() < b.ValueDouble();
+        return a.ValueDouble() <=> b.ValueDouble();
     case TypedValue::Type::String:
       // NOLINTNEXTLINE(modernize-use-nullptr)
-      return a.ValueString() < b.ValueString();
+      return a.ValueString() <=> b.ValueString();
     case TypedValue::Type::Date:
       // NOLINTNEXTLINE(modernize-use-nullptr)
-      return a.ValueDate() < b.ValueDate();
+      return a.ValueDate() <=> b.ValueDate();
     case TypedValue::Type::LocalTime:
       // NOLINTNEXTLINE(modernize-use-nullptr)
-      return a.ValueLocalTime() < b.ValueLocalTime();
+      return a.ValueLocalTime() <=> b.ValueLocalTime();
     case TypedValue::Type::LocalDateTime:
       // NOLINTNEXTLINE(modernize-use-nullptr)
-      return a.ValueLocalDateTime() < b.ValueLocalDateTime();
+      return a.ValueLocalDateTime() <=> b.ValueLocalDateTime();
     case TypedValue::Type::Duration:
       // NOLINTNEXTLINE(modernize-use-nullptr)
-      return a.ValueDuration() < b.ValueDuration();
+      return a.ValueDuration() <=> b.ValueDuration();
     case TypedValue::Type::List:
     case TypedValue::Type::Map:
     case TypedValue::Type::Vertex:
