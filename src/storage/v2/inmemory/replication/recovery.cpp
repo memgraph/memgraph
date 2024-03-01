@@ -233,7 +233,7 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
     }
   }
 
-  // In all cases, if we have a current wal file we need to use itW
+  // In all cases, if we have a current wal file we need to use it
   if (current_wal_seq_num) {
     // NOTE: File not handled directly, so no need to lock it
     recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
