@@ -600,6 +600,7 @@ class Map {
   friend class Record;
   friend class Result;
   friend class Parameter;
+  friend class QueryExecution;
 
  public:
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
@@ -1600,9 +1601,6 @@ class ExecutionHeaders {
 };
 
 class QueryExecution {
- private:
-  friend class Map;
-
  public:
   QueryExecution(mgp_graph *graph);
   ExecutionResult ExecuteQuery(std::string_view query, Map params = Map()) const;
