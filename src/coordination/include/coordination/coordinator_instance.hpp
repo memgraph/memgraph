@@ -67,6 +67,9 @@ class CoordinatorInstance {
 
   void ReplicaFailCallback(std::string_view);
 
+  auto IsMain(std::string_view instance_name) const -> bool;
+  auto IsReplica(std::string_view instance_name) const -> bool;
+
   // NOTE: Must be std::list because we rely on pointer stability.
   // Leader and followers should both have same view on repl_instances_
   std::list<ReplicationInstance> repl_instances_;

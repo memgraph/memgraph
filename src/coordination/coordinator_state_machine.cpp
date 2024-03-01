@@ -12,8 +12,13 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_state_machine.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::coordination {
+
+auto CoordinatorStateMachine::FindCurrentMainInstanceName() const -> std::optional<std::string> {
+  return cluster_state_.FindCurrentMainInstanceName();
+}
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
 
@@ -78,7 +83,6 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
 auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*data*/) -> ptr<buffer> { return nullptr; }
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
-  // TODO: (andi) think about locking scheme
   buffer_serializer bs(data);
 
   auto const [parsed_data, log_action] = DecodeLog(data);
@@ -181,6 +185,10 @@ auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -
 
 auto CoordinatorStateMachine::GetInstances() const -> std::vector<std::pair<std::string, std::string>> {
   return cluster_state_.GetInstances();
+}
+
+auto CoordinatorStateMachine::GetClientConfigs() const -> std::vector<CoordinatorClientConfig> {
+  return cluster_state_.GetClientConfigs();
 }
 
 }  // namespace memgraph::coordination

@@ -24,8 +24,7 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NOT_COORDINATOR,
   NOT_LEADER,
   RPC_FAILED,
-  RAFT_COULD_NOT_ACCEPT,
-  RAFT_COULD_NOT_APPEND,
+  RAFT_LOG_ERROR,
   SUCCESS
 };
 
@@ -35,8 +34,7 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
   NOT_COORDINATOR,
   RPC_FAILED,
   NOT_LEADER,
-  RAFT_COULD_NOT_ACCEPT,
-  RAFT_COULD_NOT_APPEND,
+  RAFT_LOG_ERROR,
   SUCCESS,
 };
 
@@ -45,8 +43,7 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   MAIN_ALREADY_EXISTS,
   NOT_COORDINATOR,
   NOT_LEADER,
-  RAFT_COULD_NOT_ACCEPT,
-  RAFT_COULD_NOT_APPEND,
+  RAFT_LOG_ERROR,
   COULD_NOT_PROMOTE_TO_MAIN,
   SWAP_UUID_FAILED,
   SUCCESS,

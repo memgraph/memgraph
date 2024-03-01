@@ -57,6 +57,8 @@ class ReplicationInstance {
   auto PromoteToMain(utils::UUID const &uuid, ReplicationClientsInfo repl_clients_info,
                      HealthCheckInstanceCallback main_succ_cb, HealthCheckInstanceCallback main_fail_cb) -> bool;
 
+  auto SendDemoteToReplicaRpc() -> bool;
+
   auto DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
       -> bool;
 

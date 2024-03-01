@@ -12,59 +12,92 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_cluster_state.hpp"
+#include "utils/logging.hpp"
+
+#include <shared_mutex>
 
 namespace memgraph::coordination {
 
 using replication_coordination_glue::ReplicationRole;
 
+CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other)
+    : instance_roles_{other.instance_roles_} {}
+
+CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState const &other) {
+  if (this == &other) {
+    return *this;
+  }
+  instance_roles_ = other.instance_roles_;
+  return *this;
+}
+
+CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other) noexcept
+    : instance_roles_{std::move(other.instance_roles_)} {}
+
+CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
+  if (this == &other) {
+    return *this;
+  }
+  instance_roles_ = std::move(other.instance_roles_);
+  return *this;
+}
+
 auto CoordinatorClusterState::MainExists() const -> bool {
-  return std::ranges::any_of(instance_roles, [](auto const &entry) { return entry.second == ReplicationRole::MAIN; });
+  auto lock = std::shared_lock{log_lock_};
+  return std::ranges::any_of(instance_roles_,
+                             [](auto const &entry) { return entry.second.role == ReplicationRole::MAIN; });
 }
 
 auto CoordinatorClusterState::IsMain(std::string_view instance_name) const -> bool {
-  auto const it = instance_roles.find(instance_name);
-  return it != instance_roles.end() && it->second == ReplicationRole::MAIN;
+  auto lock = std::shared_lock{log_lock_};
+  auto const it = instance_roles_.find(instance_name);
+  return it != instance_roles_.end() && it->second.role == ReplicationRole::MAIN;
 }
 
 auto CoordinatorClusterState::IsReplica(std::string_view instance_name) const -> bool {
-  auto const it = instance_roles.find(instance_name);
-  return it != instance_roles.end() && it->second == ReplicationRole::REPLICA;
+  auto lock = std::shared_lock{log_lock_};
+  auto const it = instance_roles_.find(instance_name);
+  return it != instance_roles_.end() && it->second.role == ReplicationRole::REPLICA;
 }
 
 auto CoordinatorClusterState::InsertInstance(std::string_view instance_name, ReplicationRole role) -> void {
-  instance_roles[instance_name.data()] = role;
+  auto lock = std::unique_lock{log_lock_};
+  instance_roles_[instance_name.data()].role = role;
 }
 
 auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void {
+  auto lock = std::unique_lock{log_lock_};
   switch (log_action) {
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
-      auto const instance_name = std::get<CoordinatorClientConfig>(log_entry).instance_name;
-      instance_roles[instance_name] = ReplicationRole::REPLICA;
+      auto const &config = std::get<CoordinatorClientConfig>(log_entry);
+      instance_roles_[config.instance_name] = InstanceState{config, ReplicationRole::REPLICA};
       break;
     }
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE: {
       auto const instance_name = std::get<std::string>(log_entry);
-      instance_roles.erase(instance_name);
+      instance_roles_.erase(instance_name);
       break;
     }
     case RaftLogAction::SET_INSTANCE_AS_MAIN: {
       auto const instance_name = std::get<std::string>(log_entry);
-      auto it = instance_roles.find(instance_name);
-      MG_ASSERT(it != instance_roles.end(), "Instance does not exist as part of raft state!");
-      it->second = ReplicationRole::MAIN;
+      auto it = instance_roles_.find(instance_name);
+      MG_ASSERT(it != instance_roles_.end(), "Instance does not exist as part of raft state!");
+      it->second.role = ReplicationRole::MAIN;
       break;
     }
     case RaftLogAction::SET_INSTANCE_AS_REPLICA: {
       auto const instance_name = std::get<std::string>(log_entry);
-      auto it = instance_roles.find(instance_name);
-      MG_ASSERT(it != instance_roles.end(), "Instance does not exist as part of raft state!");
-      it->second = ReplicationRole::REPLICA;
+      auto it = instance_roles_.find(instance_name);
+      MG_ASSERT(it != instance_roles_.end(), "Instance does not exist as part of raft state!");
+      it->second.role = ReplicationRole::REPLICA;
       break;
     }
   }
 }
 
+// TODO: (andi) Improve based on Gareth's comments
 auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
+  auto lock = std::shared_lock{log_lock_};
   auto const role_to_string = [](auto const &role) -> std::string_view {
     switch (role) {
       case ReplicationRole::MAIN:
@@ -75,10 +108,10 @@ auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
   };
 
   auto const entry_to_string = [&role_to_string](auto const &entry) {
-    return fmt::format("{}_{}", entry.first, role_to_string(entry.second));
+    return fmt::format("{}_{}", entry.first, role_to_string(entry.second.role));
   };
 
-  auto instances_str_view = instance_roles | ranges::views::transform(entry_to_string);
+  auto instances_str_view = instance_roles_ | ranges::views::transform(entry_to_string);
   uint32_t size =
       std::accumulate(instances_str_view.begin(), instances_str_view.end(), 0,
                       [](uint32_t acc, auto const &entry) { return acc + sizeof(uint32_t) + entry.size(); });
@@ -109,6 +142,8 @@ auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterSta
 }
 
 auto CoordinatorClusterState::GetInstances() const -> std::vector<std::pair<std::string, std::string>> {
+  auto lock = std::shared_lock{log_lock_};
+  // TODO: (andi) Abstract
   auto const role_to_string = [](auto const &role) -> std::string {
     switch (role) {
       case ReplicationRole::MAIN:
@@ -119,10 +154,27 @@ auto CoordinatorClusterState::GetInstances() const -> std::vector<std::pair<std:
   };
 
   auto const entry_to_pair = [&role_to_string](auto const &entry) {
-    return std::make_pair(entry.first, role_to_string(entry.second));
+    return std::make_pair(entry.first, role_to_string(entry.second.role));
   };
 
-  return instance_roles | ranges::views::transform(entry_to_pair) | ranges::to<std::vector>();
+  return instance_roles_ | ranges::views::transform(entry_to_pair) | ranges::to<std::vector>();
+}
+
+auto CoordinatorClusterState::GetClientConfigs() const -> std::vector<CoordinatorClientConfig> {
+  auto lock = std::shared_lock{log_lock_};
+  return instance_roles_ | ranges::views::values |
+         ranges::views::transform([](auto const &instance_state) { return instance_state.config; }) |
+         ranges::to<std::vector>();
+}
+
+auto CoordinatorClusterState::FindCurrentMainInstanceName() const -> std::optional<std::string> {
+  auto lock = std::shared_lock{log_lock_};
+  auto const it = std::ranges::find_if(instance_roles_,
+                                       [](auto const &entry) { return entry.second.role == ReplicationRole::MAIN; });
+  if (it == instance_roles_.end()) {
+    return {};
+  }
+  return it->first;
 }
 
 }  // namespace memgraph::coordination

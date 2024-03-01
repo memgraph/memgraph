@@ -126,24 +126,91 @@ auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 auto RaftState::RequestLeadership() -> bool { return raft_server_->is_leader() || raft_server_->request_leadership(); }
 
-auto RaftState::AppendRegisterReplicationInstance(CoordinatorClientConfig const &config) -> ptr<raft_result> {
+auto RaftState::AppendRegisterReplicationInstanceLog(CoordinatorClientConfig const &config) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeRegisterInstance(config);
-  return raft_server_->append_entries({new_log});
+  auto const res = raft_server_->append_entries({new_log});
+
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for registering instance {}. Most likely the reason is that the instance is not "
+        "the "
+        "leader.",
+        config.instance_name);
+    return false;
+  }
+
+  spdlog::info("Request for registering instance {} accepted", config.instance_name);
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to register instance {} with error code {}", config.instance_name, res->get_result_code());
+    return false;
+  }
+
+  return true;
 }
 
-auto RaftState::AppendUnregisterReplicationInstance(std::string_view instance_name) -> ptr<raft_result> {
+auto RaftState::AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeUnregisterInstance(instance_name);
-  return raft_server_->append_entries({new_log});
+  auto const res = raft_server_->append_entries({new_log});
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for unregistering instance {}. Most likely the reason is that the instance is not "
+        "the leader.",
+        instance_name);
+    return false;
+  }
+
+  spdlog::info("Request for unregistering instance {} accepted", instance_name);
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to unregister instance {} with error code {}", instance_name, res->get_result_code());
+    return false;
+  }
+  return true;
 }
 
-auto RaftState::AppendSetInstanceAsMain(std::string_view instance_name) -> ptr<raft_result> {
+auto RaftState::AppendSetInstanceAsMainLog(std::string_view instance_name) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeSetInstanceAsMain(instance_name);
-  return raft_server_->append_entries({new_log});
+  auto const res = raft_server_->append_entries({new_log});
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for promoting instance {}. Most likely the reason is that the instance is not "
+        "the leader.",
+        instance_name);
+    return false;
+  }
+
+  spdlog::info("Request for promoting instance {} accepted", instance_name);
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to promote instance {} with error code {}", instance_name, res->get_result_code());
+    return false;
+  }
+  return true;
 }
 
-auto RaftState::AppendSetInstanceAsReplica(std::string_view instance_name) -> ptr<raft_result> {
+auto RaftState::AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeSetInstanceAsReplica(instance_name);
-  return raft_server_->append_entries({new_log});
+  auto const res = raft_server_->append_entries({new_log});
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for demoting instance {}. Most likely the reason is that the instance is not "
+        "the leader.",
+        instance_name);
+    return false;
+  }
+  spdlog::info("Request for demoting instance {} accepted", instance_name);
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to promote instance {} with error code {}", instance_name, res->get_result_code());
+    return false;
+  }
+
+  return true;
+}
+
+auto RaftState::FindCurrentMainInstanceName() const -> std::optional<std::string> {
+  return state_machine_->FindCurrentMainInstanceName();
 }
 
 auto RaftState::MainExists() const -> bool { return state_machine_->MainExists(); }
@@ -156,6 +223,10 @@ auto RaftState::IsReplica(std::string_view instance_name) const -> bool {
 
 auto RaftState::GetInstances() const -> std::vector<std::pair<std::string, std::string>> {
   return state_machine_->GetInstances();
+}
+
+auto RaftState::GetClientConfigs() const -> std::vector<CoordinatorClientConfig> {
+  return state_machine_->GetClientConfigs();
 }
 
 }  // namespace memgraph::coordination

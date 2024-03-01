@@ -63,17 +63,19 @@ class RaftState {
   auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
 
+  auto FindCurrentMainInstanceName() const -> std::optional<std::string>;
   auto MainExists() const -> bool;
   auto IsMain(std::string_view instance_name) const -> bool;
   auto IsReplica(std::string_view instance_name) const -> bool;
 
-  /// TODO: (andi) Add log in the name of methods
-  auto AppendRegisterReplicationInstance(CoordinatorClientConfig const &config) -> ptr<raft_result>;
-  auto AppendUnregisterReplicationInstance(std::string_view instance_name) -> ptr<raft_result>;
-  auto AppendSetInstanceAsMain(std::string_view instance_name) -> ptr<raft_result>;
-  auto AppendSetInstanceAsReplica(std::string_view instance_name) -> ptr<raft_result>;
+  auto AppendRegisterReplicationInstanceLog(CoordinatorClientConfig const &config) -> bool;
+  auto AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool;
+  auto AppendSetInstanceAsMainLog(std::string_view instance_name) -> bool;
+  auto AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool;
 
   auto GetInstances() const -> std::vector<std::pair<std::string, std::string>>;
+
+  auto GetClientConfigs() const -> std::vector<CoordinatorClientConfig>;
 
  private:
   // TODO: (andi) I think variables below can be abstracted/clean them.

@@ -27,10 +27,6 @@ ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorC
     : client_(peer, std::move(config), std::move(succ_cb), std::move(fail_cb)),
       succ_cb_(succ_instance_cb),
       fail_cb_(fail_instance_cb) {
-  if (!client_.DemoteToReplica()) {
-    throw CoordinatorRegisterInstanceException("Failed to demote instance {} to replica", client_.InstanceName());
-  }
-
   client_.StartFrequentCheck();
 }
 
@@ -68,6 +64,8 @@ auto ReplicationInstance::PromoteToMain(utils::UUID const &new_uuid, Replication
 
   return true;
 }
+
+auto ReplicationInstance::SendDemoteToReplicaRpc() -> bool { return client_.DemoteToReplica(); }
 
 auto ReplicationInstance::DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb,
                                           HealthCheckInstanceCallback replica_fail_cb) -> bool {

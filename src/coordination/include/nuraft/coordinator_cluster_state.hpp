@@ -16,7 +16,7 @@
 #include "coordination/coordinator_config.hpp"
 #include "nuraft/raft_log_action.hpp"
 #include "replication_coordination_glue/role.hpp"
-#include "utils/rw_lock.hpp"
+#include "utils/resource_lock.hpp"
 
 #include <libnuraft/nuraft.hxx>
 #include <range/v3/view.hpp>
@@ -28,6 +28,13 @@
 
 namespace memgraph::coordination {
 
+using replication_coordination_glue::ReplicationRole;
+
+struct InstanceState {
+  CoordinatorClientConfig config;
+  ReplicationRole role;
+};
+
 using TRaftLog = std::variant<CoordinatorClientConfig, std::string>;
 
 using nuraft::buffer;
@@ -36,13 +43,23 @@ using nuraft::ptr;
 
 class CoordinatorClusterState {
  public:
+  CoordinatorClusterState() = default;
+  CoordinatorClusterState(CoordinatorClusterState const &);
+  CoordinatorClusterState &operator=(CoordinatorClusterState const &);
+
+  CoordinatorClusterState(CoordinatorClusterState &&other) noexcept;
+  CoordinatorClusterState &operator=(CoordinatorClusterState &&other) noexcept;
+  ~CoordinatorClusterState() = default;
+
+  auto FindCurrentMainInstanceName() const -> std::optional<std::string>;
+
   auto MainExists() const -> bool;
 
   auto IsMain(std::string_view instance_name) const -> bool;
 
   auto IsReplica(std::string_view instance_name) const -> bool;
 
-  auto InsertInstance(std::string_view instance_name, replication_coordination_glue::ReplicationRole role) -> void;
+  auto InsertInstance(std::string_view instance_name, ReplicationRole role) -> void;
 
   auto DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void;
 
@@ -52,9 +69,11 @@ class CoordinatorClusterState {
 
   auto GetInstances() const -> std::vector<std::pair<std::string, std::string>>;
 
+  auto GetClientConfigs() const -> std::vector<CoordinatorClientConfig>;
+
  private:
-  std::map<std::string, replication_coordination_glue::ReplicationRole, std::less<>> instance_roles;
-  // TODO: (andi) Good place for separate lock
+  std::map<std::string, InstanceState, std::less<>> instance_roles_;
+  mutable utils::ResourceLock log_lock_{};
 };
 
 }  // namespace memgraph::coordination

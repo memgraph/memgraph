@@ -562,3 +562,4 @@ auto CoordinatorInstance::IsReplica(std::string_view instance_name) const -> boo
 
 }  // namespace memgraph::coordination
 #endif
+
