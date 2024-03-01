@@ -94,10 +94,10 @@ class Relationship;
 struct MapItem;
 class Duration;
 class Value;
-class ExecutionHeaders;
 class QueryExecution;
-class ExecutionRow;
 class ExecutionResult;
+class ExecutionHeaders;
+class ExecutionRow;
 
 struct StealType {};
 inline constexpr StealType steal{};
@@ -1610,7 +1610,7 @@ class QueryExecution {
 
 class ExecutionRow {
  private:
-  Map values;
+  Map row_;
 
  public:
   ExecutionRow(mgp_map *row);
@@ -4429,17 +4429,17 @@ inline ExecutionHeaders::Iterator ExecutionHeaders::cbegin() { return Iterator(t
 
 inline ExecutionHeaders::Iterator ExecutionHeaders::cend() { return Iterator(this, Size()); }
 
-inline ExecutionRow::ExecutionRow(mgp_map *row) : values(row) {}
+inline ExecutionRow::ExecutionRow(mgp_map *row) : row_(row) {}
 
-inline size_t ExecutionRow::Size() const { return values.Size(); }
+inline size_t ExecutionRow::Size() const { return row_.Size(); }
 
-inline bool ExecutionRow::Empty() const { return values.Empty(); }
+inline bool ExecutionRow::Empty() const { return row_.Empty(); }
 
-inline Value ExecutionRow::operator[](std::string_view key) const { return values[key]; }
+inline Value ExecutionRow::operator[](std::string_view key) const { return row_[key]; }
 
-inline Value ExecutionRow::At(std::string_view key) const { return values.At(key); }
+inline Value ExecutionRow::At(std::string_view key) const { return row_.At(key); }
 
-inline bool ExecutionRow::KeyExists(std::string_view key) const { return values.KeyExists(key); }
+inline bool ExecutionRow::KeyExists(std::string_view key) const { return row_.KeyExists(key); }
 
 // do not enter
 namespace detail {
