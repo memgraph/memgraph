@@ -210,7 +210,8 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
             auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
             client->Start(storage, std::move(db_acc));
             bool const success = std::invoke([state = client->State()]() {
-              if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
+              // We force sync replicas in other situation
+              if (!FLAGS_coordinator_server_port && state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
                 return false;
               }
               return true;

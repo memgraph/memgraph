@@ -598,7 +598,6 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
 
 @pytest.mark.parametrize("data_recovery", ["false"])
 def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_recovery):
-    # TODO(antoniofilipovic) Test should pass when logic is added
     # Goal of this test is to check the replication works forcefully if replica misses epoch
     # 1. We start all replicas, main and coordinator manually
     # 2. We check that main has correct state
@@ -606,9 +605,9 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     # 4. Expect data to be copied on all replicas
     # 5. Kill instance_1 ( this one will miss complete epoch)
     # 6. Kill main (instance_3)
-    # 7. Instance_2 or instance_4 new main
-    # 8. New main commits
-    # 9. Instance_2 down (not main)
+    # 7. Instance_2
+    # 8. Instance_2 commits
+    # 9. Instance_2 down
     # 10. instance_4 down
     # 11. Instance 1 up (missed epoch)
     # 12 Instance 1 new main
@@ -617,7 +616,247 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
     temp_dir = tempfile.TemporaryDirectory().name
 
-    pass
+    MEMGRAPH_INNER_INSTANCES_DESCRIPTION = {
+        "instance_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10011",
+                "--replication-restore-state-on-startup",
+                "true",
+                f"--data-recovery-on-startup={data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_1.log",
+            "data_directory": f"{temp_dir}/instance_1",
+            "setup_queries": [],
+        },
+        "instance_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7689",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10012",
+                "--replication-restore-state-on-startup",
+                "true",
+                f"--data-recovery-on-startup={data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_2.log",
+            "data_directory": f"{temp_dir}/instance_2",
+            "setup_queries": [],
+        },
+        "instance_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10013",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                f"{data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_3.log",
+            "data_directory": f"{temp_dir}/instance_3",
+            "setup_queries": [],
+        },
+        "instance_4": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7691",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10014",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                f"{data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_4.log",
+            "data_directory": f"{temp_dir}/instance_4",
+            "setup_queries": [],
+        },
+        "coordinator": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--raft-server-id=1",
+                "--raft-server-port=10111",
+            ],
+            "log_file": "coordinator.log",
+            "setup_queries": [
+                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
+                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
+                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
+                "REGISTER INSTANCE instance_4 ON '127.0.0.1:10014' WITH '127.0.0.1:10004';",
+                "SET INSTANCE instance_3 TO MAIN",
+            ],
+        },
+    }
+
+    # 1
+
+    interactive_mg_runner.start_all(MEMGRAPH_INNER_INSTANCES_DESCRIPTION)
+
+    # 2
+
+    main_cursor = connect(host="localhost", port=7687).cursor()
+    expected_data_on_main = [
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_4",
+            "127.0.0.1:10004",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+    ]
+
+    main_cursor = connect(host="localhost", port=7687).cursor()
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
+    mg_sleep_and_assert_collection(expected_data_on_main, retrieve_data_show_replicas)
+
+    coord_cursor = connect(host="localhost", port=7690).cursor()
+
+    def retrieve_data_show_instances():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("instance_4", "", "127.0.0.1:10014", True, "replica"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 3
+
+    execute_and_fetch_all(main_cursor, "CREATE (:Epoch1Vertex {prop:1});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Epoch1Vertex {prop:2});")
+
+    # 4
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+    instance_2_cursor = connect(host="localhost", port=7689).cursor()
+    instance_4_cursor = connect(host="localhost", port=7691).cursor()
+
+    assert execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+    assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+    assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+
+    # 5
+
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
+
+    # 6
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
+
+    # 7
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", True, "main"),
+        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
+        ("instance_4", "", "127.0.0.1:10014", True, "replica"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 8
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(3, get_vertex_count)
+
+    assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
+
+    # 9
+
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_2")
+
+    # 10
+
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_4")
+
+    # 11
+
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "main"),
+        ("instance_2", "", "127.0.0.1:10012", False, "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
+        ("instance_4", "", "127.0.0.1:10014", False, "unknown"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 12
+
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_2")
+
+    # 13
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", True, "main"),
+        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
+        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
+        ("instance_4", "", "127.0.0.1:10014", False, "unknown"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 12
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+    instance_4_cursor = connect(host="localhost", port=7691).cursor()
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(3, get_vertex_count)
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(3, get_vertex_count)
 
 
 @pytest.mark.parametrize("data_recovery", ["false", "true"])

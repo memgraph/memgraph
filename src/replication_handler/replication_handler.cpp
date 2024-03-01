@@ -271,8 +271,12 @@ auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glu
   dbms_handler_.ForEach([&results](memgraph::dbms::DatabaseAccess db_acc) {
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
 
+    // fix https://github.com/memgraph/memgraph/pull/1743#discussion_r1508774365
     std::vector<std::pair<std::string, uint64_t>> history = utils::fmap(
-        [](const auto &elem) { return std::make_pair(elem.first, elem.second); }, repl_storage_state.history);
+        [](const auto &elem) {
+          return std::pair{elem.first, elem.second};
+        },
+        repl_storage_state.history);
 
     history.emplace_back(std::string(repl_storage_state.epoch_.id()), repl_storage_state.last_commit_timestamp_.load());
     replication_coordination_glue::DatabaseHistory repl{

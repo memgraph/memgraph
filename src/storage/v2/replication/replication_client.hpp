@@ -188,6 +188,13 @@ class ReplicationStorageClient {
    */
   void UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc);
 
+  /**
+   * @brief Forcefully reset storage to as it is when started from scratch.
+   *
+   * @param storage pointer to the storage associated with the client
+   */
+  bool ForceResetStorage(Storage *storage);
+
   void LogRpcFailure();
 
   /**

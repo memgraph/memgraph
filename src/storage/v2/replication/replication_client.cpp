@@ -76,13 +76,31 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     }
   }
   if (branching_point) {
-    spdlog::error(
-        "You cannot register Replica {} to this Main because at one point "
-        "Replica {} acted as the Main instance. Both the Main and Replica {} "
-        "now hold unique data. Please resolve data conflicts and start the "
-        "replication on a clean instance.",
-        client_.name_, client_.name_, client_.name_);
-    replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::DIVERGED_FROM_MAIN; });
+    replica_state_.WithLock([&](auto &state) { state = replication::ReplicaState::DIVERGED_FROM_MAIN; });
+    if (!FLAGS_coordinator_server_port) {
+      spdlog::error(
+          "You cannot register Replica {} to this Main because at one point "
+          "Replica {} acted as the Main instance. Both the Main and Replica {} "
+          "now hold unique data. Please resolve data conflicts and start the "
+          "replication on a clean instance.",
+          client_.name_, client_.name_, client_.name_);
+      return;
+    }
+    replica_state_.WithLock([&](auto &state) {
+      state = replication::ReplicaState::DIVERGED_FROM_MAIN;
+      client_.thread_pool_.AddTask([&state, storage, gk = std::move(db_acc), this] {
+        if (!this->ForceResetStorage(storage)) {
+          spdlog::error(
+              "You cannot register REPLICA {} to this MAIN because MAIN couldn't reset replicas storage."
+              "Please resolve data conflicts and start the "
+              "replication on a clean instance.",
+              client_.name_);
+          return;
+        }
+        state = replication::ReplicaState::RECOVERY;
+        this->RecoverReplica(0, storage);
+      });
+    });
     return;
   }
 
@@ -333,6 +351,12 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
       return;
     }
   }
+}
+
+bool ReplicationStorageClient::ForceResetStorage(memgraph::storage::Storage *storage) {
+  auto stream{client_.rpc_client_.Stream<replication::ForceResetStorageRpc>(main_uuid_, storage->uuid())};
+  const auto res = stream.AwaitResponse();
+  return res.success;
 }
 
 ////// ReplicaStream //////

@@ -118,8 +118,13 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
       });
   server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received SwapMainUUIDHandler");
+        spdlog::debug("Received SwapMainUUIDRpc");
         InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<storage::replication::ForceResetStorageRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received ForceResetStorageRpc");
+        InMemoryReplicationHandlers::ForceResetStorageHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
 }
 
@@ -327,6 +332,82 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     storage->wal_file_.reset();
   }
   spdlog::debug("Replication recovery from snapshot finished!");
+}
+
+void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *dbms_handler,
+                                                           const std::optional<utils::UUID> &current_main_uuid,
+                                                           slk::Reader *req_reader, slk::Builder *res_builder) {
+  storage::replication::ForceResetStorageReq req;
+  slk::Load(&req, req_reader);
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_uuid);
+  if (!db_acc) {
+    storage::replication::SnapshotRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
+    storage::replication::SnapshotRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+
+  storage::replication::Decoder decoder(req_reader);
+
+  auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+
+  auto storage_guard = std::unique_lock{storage->main_lock_};
+
+  // Clear the database
+  storage->vertices_.clear();
+  storage->edges_.clear();
+
+  storage->constraints_.existence_constraints_ = std::make_unique<storage::ExistenceConstraints>();
+  storage->constraints_.unique_constraints_ = std::make_unique<storage::InMemoryUniqueConstraints>();
+  storage->indices_.label_index_ = std::make_unique<storage::InMemoryLabelIndex>();
+  storage->indices_.label_property_index_ = std::make_unique<storage::InMemoryLabelPropertyIndex>();
+  try {
+    // If this step is present it should always be the first step of
+    // the recovery so we use the UUID we read from snasphost
+
+    // TODO what with this part? check if it is used in WalHandler, snapshot handler and append deltas handler
+    storage->uuid_;
+
+    // random fine since we will force push when reading from WAL just random epoch
+    storage->repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
+    storage->repl_storage_state_.last_commit_timestamp_ = 0;
+
+    storage->repl_storage_state_.history.clear();
+    storage->vertex_id_ = 0;
+    storage->edge_id_ = 0;
+    storage->timestamp_ = storage::kTimestampInitialId;
+
+  } catch (const storage::durability::RecoveryFailure &e) {
+    LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
+  }
+  storage_guard.unlock();
+
+  storage::replication::ForceResetStorageRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
+  slk::Save(res, res_builder);
+
+  spdlog::trace("Deleting old snapshot files.");
+  // Delete other durability files
+  auto snapshot_files = storage::durability::GetSnapshotFiles(storage->recovery_.snapshot_directory_, storage->uuid_);
+  for (const auto &[path, uuid, _] : snapshot_files) {
+    spdlog::trace("Deleting snapshot file {}", path);
+    storage->file_retainer_.DeleteFile(path);
+  }
+
+  spdlog::trace("Deleting old WAL files.");
+  auto wal_files = storage::durability::GetWalFiles(storage->recovery_.wal_directory_, storage->uuid_);
+  if (wal_files) {
+    for (const auto &wal_file : *wal_files) {
+      spdlog::trace("Deleting WAL file {}", wal_file.path);
+      storage->file_retainer_.DeleteFile(wal_file.path);
+    }
+
+    storage->wal_file_.reset();
+  }
 }
 
 void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
