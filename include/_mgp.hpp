@@ -871,4 +871,6 @@ inline mgp_map *pull_one(mgp_execution_result *result, mgp_graph *graph, mgp_mem
   return MgInvoke<mgp_map *>(mgp_pull_one, result, graph, memory);
 }
 
+inline bool has_more_rows(mgp_execution_result *result) { return MgInvoke<bool>(mgp_has_more_rows, result); }
+
 }  // namespace mgp
