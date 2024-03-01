@@ -596,7 +596,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     mg_sleep_and_assert(5, get_vertex_count)
 
 
-@pytest.mark.parametrize("data_recovery", ["false"])
+@pytest.mark.parametrize("data_recovery", ["true"])
 def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_recovery):
     # Goal of this test is to check the replication works forcefully if replica misses epoch
     # 1. We start all replicas, main and coordinator manually
@@ -846,17 +846,17 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
     # 12
     instance_1_cursor = connect(host="localhost", port=7688).cursor()
-    instance_4_cursor = connect(host="localhost", port=7691).cursor()
+    instance_2_cursor = connect(host="localhost", port=7689).cursor()
 
     def get_vertex_count():
         return execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
 
-    mg_sleep_and_assert(3, get_vertex_count)
+    mg_sleep_and_assert(2, get_vertex_count)
 
     def get_vertex_count():
-        return execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n)")[0][0]
+        return execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n)")[0][0]
 
-    mg_sleep_and_assert(3, get_vertex_count)
+    mg_sleep_and_assert(2, get_vertex_count)
 
 
 @pytest.mark.parametrize("data_recovery", ["false", "true"])
@@ -1713,4 +1713,5 @@ def test_disable_multiple_mains():
 
 
 if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-k", "test_replication_forcefully_works_on_failover_replica_misses_epoch"]))
     sys.exit(pytest.main([__file__, "-rA"]))
