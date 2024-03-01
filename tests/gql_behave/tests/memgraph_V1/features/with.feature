@@ -321,3 +321,41 @@ Feature: With
         Then the result should be:
             | n                         |
             | ({name: 'labelToRemove'}) |
+
+    Scenario: With test 20:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: 'label1'})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            SET node:node.name:label2
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                                 |
+            | (:label1:label2 {name: 'label1'}) |
+
+    Scenario: With test 20:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: 'label1'})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            SET node:label2:node.name
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                                 |
+            | (:label2:label1 {name: 'label1'}) |

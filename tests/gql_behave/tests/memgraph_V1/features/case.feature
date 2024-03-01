@@ -109,3 +109,41 @@ Feature: Case
           MATCH (a) WHERE CASE WHEN TRUE THEN exists(()-[]->()) END RETURN a;
           """
       Then an error should be raised
+
+    Scenario: Case with labels 1
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: 'nodename', age: '22'})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            CREATE (m:CASE node.name WHEN '23' THEN node.name ELSE "mynode" END)
+            """
+        When executing query:
+            """
+            MATCH (n:mynode) RETURN n;
+            """
+        Then the result should be:
+            | n         |
+            | (:mynode) |
+
+    Scenario: Case with labels 2
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: 'nodename', age: '22'})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            CREATE (m:CASE node.age WHEN '22' THEN node.name ELSE "mynode" END)
+            """
+        When executing query:
+            """
+            MATCH (n:nodename) RETURN n;
+            """
+        Then the result should be:
+            | n           |
+            | (:nodename) |
