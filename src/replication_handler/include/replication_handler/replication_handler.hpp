@@ -211,8 +211,12 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
             client->Start(storage, std::move(db_acc));
             bool const success = std::invoke([state = client->State()]() {
               // We force sync replicas in other situation
-              if (!FLAGS_coordinator_server_port && state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
+              if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
+#ifdef MG_ENTERPRISE
+                return FLAGS_coordinator_server_port != 0;
+#else
                 return false;
+#endif
               }
               return true;
             });

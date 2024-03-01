@@ -77,13 +77,17 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   }
   if (branching_point) {
     replica_state_.WithLock([&](auto &state) { state = replication::ReplicaState::DIVERGED_FROM_MAIN; });
-    if (!FLAGS_coordinator_server_port) {
+    auto log_error = [client_name = client_.name_]() {
       spdlog::error(
           "You cannot register Replica {} to this Main because at one point "
           "Replica {} acted as the Main instance. Both the Main and Replica {} "
           "now hold unique data. Please resolve data conflicts and start the "
           "replication on a clean instance.",
-          client_.name_, client_.name_, client_.name_);
+          client_name, client_name, client_name);
+    };
+#ifdef MG_ENTERPRISE
+    if (!FLAGS_coordinator_server_port) {
+      log_error();
       return;
     }
     replica_state_.WithLock([&](auto &state) {
@@ -91,7 +95,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       client_.thread_pool_.AddTask([&state, storage, gk = std::move(db_acc), this] {
         if (!this->ForceResetStorage(storage)) {
           spdlog::error(
-              "You cannot register REPLICA {} to this MAIN because MAIN couldn't reset replicas storage."
+              "You cannot register REPLICA {} to this MAIN because MAIN couldn't reset REPLICA's storage."
               "Please resolve data conflicts and start the "
               "replication on a clean instance.",
               client_.name_);
@@ -101,6 +105,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
         this->RecoverReplica(0, storage);
       });
     });
+#endif
+    log_error();
     return;
   }
 

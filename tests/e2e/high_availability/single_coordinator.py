@@ -858,6 +858,31 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
     mg_sleep_and_assert(2, get_vertex_count)
 
+    # 13
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch3Vertex {prop:1});")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    # 14
+
+    def get_vertex_objects_func_creator(cursor):
+        def get_vertex_objects():
+            return list(
+                execute_and_fetch_all(
+                    cursor, "MATCH (n) " "WITH labels(n) as labels, properties(n) as props " "RETURN labels[0], props;"
+                )
+            )
+
+        return get_vertex_objects
+
+    vertex_objects = [("Epoch1Vertex", {"prop": 1}), ("Epoch1Vertex", {"prop": 2}), ("Epoch3Vertex", {"prop": 1})]
+
+    mg_sleep_and_assert_collection(vertex_objects, get_vertex_objects_func_creator(instance_1_cursor))
+
+    mg_sleep_and_assert_collection(vertex_objects, get_vertex_objects_func_creator(instance_2_cursor))
+
+    # 15
+
 
 @pytest.mark.parametrize("data_recovery", ["false", "true"])
 def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
@@ -1713,5 +1738,4 @@ def test_disable_multiple_mains():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-k", "test_replication_forcefully_works_on_failover_replica_misses_epoch"]))
     sys.exit(pytest.main([__file__, "-rA"]))
