@@ -127,7 +127,7 @@ auto CoordinatorInstance::TryFailover() -> void {
       ChooseMostUpToDateInstance(instance_database_histories);
 
   spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp",
-                most_up_to_date_instance, *latest_epoch, *latest_commit_timestamp);
+                most_up_to_date_instance, latest_epoch, latest_commit_timestamp);
 
   auto *new_main = &FindReplicationInstance(most_up_to_date_instance);
 
@@ -391,7 +391,7 @@ auto CoordinatorInstance::SetMainUUID(utils::UUID new_uuid) -> void { main_uuid_
 auto CoordinatorInstance::ChooseMostUpToDateInstance(
     const std::vector<std::pair<std::string, replication_coordination_glue::DatabaseHistories>>
         &instance_database_histories) -> NewMainRes {
-  NewMainRes new_main_res;
+  std::optional<NewMainRes> new_main_res;
   std::for_each(
       instance_database_histories.begin(), instance_database_histories.end(),
       [&new_main_res](const InstanceNameDbHistories &instance_res_pair) {
@@ -407,7 +407,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
         std::ranges::for_each(
             instance_db_histories,
             [&instance_name = instance_name](const replication_coordination_glue::DatabaseHistory &db_history) {
-              spdlog::trace("Instance {}: name {}, default db {}", instance_name, db_history.name,
+              spdlog::debug("Instance {}: name {}, default db {}", instance_name, db_history.name,
                             memgraph::dbms::kDefaultDB);
             });
 
@@ -417,35 +417,26 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
 
         std::ranges::for_each(instance_default_db_history | ranges::views::reverse,
                               [&instance_name = instance_name](const auto &epoch_history_it) {
-                                spdlog::trace("Instance {}: epoch {}, last_commit_timestamp: {}", instance_name,
+                                spdlog::debug("Instance {}: epoch {}, last_commit_timestamp: {}", instance_name,
                                               std::get<0>(epoch_history_it), std::get<1>(epoch_history_it));
                               });
 
         // get latest epoch
         // get latest timestamp
 
-        if (!new_main_res.latest_epoch) {
+        if (!new_main_res) {
           const auto &[epoch, timestamp] = *instance_default_db_history.crbegin();
-          new_main_res = NewMainRes{
-              .most_up_to_date_instance = instance_name,
-              .latest_epoch = epoch,
-              .latest_commit_timestamp = timestamp,
-          };
-          spdlog::trace("Currently the most up to date instance is {} with epoch {} and {} latest commit timestamp",
+          new_main_res = std::make_optional<NewMainRes>({instance_name, epoch, timestamp});
+          spdlog::debug("Currently the most up to date instance is {} with epoch {} and {} latest commit timestamp",
                         instance_name, epoch, timestamp);
           return;
         }
 
         bool found_same_point{false};
-        std::string last_most_up_to_date_epoch{*new_main_res.latest_epoch};
+        std::string last_most_up_to_date_epoch{new_main_res->latest_epoch};
         for (auto [epoch, timestamp] : ranges::reverse_view(instance_default_db_history)) {
-          if (*new_main_res.latest_commit_timestamp < timestamp) {
-            new_main_res = NewMainRes{
-                .most_up_to_date_instance = instance_name,
-                .latest_epoch = epoch,
-                .latest_commit_timestamp = timestamp,
-            };
-
+          if (new_main_res->latest_commit_timestamp < timestamp) {
+            new_main_res = std::make_optional<NewMainRes>({instance_name, epoch, timestamp});
             spdlog::trace("Found the new most up to date instance {} with epoch {} and {} latest commit timestamp",
                           instance_name, epoch, timestamp);
           }
@@ -459,11 +450,11 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
 
         if (!found_same_point) {
           spdlog::error("Didn't find same history epoch {} for instance {} and instance {}", last_most_up_to_date_epoch,
-                        new_main_res.most_up_to_date_instance, instance_name);
+                        new_main_res->most_up_to_date_instance, instance_name);
         }
       });
 
-  return new_main_res;
+  return std::move(*new_main_res);
 }
 }  // namespace memgraph::coordination
 #endif

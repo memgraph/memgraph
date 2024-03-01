@@ -28,8 +28,8 @@ namespace memgraph::coordination {
 
 struct NewMainRes {
   std::string most_up_to_date_instance;
-  std::optional<std::string> latest_epoch;
-  std::optional<uint64_t> latest_commit_timestamp;
+  std::string latest_epoch;
+  uint64_t latest_commit_timestamp;
 };
 using InstanceNameDbHistories = std::pair<std::string, replication_coordination_glue::DatabaseHistories>;
 

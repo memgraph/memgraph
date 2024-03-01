@@ -67,8 +67,8 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
       instance.ChooseMostUpToDateInstance(instance_database_histories);
   ASSERT_TRUE(instance_name == "instance_1" || instance_name == "instance_2" || instance_name == "instance_3");
-  ASSERT_TRUE(*latest_epoch == db_histories.back().first);
-  ASSERT_TRUE(*latest_commit_timestamp == db_histories.back().second);
+  ASSERT_TRUE(latest_epoch == db_histories.back().first);
+  ASSERT_TRUE(latest_commit_timestamp == db_histories.back().second);
 }
 
 TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
@@ -121,8 +121,8 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
       instance.ChooseMostUpToDateInstance(instance_database_histories);
 
   ASSERT_TRUE(instance_name == "instance_3");
-  ASSERT_TRUE(*latest_epoch == db_histories.back().first);
-  ASSERT_TRUE(*latest_commit_timestamp == db_histories.back().second);
+  ASSERT_TRUE(latest_epoch == db_histories.back().first);
+  ASSERT_TRUE(latest_commit_timestamp == db_histories.back().second);
 }
 
 TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
@@ -179,8 +179,8 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
       instance.ChooseMostUpToDateInstance(instance_database_histories);
 
   ASSERT_TRUE(instance_name == "instance_3");
-  ASSERT_TRUE(*latest_epoch == db_histories_longest.back().first);
-  ASSERT_TRUE(*latest_commit_timestamp == db_histories_longest.back().second);
+  ASSERT_TRUE(latest_epoch == db_histories_longest.back().first);
+  ASSERT_TRUE(latest_commit_timestamp == db_histories_longest.back().second);
 }
 
 TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
@@ -241,6 +241,6 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
       instance.ChooseMostUpToDateInstance(instance_database_histories);
 
   ASSERT_TRUE(instance_name == "instance_3");
-  ASSERT_TRUE(*latest_epoch == std::string(newest_different_epoch));
-  ASSERT_TRUE(*latest_commit_timestamp == oldest_commit_timestamp);
+  ASSERT_TRUE(latest_epoch == std::string(newest_different_epoch));
+  ASSERT_TRUE(latest_commit_timestamp == oldest_commit_timestamp);
 }
