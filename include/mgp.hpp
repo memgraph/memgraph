@@ -1600,12 +1600,13 @@ class ExecutionHeaders {
 };
 
 class QueryExecution {
+ private:
+  friend class Map;
+  mgp_graph *graph_;
+
  public:
   QueryExecution(mgp_graph *graph);
-  ExecutionResult ExecuteQuery(std::string_view query) const;
-
- private:
-  mgp_graph *graph_;
+  ExecutionResult ExecuteQuery(std::string_view query, Map params = Map()) const;
 };
 
 class ExecutionRow {
@@ -4389,8 +4390,8 @@ inline std::string ExecutionHeaders::At(size_t index) const {
 
 inline QueryExecution::QueryExecution(mgp_graph *graph) : graph_(graph) {}
 
-inline ExecutionResult QueryExecution::ExecuteQuery(std::string_view query) const {
-  return ExecutionResult(mgp::MemHandlerCallback(execute_query, graph_, query.data()), graph_);
+inline ExecutionResult QueryExecution::ExecuteQuery(std::string_view query, mgp::Map params) const {
+  return ExecutionResult(mgp::MemHandlerCallback(execute_query, graph_, query.data(), params.ptr_), graph_);
 }
 
 inline ExecutionResult::ExecutionResult(mgp_execution_result *result, mgp_graph *graph)

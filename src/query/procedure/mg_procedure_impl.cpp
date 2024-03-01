@@ -4072,9 +4072,19 @@ struct MgProcedureResultStream final {
   }
 };
 
-mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *query, mgp_execution_result **result) {
+std::map<std::string, memgraph::storage::PropertyValue> CreateQueryParams(mgp_map *params) {
+  std::map<std::string, memgraph::storage::PropertyValue> query_params;
+  for (auto &[k, v] : params->items) {
+    query_params.emplace(k, ToPropertyValue(v));
+  }
+
+  return query_params;
+}
+
+mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *query, mgp_map *params,
+                            mgp_execution_result **result) {
   return WrapExceptions(
-      [query, graph, memory]() {
+      [query, params, graph, memory]() {
         auto query_string = std::string(query);
         auto *instance = memgraph::query::InterpreterContext::getInstance();
 
@@ -4087,7 +4097,9 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
           instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.erase(&interpreter); });
         });
 
-        auto prepare_query_result = interpreter.Prepare(query_string, {}, {});
+        const auto query_params = CreateQueryParams(params);
+
+        auto prepare_query_result = interpreter.Prepare(query_string, query_params, {});
         MgProcedureResultStream stream(memory);
         interpreter.Pull(&stream, {}, prepare_query_result.qid);
 

@@ -1810,7 +1810,7 @@ enum mgp_error mgp_execution_headers_size(struct mgp_execution_headers *headers,
 struct mgp_execution_result;
 
 enum mgp_error mgp_execute_query(struct mgp_graph *graph, struct mgp_memory *memory, const char *query,
-                                 struct mgp_execution_result **result);
+                                 struct mgp_map *params, struct mgp_execution_result **result);
 
 enum mgp_error mgp_fetch_execution_headers(struct mgp_execution_result *exec_result,
                                            struct mgp_execution_headers **headers);
