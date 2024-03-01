@@ -3174,6 +3174,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("SetLabels");
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
+  if (!input_cursor_->Pull(frame, context)) return false;
   std::vector<storage::LabelId> labels;
   for (const auto &label : self_.labels_) {
     if (std::holds_alternative<storage::LabelId>(label)) {
@@ -3190,8 +3191,6 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
   }
 #endif
-
-  if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
   // Skip setting labels on Null (can occur in optional match).
@@ -3354,6 +3353,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   SCOPED_PROFILE_OP("RemoveLabels");
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
+  if (!input_cursor_->Pull(frame, context)) return false;
   std::vector<storage::LabelId> labels;
   for (const auto &label : self_.labels_) {
     if (std::holds_alternative<storage::LabelId>(label)) {
@@ -3370,8 +3370,6 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
   }
 #endif
-
-  if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
   // Skip removing labels on Null (can occur in optional match).

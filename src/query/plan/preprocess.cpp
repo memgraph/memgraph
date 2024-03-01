@@ -361,7 +361,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     std::vector<LabelIx> labels;
     for (auto label : node->labels_) {
       if (const auto *label_node = std::get_if<Expression *>(&label)) {
-        throw SemanticException("Parameter lookup not supported in MATCH/MERGE clause!");
+        throw SemanticException("Property lookup not supported in MATCH/MERGE clause!");
       }
       labels.push_back(std::get<LabelIx>(label));
     }
