@@ -483,9 +483,8 @@ void CoordinatorInstance::ReplicaFailCallback(std::string_view repl_instance_nam
   repl_instance.OnFailPing();
 }
 
-auto CoordinatorInstance::ChooseMostUpToDateInstance(
-    const std::vector<std::pair<std::string, replication_coordination_glue::DatabaseHistories>>
-        &instance_database_histories) -> NewMainRes {
+auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instance_database_histories)
+    -> NewMainRes {
   std::optional<NewMainRes> new_main_res;
   std::for_each(
       instance_database_histories.begin(), instance_database_histories.end(),
@@ -562,4 +561,3 @@ auto CoordinatorInstance::IsReplica(std::string_view instance_name) const -> boo
 
 }  // namespace memgraph::coordination
 #endif
-
