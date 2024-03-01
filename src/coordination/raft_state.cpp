@@ -209,6 +209,25 @@ auto RaftState::AppendSetInstanceAsReplicaLog(std::string_view instance_name) ->
   return true;
 }
 
+auto RaftState::AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeUpdateUUID(uuid);
+  auto const res = raft_server_->append_entries({new_log});
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for updating UUID. Most likely the reason is that the instance is not "
+        "the leader.");
+    return false;
+  }
+  spdlog::info("Request for updating UUID accepted");
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to update UUID with error code {}", res->get_result_code());
+    return false;
+  }
+
+  return true;
+}
+
 auto RaftState::FindCurrentMainInstanceName() const -> std::optional<std::string> {
   return state_machine_->FindCurrentMainInstanceName();
 }
@@ -221,13 +240,9 @@ auto RaftState::IsReplica(std::string_view instance_name) const -> bool {
   return state_machine_->IsReplica(instance_name);
 }
 
-auto RaftState::GetInstances() const -> std::vector<std::pair<std::string, std::string>> {
-  return state_machine_->GetInstances();
-}
+auto RaftState::GetInstances() const -> std::vector<InstanceState> { return state_machine_->GetInstances(); }
 
-auto RaftState::GetClientConfigs() const -> std::vector<CoordinatorClientConfig> {
-  return state_machine_->GetClientConfigs();
-}
+auto RaftState::GetUUID() const -> utils::UUID { return state_machine_->GetUUID(); }
 
 }  // namespace memgraph::coordination
 #endif

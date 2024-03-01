@@ -75,8 +75,6 @@ class CoordinatorInstance {
   std::list<ReplicationInstance> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 
-  utils::UUID main_uuid_;
-
   RaftState raft_state_;
 };
 

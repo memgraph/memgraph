@@ -72,10 +72,10 @@ class RaftState {
   auto AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool;
   auto AppendSetInstanceAsMainLog(std::string_view instance_name) -> bool;
   auto AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool;
+  auto AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool;
 
-  auto GetInstances() const -> std::vector<std::pair<std::string, std::string>>;
-
-  auto GetClientConfigs() const -> std::vector<CoordinatorClientConfig>;
+  auto GetInstances() const -> std::vector<InstanceState>;
+  auto GetUUID() const -> utils::UUID;
 
  private:
   // TODO: (andi) I think variables below can be abstracted/clean them.

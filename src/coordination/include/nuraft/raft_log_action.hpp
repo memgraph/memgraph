@@ -24,7 +24,8 @@ enum class RaftLogAction : uint8_t {
   REGISTER_REPLICATION_INSTANCE,
   UNREGISTER_REPLICATION_INSTANCE,
   SET_INSTANCE_AS_MAIN,
-  SET_INSTANCE_AS_REPLICA
+  SET_INSTANCE_AS_REPLICA,
+  UPDATE_UUID
 };
 
 inline auto ParseRaftLogAction(std::string_view action) -> RaftLogAction {
@@ -40,6 +41,11 @@ inline auto ParseRaftLogAction(std::string_view action) -> RaftLogAction {
   if (action == "demote") {
     return RaftLogAction::SET_INSTANCE_AS_REPLICA;
   }
+
+  if (action == "update_uuid") {
+    return RaftLogAction::UPDATE_UUID;
+  }
+
   throw InvalidRaftLogActionException("Invalid Raft log action: {}.", action);
 }
 

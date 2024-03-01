@@ -17,6 +17,7 @@
 #include "nuraft/raft_log_action.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/uuid.hpp"
 
 #include <libnuraft/nuraft.hxx>
 #include <range/v3/view.hpp>
@@ -35,7 +36,7 @@ struct InstanceState {
   ReplicationRole role;
 };
 
-using TRaftLog = std::variant<CoordinatorClientConfig, std::string>;
+using TRaftLog = std::variant<CoordinatorClientConfig, std::string, utils::UUID>;
 
 using nuraft::buffer;
 using nuraft::buffer_serializer;
@@ -67,12 +68,13 @@ class CoordinatorClusterState {
 
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
 
-  auto GetInstances() const -> std::vector<std::pair<std::string, std::string>>;
+  auto GetInstances() const -> std::vector<InstanceState>;
 
-  auto GetClientConfigs() const -> std::vector<CoordinatorClientConfig>;
+  auto GetUUID() const -> utils::UUID;
 
  private:
   std::map<std::string, InstanceState, std::less<>> instance_roles_;
+  utils::UUID uuid_{};
   mutable utils::ResourceLock log_lock_{};
 };
 

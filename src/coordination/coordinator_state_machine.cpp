@@ -57,6 +57,11 @@ auto CoordinatorStateMachine::SerializeSetInstanceAsReplica(std::string_view ins
   return CreateLog(str_log);
 }
 
+auto CoordinatorStateMachine::SerializeUpdateUUID(utils::UUID const &uuid) -> ptr<buffer> {
+  auto const str_log = fmt::format("{}*update_uuid", nlohmann::json{{"uuid", uuid}}.dump());
+  return CreateLog(str_log);
+}
+
 auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction> {
   buffer_serializer bs(data);
 
@@ -77,6 +82,11 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
   if (action == "demote") {
     return {info, RaftLogAction::SET_INSTANCE_AS_REPLICA};
   }
+  if (action == "update_uuid") {
+    auto const json = nlohmann::json::parse(info);
+    return {json.at("uuid").get<utils::UUID>(), RaftLogAction::UPDATE_UUID};
+  }
+
   throw std::runtime_error("Unknown action");
 }
 
@@ -87,7 +97,6 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
 
   auto const [parsed_data, log_action] = DecodeLog(data);
   cluster_state_.DoAction(parsed_data, log_action);
-  // std::invoke(raft_commit_cb_, parsed_data, log_action);
 
   last_committed_idx_ = log_idx;
   // TODO: (andi) Don't return nullptr
@@ -183,13 +192,11 @@ auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -
   }
 }
 
-auto CoordinatorStateMachine::GetInstances() const -> std::vector<std::pair<std::string, std::string>> {
+auto CoordinatorStateMachine::GetInstances() const -> std::vector<InstanceState> {
   return cluster_state_.GetInstances();
 }
 
-auto CoordinatorStateMachine::GetClientConfigs() const -> std::vector<CoordinatorClientConfig> {
-  return cluster_state_.GetClientConfigs();
-}
+auto CoordinatorStateMachine::GetUUID() const -> utils::UUID { return cluster_state_.GetUUID(); }
 
 }  // namespace memgraph::coordination
 #endif

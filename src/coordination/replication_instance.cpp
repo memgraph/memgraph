@@ -26,9 +26,7 @@ ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorC
                                          HealthCheckInstanceCallback fail_instance_cb)
     : client_(peer, std::move(config), std::move(succ_cb), std::move(fail_cb)),
       succ_cb_(succ_instance_cb),
-      fail_cb_(fail_instance_cb) {
-  client_.StartFrequentCheck();
-}
+      fail_cb_(fail_instance_cb) {}
 
 auto ReplicationInstance::OnSuccessPing() -> void {
   last_response_time_ = std::chrono::system_clock::now();

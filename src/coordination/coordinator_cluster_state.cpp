@@ -92,6 +92,10 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       it->second.role = ReplicationRole::REPLICA;
       break;
     }
+    case RaftLogAction::UPDATE_UUID: {
+      uuid_ = std::get<utils::UUID>(log_entry);
+      break;
+    }
   }
 }
 
@@ -141,31 +145,12 @@ auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterSta
   return cluster_state;
 }
 
-auto CoordinatorClusterState::GetInstances() const -> std::vector<std::pair<std::string, std::string>> {
+auto CoordinatorClusterState::GetInstances() const -> std::vector<InstanceState> {
   auto lock = std::shared_lock{log_lock_};
-  // TODO: (andi) Abstract
-  auto const role_to_string = [](auto const &role) -> std::string {
-    switch (role) {
-      case ReplicationRole::MAIN:
-        return "main";
-      case ReplicationRole::REPLICA:
-        return "replica";
-    }
-  };
-
-  auto const entry_to_pair = [&role_to_string](auto const &entry) {
-    return std::make_pair(entry.first, role_to_string(entry.second.role));
-  };
-
-  return instance_roles_ | ranges::views::transform(entry_to_pair) | ranges::to<std::vector>();
+  return instance_roles_ | ranges::views::values | ranges::to<std::vector<InstanceState>>;
 }
 
-auto CoordinatorClusterState::GetClientConfigs() const -> std::vector<CoordinatorClientConfig> {
-  auto lock = std::shared_lock{log_lock_};
-  return instance_roles_ | ranges::views::values |
-         ranges::views::transform([](auto const &instance_state) { return instance_state.config; }) |
-         ranges::to<std::vector>();
-}
+auto CoordinatorClusterState::GetUUID() const -> utils::UUID { return uuid_; }
 
 auto CoordinatorClusterState::FindCurrentMainInstanceName() const -> std::optional<std::string> {
   auto lock = std::shared_lock{log_lock_};

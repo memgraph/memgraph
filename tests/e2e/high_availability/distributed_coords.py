@@ -17,7 +17,11 @@ import tempfile
 import interactive_mg_runner
 import pytest
 from common import connect, execute_and_fetch_all, safe_execute
-from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
+from mg_utils import (
+    mg_sleep_and_assert,
+    mg_sleep_and_assert_any_function,
+    mg_sleep_and_assert_collection,
+)
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -160,6 +164,89 @@ def test_distributed_automatic_failover():
         ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
+
+    new_main_cursor = connect(host="localhost", port=7687).cursor()
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;")))
+
+    expected_data_on_new_main = [
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "instance_3",
+            "127.0.0.1:10003",
+            "sync",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+    expected_data_on_new_main_old_alive = [
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "instance_3",
+            "127.0.0.1:10003",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+
+    mg_sleep_and_assert_collection(expected_data_on_new_main_old_alive, retrieve_data_show_replicas)
+
+
+def test_distributed_automatic_failover_after_coord_dies():
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_3")
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    def show_instances_coord1():
+        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+
+    def show_instances_coord2():
+        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
+
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "main"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "main"),  # TODO: (andi) Will become unknown.
+    ]
+    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
+    mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
 
     new_main_cursor = connect(host="localhost", port=7687).cursor()
 

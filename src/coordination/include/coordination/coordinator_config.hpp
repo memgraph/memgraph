@@ -27,6 +27,7 @@ namespace memgraph::coordination {
 
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 
+// TODO: (andi) JSON serialization for RAFT log.
 struct CoordinatorClientConfig {
   std::string instance_name;
   std::string ip_address;

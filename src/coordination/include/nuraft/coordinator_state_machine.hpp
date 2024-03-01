@@ -52,6 +52,7 @@ class CoordinatorStateMachine : public state_machine {
   static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeUpdateUUID(utils::UUID const &uuid) -> ptr<buffer>;
 
   static auto DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction>;
 
@@ -79,9 +80,8 @@ class CoordinatorStateMachine : public state_machine {
 
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
-  auto GetInstances() const -> std::vector<std::pair<std::string, std::string>>;
-
-  auto GetClientConfigs() const -> std::vector<CoordinatorClientConfig>;
+  auto GetInstances() const -> std::vector<InstanceState>;
+  auto GetUUID() const -> utils::UUID;
 
  private:
   struct SnapshotCtx {
