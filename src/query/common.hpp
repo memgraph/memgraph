@@ -32,16 +32,83 @@
 
 namespace memgraph::query {
 
-namespace impl {
-std::partial_ordering TypedValueCompare(const TypedValue &a, const TypedValue &b);
+namespace {
+std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b) {
+  // First assume typical same type comparisons
+  if (a.type() == b.type()) {
+    switch (a.type()) {
+      case TypedValue::Type::Bool:
+        return a.UnsafeValueBool() <=> b.UnsafeValueBool();
+      case TypedValue::Type::Int:
+        return a.UnsafeValueInt() <=> b.UnsafeValueInt();
+      case TypedValue::Type::Double:
+        return a.UnsafeValueDouble() <=> b.UnsafeValueDouble();
+      case TypedValue::Type::String:
+        return a.UnsafeValueString() <=> b.UnsafeValueString();
+      case TypedValue::Type::Date:
+        return a.UnsafeValueDate() <=> b.UnsafeValueDate();
+      case TypedValue::Type::LocalTime:
+        return a.UnsafeValueLocalTime() <=> b.UnsafeValueLocalTime();
+      case TypedValue::Type::LocalDateTime:
+        return a.UnsafeValueLocalDateTime() <=> b.UnsafeValueLocalDateTime();
+      case TypedValue::Type::Duration:
+        return a.UnsafeValueDuration() <=> b.UnsafeValueDuration();
+      case TypedValue::Type::Null:
+        return std::partial_ordering::equivalent;
+      case TypedValue::Type::List:
+      case TypedValue::Type::Map:
+      case TypedValue::Type::Vertex:
+      case TypedValue::Type::Edge:
+      case TypedValue::Type::Path:
+      case TypedValue::Type::Graph:
+      case TypedValue::Type::Function:
+        throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
+    }
+  } else {
+    // from this point legal only between values of
+    // int+float combinations or against null
 
-}  // namespace impl
+    // in ordering null comes after everything else
+    // at the same time Null is not less that null
+    // first deal with Null < Whatever case
+    if (a.IsNull()) return std::partial_ordering::greater;
+    // now deal with NotNull < Null case
+    if (b.IsNull()) return std::partial_ordering::less;
+
+    if (!(a.IsNumeric() && b.IsNumeric())) [[unlikely]]
+      throw QueryRuntimeException("Can't compare value of type {} to value of type {}.", a.type(), b.type());
+
+    switch (a.type()) {
+      case TypedValue::Type::Int:
+        return a.UnsafeValueInt() <=> b.ValueDouble();
+      case TypedValue::Type::Double:
+        return a.UnsafeValueDouble() <=> b.ValueInt();
+      case TypedValue::Type::Bool:
+      case TypedValue::Type::Null:
+      case TypedValue::Type::String:
+      case TypedValue::Type::List:
+      case TypedValue::Type::Map:
+      case TypedValue::Type::Vertex:
+      case TypedValue::Type::Edge:
+      case TypedValue::Type::Path:
+      case TypedValue::Type::Date:
+      case TypedValue::Type::LocalTime:
+      case TypedValue::Type::LocalDateTime:
+      case TypedValue::Type::Duration:
+      case TypedValue::Type::Graph:
+      case TypedValue::Type::Function:
+        LOG_FATAL("Invalid type");
+    }
+  }
+}
+
+}  // namespace
 
 struct OrderedTypedValueCompare {
   OrderedTypedValueCompare(Ordering ordering) : ordering_{ordering}, ascending{ordering == Ordering::ASC} {}
 
   auto operator()(const TypedValue &lhs, const TypedValue &rhs) const -> std::partial_ordering {
-    return ascending ? impl::TypedValueCompare(lhs, rhs) : impl::TypedValueCompare(rhs, lhs);
+    return ascending ? TypedValueCompare(lhs, rhs) : TypedValueCompare(rhs, lhs);
   }
 
   auto ordering() const { return ordering_; }
@@ -65,9 +132,9 @@ class TypedValueVectorCompare final {
   const auto &orderings() const { return orderings_; }
 
   auto lex_cmp() const {
-    return [this]<typename TAllocator>(const std::vector<TypedValue, TAllocator> &lhs,
-                                       const std::vector<TypedValue, TAllocator> &rhs) {
-      auto rng = ranges::views::zip(this->orderings_, lhs, rhs);
+    return [orderings = &orderings_]<typename TAllocator>(const std::vector<TypedValue, TAllocator> &lhs,
+                                                          const std::vector<TypedValue, TAllocator> &rhs) {
+      auto rng = ranges::views::zip(*orderings, lhs, rhs);
       for (auto const &[cmp, l, r] : rng) {
         auto res = cmp(l, r);
         if (res == std::partial_ordering::less) return true;

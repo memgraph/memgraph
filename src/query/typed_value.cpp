@@ -321,6 +321,19 @@ TypedValue::operator storage::PropertyValue() const {
   throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
 }
 
+#define DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(type_param, type_enum, field)                    \
+  type_param &TypedValue::Value##type_enum() {                                                   \
+    if (type_ != Type::type_enum) [[unlikely]]                                                   \
+      throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
+    return field;                                                                                \
+  }                                                                                              \
+  type_param TypedValue::Value##type_enum() const {                                              \
+    if (type_ != Type::type_enum) [[unlikely]]                                                   \
+      throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
+    return field;                                                                                \
+  }                                                                                              \
+  bool TypedValue::Is##type_enum() const { return type_ == Type::type_enum; }
+
 #define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)                              \
   type_param &TypedValue::Value##type_enum() {                                                   \
     if (type_ != Type::type_enum) [[unlikely]]                                                   \
@@ -334,9 +347,9 @@ TypedValue::operator storage::PropertyValue() const {
   }                                                                                              \
   bool TypedValue::Is##type_enum() const { return type_ == Type::type_enum; }
 
-DEFINE_VALUE_AND_TYPE_GETTERS(bool, Bool, bool_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(int64_t, Int, int_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(double, Double, double_v)
+DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(bool, Bool, bool_v)
+DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(int64_t, Int, int_v)
+DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TString, String, string_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TVector, List, list_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, map_v)
@@ -348,24 +361,10 @@ DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
-
-Graph &TypedValue::ValueGraph() {
-  if (type_ != Type::Graph) {
-    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::Graph);
-  }
-  return *graph_v;
-}
-
-const Graph &TypedValue::ValueGraph() const {
-  if (type_ != Type::Graph) {
-    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::Graph);
-  }
-  return *graph_v;
-}
-
-bool TypedValue::IsGraph() const { return type_ == Type::Graph; }
+DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
 
 #undef DEFINE_VALUE_AND_TYPE_GETTERS
+#undef DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE
 
 bool TypedValue::ContainsDeleted() const {
   switch (type_) {
@@ -398,8 +397,6 @@ bool TypedValue::ContainsDeleted() const {
   }
   return false;
 }
-
-bool TypedValue::IsNull() const { return type_ == Type::Null; }
 
 bool TypedValue::IsNumeric() const { return IsInt() || IsDouble(); }
 
