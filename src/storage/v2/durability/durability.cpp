@@ -450,21 +450,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
 
       } catch (const RecoveryFailure &e) {
         LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
-        if (recovery_info.next_timestamp != 0) {
-          last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
-        }
-
-        auto last_loaded_timestamp_value = last_loaded_timestamp.value_or(0);
-        if (epoch_history->empty()) {
-          // no history, add epoch
-          epoch_history->emplace_back(wal_file.epoch_id, last_loaded_timestamp_value);
-        } else if (epoch_history->back().first != wal_file.epoch_id) {
-          // new epoch, add it
-          epoch_history->emplace_back(wal_file.epoch_id, last_loaded_timestamp_value);
-        } else if (epoch_history->back().second < last_loaded_timestamp_value) {
-          // existing epoch, update with newer timestamp
-          epoch_history->back().second = last_loaded_timestamp_value;
-        }
 
       } catch (const RecoveryFailure &e) {
         LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
