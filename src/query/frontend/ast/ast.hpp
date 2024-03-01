@@ -1283,11 +1283,11 @@ class LabelsTest : public memgraph::query::Expression {
   LabelsTest(Expression *expression, const std::vector<std::variant<LabelIx, Expression *>> &labels)
       : expression_(expression) {
     labels_.reserve(labels.size());
-    for (auto &label : labels) {
-      if (std::holds_alternative<LabelIx>(label)) {
-        labels_.push_back(std::get<LabelIx>(label));
+    for (const auto &label : labels) {
+      if (const auto *label_ix = std::get_if<LabelIx>(&label)) {
+        labels_.push_back(*label_ix);
       } else {
-        throw SemanticException("You can't use expressions in labels test.");
+        throw SemanticException("LabelsTest can only contain LabelIx.");
       }
     }
   }
