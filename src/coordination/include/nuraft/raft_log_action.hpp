@@ -18,6 +18,8 @@
 #include <cstdint>
 #include <string>
 
+#include "json/json.hpp"
+
 namespace memgraph::coordination {
 
 enum class RaftLogAction : uint8_t {
@@ -27,6 +29,14 @@ enum class RaftLogAction : uint8_t {
   SET_INSTANCE_AS_REPLICA,
   UPDATE_UUID
 };
+
+NLOHMANN_JSON_SERIALIZE_ENUM(RaftLogAction, {
+                                                {RaftLogAction::REGISTER_REPLICATION_INSTANCE, "register"},
+                                                {RaftLogAction::UNREGISTER_REPLICATION_INSTANCE, "unregister"},
+                                                {RaftLogAction::SET_INSTANCE_AS_MAIN, "promote"},
+                                                {RaftLogAction::SET_INSTANCE_AS_REPLICA, "demote"},
+                                                {RaftLogAction::UPDATE_UUID, "update_uuid"},
+                                            })
 
 inline auto ParseRaftLogAction(std::string_view action) -> RaftLogAction {
   if (action == "register") {
