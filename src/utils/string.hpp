@@ -209,8 +209,13 @@ std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out, c
   if (src.empty()) return out;
   size_t index = 0;
   while (splits < 0 || splits-- != 0) {
-    auto n = src.find(delimiter, index);
-    if (n == std::string::npos) break;
+    size_t n = 0;
+    if (delimiter.empty()) {  // Special case where we just return characters
+      n = index + 1;
+    } else {
+      n = src.find(delimiter, index);
+    }
+    if (n >= src.size()) break;
     out->emplace_back(src.substr(index, n - index));
     index = n + delimiter.size();
   }
