@@ -24,22 +24,22 @@
 
 namespace memgraph::io::network {
 
-Endpoint::IpFamily Endpoint::GetIpFamily(const std::string &address) {
+Endpoint::IpFamily Endpoint::GetIpFamily(std::string_view address) {
   in_addr addr4;
   in6_addr addr6;
-  int ipv4_result = inet_pton(AF_INET, address.c_str(), &addr4);
-  int ipv6_result = inet_pton(AF_INET6, address.c_str(), &addr6);
+  int ipv4_result = inet_pton(AF_INET, address.data(), &addr4);
+  int ipv6_result = inet_pton(AF_INET6, address.data(), &addr6);
   if (ipv4_result == 1) {
     return IpFamily::IP4;
-  } else if (ipv6_result == 1) {
-    return IpFamily::IP6;
-  } else {
-    return IpFamily::NONE;
   }
+  if (ipv6_result == 1) {
+    return IpFamily::IP6;
+  }
+  return IpFamily::NONE;
 }
 
 std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress(
-    const std::string &address, const std::optional<uint16_t> default_port) {
+    std::string_view address, const std::optional<uint16_t> default_port) {
   /// expected address format:
   ///   - "ip_address:port_number"
   ///   - "ip_address"
@@ -56,7 +56,7 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
       if (GetIpFamily(address) == IpFamily::NONE) {
         return std::nullopt;
       }
-      return std::pair{address, *default_port};
+      return std::pair{std::string(address), *default_port};  // TODO: (andi) Optimize throughout the code
     }
   } else if (parts.size() == 2) {
     ip_address = std::move(parts[0]);
@@ -88,7 +88,7 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
 }
 
 std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseHostname(
-    const std::string &address, const std::optional<uint16_t> default_port = {}) {
+    std::string_view address, const std::optional<uint16_t> default_port = {}) {
   const std::string delimiter = ":";
   std::string ip_address;
   std::vector<std::string> parts = utils::Split(address, delimiter);
@@ -97,7 +97,7 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseHostname(
       if (!IsResolvableAddress(address, *default_port)) {
         return std::nullopt;
       }
-      return std::pair{address, *default_port};
+      return std::pair{std::string(address), *default_port};  // TODO: (andi) Optimize throughout the code
     }
   } else if (parts.size() == 2) {
     int64_t int_port{0};
@@ -153,20 +153,20 @@ std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
   return os << endpoint.address << ":" << endpoint.port;
 }
 
-bool Endpoint::IsResolvableAddress(const std::string &address, uint16_t port) {
+bool Endpoint::IsResolvableAddress(std::string_view address, uint16_t port) {
   addrinfo hints{
       .ai_flags = AI_PASSIVE,
       .ai_family = AF_UNSPEC,     // IPv4 and IPv6
       .ai_socktype = SOCK_STREAM  // TCP socket
   };
   addrinfo *info = nullptr;
-  auto status = getaddrinfo(address.c_str(), std::to_string(port).c_str(), &hints, &info);
+  auto status = getaddrinfo(address.data(), std::to_string(port).c_str(), &hints, &info);
   if (info) freeaddrinfo(info);
   return status == 0;
 }
 
 std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrAddress(
-    const std::string &address, const std::optional<uint16_t> default_port) {
+    std::string_view address, const std::optional<uint16_t> default_port) {
   const std::string delimiter = ":";
   std::vector<std::string> parts = utils::Split(address, delimiter);
   if (parts.size() == 1) {

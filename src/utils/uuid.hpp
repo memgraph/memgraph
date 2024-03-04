@@ -12,6 +12,7 @@
 #pragma once
 
 #include <uuid/uuid.h>
+
 #include <array>
 #include <json/json.hpp>
 #include <string>

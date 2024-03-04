@@ -410,7 +410,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
       : coordinator_handler_(coordinator_state) {}
 
-  void UnregisterInstance(std::string const &instance_name) override {
+  void UnregisterInstance(std::string_view instance_name) override {
     auto status = coordinator_handler_.UnregisterReplicationInstance(instance_name);
     switch (status) {
       using enum memgraph::coordination::UnregisterInstanceCoordinatorStatus;
@@ -423,6 +423,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER:
         throw QueryRuntimeException("Couldn't unregister replica instance since coordinator is not a leader!");
+      case RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Couldn't unregister replica instance since raft server couldn't append the log!");
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
@@ -431,20 +433,18 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void RegisterReplicationInstance(std::string const &coordinator_socket_address,
-                                   std::string const &replication_socket_address,
+  void RegisterReplicationInstance(std::string_view coordinator_socket_address,
+                                   std::string_view replication_socket_address,
                                    std::chrono::seconds const &instance_check_frequency,
                                    std::chrono::seconds const &instance_down_timeout,
                                    std::chrono::seconds const &instance_get_uuid_frequency,
-                                   std::string const &instance_name, CoordinatorQuery::SyncMode sync_mode) override {
-    const auto maybe_replication_ip_port =
-        io::network::Endpoint::ParseSocketOrAddress(replication_socket_address, std::nullopt);
+                                   std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) override {
+    const auto maybe_replication_ip_port = io::network::Endpoint::ParseSocketOrAddress(replication_socket_address);
     if (!maybe_replication_ip_port) {
       throw QueryRuntimeException("Invalid replication socket address!");
     }
 
-    const auto maybe_coordinator_ip_port =
-        io::network::Endpoint::ParseSocketOrAddress(coordinator_socket_address, std::nullopt);
+    const auto maybe_coordinator_ip_port = io::network::Endpoint::ParseSocketOrAddress(coordinator_socket_address);
     if (!maybe_replication_ip_port) {
       throw QueryRuntimeException("Invalid replication socket address!");
     }
@@ -452,13 +452,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     const auto [replication_ip, replication_port] = *maybe_replication_ip_port;
     const auto [coordinator_server_ip, coordinator_server_port] = *maybe_coordinator_ip_port;
     const auto repl_config = coordination::CoordinatorClientConfig::ReplicationClientInfo{
-        .instance_name = instance_name,
+        .instance_name = std::string(instance_name),
         .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
         .replication_ip_address = replication_ip,
         .replication_port = replication_port};
 
     auto coordinator_client_config =
-        coordination::CoordinatorClientConfig{.instance_name = instance_name,
+        coordination::CoordinatorClientConfig{.instance_name = std::string(instance_name),
                                               .ip_address = coordinator_server_ip,
                                               .port = coordinator_server_port,
                                               .instance_health_check_frequency_sec = instance_check_frequency,
@@ -472,18 +472,17 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
-      case ENDPOINT_EXISTS:
+      case COORD_ENDPOINT_EXISTS:
         throw QueryRuntimeException(
-            "Couldn't register replica instance since instance with such endpoint already exists!");
+            "Couldn't register replica instance since instance with such coordinator endpoint already exists!");
+      case REPL_ENDPOINT_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance since instance with such replication endpoint already exists!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("REGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER:
         throw QueryRuntimeException("Couldn't register replica instance since coordinator is not a leader!");
-      case RAFT_COULD_NOT_ACCEPT:
-        throw QueryRuntimeException(
-            "Couldn't register replica instance since raft server couldn't accept the log! Most likely the raft "
-            "instance is not a leader!");
-      case RAFT_COULD_NOT_APPEND:
+      case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Couldn't register replica instance since raft server couldn't append the log!");
       case RPC_FAILED:
         throw QueryRuntimeException(
@@ -494,8 +493,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, std::string const &raft_socket_address) -> void override {
-    auto const maybe_ip_and_port = io::network::Endpoint::ParseSocketOrIpAddress(raft_socket_address);
+  auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view raft_socket_address) -> void override {
+    auto const maybe_ip_and_port = io::network::Endpoint::ParseSocketOrAddress(raft_socket_address);
     if (maybe_ip_and_port) {
       auto const [ip, port] = *maybe_ip_and_port;
       spdlog::info("Adding instance {} with raft socket address {}:{}.", raft_server_id, port, ip);
@@ -505,8 +504,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void SetReplicationInstanceToMain(const std::string &instance_name) override {
-    auto status = coordinator_handler_.SetReplicationInstanceToMain(instance_name);
+  void SetReplicationInstanceToMain(std::string_view instance_name) override {
+    auto const status = coordinator_handler_.SetReplicationInstanceToMain(instance_name);
     switch (status) {
       using enum memgraph::coordination::SetInstanceToMainCoordinatorStatus;
       case NO_INSTANCE_WITH_NAME:
@@ -515,6 +514,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't set instance to main since there is already a main instance in cluster!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
+      case NOT_LEADER:
+        throw QueryRuntimeException("Couldn't set instance to main since coordinator is not a leader!");
+      case RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Couldn't promote instance since raft server couldn't append the log!");
       case COULD_NOT_PROMOTE_TO_MAIN:
         throw QueryRuntimeException(
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
@@ -1251,14 +1254,13 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Only coordinator can run SHOW INSTANCES.");
       }
 
-      callback.header = {"name", "raft_socket_address", "coordinator_socket_address", "alive", "role"};
+      callback.header = {"name", "raft_socket_address", "coordinator_socket_address", "health", "role"};
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      replica_nfields = callback.header.size()]() mutable {
         auto const instances = handler.ShowInstances();
         auto const converter = [](const auto &status) -> std::vector<TypedValue> {
           return {TypedValue{status.instance_name}, TypedValue{status.raft_socket_address},
-                  TypedValue{status.coord_socket_address}, TypedValue{status.is_alive},
-                  TypedValue{status.cluster_role}};
+                  TypedValue{status.coord_socket_address}, TypedValue{status.health}, TypedValue{status.cluster_role}};
         };
 
         return utils::fmap(converter, instances);

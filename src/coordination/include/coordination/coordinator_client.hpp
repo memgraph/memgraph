@@ -46,16 +46,17 @@ class CoordinatorClient {
   void ResumeFrequentCheck();
 
   auto InstanceName() const -> std::string;
-  auto SocketAddress() const -> std::string;
+  auto CoordinatorSocketAddress() const -> std::string;
+  auto ReplicationSocketAddress() const -> std::string;
 
   [[nodiscard]] auto DemoteToReplica() const -> bool;
 
-  auto SendPromoteReplicaToMainRpc(const utils::UUID &uuid, ReplicationClientsInfo replication_clients_info) const
+  auto SendPromoteReplicaToMainRpc(utils::UUID const &uuid, ReplicationClientsInfo replication_clients_info) const
       -> bool;
 
-  auto SendSwapMainUUIDRpc(const utils::UUID &uuid) const -> bool;
+  auto SendSwapMainUUIDRpc(utils::UUID const &uuid) const -> bool;
 
-  auto SendUnregisterReplicaRpc(std::string const &instance_name) const -> bool;
+  auto SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool;
 
   auto SendEnableWritingOnMainRpc() const -> bool;
 
