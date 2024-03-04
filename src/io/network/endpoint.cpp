@@ -22,6 +22,11 @@
 #include "utils/message.hpp"
 #include "utils/string.hpp"
 
+namespace {
+constexpr std::string_view delimiter = ":";
+
+}  // namespace
+
 namespace memgraph::io::network {
 
 Endpoint::IpFamily Endpoint::GetIpFamily(std::string_view address) {
@@ -38,7 +43,7 @@ Endpoint::IpFamily Endpoint::GetIpFamily(std::string_view address) {
   return IpFamily::NONE;
 }
 
-std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress(
+std::optional<std::pair<std::string_view, uint16_t>> Endpoint::ParseSocketOrIpAddress(
     std::string_view address, const std::optional<uint16_t> default_port) {
   /// expected address format:
   ///   - "ip_address:port_number"
@@ -47,19 +52,18 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
   // be given, or we return nullopt. If it's a socket address, we try to parse
   // it into an ip address and a port number; even if a default port is given,
   // it won't be used, as we expect that it is given in the address string.
-  const std::string delimiter = ":";
-  std::string ip_address;
 
-  std::vector<std::string> parts = utils::Split(address, delimiter);
-  if (parts.size() == 1) {
-    if (default_port) {
-      if (GetIpFamily(address) == IpFamily::NONE) {
-        return std::nullopt;
-      }
-      return std::pair{std::string(address), *default_port};  // TODO: (andi) Optimize throughout the code
+  auto parts = utils::SplitView(address, delimiter);
+
+  if (parts.size() == 1 && default_port) {
+    if (GetIpFamily(address) == IpFamily::NONE) {
+      return std::nullopt;
     }
-  } else if (parts.size() == 2) {
-    ip_address = std::move(parts[0]);
+    return std::pair{address, *default_port};
+  }
+
+  if (parts.size() == 2) {
+    std::string_view ip_address = parts[0];
     if (GetIpFamily(ip_address) == IpFamily::NONE) {
       return std::nullopt;
     }
@@ -70,11 +74,13 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
       spdlog::error(utils::MessageWithLink("Invalid port number {}.", parts[1], "https://memgr.ph/ports"));
       return std::nullopt;
     }
+
     if (int_port < 0) {
       spdlog::error(utils::MessageWithLink("Invalid port number {}. The port number must be a positive integer.",
                                            int_port, "https://memgr.ph/ports"));
       return std::nullopt;
     }
+
     if (int_port > std::numeric_limits<uint16_t>::max()) {
       spdlog::error(utils::MessageWithLink("Invalid port number. The port number exceedes the maximum possible size.",
                                            "https://memgr.ph/ports"));
@@ -87,47 +93,50 @@ std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress
   return std::nullopt;
 }
 
-std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseHostname(
-    std::string_view address, const std::optional<uint16_t> default_port = {}) {
-  const std::string delimiter = ":";
-  std::string ip_address;
-  std::vector<std::string> parts = utils::Split(address, delimiter);
-  if (parts.size() == 1) {
-    if (default_port) {
-      if (!IsResolvableAddress(address, *default_port)) {
-        return std::nullopt;
-      }
-      return std::pair{std::string(address), *default_port};  // TODO: (andi) Optimize throughout the code
+std::optional<std::pair<std::string_view, uint16_t>> Endpoint::ParseHostname(
+    std::string_view address, const std::optional<uint16_t> default_port) {
+  auto parts = utils::SplitView(address, delimiter);
+
+  if (parts.size() == 1 && default_port) {
+    if (!IsResolvableAddress(address, *default_port)) {
+      return std::nullopt;
     }
-  } else if (parts.size() == 2) {
+    return std::pair{address, *default_port};
+  }
+
+  if (parts.size() == 2) {
     int64_t int_port{0};
-    auto hostname = std::move(parts[0]);
     try {
       int_port = utils::ParseInt(parts[1]);
     } catch (utils::BasicException &e) {
       spdlog::error(utils::MessageWithLink("Invalid port number {}.", parts[1], "https://memgr.ph/ports"));
       return std::nullopt;
     }
+
     if (int_port < 0) {
       spdlog::error(utils::MessageWithLink("Invalid port number {}. The port number must be a positive integer.",
                                            int_port, "https://memgr.ph/ports"));
       return std::nullopt;
     }
+
     if (int_port > std::numeric_limits<uint16_t>::max()) {
       spdlog::error(utils::MessageWithLink("Invalid port number. The port number exceedes the maximum possible size.",
                                            "https://memgr.ph/ports"));
       return std::nullopt;
     }
+
+    auto hostname = parts[0];
     if (IsResolvableAddress(hostname, static_cast<uint16_t>(int_port))) {
       return std::pair{hostname, static_cast<u_int16_t>(int_port)};
     }
   }
+
   return std::nullopt;
 }
 
 std::string Endpoint::SocketAddress() const {
   auto ip_address = address.empty() ? "EMPTY" : address;
-  return ip_address + ":" + std::to_string(port);
+  return fmt::format("{}:{}", ip_address, port);
 }
 
 Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip_address)), port(port) {
@@ -165,22 +174,24 @@ bool Endpoint::IsResolvableAddress(std::string_view address, uint16_t port) {
   return status == 0;
 }
 
-std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrAddress(
+std::optional<std::pair<std::string_view, uint16_t>> Endpoint::ParseSocketOrAddress(
     std::string_view address, const std::optional<uint16_t> default_port) {
-  const std::string delimiter = ":";
-  std::vector<std::string> parts = utils::Split(address, delimiter);
+  auto parts = utils::SplitView(address, delimiter);
+
   if (parts.size() == 1) {
     if (GetIpFamily(address) == IpFamily::NONE) {
       return ParseHostname(address, default_port);
     }
     return ParseSocketOrIpAddress(address, default_port);
   }
+
   if (parts.size() == 2) {
     if (GetIpFamily(parts[0]) == IpFamily::NONE) {
       return ParseHostname(address, default_port);
     }
     return ParseSocketOrIpAddress(address, default_port);
   }
+
   return std::nullopt;
 }
 

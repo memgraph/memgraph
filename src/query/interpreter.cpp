@@ -355,7 +355,7 @@ class ReplQueryHandler {
       const auto replication_config =
           replication::ReplicationClientConfig{.name = name,
                                                .mode = repl_mode,
-                                               .ip_address = ip,
+                                               .ip_address = std::string(ip),
                                                .port = port,
                                                .replica_check_frequency = replica_check_frequency,
                                                .ssl = std::nullopt};
@@ -454,12 +454,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     const auto repl_config = coordination::CoordinatorClientConfig::ReplicationClientInfo{
         .instance_name = std::string(instance_name),
         .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
-        .replication_ip_address = replication_ip,
+        .replication_ip_address = std::string(replication_ip),
         .replication_port = replication_port};
 
     auto coordinator_client_config =
         coordination::CoordinatorClientConfig{.instance_name = std::string(instance_name),
-                                              .ip_address = coordinator_server_ip,
+                                              .ip_address = std::string(coordinator_server_ip),
                                               .port = coordinator_server_port,
                                               .instance_health_check_frequency_sec = instance_check_frequency,
                                               .instance_down_timeout_sec = instance_down_timeout,

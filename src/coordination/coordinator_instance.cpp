@@ -35,9 +35,11 @@ CoordinatorInstance::CoordinatorInstance()
           [this]() {
             spdlog::info("Leader changed, starting all replication instances!");
             auto const instances = raft_state_.GetInstances();
-            auto replicas = instances | ranges::views::filter([](auto const &instance) {
-                              return instance.role == ReplicationRole::REPLICA;
-                            });
+            auto replicas =
+                instances | ranges::views::filter([](auto const &instance) {
+                  return instance.status ==
+                         "replica";  // TODO: (andi) constexpr or abstract fetching with CoordinatorClusterState.
+                });
 
             std::ranges::for_each(replicas, [this](auto &replica) {
               spdlog::info("Starting replication instance {}", replica.config.instance_name);
@@ -46,8 +48,8 @@ CoordinatorInstance::CoordinatorInstance()
                                            &CoordinatorInstance::ReplicaFailCallback);
             });
 
-            auto main = instances | ranges::views::filter(
-                                        [](auto const &instance) { return instance.role == ReplicationRole::MAIN; });
+            auto main =
+                instances | ranges::views::filter([](auto const &instance) { return instance.status == "main"; });
 
             // TODO: (andi) Add support for this
             // MG_ASSERT(std::ranges::distance(main) == 1, "There should be exactly one main instance");
@@ -60,7 +62,7 @@ CoordinatorInstance::CoordinatorInstance()
             });
 
             std::ranges::for_each(repl_instances_, [this](auto &instance) {
-              instance.SetNewMainUUID(raft_state_.GetUUID());  // TODO: (andi) Rename
+              instance.SetNewMainUUID(raft_state_.GetUUID());
               instance.StartFrequentCheck();
             });
           },
@@ -98,7 +100,6 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
             .raft_socket_address = instance->get_endpoint(),
             .cluster_role = "coordinator",
             .health = "unknown"};  // TODO: (andi) Get this info from RAFT and test it or when we will move
-                                   // CoordinatorState to every instance, we can be smarter about this using our RPC.
   };
   auto instances_status = utils::fmap(raft_state_.GetAllCoordinators(), coord_instance_to_status);
 
@@ -126,15 +127,9 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
       std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
     }
   } else {
-    auto const stringify_repl_role = [](ReplicationRole role) -> std::string {
-      return role == ReplicationRole::MAIN ? "main" : "replica";
-    };
-
     // TODO: (andi) Add capability that followers can also return socket addresses
-    auto process_repl_instance_as_follower = [&stringify_repl_role](auto const &instance) -> InstanceStatus {
-      return {.instance_name = instance.config.instance_name,
-              .cluster_role = stringify_repl_role(instance.role),
-              .health = "unknown"};
+    auto process_repl_instance_as_follower = [](auto const &instance) -> InstanceStatus {
+      return {.instance_name = instance.config.instance_name, .cluster_role = instance.status, .health = "unknown"};
     };
 
     std::ranges::transform(raft_state_.GetInstances(), std::back_inserter(instances_status),
@@ -355,11 +350,11 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
 
-  // TODO: (andi) Change so that RaftLogState is the central place for asking who is main...
+  auto const is_main = [this](ReplicationInstance const &instance) {
+    return IsMain(instance.InstanceName()) && instance.GetMainUUID() == raft_state_.GetUUID() && instance.IsAlive();
+  };
 
-  auto const is_main = [this](ReplicationInstance const &instance) { return IsMain(instance.InstanceName()); };
-
-  if (is_main(*inst_to_remove) && inst_to_remove->IsAlive()) {
+  if (is_main(*inst_to_remove)) {
     return UnregisterInstanceCoordinatorStatus::IS_MAIN;
   }
 

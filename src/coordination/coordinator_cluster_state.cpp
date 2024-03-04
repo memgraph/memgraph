@@ -18,51 +18,61 @@
 
 namespace memgraph::coordination {
 
-using replication_coordination_glue::ReplicationRole;
+// TODO: (andi) Correct locking scheme
 
-CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other)
-    : instance_roles_{other.instance_roles_} {}
+void to_json(nlohmann::json &j, InstanceState const &instance_state) {
+  j = nlohmann::json{{"config", instance_state.config}, {"status", instance_state.status}};
+}
+
+void from_json(nlohmann::json const &j, InstanceState &instance_state) {
+  j.at("config").get_to(instance_state.config);
+  j.at("status").get_to(instance_state.status);
+}
+
+CoordinatorClusterState::CoordinatorClusterState(std::map<std::string, InstanceState, std::less<>> instances)
+    : instances_{std::move(instances)} {}
+
+CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other) : instances_{other.instances_} {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState const &other) {
   if (this == &other) {
     return *this;
   }
-  instance_roles_ = other.instance_roles_;
+  instances_ = other.instances_;
   return *this;
 }
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other) noexcept
-    : instance_roles_{std::move(other.instance_roles_)} {}
+    : instances_{std::move(other.instances_)} {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
     return *this;
   }
-  instance_roles_ = std::move(other.instance_roles_);
+  instances_ = std::move(other.instances_);
   return *this;
 }
 
 auto CoordinatorClusterState::MainExists() const -> bool {
   auto lock = std::shared_lock{log_lock_};
-  return std::ranges::any_of(instance_roles_,
-                             [](auto const &entry) { return entry.second.role == ReplicationRole::MAIN; });
+  return std::ranges::any_of(instances_, [](auto const &entry) { return entry.second.status == "main"; });
 }
 
 auto CoordinatorClusterState::IsMain(std::string_view instance_name) const -> bool {
   auto lock = std::shared_lock{log_lock_};
-  auto const it = instance_roles_.find(instance_name);
-  return it != instance_roles_.end() && it->second.role == ReplicationRole::MAIN;
+  auto const it = instances_.find(instance_name);
+  return it != instances_.end() && it->second.status == "main";
 }
 
 auto CoordinatorClusterState::IsReplica(std::string_view instance_name) const -> bool {
   auto lock = std::shared_lock{log_lock_};
-  auto const it = instance_roles_.find(instance_name);
-  return it != instance_roles_.end() && it->second.role == ReplicationRole::REPLICA;
+  auto const it = instances_.find(instance_name);
+  return it != instances_.end() && it->second.status == "replica";
 }
 
-auto CoordinatorClusterState::InsertInstance(std::string_view instance_name, ReplicationRole role) -> void {
+auto CoordinatorClusterState::InsertInstance(std::string instance_name, InstanceState instance_state) -> void {
   auto lock = std::unique_lock{log_lock_};
-  instance_roles_[instance_name.data()].role = role;
+  instances_.insert_or_assign(std::move(instance_name), std::move(instance_state));
 }
 
 auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void {
@@ -70,26 +80,26 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
   switch (log_action) {
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
       auto const &config = std::get<CoordinatorClientConfig>(log_entry);
-      instance_roles_[config.instance_name] = InstanceState{config, ReplicationRole::REPLICA};
+      instances_[config.instance_name] = InstanceState{config, "replica"};
       break;
     }
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE: {
       auto const instance_name = std::get<std::string>(log_entry);
-      instance_roles_.erase(instance_name);
+      instances_.erase(instance_name);
       break;
     }
     case RaftLogAction::SET_INSTANCE_AS_MAIN: {
       auto const instance_name = std::get<std::string>(log_entry);
-      auto it = instance_roles_.find(instance_name);
-      MG_ASSERT(it != instance_roles_.end(), "Instance does not exist as part of raft state!");
-      it->second.role = ReplicationRole::MAIN;
+      auto it = instances_.find(instance_name);
+      MG_ASSERT(it != instances_.end(), "Instance does not exist as part of raft state!");
+      it->second.status = "main";
       break;
     }
     case RaftLogAction::SET_INSTANCE_AS_REPLICA: {
       auto const instance_name = std::get<std::string>(log_entry);
-      auto it = instance_roles_.find(instance_name);
-      MG_ASSERT(it != instance_roles_.end(), "Instance does not exist as part of raft state!");
-      it->second.role = ReplicationRole::REPLICA;
+      auto it = instances_.find(instance_name);
+      MG_ASSERT(it != instances_.end(), "Instance does not exist as part of raft state!");
+      it->second.status = "replica";
       break;
     }
     case RaftLogAction::UPDATE_UUID: {
@@ -99,64 +109,36 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
   }
 }
 
-// TODO: (andi) Improve based on Gareth's comments
 auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
   auto lock = std::shared_lock{log_lock_};
-  auto const role_to_string = [](auto const &role) -> std::string_view {
-    switch (role) {
-      case ReplicationRole::MAIN:
-        return "main";
-      case ReplicationRole::REPLICA:
-        return "replica";
-    }
-  };
 
-  auto const entry_to_string = [&role_to_string](auto const &entry) {
-    return fmt::format("{}_{}", entry.first, role_to_string(entry.second.role));
-  };
+  // .at(0) is hack to solve the problem with json serialization of map
+  auto const log = nlohmann::json{instances_}.at(0).dump();
 
-  auto instances_str_view = instance_roles_ | ranges::views::transform(entry_to_string);
-  uint32_t size =
-      std::accumulate(instances_str_view.begin(), instances_str_view.end(), 0,
-                      [](uint32_t acc, auto const &entry) { return acc + sizeof(uint32_t) + entry.size(); });
-
-  data = buffer::alloc(size);
+  data = buffer::alloc(sizeof(uint32_t) + log.size());
   buffer_serializer bs(data);
-  std::for_each(instances_str_view.begin(), instances_str_view.end(), [&bs](auto const &entry) { bs.put_str(entry); });
+  bs.put_str(log);
 }
 
 auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterState {
-  auto const str_to_role = [](auto const &str) -> ReplicationRole {
-    if (str == "main") {
-      return ReplicationRole::MAIN;
-    }
-    return ReplicationRole::REPLICA;
-  };
-
-  CoordinatorClusterState cluster_state;
   buffer_serializer bs(data);
-  while (bs.size() > 0) {
-    auto const entry = bs.get_str();
-    auto const first_dash = entry.find('_');
-    auto const instance_name = entry.substr(0, first_dash);
-    auto const role_str = entry.substr(first_dash + 1);
-    cluster_state.InsertInstance(instance_name, str_to_role(role_str));
-  }
-  return cluster_state;
+  auto const j = nlohmann::json::parse(bs.get_str());
+  auto instances = j.get<std::map<std::string, InstanceState, std::less<>>>();
+
+  return CoordinatorClusterState{std::move(instances)};
 }
 
 auto CoordinatorClusterState::GetInstances() const -> std::vector<InstanceState> {
   auto lock = std::shared_lock{log_lock_};
-  return instance_roles_ | ranges::views::values | ranges::to<std::vector<InstanceState>>;
+  return instances_ | ranges::views::values | ranges::to<std::vector<InstanceState>>;
 }
 
 auto CoordinatorClusterState::GetUUID() const -> utils::UUID { return uuid_; }
 
 auto CoordinatorClusterState::FindCurrentMainInstanceName() const -> std::optional<std::string> {
   auto lock = std::shared_lock{log_lock_};
-  auto const it = std::ranges::find_if(instance_roles_,
-                                       [](auto const &entry) { return entry.second.role == ReplicationRole::MAIN; });
-  if (it == instance_roles_.end()) {
+  auto const it = std::ranges::find_if(instances_, [](auto const &entry) { return entry.second.status == "main"; });
+  if (it == instances_.end()) {
     return {};
   }
   return it->first;

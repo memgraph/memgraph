@@ -48,7 +48,7 @@ struct Endpoint {
   uint16_t port{0};
   IpFamily family{IpFamily::NONE};
 
-  static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrAddress(
+  static std::optional<std::pair<std::string_view, uint16_t>> ParseSocketOrAddress(
       std::string_view address, std::optional<uint16_t> default_port = {});
 
   /**
@@ -61,7 +61,7 @@ struct Endpoint {
    * it into an ip address and a port number; even if a default port is given,
    * it won't be used, as we expect that it is given in the address string.
    */
-  static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(
+  static std::optional<std::pair<std::string_view, uint16_t>> ParseSocketOrIpAddress(
       std::string_view address, std::optional<uint16_t> default_port = {});
 
   /**
@@ -71,8 +71,8 @@ struct Endpoint {
    *    - "hostname"
    * After we parse hostname and port we try to resolve the hostname into an ip_address.
    */
-  static std::optional<std::pair<std::string, uint16_t>> ParseHostname(std::string_view address,
-                                                                       std::optional<uint16_t> default_port);
+  static std::optional<std::pair<std::string_view, uint16_t>> ParseHostname(std::string_view address,
+                                                                            std::optional<uint16_t> default_port = {});
 
   static IpFamily GetIpFamily(std::string_view address);
 
@@ -83,7 +83,7 @@ struct Endpoint {
    * Given a DNS hostname, this function performs resolution and returns
    * the IP address associated with the hostname.
    */
-  static std::string ResolveHostnameIntoIpAddress(const std::string &address, uint16_t port);
+  static std::string ResolveHostnameIntoIpAddress(std::string_view address, uint16_t port);
 };
 
 }  // namespace memgraph::io::network
