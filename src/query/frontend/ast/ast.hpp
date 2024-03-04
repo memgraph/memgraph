@@ -1287,7 +1287,7 @@ class LabelsTest : public memgraph::query::Expression {
       if (const auto *label_ix = std::get_if<LabelIx>(&label)) {
         labels_.push_back(*label_ix);
       } else {
-        throw SemanticException("LabelsTest can only contain LabelIx.");
+        throw SemanticException("You can't use labels in filter expressions.");
       }
     }
   }
