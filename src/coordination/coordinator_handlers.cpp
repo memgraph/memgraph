@@ -140,7 +140,7 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
         .port = repl_info_config.replication_port,
     };
   };
-
+  std::this_thread::sleep_for(std::chrono::milliseconds{1000});
   // registering replicas
   for (auto const &config : req.replication_clients_info | ranges::views::transform(converter)) {
     auto instance_client = replication_handler.RegisterReplica(config);

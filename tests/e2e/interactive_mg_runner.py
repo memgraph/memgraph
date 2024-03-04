@@ -39,6 +39,7 @@ import tempfile
 import time
 from argparse import ArgumentParser
 from inspect import signature
+from typing import List, Set
 
 import yaml
 
@@ -211,6 +212,14 @@ def start_instance(context, name, procdir):
 def start_all(context, procdir="", keep_directories=True):
     stop_all(keep_directories)
     for key, _ in context.items():
+        start_instance(context, key, procdir)
+
+
+def start_all_except(context, exceptions: Set[str], procdir="", keep_directories=True):
+    stop_all(keep_directories)
+    for key, _ in context.items():
+        if key in exceptions:
+            continue
         start_instance(context, key, procdir)
 
 

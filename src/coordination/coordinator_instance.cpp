@@ -66,16 +66,18 @@ CoordinatorInstance::CoordinatorInstance()
           },
           [this]() {
             spdlog::info("Leader changed, stopping all replication instances!");
+            auto lock = std::lock_guard{coord_instance_lock_};  // RAII
             repl_instances_.clear();
+            spdlog::info("Leader changed, stopped all replication instances!");
           })) {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::unique_lock{self->coord_instance_lock_};
+    auto lock = std::lock_guard{self->coord_instance_lock_};  // RAII
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
     std::invoke(repl_instance.GetSuccessCallback(), self, repl_instance_name);
   };
 
   client_fail_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::unique_lock{self->coord_instance_lock_};
+    auto lock = std::lock_guard{self->coord_instance_lock_};
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
@@ -216,16 +218,25 @@ auto CoordinatorInstance::TryFailover() -> void {
     spdlog::warn("Failover failed since promoting replica to main failed!");
     return;
   }
-
+  spdlog::info("Leader changed, stopping all replication instances!");
+  // TODO (antoniofilipovic) : This can fail and we don't know we change uuid
   if (!raft_state_.AppendUpdateUUIDLog(new_main_uuid)) {
     return;
   }
 
   auto const new_main_instance_name = new_main->InstanceName();
 
+  // TODO (antoniofilipovic): This can fail and we don't know we have set up new MAIN
   if (!raft_state_.AppendSetInstanceAsMainLog(new_main_instance_name)) {
     return;
   }
+
+  // TODO:
+  // Set trying failover on instance (chosen instance)
+  // If all passes, all good
+  // if it fails, we need to check if main was promoted and we have correct new uuid
+  // PromoteToMain -> split on promote to main and enable writting -> solves issue that we have
+  // consistent state
 
   spdlog::info("Failover successful! Instance {} promoted to main.", new_main->InstanceName());
 }
