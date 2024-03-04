@@ -2004,6 +2004,7 @@ class SingleQuery : public memgraph::query::Tree, public utils::Visitable<Hierar
   }
 
   std::vector<memgraph::query::Clause *> clauses_;
+  bool has_update{};
 
   SingleQuery *Clone(AstStorage *storage) const override {
     SingleQuery *object = storage->Create<SingleQuery>();
@@ -2011,6 +2012,7 @@ class SingleQuery : public memgraph::query::Tree, public utils::Visitable<Hierar
     for (auto i4 = 0; i4 < clauses_.size(); ++i4) {
       object->clauses_[i4] = clauses_[i4] ? clauses_[i4]->Clone(storage) : nullptr;
     }
+    object->has_update = has_update;
     return object;
   }
 
