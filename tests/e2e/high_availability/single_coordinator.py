@@ -755,11 +755,11 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
         return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
-        ("instance_4", "", "127.0.0.1:10014", True, "replica"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+        ("instance_4", "", "127.0.0.1:10014", "up", "replica"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
@@ -787,11 +787,11 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     # 7
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
-        ("instance_2", "", "127.0.0.1:10012", True, "main"),
-        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
-        ("instance_4", "", "127.0.0.1:10014", True, "replica"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "main"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("instance_4", "", "127.0.0.1:10014", "up", "replica"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
@@ -821,11 +821,11 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "main"),
-        ("instance_2", "", "127.0.0.1:10012", False, "unknown"),
-        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
-        ("instance_4", "", "127.0.0.1:10014", False, "unknown"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("instance_4", "", "127.0.0.1:10014", "down", "unknown"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
@@ -836,11 +836,11 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     # 13
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "main"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
-        ("instance_4", "", "127.0.0.1:10014", False, "unknown"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("instance_4", "", "127.0.0.1:10014", "down", "unknown"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
