@@ -321,6 +321,7 @@ TypedValue::operator storage::PropertyValue() const {
   throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
 }
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(type_param, type_enum, field)                    \
   type_param &TypedValue::Value##type_enum() {                                                   \
     if (type_ != Type::type_enum) [[unlikely]]                                                   \
