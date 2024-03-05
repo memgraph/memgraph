@@ -81,7 +81,6 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       return;
     }
     *replica_state = replication::ReplicaState::DIVERGED_FROM_MAIN;
-    ;
 
     auto log_error = [client_name = client_.name_]() {
       spdlog::error(
