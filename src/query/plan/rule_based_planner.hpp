@@ -21,6 +21,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
 
@@ -195,6 +196,9 @@ class RuleBasedPlanner {
 
         std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops;
 
+        if (single_query_part.pattern_comprehension_matchings.size() > 1) {
+          throw utils::NotYetImplemented("Multiple pattern comprehensions.");
+        }
         for (const auto &matching : single_query_part.pattern_comprehension_matchings) {
           std::unique_ptr<LogicalOperator> new_input;
           MatchContext match_ctx{matching.second, *context.symbol_table, context.bound_symbols};
