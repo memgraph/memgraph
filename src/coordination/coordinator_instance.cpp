@@ -35,11 +35,9 @@ CoordinatorInstance::CoordinatorInstance()
           [this]() {
             spdlog::info("Leader changed, starting all replication instances!");
             auto const instances = raft_state_.GetInstances();
-            auto replicas =
-                instances | ranges::views::filter([](auto const &instance) {
-                  return instance.status ==
-                         "replica";  // TODO: (andi) constexpr or abstract fetching with CoordinatorClusterState.
-                });
+            auto replicas = instances | ranges::views::filter([](auto const &instance) {
+                              return instance.status == ReplicationRole::REPLICA;
+                            });
 
             std::ranges::for_each(replicas, [this](auto &replica) {
               spdlog::info("Starting replication instance {}", replica.config.instance_name);
@@ -48,11 +46,8 @@ CoordinatorInstance::CoordinatorInstance()
                                            &CoordinatorInstance::ReplicaFailCallback);
             });
 
-            auto main =
-                instances | ranges::views::filter([](auto const &instance) { return instance.status == "main"; });
-
-            // TODO: (andi) Add support for this
-            // MG_ASSERT(std::ranges::distance(main) == 1, "There should be exactly one main instance");
+            auto main = instances | ranges::views::filter(
+                                        [](auto const &instance) { return instance.status == ReplicationRole::MAIN; });
 
             std::ranges::for_each(main, [this](auto &main_instance) {
               spdlog::info("Starting main instance {}", main_instance.config.instance_name);
@@ -71,13 +66,13 @@ CoordinatorInstance::CoordinatorInstance()
             repl_instances_.clear();
           })) {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::unique_lock{self->coord_instance_lock_};
+    auto lock = std::lock_guard{self->coord_instance_lock_};
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
     std::invoke(repl_instance.GetSuccessCallback(), self, repl_instance_name);
   };
 
   client_fail_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::unique_lock{self->coord_instance_lock_};
+    auto lock = std::lock_guard{self->coord_instance_lock_};
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
@@ -127,9 +122,15 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
       std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
     }
   } else {
+    auto const stringify_inst_status = [](ReplicationRole status) -> std::string {
+      return status == ReplicationRole::MAIN ? "main" : "replica";
+    };
+
     // TODO: (andi) Add capability that followers can also return socket addresses
-    auto process_repl_instance_as_follower = [](auto const &instance) -> InstanceStatus {
-      return {.instance_name = instance.config.instance_name, .cluster_role = instance.status, .health = "unknown"};
+    auto process_repl_instance_as_follower = [&stringify_inst_status](auto const &instance) -> InstanceStatus {
+      return {.instance_name = instance.config.instance_name,
+              .cluster_role = stringify_inst_status(instance.status),
+              .health = "unknown"};
     };
 
     std::ranges::transform(raft_state_.GetInstances(), std::back_inserter(instances_status),

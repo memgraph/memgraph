@@ -1212,7 +1212,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       };
 
       notifications->emplace_back(
-          SeverityLevel::INFO, NotificationCode::REGISTER_COORDINATOR_SERVER,
+          SeverityLevel::INFO, NotificationCode::REGISTER_REPLICATION_INSTANCE,
           fmt::format("Coordinator has registered coordinator server on {} for instance {}.",
                       coordinator_socket_address_tv.ValueString(), coordinator_query->instance_name_));
       return callback;

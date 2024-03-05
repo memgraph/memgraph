@@ -11,6 +11,8 @@
 
 #include "nuraft/coordinator_cluster_state.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
+#include "replication_coordination_glue/role.hpp"
+
 #include "utils/file.hpp"
 
 #include <gflags/gflags.h>
@@ -25,6 +27,7 @@ using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::InstanceState;
 using memgraph::coordination::RaftLogAction;
 using memgraph::replication_coordination_glue::ReplicationMode;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using nuraft::buffer;
 using nuraft::buffer_serializer;
 using nuraft::ptr;
@@ -49,7 +52,7 @@ TEST_F(CoordinatorClusterStateTest, InstanceStateSerialization) {
                               std::chrono::seconds{10},
                               {"instance_name", ReplicationMode::ASYNC, "replication_ip_address", 10001},
                               .ssl = std::nullopt},
-      "main"};
+      ReplicationRole::MAIN};
 
   nlohmann::json j = instance_state;
   InstanceState deserialized_instance_state = j.get<InstanceState>();

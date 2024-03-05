@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_config.hpp"
 #include "nuraft/raft_log_action.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/uuid.hpp"
 
@@ -29,9 +30,11 @@
 
 namespace memgraph::coordination {
 
+using replication_coordination_glue::ReplicationRole;
+
 struct InstanceState {
   CoordinatorClientConfig config;
-  std::string status;
+  ReplicationRole status;
 
   friend auto operator==(InstanceState const &lhs, InstanceState const &rhs) -> bool {
     return lhs.config == rhs.config && lhs.status == rhs.status;
@@ -63,7 +66,6 @@ class CoordinatorClusterState {
 
   auto MainExists() const -> bool;
 
-  // TODO: (andi) Has main/replica role
   auto IsMain(std::string_view instance_name) const -> bool;
 
   auto IsReplica(std::string_view instance_name) const -> bool;

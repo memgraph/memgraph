@@ -32,12 +32,10 @@ using raft_result = cmd_result<ptr<buffer>>;
 
 RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
                      uint32_t raft_port, std::string raft_address)
-    : raft_server_id_(raft_server_id),
-      raft_port_(raft_port),
-      raft_address_(std::move(raft_address)),
+    : raft_endpoint_(raft_address, raft_port),
+      raft_server_id_(raft_server_id),
       state_machine_(cs_new<CoordinatorStateMachine>()),
-      state_manager_(
-          cs_new<CoordinatorStateManager>(raft_server_id_, raft_address_ + ":" + std::to_string(raft_port_))),
+      state_manager_(cs_new<CoordinatorStateManager>(raft_server_id_, raft_endpoint_.SocketAddress())),
       logger_(nullptr),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {}
@@ -71,11 +69,11 @@ auto RaftState::InitRaftServer() -> void {
 
   raft_launcher launcher;
 
-  raft_server_ = launcher.init(state_machine_, state_manager_, logger_, static_cast<int>(raft_port_), asio_opts, params,
-                               init_opts);
+  raft_server_ =
+      launcher.init(state_machine_, state_manager_, logger_, raft_endpoint_.port, asio_opts, params, init_opts);
 
   if (!raft_server_) {
-    throw RaftServerStartException("Failed to launch raft server on {}:{}", raft_address_, raft_port_);
+    throw RaftServerStartException("Failed to launch raft server on {}", raft_endpoint_.SocketAddress());
   }
 
   auto maybe_stop = utils::ResettableCounter<20>();
@@ -86,7 +84,7 @@ auto RaftState::InitRaftServer() -> void {
     std::this_thread::sleep_for(std::chrono::milliseconds(250));
   } while (!maybe_stop());
 
-  throw RaftServerStartException("Failed to initialize raft server on {}:{}", raft_address_, raft_port_);
+  throw RaftServerStartException("Failed to initialize raft server on {}", raft_endpoint_.SocketAddress());
 }
 
 auto RaftState::MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb) -> RaftState {
@@ -102,9 +100,11 @@ auto RaftState::MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerC
 
 RaftState::~RaftState() { launcher_.shutdown(); }
 
-auto RaftState::InstanceName() const -> std::string { return "coordinator_" + std::to_string(raft_server_id_); }
+auto RaftState::InstanceName() const -> std::string {
+  return fmt::format("coordinator_{}", std::to_string(raft_server_id_));
+}
 
-auto RaftState::RaftSocketAddress() const -> std::string { return raft_address_ + ":" + std::to_string(raft_port_); }
+auto RaftState::RaftSocketAddress() const -> std::string { return raft_endpoint_.SocketAddress(); }
 
 auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address)
     -> void {

@@ -29,6 +29,18 @@ constexpr std::string_view delimiter = ":";
 
 namespace memgraph::io::network {
 
+Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip_address)), port(port) {
+  IpFamily ip_family = GetIpFamily(address);
+  if (ip_family == IpFamily::NONE) {
+    throw NetworkError("Not a valid IPv4 or IPv6 address: {}", ip_address);
+  }
+  family = ip_family;
+}
+
+// NOLINTNEXTLINE
+Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port)
+    : address(std::move(hostname)), port(port), family{GetIpFamily(address)} {}
+
 Endpoint::IpFamily Endpoint::GetIpFamily(std::string_view address) {
   in_addr addr4;
   in6_addr addr6;
@@ -134,22 +146,7 @@ std::optional<std::pair<std::string_view, uint16_t>> Endpoint::ParseHostname(
   return std::nullopt;
 }
 
-std::string Endpoint::SocketAddress() const {
-  auto ip_address = address.empty() ? "EMPTY" : address;
-  return fmt::format("{}:{}", ip_address, port);
-}
-
-Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip_address)), port(port) {
-  IpFamily ip_family = GetIpFamily(address);
-  if (ip_family == IpFamily::NONE) {
-    throw NetworkError("Not a valid IPv4 or IPv6 address: {}", ip_address);
-  }
-  family = ip_family;
-}
-
-// NOLINTNEXTLINE
-Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port)
-    : address(std::move(hostname)), port(port), family{GetIpFamily(address)} {}
+auto Endpoint::SocketAddress() const -> std::string { return fmt::format("{}:{}", address, port); }
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
   // no need to cover the IpFamily::NONE case, as you can't even construct an

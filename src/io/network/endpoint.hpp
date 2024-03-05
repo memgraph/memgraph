@@ -39,7 +39,7 @@ struct Endpoint {
 
   enum class IpFamily : std::uint8_t { NONE, IP4, IP6 };
 
-  std::string SocketAddress() const;
+  auto SocketAddress() const -> std::string;
 
   bool operator==(const Endpoint &other) const = default;
   friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);
