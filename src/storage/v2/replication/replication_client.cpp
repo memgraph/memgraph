@@ -95,7 +95,6 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       log_error();
       return;
     }
-
     client_.thread_pool_.AddTask([storage, gk = std::move(db_acc), this] {
       const auto [success, timestamp] = this->ForceResetStorage(storage);
       if (success) {
@@ -105,9 +104,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       spdlog::error("You cannot register REPLICA {} to this MAIN because MAIN couldn't reset REPLICA's storage.",
                     client_.name_);
     });
-    return;
-#endif
+#else
     log_error();
+#endif
     return;
   }
 
