@@ -61,6 +61,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
         if (auto it = pc_ops.find(named_expr->name_); it != pc_ops.end()) {
           pattern_comprehension_op_ = std::move(it->second);
           pc_ops.erase(it);
+        } else {
+          throw utils::NotYetImplemented("Operation on top of pattern comprehension");
         }
       }
     }
