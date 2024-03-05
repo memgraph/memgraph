@@ -23,7 +23,7 @@ template <template <typename, typename...> class Container, typename T, typename
 requires ranges::range<Container<T, Allocator>> &&
     (!std::same_as<Container<T, Allocator>, std::string>)auto fmap(const Container<T, Allocator> &v, F f = {})
         -> std::vector<R> {
-  return v | ranges::views::transform(std::forward<F>(f)) | ranges::to<std::vector<R>>();
+  return v | ranges::views::transform(f) | ranges::to<std::vector<R>>();
 }
 
 }  // namespace memgraph::utils

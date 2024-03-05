@@ -193,7 +193,7 @@ class ReplicationStorageClient {
    *
    * @param storage pointer to the storage associated with the client
    */
-  bool ForceResetStorage(Storage *storage);
+  std::pair<bool, uint64_t> ForceResetStorage(Storage *storage);
 
   void LogRpcFailure();
 

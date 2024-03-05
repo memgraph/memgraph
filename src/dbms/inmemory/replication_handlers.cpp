@@ -341,13 +341,13 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_uuid);
   if (!db_acc) {
-    storage::replication::SnapshotRes res{false, 0};
+    storage::replication::ForceResetStorageRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
-    storage::replication::SnapshotRes res{false, 0};
+    storage::replication::ForceResetStorageRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
