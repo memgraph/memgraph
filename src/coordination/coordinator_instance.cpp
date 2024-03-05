@@ -65,7 +65,8 @@ CoordinatorInstance::CoordinatorInstance()
             });
           },
           [this]() {
-            spdlog::info("Leader changed, stopping all replication instances!");
+            spdlog::info("Leader changed, trying to stop all replication instances!");
+            /// TODO Add to pool
             auto lock = std::lock_guard{coord_instance_lock_};  // RAII
             repl_instances_.clear();
             spdlog::info("Leader changed, stopped all replication instances!");
@@ -218,14 +219,14 @@ auto CoordinatorInstance::TryFailover() -> void {
     spdlog::warn("Failover failed since promoting replica to main failed!");
     return;
   }
-  spdlog::info("Leader changed, stopping all replication instances!");
+  spdlog::info("Promote to main done, trying to append update uuid");
   // TODO (antoniofilipovic) : This can fail and we don't know we change uuid
   if (!raft_state_.AppendUpdateUUIDLog(new_main_uuid)) {
     return;
   }
 
   auto const new_main_instance_name = new_main->InstanceName();
-
+  spdlog::info("Promote to main done, trying to set instance as main log");
   // TODO (antoniofilipovic): This can fail and we don't know we have set up new MAIN
   if (!raft_state_.AppendSetInstanceAsMainLog(new_main_instance_name)) {
     return;

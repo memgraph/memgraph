@@ -265,8 +265,6 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
   spdlog::debug("Starting replica recovery");
   auto *mem_storage = static_cast<InMemoryStorage *>(storage);
 
-  // TODO(antoniofilipovic): Can we get stuck here in while loop if replica commit timestamp is not updated when using
-  // only snapshot
   while (true) {
     auto file_locker = mem_storage->file_retainer_.AddLocker();
 
