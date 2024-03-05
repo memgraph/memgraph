@@ -1928,20 +1928,27 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
 antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) {
   std::vector<std::variant<LabelIx, Expression *>> labels;
   for (auto *node_label : ctx->nodeLabel()) {
-    if (node_label->labelName()) {
-      if (node_label->labelName()->symbolicName()) {
-        labels.emplace_back(AddLabel(std::any_cast<std::string>(node_label->accept(this))));
-      } else {
-        // If we have a parameter, we have to resolve it.
-        const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
-        const auto label_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
-        labels.emplace_back(storage_->GetLabelIx(label_name));
-        query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
-      }
-    } else {
-      // expression
-      labels.emplace_back(std::any_cast<Expression *>(node_label->accept(this)));
+    auto *label_name = node_label->labelName();
+    if (label_name->symbolicName()) {
+      labels.emplace_back(AddLabel(std::any_cast<std::string>(node_label->accept(this))));
+    } else if (label_name->parameter()) {
+      // If we have a parameter, we have to resolve it.
+      const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
+      const auto label_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
+      labels.emplace_back(storage_->GetLabelIx(label_name));
+      query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
     }
+  }
+  else {
+    // expression
+    // auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
+    // users_identifiers.insert(variable);
+    // return static_cast<Expression *>(storage_->Create<Identifier>(variable));
+
+    // labels.emplace_back(std::any_cast<Expression *>(node_label->accept(this)));
+    auto variable = std::any_cast<std::string>(label_name->variable()->accept(this));
+    users_identifiers.insert(variable);
+    labels.emplace_back(static_cast<Expression *>(storage_->Create<Identifier>(variable)));
   }
   return labels;
 }
