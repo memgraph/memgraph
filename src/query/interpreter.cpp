@@ -1263,7 +1263,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                   TypedValue{status.coord_socket_address}, TypedValue{status.health}, TypedValue{status.cluster_role}};
         };
 
-        return utils::fmap(converter, instances);
+        return utils::fmap(instances, converter);
       };
       return callback;
     }
