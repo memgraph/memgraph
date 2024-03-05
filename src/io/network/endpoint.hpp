@@ -48,8 +48,8 @@ struct Endpoint {
   uint16_t port{0};
   IpFamily family{IpFamily::NONE};
 
-  static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrAddress(const std::string &address,
-                                                                              std::optional<uint16_t> default_port);
+  static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrAddress(
+      std::string_view address, std::optional<uint16_t> default_port = {});
 
   /**
    * Tries to parse the given string as either a socket address or ip address.
@@ -62,7 +62,7 @@ struct Endpoint {
    * it won't be used, as we expect that it is given in the address string.
    */
   static std::optional<std::pair<std::string, uint16_t>> ParseSocketOrIpAddress(
-      const std::string &address, std::optional<uint16_t> default_port = {});
+      std::string_view address, std::optional<uint16_t> default_port = {});
 
   /**
    * Tries to parse given string as either socket address or hostname.
@@ -71,12 +71,12 @@ struct Endpoint {
    *    - "hostname"
    * After we parse hostname and port we try to resolve the hostname into an ip_address.
    */
-  static std::optional<std::pair<std::string, uint16_t>> ParseHostname(const std::string &address,
+  static std::optional<std::pair<std::string, uint16_t>> ParseHostname(std::string_view address,
                                                                        std::optional<uint16_t> default_port);
 
-  static IpFamily GetIpFamily(const std::string &address);
+  static IpFamily GetIpFamily(std::string_view address);
 
-  static bool IsResolvableAddress(const std::string &address, uint16_t port);
+  static bool IsResolvableAddress(std::string_view address, uint16_t port);
 
   /**
    * Tries to resolve hostname to its corresponding IP address.

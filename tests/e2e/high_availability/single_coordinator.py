@@ -37,6 +37,9 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10011",
+            "--replication-restore-state-on-startup=true",
+            "--storage-recover-on-startup=false",
+            "--data-recovery-on-startup=false",
         ],
         "log_file": "instance_1.log",
         "data_directory": f"{TEMP_DIR}/instance_1",
@@ -51,6 +54,9 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10012",
+            "--replication-restore-state-on-startup=true",
+            "--storage-recover-on-startup=false",
+            "--data-recovery-on-startup=false",
         ],
         "log_file": "instance_2.log",
         "data_directory": f"{TEMP_DIR}/instance_2",
@@ -65,6 +71,9 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--coordinator-server-port",
             "10013",
+            "--replication-restore-state-on-startup=true",
+            "--storage-recover-on-startup=false",
+            "--data-recovery-on-startup=false",
         ],
         "log_file": "instance_3.log",
         "data_directory": f"{TEMP_DIR}/instance_3",
@@ -90,14 +99,794 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
-def test_replication_works_on_failover():
+@pytest.mark.parametrize("data_recovery", ["false", "true"])
+def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recovery):
     # Goal of this test is to check the replication works after failover command.
-    # 1. We start all replicas, main and coordinator manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
+    # 1. We start all replicas, main and coordinator manually
+    # 2. We check that main has correct state
+    # 3. Create initial data on MAIN
+    # 4. Expect data to be copied on all replicas
+    # 5. Kill instance_1 (replica 1)
+    # 6. Create data on MAIN and expect to be copied to only one replica (instance_2)
+    # 7. Kill main
+    # 8. Instance_2 new MAIN
+    # 9. Create vertex on instance 2
+    # 10. Start instance_1(it should have one commit on old epoch and new epoch with new commit shouldn't be replicated)
+    # 11. Expect data to be copied on instance_1
+    # 12. Start old MAIN (instance_3)
+    # 13. Expect data to be copied to instance_3
+
+    temp_dir = tempfile.TemporaryDirectory().name
+
+    MEMGRAPH_INNER_INSTANCES_DESCRIPTION = {
+        "instance_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10011",
+                "--replication-restore-state-on-startup",
+                "true",
+                f"--data-recovery-on-startup={data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_1.log",
+            "data_directory": f"{temp_dir}/instance_1",
+            "setup_queries": [],
+        },
+        "instance_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7689",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10012",
+                "--replication-restore-state-on-startup",
+                "true",
+                f"--data-recovery-on-startup={data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_2.log",
+            "data_directory": f"{temp_dir}/instance_2",
+            "setup_queries": [],
+        },
+        "instance_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10013",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                f"{data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_3.log",
+            "data_directory": f"{temp_dir}/instance_3",
+            "setup_queries": [],
+        },
+        "coordinator": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--raft-server-id=1",
+                "--raft-server-port=10111",
+            ],
+            "log_file": "coordinator.log",
+            "setup_queries": [
+                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
+                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
+                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
+                "SET INSTANCE instance_3 TO MAIN",
+            ],
+        },
+    }
+
+    # 1
+    interactive_mg_runner.start_all(MEMGRAPH_INNER_INSTANCES_DESCRIPTION)
+
+    # 2
+    main_cursor = connect(host="localhost", port=7687).cursor()
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
+    expected_data_on_main = [
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data_on_main, retrieve_data_show_replicas)
+
+    # 3
+    execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:1});")
+
+    # 4
+
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+    instance_2_cursor = connect(host="localhost", port=7689).cursor()
+
+    assert execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0] == 1
+    assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 1
+
+    # 5
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
+
+    # 6
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:2});")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+
+    # 7
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
+
+    # 8.
+    coord_cursor = connect(host="localhost", port=7690).cursor()
+
+    def retrieve_data_show_instances():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "main"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 9
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(instance_2_cursor, "CREATE (:Epoch3 {prop:3});")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    # 10
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
+
+    new_expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "main"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+    mg_sleep_and_assert(new_expected_data_on_coord, retrieve_data_show_instances)
+
+    # 11
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(3, get_vertex_count)
+
+    # 12
+
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
+
+    new_expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "main"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
+    ]
+    mg_sleep_and_assert(new_expected_data_on_coord, retrieve_data_show_instances)
+
+    # 13
+
+    instance_3_cursor = connect(host="localhost", port=7687).cursor()
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_3_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(3, get_vertex_count)
+
+
+@pytest.mark.parametrize("data_recovery", ["false", "true"])
+def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_recovery):
+    # Goal of this test is to check the replication works after failover command if one
+    # instance missed couple of epochs but data is still available on one of the instances
+
+    # 1. We start all replicas, main and coordinator manually
+    # 2. Main does commit
+    # 3. instance_2 down
+    # 4. Main commits more
+    # 5. Main down
+    # 6. Instance_1 new main
+    # 7. Instance 1 commits
+    # 8. Instance 4 gets data
+    # 9. Instance 1 dies
+    # 10. Instance 4 new main
+    # 11. Instance 4 commits
+    # 12. Instance 2 wakes up
+    # 13. Instance 2 gets data from old epochs
+    # 14. All other instances wake up
+    # 15. Everything is replicated
+
+    temp_dir = tempfile.TemporaryDirectory().name
+
+    MEMGRAPH_INNER_INSTANCES_DESCRIPTION = {
+        "instance_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10011",
+                "--replication-restore-state-on-startup",
+                "true",
+                f"--data-recovery-on-startup={data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_1.log",
+            "data_directory": f"{temp_dir}/instance_1",
+            "setup_queries": [],
+        },
+        "instance_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7689",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10012",
+                "--replication-restore-state-on-startup",
+                "true",
+                f"--data-recovery-on-startup={data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_2.log",
+            "data_directory": f"{temp_dir}/instance_2",
+            "setup_queries": [],
+        },
+        "instance_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10013",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                f"{data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_3.log",
+            "data_directory": f"{temp_dir}/instance_3",
+            "setup_queries": [],
+        },
+        "instance_4": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7691",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10014",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                f"{data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_4.log",
+            "data_directory": f"{temp_dir}/instance_4",
+            "setup_queries": [],
+        },
+        "coordinator": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--raft-server-id=1",
+                "--raft-server-port=10111",
+            ],
+            "log_file": "coordinator.log",
+            "setup_queries": [
+                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
+                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
+                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
+                "REGISTER INSTANCE instance_4 ON '127.0.0.1:10014' WITH '127.0.0.1:10004';",
+                "SET INSTANCE instance_3 TO MAIN",
+            ],
+        },
+    }
+
+    # 1
+
+    interactive_mg_runner.start_all(MEMGRAPH_INNER_INSTANCES_DESCRIPTION)
+
+    expected_data_on_main = [
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_4",
+            "127.0.0.1:10004",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+    ]
+
+    main_cursor = connect(host="localhost", port=7687).cursor()
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
+    mg_sleep_and_assert_collection(expected_data_on_main, retrieve_data_show_replicas)
+
+    # 2
+
+    execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:1});")
+    execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:2});")
+
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+    instance_2_cursor = connect(host="localhost", port=7689).cursor()
+    instance_4_cursor = connect(host="localhost", port=7691).cursor()
+
+    assert execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+    assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+    assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+
+    # 3
+
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_2")
+
+    coord_cursor = connect(host="localhost", port=7690).cursor()
+
+    def retrieve_data_show_instances():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+        ("instance_4", "", "127.0.0.1:10014", "up", "replica"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 4
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(main_cursor, "CREATE (:EpochVertex1 {prop:1});")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    assert execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
+    assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
+
+    # 5
+
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
+
+    # 6
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("instance_4", "", "127.0.0.1:10014", "up", "replica"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 7
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch2Vertex {prop:1});")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    # 8
+
+    assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 4
+
+    # 9
+
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
+
+    # 10
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("instance_4", "", "127.0.0.1:10014", "up", "main"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 11
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(instance_4_cursor, "CREATE (:Epoch3Vertex {prop:1});")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    # 12
+
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_2")
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("instance_4", "", "127.0.0.1:10014", "up", "main"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 13
+
+    instance_2_cursor = connect(host="localhost", port=7689).cursor()
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(5, get_vertex_count)
+
+    # 14
+
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
+        ("instance_4", "", "127.0.0.1:10014", "up", "main"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 15
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+    instance_4_cursor = connect(host="localhost", port=7691).cursor()
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(5, get_vertex_count)
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(5, get_vertex_count)
+
+
+@pytest.mark.parametrize("data_recovery", ["false"])
+def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_recovery):
+    # TODO(antoniofilipovic) Test should pass when logic is added
+    # Goal of this test is to check the replication works forcefully if replica misses epoch
+    # 1. We start all replicas, main and coordinator manually
+    # 2. We check that main has correct state
+    # 3. Create initial data on MAIN
+    # 4. Expect data to be copied on all replicas
+    # 5. Kill instance_1 ( this one will miss complete epoch)
+    # 6. Kill main (instance_3)
+    # 7. Instance_2 or instance_4 new main
+    # 8. New main commits
+    # 9. Instance_2 down (not main)
+    # 10. instance_4 down
+    # 11. Instance 1 up (missed epoch)
+    # 12 Instance 1 new main
+    # 13 instance 2 up
+    # 14 Force data from instance 1 to instance 2
+
+    temp_dir = tempfile.TemporaryDirectory().name
+
+    pass
+
+
+@pytest.mark.parametrize("data_recovery", ["false", "true"])
+def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
+    # Goal of this test is to check that correct replica instance as new MAIN is chosen
+    # 1. We start all replicas, main and coordinator manually
+    # 2. We check that main has correct state
+    # 3. Create initial data on MAIN
+    # 4. Expect data to be copied on all replicas
+    # 5. Kill instance_1 ( this one will miss complete epoch)
+    # 6. Kill main (instance_3)
+    # 7. Instance_2 new MAIN
+    # 8. Instance_2 commits and replicates data
+    # 9. Instance_4 down (not main)
+    # 10. instance_2 down (MAIN), instance 1 up (missed epoch),
+    # instance 4 up (In this case we should always choose instance_4 because it has up-to-date data)
+    # 11 Instance 4 new main
+    # 12 instance_1 gets up-to-date data, instance_4 has all data
+
+    temp_dir = tempfile.TemporaryDirectory().name
+
+    MEMGRAPH_INNER_INSTANCES_DESCRIPTION = {
+        "instance_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10011",
+                "--replication-restore-state-on-startup",
+                "true",
+                f"--data-recovery-on-startup={data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_1.log",
+            "data_directory": f"{temp_dir}/instance_1",
+            "setup_queries": [],
+        },
+        "instance_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7689",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10012",
+                "--replication-restore-state-on-startup",
+                "true",
+                f"--data-recovery-on-startup={data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_2.log",
+            "data_directory": f"{temp_dir}/instance_2",
+            "setup_queries": [],
+        },
+        "instance_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10013",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                f"{data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_3.log",
+            "data_directory": f"{temp_dir}/instance_3",
+            "setup_queries": [],
+        },
+        "instance_4": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7691",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10014",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                f"{data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_4.log",
+            "data_directory": f"{temp_dir}/instance_4",
+            "setup_queries": [],
+        },
+        "coordinator": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--raft-server-id=1",
+                "--raft-server-port=10111",
+            ],
+            "log_file": "coordinator.log",
+            "setup_queries": [
+                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
+                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
+                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
+                "REGISTER INSTANCE instance_4 ON '127.0.0.1:10014' WITH '127.0.0.1:10004';",
+                "SET INSTANCE instance_3 TO MAIN",
+            ],
+        },
+    }
+
+    # 1
+
+    interactive_mg_runner.start_all(MEMGRAPH_INNER_INSTANCES_DESCRIPTION)
+
+    # 2
+
+    main_cursor = connect(host="localhost", port=7687).cursor()
+    expected_data_on_main = [
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_4",
+            "127.0.0.1:10004",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+    ]
+
+    main_cursor = connect(host="localhost", port=7687).cursor()
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
+    mg_sleep_and_assert_collection(expected_data_on_main, retrieve_data_show_replicas)
+
+    coord_cursor = connect(host="localhost", port=7690).cursor()
+
+    def retrieve_data_show_instances():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    # TODO(antoniofilipovic) Before fixing durability, if this is removed we also have an issue. Check after fix
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+        ("instance_4", "", "127.0.0.1:10014", "up", "replica"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 3
+
+    execute_and_fetch_all(main_cursor, "CREATE (:Epoch1Vertex {prop:1});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Epoch1Vertex {prop:2});")
+
+    # 4
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+    instance_2_cursor = connect(host="localhost", port=7689).cursor()
+    instance_4_cursor = connect(host="localhost", port=7691).cursor()
+
+    assert execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+    assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+    assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+
+    # 5
+
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
+
+    # 6
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
+
+    # 7
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "main"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("instance_4", "", "127.0.0.1:10014", "up", "replica"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 8
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(3, get_vertex_count)
+
+    assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
+
+    # 9
+
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_4")
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "main"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("instance_4", "", "127.0.0.1:10014", "down", "unknown"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 10
+
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_2")
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_4")
+
+    # 11
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("instance_4", "", "127.0.0.1:10014", "up", "main"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 12
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+    instance_4_cursor = connect(host="localhost", port=7691).cursor()
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(3, get_vertex_count)
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(3, get_vertex_count)
+
+
+def test_replication_works_on_failover_simple():
+    # Goal of this test is to check the replication works after failover command.
+    # 1. We start all replicas, main and coordinator manually
     # 2. We check that main has correct state
     # 3. We kill main
     # 4. We check that coordinator and new main have correct state
     # 5. We insert one vertex on new main
     # 6. We check that vertex appears on new replica
+    # 7. We bring back main up
+    # 8. Expect data to be copied to main
     safe_execute(shutil.rmtree, TEMP_DIR)
 
     # 1
@@ -121,8 +910,11 @@ def test_replication_works_on_failover():
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
-    actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
-    assert actual_data_on_main == expected_data_on_main
+
+    def main_cursor_show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
+    mg_sleep_and_assert_collection(expected_data_on_main, main_cursor_show_replicas)
 
     # 3
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
@@ -134,10 +926,10 @@ def test_replication_works_on_failover():
         return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "main"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
@@ -164,33 +956,48 @@ def test_replication_works_on_failover():
     ]
     mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
+    # 5
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(new_main_cursor, "CREATE ();")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    # 6
+    alive_replica_cursor = connect(host="localhost", port=7689).cursor()
+    res = execute_and_fetch_all(alive_replica_cursor, "MATCH (n) RETURN count(n) as count;")[0][0]
+    assert res == 1, "Vertex should be replicated"
+
+    # 7
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;")))
+
+    new_main_cursor = connect(host="localhost", port=7688).cursor()
+
     expected_data_on_new_main = [
         (
             "instance_2",
             "127.0.0.1:10002",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
         ),
         (
             "instance_3",
             "127.0.0.1:10003",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
         ),
     ]
-    mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
+    mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
 
-    # 5
-    execute_and_fetch_all(new_main_cursor, "CREATE ();")
+    # 8
+    alive_main = connect(host="localhost", port=7687).cursor()
 
-    # 6
-    alive_replica_cursror = connect(host="localhost", port=7689).cursor()
-    res = execute_and_fetch_all(alive_replica_cursror, "MATCH (n) RETURN count(n) as count;")[0][0]
-    assert res == 1, "Vertex should be replicated"
-    interactive_mg_runner.stop_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    def retrieve_vertices_count():
+        return execute_and_fetch_all(alive_main, "MATCH (n) RETURN count(n) as count;")[0][0]
+
+    mg_sleep_and_assert(1, retrieve_vertices_count)
 
 
 def test_replication_works_on_replica_instance_restart():
@@ -224,8 +1031,11 @@ def test_replication_works_on_replica_instance_restart():
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
-    actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
-    assert actual_data_on_main == expected_data_on_main
+
+    def main_cursor_show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
+    mg_sleep_and_assert_collection(expected_data_on_main, main_cursor_show_replicas)
 
     # 3
     coord_cursor = connect(host="localhost", port=7690).cursor()
@@ -236,10 +1046,10 @@ def test_replication_works_on_replica_instance_restart():
         return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "", "127.0.0.1:10012", False, "unknown"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert_collection(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
@@ -302,10 +1112,10 @@ def test_replication_works_on_replica_instance_restart():
         return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
@@ -350,10 +1160,10 @@ def test_show_instances():
         return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data, show_repl_cluster)
 
@@ -373,20 +1183,20 @@ def test_show_instances():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
 
     expected_data = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data, show_repl_cluster)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
     expected_data = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
-        ("instance_2", "", "127.0.0.1:10012", False, "unknown"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data, show_repl_cluster)
 
@@ -412,8 +1222,11 @@ def test_simple_automatic_failover():
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
-    actual_data_on_main = sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
-    assert actual_data_on_main == sorted(expected_data_on_main)
+
+    def main_cursor_show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
+    mg_sleep_and_assert_collection(expected_data_on_main, main_cursor_show_replicas)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
@@ -423,10 +1236,10 @@ def test_simple_automatic_failover():
         return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "main"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
@@ -498,7 +1311,10 @@ def test_registering_replica_fails_endpoint_exists():
             coord_cursor,
             "REGISTER INSTANCE instance_5 ON '127.0.0.1:10011' WITH '127.0.0.1:10005';",
         )
-    assert str(e.value) == "Couldn't register replica instance since instance with such endpoint already exists!"
+    assert (
+        str(e.value)
+        == "Couldn't register replica instance since instance with such coordinator endpoint already exists!"
+    )
 
 
 def test_replica_instance_restarts():
@@ -511,20 +1327,20 @@ def test_replica_instance_restarts():
         return sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;")))
 
     expected_data_up = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data_up, show_repl_cluster)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
 
     expected_data_down = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data_down, show_repl_cluster)
 
@@ -553,18 +1369,18 @@ def test_automatic_failover_main_back_as_replica():
         return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_after_failover = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "main"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
     ]
     mg_sleep_and_assert(expected_data_after_failover, retrieve_data_show_repl_cluster)
 
     expected_data_after_main_coming_back = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "main"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", True, "replica"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
     ]
 
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
@@ -592,20 +1408,20 @@ def test_automatic_failover_main_back_as_main():
         return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_all_down = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
-        ("instance_2", "", "127.0.0.1:10012", False, "unknown"),
-        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
     ]
 
     mg_sleep_and_assert(expected_data_all_down, retrieve_data_show_repl_cluster)
 
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
     expected_data_main_back = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", False, "unknown"),
-        ("instance_2", "", "127.0.0.1:10012", False, "unknown"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data_main_back, retrieve_data_show_repl_cluster)
 
@@ -620,10 +1436,10 @@ def test_automatic_failover_main_back_as_main():
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
     expected_data_replicas_back = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     mg_sleep_and_assert(expected_data_replicas_back, retrieve_data_show_repl_cluster)

@@ -438,3 +438,10 @@ add_unit_test(coordination_utils.cpp)
 target_link_libraries(${test_prefix}coordination_utils gflags mg-coordination mg-repl_coord_glue)
 target_include_directories(${test_prefix}coordination_utils PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
+
+# Test Raft log serialization
+if(MG_ENTERPRISE)
+add_unit_test(raft_log_serialization.cpp)
+target_link_libraries(${test_prefix}raft_log_serialization gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}raft_log_serialization PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()

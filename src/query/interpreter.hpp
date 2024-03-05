@@ -95,25 +95,24 @@ class CoordinatorQueryHandler {
   };
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterReplicationInstance(std::string const &coordinator_socket_address,
-                                           std::string const &replication_socket_address,
+  virtual void RegisterReplicationInstance(std::string_view coordinator_socket_address,
+                                           std::string_view replication_socket_address,
                                            std::chrono::seconds const &instance_health_check_frequency,
                                            std::chrono::seconds const &instance_down_timeout,
                                            std::chrono::seconds const &instance_get_uuid_frequency,
-                                           std::string const &instance_name, CoordinatorQuery::SyncMode sync_mode) = 0;
+                                           std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void UnregisterInstance(std::string const &instance_name) = 0;
+  virtual void UnregisterInstance(std::string_view instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetReplicationInstanceToMain(const std::string &instance_name) = 0;
+  virtual void SetReplicationInstanceToMain(std::string_view instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual auto AddCoordinatorInstance(uint32_t raft_server_id, std::string const &coordinator_socket_address)
-      -> void = 0;
+  virtual auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view coordinator_socket_address) -> void = 0;
 };
 #endif
 

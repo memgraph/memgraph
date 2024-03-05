@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 #include "utils/uuid.hpp"
-#include <uuid/uuid.h>
+
 #include "slk/serialization.hpp"
 
 namespace memgraph::utils {

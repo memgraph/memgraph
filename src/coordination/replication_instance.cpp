@@ -25,15 +25,8 @@ ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorC
                                          HealthCheckInstanceCallback succ_instance_cb,
                                          HealthCheckInstanceCallback fail_instance_cb)
     : client_(peer, std::move(config), std::move(succ_cb), std::move(fail_cb)),
-      replication_role_(replication_coordination_glue::ReplicationRole::REPLICA),
       succ_cb_(succ_instance_cb),
-      fail_cb_(fail_instance_cb) {
-  if (!client_.DemoteToReplica()) {
-    throw CoordinatorRegisterInstanceException("Failed to demote instance {} to replica", client_.InstanceName());
-  }
-
-  client_.StartFrequentCheck();
-}
+      fail_cb_(fail_instance_cb) {}
 
 auto ReplicationInstance::OnSuccessPing() -> void {
   last_response_time_ = std::chrono::system_clock::now();
@@ -52,24 +45,17 @@ auto ReplicationInstance::IsReadyForUUIDPing() -> bool {
 }
 
 auto ReplicationInstance::InstanceName() const -> std::string { return client_.InstanceName(); }
-auto ReplicationInstance::SocketAddress() const -> std::string { return client_.SocketAddress(); }
+auto ReplicationInstance::CoordinatorSocketAddress() const -> std::string { return client_.CoordinatorSocketAddress(); }
+auto ReplicationInstance::ReplicationSocketAddress() const -> std::string { return client_.ReplicationSocketAddress(); }
 auto ReplicationInstance::IsAlive() const -> bool { return is_alive_; }
 
-auto ReplicationInstance::IsReplica() const -> bool {
-  return replication_role_ == replication_coordination_glue::ReplicationRole::REPLICA;
-}
-auto ReplicationInstance::IsMain() const -> bool {
-  return replication_role_ == replication_coordination_glue::ReplicationRole::MAIN;
-}
-
-auto ReplicationInstance::PromoteToMain(utils::UUID new_uuid, ReplicationClientsInfo repl_clients_info,
+auto ReplicationInstance::PromoteToMain(utils::UUID const &new_uuid, ReplicationClientsInfo repl_clients_info,
                                         HealthCheckInstanceCallback main_succ_cb,
                                         HealthCheckInstanceCallback main_fail_cb) -> bool {
   if (!client_.SendPromoteReplicaToMainRpc(new_uuid, std::move(repl_clients_info))) {
     return false;
   }
 
-  replication_role_ = replication_coordination_glue::ReplicationRole::MAIN;
   main_uuid_ = new_uuid;
   succ_cb_ = main_succ_cb;
   fail_cb_ = main_fail_cb;
@@ -77,13 +63,14 @@ auto ReplicationInstance::PromoteToMain(utils::UUID new_uuid, ReplicationClients
   return true;
 }
 
+auto ReplicationInstance::SendDemoteToReplicaRpc() -> bool { return client_.DemoteToReplica(); }
+
 auto ReplicationInstance::DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb,
                                           HealthCheckInstanceCallback replica_fail_cb) -> bool {
   if (!client_.DemoteToReplica()) {
     return false;
   }
 
-  replication_role_ = replication_coordination_glue::ReplicationRole::REPLICA;
   succ_cb_ = replica_succ_cb;
   fail_cb_ = replica_fail_cb;
 
@@ -117,6 +104,7 @@ auto ReplicationInstance::EnsureReplicaHasCorrectMainUUID(utils::UUID const &cur
   }
   UpdateReplicaLastResponseUUID();
 
+  // NOLINTNEXTLINE
   if (res.GetValue().has_value() && res.GetValue().value() == curr_main_uuid) {
     return true;
   }
@@ -124,7 +112,7 @@ auto ReplicationInstance::EnsureReplicaHasCorrectMainUUID(utils::UUID const &cur
   return SendSwapAndUpdateUUID(curr_main_uuid);
 }
 
-auto ReplicationInstance::SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid) -> bool {
+auto ReplicationInstance::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool {
   if (!replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid)) {
     return false;
   }
@@ -132,7 +120,7 @@ auto ReplicationInstance::SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid
   return true;
 }
 
-auto ReplicationInstance::SendUnregisterReplicaRpc(std::string const &instance_name) -> bool {
+auto ReplicationInstance::SendUnregisterReplicaRpc(std::string_view instance_name) -> bool {
   return client_.SendUnregisterReplicaRpc(instance_name);
 }
 
