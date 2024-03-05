@@ -658,7 +658,7 @@ void PatternVisitor::Visit(Exists &op) {
   filter_matchings_.push_back(std::move(filter_matching));
 }
 
-std::vector<FilterMatching> PatternVisitor::getMatchings() { return filter_matchings_; }
+std::vector<FilterMatching> PatternVisitor::getFilterMatchings() { return filter_matchings_; }
 
 static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
                          SymbolTable &symbol_table) {
