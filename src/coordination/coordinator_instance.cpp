@@ -100,8 +100,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
             .health = "unknown"};  // TODO: (andi) Get this info from RAFT and test it or when we will move
                                    // CoordinatorState to every instance, we can be smarter about this using our RPC.
   };
-
-  auto instances_status = utils::fmap(coord_instance_to_status, raft_state_.GetAllCoordinators());
+  auto instances_status = utils::fmap(raft_state_.GetAllCoordinators(), coord_instance_to_status);
 
   if (raft_state_.IsLeader()) {
     auto const stringify_repl_role = [this](ReplicationInstance const &instance) -> std::string {
