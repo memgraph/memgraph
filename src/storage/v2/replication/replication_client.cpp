@@ -76,13 +76,37 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     }
   }
   if (branching_point) {
-    spdlog::error(
-        "You cannot register Replica {} to this Main because at one point "
-        "Replica {} acted as the Main instance. Both the Main and Replica {} "
-        "now hold unique data. Please resolve data conflicts and start the "
-        "replication on a clean instance.",
-        client_.name_, client_.name_, client_.name_);
-    replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::DIVERGED_FROM_MAIN; });
+    auto replica_state = replica_state_.Lock();
+    if (*replica_state == replication::ReplicaState::DIVERGED_FROM_MAIN) {
+      return;
+    }
+    *replica_state = replication::ReplicaState::DIVERGED_FROM_MAIN;
+
+    auto log_error = [client_name = client_.name_]() {
+      spdlog::error(
+          "You cannot register Replica {} to this Main because at one point "
+          "Replica {} acted as the Main instance. Both the Main and Replica {} "
+          "now hold unique data. Please resolve data conflicts and start the "
+          "replication on a clean instance.",
+          client_name, client_name, client_name);
+    };
+#ifdef MG_ENTERPRISE
+    if (!FLAGS_coordinator_server_port) {
+      log_error();
+      return;
+    }
+    client_.thread_pool_.AddTask([storage, gk = std::move(db_acc), this] {
+      const auto [success, timestamp] = this->ForceResetStorage(storage);
+      if (success) {
+        spdlog::info("Successfully reset storage of REPLICA {} to timestamp {}.", client_.name_, timestamp);
+        return;
+      }
+      spdlog::error("You cannot register REPLICA {} to this MAIN because MAIN couldn't reset REPLICA's storage.",
+                    client_.name_);
+    });
+#else
+    log_error();
+#endif
     return;
   }
 
@@ -265,8 +289,6 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
   spdlog::debug("Starting replica recovery");
   auto *mem_storage = static_cast<InMemoryStorage *>(storage);
 
-  // TODO(antoniofilipovic): Can we get stuck here in while loop if replica commit timestamp is not updated when using
-  // only snapshot
   while (true) {
     auto file_locker = mem_storage->file_retainer_.AddLocker();
 
@@ -333,6 +355,21 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
       return;
     }
   }
+}
+
+std::pair<bool, uint64_t> ReplicationStorageClient::ForceResetStorage(memgraph::storage::Storage *storage) {
+  utils::OnScopeExit set_to_maybe_behind{
+      [this]() { replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; }); }};
+  try {
+    auto stream{client_.rpc_client_.Stream<replication::ForceResetStorageRpc>(main_uuid_, storage->uuid())};
+    const auto res = stream.AwaitResponse();
+    return std::pair{res.success, res.current_commit_timestamp};
+  } catch (const rpc::RpcFailedException &) {
+    spdlog::error(
+        utils::MessageWithLink("Couldn't ForceReset data to {}.", client_.name_, "https://memgr.ph/replication"));
+  }
+
+  return {false, 0};
 }
 
 ////// ReplicaStream //////
