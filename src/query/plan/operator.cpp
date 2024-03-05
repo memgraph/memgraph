@@ -5628,7 +5628,7 @@ RollUpApply::RollUpApply(const std::shared_ptr<LogicalOperator> &input,
                          std::shared_ptr<LogicalOperator> &&second_branch)
     : input_(input), second_branch_(second_branch) {}
 
-std::vector<Symbol> RollUpApply::OutputSymbols(const SymbolTable &symbol_table) const {
+std::vector<Symbol> RollUpApply::OutputSymbols(const SymbolTable & /*symbol_table*/) const {
   std::vector<Symbol> symbols;
   return symbols;
 }
