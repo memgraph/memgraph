@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -354,5 +354,24 @@ void PoolResource::Release() {
 }
 
 // PoolResource END
+
+struct NullMemoryResourceImpl final : public MemoryResource {
+  NullMemoryResourceImpl() = default;
+  ~NullMemoryResourceImpl() override = default;
+
+ private:
+  void *DoAllocate(size_t bytes, size_t alignment) override { throw BadAlloc{"NullMemoryResource doesn't allocate"}; }
+  void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
+    throw BadAlloc{"NullMemoryResource doesn't deallocate"};
+  }
+  bool DoIsEqual(MemoryResource const &other) const noexcept override {
+    return dynamic_cast<NullMemoryResourceImpl const *>(&other) != nullptr;
+  }
+};
+
+MemoryResource *NullMemoryResource() noexcept {
+  static auto res = NullMemoryResourceImpl{};
+  return &res;
+}
 
 }  // namespace memgraph::utils

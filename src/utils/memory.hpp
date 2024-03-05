@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -247,6 +247,8 @@ template <class T, class U>
 bool operator!=(const Allocator<T> &a, const Allocator<U> &b) {
   return !(a == b);
 }
+
+auto NullMemoryResource() noexcept -> MemoryResource *;
 
 /// Wraps std::pmr::memory_resource for use with out MemoryResource
 class StdMemoryResource final : public MemoryResource {
