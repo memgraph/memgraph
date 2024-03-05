@@ -5637,6 +5637,9 @@ std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const
 
 bool RollUpApply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
+    if (!input_ || !second_branch_) {
+      throw utils::NotYetImplemented("Pattern comprehension. One of branch is null! Please contact support.");
+    }
     input_->Accept(visitor) && second_branch_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
