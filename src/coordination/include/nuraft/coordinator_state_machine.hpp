@@ -47,7 +47,7 @@ class CoordinatorStateMachine : public state_machine {
   auto IsMain(std::string_view instance_name) const -> bool;
   auto IsReplica(std::string_view instance_name) const -> bool;
 
-  static auto CreateLog(std::string_view log) -> ptr<buffer>;
+  static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
   static auto SerializeRegisterInstance(CoordinatorClientConfig const &config) -> ptr<buffer>;
   static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;
