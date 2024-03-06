@@ -47,6 +47,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -177,6 +178,20 @@ inline void AbortCheck(ExecutionContext const &context) {
   if (auto const reason = MustAbort(context); reason != AbortReason::NO_ABORT) throw HintedAbortError(reason);
 }
 
+std::vector<storage::LabelId> EvaluateLabels(const std::vector<std::variant<storage::LabelId, Expression *>> &labels,
+                                             ExpressionEvaluator &evaluator, DbAccessor *dba) {
+  std::vector<storage::LabelId> result;
+  result.reserve(labels.size());
+  for (const auto &label : labels) {
+    if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
+      result.emplace_back(*label_atom);
+    } else {
+      result.emplace_back(dba->NameToLabel(std::get<Expression *>(label)->Accept(evaluator).ValueString()));
+    }
+  }
+  return result;
+}
+
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -277,15 +292,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 
   if (input_cursor_->Pull(frame, context)) {
     // we have to resolve the labels before we can check for permissions
-    std::vector<storage::LabelId> labels;
-    for (const auto &label : self_.node_info_.labels) {
-      if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
-        labels.emplace_back(*label_atom);
-      } else {
-        labels.emplace_back(
-            context.db_accessor->NameToLabel(std::get<Expression *>(label)->Accept(evaluator).ValueString()));
-      }
-    }
+    auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -380,15 +387,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   if (!input_cursor_->Pull(frame, context)) return false;
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
-  std::vector<storage::LabelId> labels;
-  for (const auto &label : self_.node_info_.labels) {
-    if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
-      labels.emplace_back(*label_atom);
-    } else {
-      labels.emplace_back(
-          context.db_accessor->NameToLabel(std::get<Expression *>(label)->Accept(evaluator).ValueString()));
-    }
-  }
+  auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast()) {
@@ -3142,17 +3141,8 @@ void SetProperties::SetPropertiesCursor::Shutdown() { input_cursor_->Shutdown();
 void SetProperties::SetPropertiesCursor::Reset() { input_cursor_->Reset(); }
 
 SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                     const std::vector<std::variant<storage::LabelId, query::Expression *>> &labels)
-    : input_(input), input_symbol_(std::move(input_symbol)), labels_(labels) {}
-
-SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                     const std::vector<storage::LabelId> &labels)
-    : input_(input), input_symbol_(std::move(input_symbol)) {
-  labels_.reserve(labels.size());
-  for (const auto &label : labels) {
-    labels_.emplace_back(label);
-  }
-}
+                     std::vector<std::variant<storage::LabelId, query::Expression *>> labels)
+    : input_(input), input_symbol_(std::move(input_symbol)), labels_(std::move(labels)) {}
 
 ACCEPT_WITH_INPUT(SetLabels)
 
@@ -3175,15 +3165,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   if (!input_cursor_->Pull(frame, context)) return false;
-  std::vector<storage::LabelId> labels;
-  for (const auto &label : self_.labels_) {
-    if (const auto *label_id = std::get_if<storage::LabelId>(&label)) {
-      labels.emplace_back(*label_id);
-    } else {
-      labels.emplace_back(
-          context.db_accessor->NameToLabel(std::get<query::Expression *>(label)->Accept(evaluator).ValueString()));
-    }
-  }
+  auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -3321,17 +3303,8 @@ void RemoveProperty::RemovePropertyCursor::Shutdown() { input_cursor_->Shutdown(
 void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                           const std::vector<std::variant<storage::LabelId, query::Expression *>> &labels)
-    : input_(input), input_symbol_(std::move(input_symbol)), labels_(labels) {}
-
-RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                           const std::vector<storage::LabelId> &labels)
-    : input_(input), input_symbol_(std::move(input_symbol)) {
-  labels_.reserve(labels.size());
-  for (const auto &label : labels) {
-    labels_.emplace_back(label);
-  }
-}
+                           std::vector<std::variant<storage::LabelId, query::Expression *>> labels)
+    : input_(input), input_symbol_(std::move(input_symbol)), labels_(std::move(labels)) {}
 
 ACCEPT_WITH_INPUT(RemoveLabels)
 
@@ -3354,15 +3327,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   if (!input_cursor_->Pull(frame, context)) return false;
-  std::vector<storage::LabelId> labels;
-  for (const auto &label : self_.labels_) {
-    if (const auto *label_id = std::get_if<storage::LabelId>(&label)) {
-      labels.emplace_back(*label_id);
-    } else {
-      labels.emplace_back(
-          context.db_accessor->NameToLabel(std::get<query::Expression *>(label)->Accept(evaluator).ValueString()));
-    }
-  }
+  auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&

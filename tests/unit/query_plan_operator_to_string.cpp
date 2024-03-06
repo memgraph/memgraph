@@ -290,9 +290,10 @@ TYPED_TEST(OperatorToStringTest, SetProperties) {
 TYPED_TEST(OperatorToStringTest, SetLabels) {
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
-  last_op = std::make_shared<plan::SetLabels>(
-      last_op, node_sym,
-      std::vector<memgraph::storage::LabelId>{this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
+  std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels;
+  labels.emplace_back(this->dba.NameToLabel("label1"));
+  labels.emplace_back(this->dba.NameToLabel("label2"));
+  last_op = std::make_shared<plan::SetLabels>(last_op, node_sym, labels);
 
   std::string expected_string{"SetLabels"};
   EXPECT_EQ(last_op->ToString(), expected_string);
@@ -311,9 +312,10 @@ TYPED_TEST(OperatorToStringTest, RemoveProperty) {
 TYPED_TEST(OperatorToStringTest, RemoveLabels) {
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
-  last_op = std::make_shared<plan::RemoveLabels>(
-      last_op, node_sym,
-      std::vector<memgraph::storage::LabelId>{this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
+  std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels;
+  labels.emplace_back(this->dba.NameToLabel("label1"));
+  labels.emplace_back(this->dba.NameToLabel("label2"));
+  last_op = std::make_shared<plan::RemoveLabels>(last_op, node_sym, labels);
 
   std::string expected_string{"RemoveLabels"};
   EXPECT_EQ(last_op->ToString(), expected_string);

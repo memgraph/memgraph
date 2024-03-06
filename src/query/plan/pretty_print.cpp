@@ -334,18 +334,22 @@ json ToJson(const std::vector<std::pair<storage::PropertyId, Expression *>> &pro
   return json;
 }
 
+json ToJson(const std::vector<std::variant<storage::LabelId, Expression *>> &labels, const DbAccessor &dba) {
+  json json;
+  for (const auto &label : labels) {
+    if (const auto *label_node = std::get_if<Expression *>(&label)) {
+      json.emplace_back(ToJson(*label_node));
+    } else {
+      json.emplace_back(ToJson(std::get<storage::LabelId>(label), dba));
+    }
+  }
+  return json;
+}
+
 json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(node_info.symbol);
-  std::vector<storage::LabelId> labels;
-  for (auto label : node_info.labels) {
-    if (const auto *label_node = std::get_if<Expression *>(&label)) {
-      labels = {};
-      break;
-    }
-    labels.push_back(std::get<storage::LabelId>(label));
-  }
-  self["labels"] = ToJson(labels, dba);
+  self["labels"] = ToJson(node_info.labels, dba);
   const auto *props = std::get_if<PropertiesMapList>(&node_info.properties);
   self["properties"] = ToJson(props ? *props : PropertiesMapList{}, dba);
   return self;
@@ -634,15 +638,7 @@ bool PlanToJsonVisitor::PreVisit(SetLabels &op) {
   json self;
   self["name"] = "SetLabels";
   self["input_symbol"] = ToJson(op.input_symbol_);
-  std::vector<storage::LabelId> labels;
-  for (auto label : op.labels_) {
-    if (const auto *label_node = std::get_if<Expression *>(&label)) {
-      labels = {};
-      break;
-    }
-    labels.push_back(std::get<storage::LabelId>(label));
-  }
-  self["labels"] = ToJson(labels, *dba_);
+  self["labels"] = ToJson(op.labels_, *dba_);
   op.input_->Accept(*this);
   self["input"] = PopOutput();
 
@@ -667,16 +663,7 @@ bool PlanToJsonVisitor::PreVisit(RemoveLabels &op) {
   json self;
   self["name"] = "RemoveLabels";
   self["input_symbol"] = ToJson(op.input_symbol_);
-  // not a solution, have to fix it
-  std::vector<storage::LabelId> labels;
-  for (auto label : op.labels_) {
-    if (const auto *label_node = std::get_if<Expression *>(&label)) {
-      labels = {};
-      break;
-    }
-    labels.push_back(std::get<storage::LabelId>(label));
-  }
-  self["labels"] = ToJson(labels, *dba_);
+  self["labels"] = ToJson(op.labels_, *dba_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

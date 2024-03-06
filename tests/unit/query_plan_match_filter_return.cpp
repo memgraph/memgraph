@@ -315,7 +315,6 @@ TYPED_TEST(QueryPlan, NodeFilterLabelsAndProperties) {
 
   // make a scan all
   auto n = MakeScanAll(this->storage, symbol_table, "n");
-  // n.node_->labels_.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label)));
   std::vector<memgraph::query::LabelIx> labels;
   labels.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label)));
   std::get<0>(n.node_->properties_)[this->storage.GetPropertyIx(property.first)] = LITERAL(42);
@@ -368,8 +367,6 @@ TYPED_TEST(QueryPlan, NodeFilterMultipleLabels) {
 
   // make a scan all
   auto n = MakeScanAll(this->storage, symbol_table, "n");
-  // n.node_->labels_.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label1)));
-  // n.node_->labels_.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label2)));
   std::vector<memgraph::query::LabelIx> labels;
   labels.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label1)));
   labels.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label2)));
@@ -2810,7 +2807,6 @@ TYPED_TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   // OPTIONAL MATCH (n :missing)
   auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto label_missing = "missing";
-  // n.node_->labels_.emplace_back(this->storage.GetLabelIx(label_missing));
   std::vector<memgraph::query::LabelIx> labels;
   labels.emplace_back(this->storage.GetLabelIx(label_missing));
 
@@ -3626,7 +3622,6 @@ class ExistsFixture : public testing::Test {
     exists_expression->MapTo(symbol_table.CreateAnonymousSymbol());
 
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
-    // scan_all.node_->labels_.emplace_back(storage.GetLabelIx(match_label));
     std::vector<memgraph::query::LabelIx> labels;
     labels.emplace_back(storage.GetLabelIx(match_label));
 
@@ -3717,7 +3712,6 @@ class ExistsFixture : public testing::Test {
     exists_expression2->MapTo(symbol_table.CreateAnonymousSymbol());
 
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
-    // scan_all.node_->labels_.emplace_back(storage.GetLabelIx(match_label));
     std::vector<memgraph::query::LabelIx> labels;
     labels.emplace_back(storage.GetLabelIx(match_label));
 

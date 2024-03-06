@@ -1938,15 +1938,15 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
       labels.emplace_back(storage_->GetLabelIx(label_name));
       query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
     } else {
-      // expression
-      // auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
-      // users_identifiers.insert(variable);
-      // return static_cast<Expression *>(storage_->Create<Identifier>(variable));
-
-      // labels.emplace_back(std::any_cast<Expression *>(node_label->accept(this)));
       auto variable = std::any_cast<std::string>(label_name->variable()->accept(this));
       users_identifiers.insert(variable);
-      labels.emplace_back(static_cast<Expression *>(storage_->Create<Identifier>(variable)));
+      auto *expression = static_cast<Expression *>(storage_->Create<Identifier>(variable));
+      for (auto *lookup : label_name->propertyLookup()) {
+        auto key = std::any_cast<PropertyIx>(lookup->accept(this));
+        auto *property_lookup = storage_->Create<PropertyLookup>(expression, key);
+        expression = property_lookup;
+      }
+      labels.emplace_back(expression);
     }
   }
   return labels;
