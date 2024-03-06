@@ -11,10 +11,11 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/raft_state.hpp"
+#include <chrono>
 
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/raft_state.hpp"
 #include "utils/counter.hpp"
 
 namespace memgraph::coordination {
@@ -29,7 +30,6 @@ using nuraft::raft_params;
 using nuraft::raft_server;
 using nuraft::srv_config;
 using raft_result = cmd_result<ptr<buffer>>;
-#include <chrono>
 
 RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
                      uint32_t raft_port, std::string raft_address)
