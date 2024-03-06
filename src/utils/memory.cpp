@@ -150,110 +150,53 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
 
 namespace impl {
 
-Pool::Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *memory)
-    : blocks_per_chunk_(blocks_per_chunk), block_size_(block_size), chunks_(memory) {}
-
-Pool::~Pool() { MG_ASSERT(chunks_.empty(), "You need to call Release before destruction!"); }
-
-void *Pool::Allocate() {
-  auto allocate_block_from_chunk = [this](Chunk *chunk) {
-    unsigned char *available_block = chunk->data + (chunk->first_available_block_ix * block_size_);
-    // Update free-list pointer (index in our case) by reading "next" from the
-    // available_block.
-    chunk->first_available_block_ix = *available_block;
-    --chunk->blocks_available;
-    return available_block;
-  };
-  if (last_alloc_chunk_ && last_alloc_chunk_->blocks_available > 0U)
-    return allocate_block_from_chunk(last_alloc_chunk_);
-  // Find a Chunk with available memory.
-  for (auto &chunk : chunks_) {
-    if (chunk.blocks_available > 0U) {
-      last_alloc_chunk_ = &chunk;
-      return allocate_block_from_chunk(last_alloc_chunk_);
-    }
-  }
-  // We haven't found a Chunk with available memory, so allocate a new one.
-  if (block_size_ > std::numeric_limits<size_t>::max() / blocks_per_chunk_) throw BadAlloc("Allocation size overflow");
-  size_t data_size = blocks_per_chunk_ * block_size_;
+Pool::Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *chunk_memory)
+    : blocks_per_chunk_(blocks_per_chunk),
+      block_size_(block_size),
+      data_size_{blocks_per_chunk_ * block_size_},
+      alignment_{Ceil2(block_size_)},
+      chunks_(chunk_memory) {
   // Use the next pow2 of block_size_ as alignment, so that we cover alignment
   // requests between 1 and block_size_. Users of this class should make sure
   // that requested alignment of particular blocks is never greater than the
   // block itself.
-  size_t alignment = Ceil2(block_size_);
-  if (alignment < block_size_) throw BadAlloc("Allocation alignment overflow");
-  auto *data = reinterpret_cast<unsigned char *>(GetUpstreamResource()->Allocate(data_size, alignment));
-  // Form a free-list of blocks in data.
-  for (unsigned char i = 0U; i < blocks_per_chunk_; ++i) {
-    *(data + (i * block_size_)) = i + 1U;
-  }
-  Chunk chunk{data, 0, blocks_per_chunk_};
-  // Insert the big block in the sorted position.
-  auto it = std::lower_bound(chunks_.begin(), chunks_.end(), chunk,
-                             [](const auto &a, const auto &b) { return a.data < b.data; });
-  try {
-    it = chunks_.insert(it, chunk);
-  } catch (...) {
-    GetUpstreamResource()->Deallocate(data, data_size, alignment);
-    throw;
-  }
+  if (block_size_ > std::numeric_limits<size_t>::max() / blocks_per_chunk_) throw BadAlloc("Allocation size overflow");
+  if (alignment_ < block_size_) throw BadAlloc("Allocation alignment overflow");
+}
 
-  last_alloc_chunk_ = &*it;
-  last_dealloc_chunk_ = &*it;
-  return allocate_block_from_chunk(last_alloc_chunk_);
+Pool::~Pool() {
+  if (!chunks_.empty()) Release();
+  DMG_ASSERT(chunks_.empty(), "You need to call Release before destruction!");
+}
+
+void *Pool::Allocate() {
+  if (!free_list_) {
+    // need new chunk
+    auto *data = reinterpret_cast<std::byte *>(GetUpstreamResource()->Allocate(data_size_, alignment_));
+    try {
+      auto &new_chunk = chunks_.emplace_front(data);
+      free_list_ = new_chunk.build_freelist(block_size_, blocks_per_chunk_);
+    } catch (...) {
+      GetUpstreamResource()->Deallocate(data, data_size_, alignment_);
+      throw;
+    }
+  }
+  return std::exchange(free_list_, *reinterpret_cast<std::byte **>(free_list_));
 }
 
 void Pool::Deallocate(void *p) {
-  MG_ASSERT(last_dealloc_chunk_, "No chunk to deallocate");
-  MG_ASSERT(!chunks_.empty(),
-            "Expected a call to Deallocate after at least a "
-            "single Allocate has been done.");
-  auto is_in_chunk = [this, p](const Chunk &chunk) {
-    auto ptr = reinterpret_cast<uintptr_t>(p);
-    size_t data_size = blocks_per_chunk_ * block_size_;
-    return reinterpret_cast<uintptr_t>(chunk.data) <= ptr && ptr < reinterpret_cast<uintptr_t>(chunk.data + data_size);
-  };
-  auto deallocate_block_from_chunk = [this, p](Chunk *chunk) {
-    // NOTE: This check is not enough to cover all double-free issues.
-    MG_ASSERT(chunk->blocks_available < blocks_per_chunk_,
-              "Deallocating more blocks than a chunk can contain, possibly a "
-              "double-free situation or we have a bug in the allocator.");
-    // Link the block into the free-list
-    auto *block = reinterpret_cast<unsigned char *>(p);
-    *block = chunk->first_available_block_ix;
-    chunk->first_available_block_ix = (block - chunk->data) / block_size_;
-    chunk->blocks_available++;
-  };
-  if (is_in_chunk(*last_dealloc_chunk_)) {
-    deallocate_block_from_chunk(last_dealloc_chunk_);
-    return;
-  }
-
-  // Find the chunk which served this allocation
-  Chunk chunk{reinterpret_cast<unsigned char *>(p) - blocks_per_chunk_ * block_size_, 0, 0};
-  auto it = std::lower_bound(chunks_.begin(), chunks_.end(), chunk,
-                             [](const auto &a, const auto &b) { return a.data <= b.data; });
-  MG_ASSERT(it != chunks_.end(), "Failed deallocation in utils::Pool");
-  MG_ASSERT(is_in_chunk(*it), "Failed deallocation in utils::Pool");
-
-  // Update last_alloc_chunk_ as well because it now has a free block.
-  // Additionally this corresponds with C++ pattern of allocations and
-  // deallocations being done in reverse order.
-  last_alloc_chunk_ = &*it;
-  last_dealloc_chunk_ = &*it;
-  deallocate_block_from_chunk(last_dealloc_chunk_);
-  // TODO: We could release the Chunk to upstream memory
+  *reinterpret_cast<std::byte **>(p) = std::exchange(free_list_, reinterpret_cast<std::byte *>(p));
 }
 
 void Pool::Release() {
-  for (auto &chunk : chunks_) {
-    size_t data_size = blocks_per_chunk_ * block_size_;
-    size_t alignment = Ceil2(block_size_);
-    GetUpstreamResource()->Deallocate(chunk.data, data_size, alignment);
+  auto *resource = GetUpstreamResource();
+  if (!dynamic_cast<utils::MonotonicBufferResource *>(resource)) {
+    for (auto &chunk : chunks_) {
+      resource->Deallocate(chunk.raw_data, data_size_, alignment_);
+    }
   }
   chunks_.clear();
-  last_alloc_chunk_ = nullptr;
-  last_dealloc_chunk_ = nullptr;
+  free_list_ = nullptr;
 }
 
 }  // namespace impl
@@ -262,7 +205,7 @@ PoolResource::PoolResource(size_t max_blocks_per_chunk, size_t max_block_size, M
                            MemoryResource *memory_unpooled)
     : pools_(memory_pools),
       unpooled_(memory_unpooled),
-      max_blocks_per_chunk_(std::min(max_blocks_per_chunk, static_cast<size_t>(impl::Pool::MaxBlocksInChunk()))),
+      max_blocks_per_chunk_(std::min(max_blocks_per_chunk, static_cast<size_t>(impl::Pool::MaxBlocksInChunk))),
       max_block_size_(max_block_size) {
   MG_ASSERT(max_blocks_per_chunk_ > 0U, "Invalid number of blocks per chunk");
   MG_ASSERT(max_block_size_ > 0U, "Invalid size of block");
