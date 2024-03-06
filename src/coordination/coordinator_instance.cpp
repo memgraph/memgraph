@@ -36,7 +36,7 @@ CoordinatorInstance::CoordinatorInstance()
             spdlog::info("Leader changed, starting all replication instances!");
             auto const instances = raft_state_.GetInstances();
             auto replicas = instances | ranges::views::filter([](auto const &instance) {
-                              return instance.role == ReplicationRole::REPLICA;
+                              return instance.status == ReplicationRole::REPLICA;
                             });
 
             std::ranges::for_each(replicas, [this](auto &replica) {
@@ -47,10 +47,7 @@ CoordinatorInstance::CoordinatorInstance()
             });
 
             auto main = instances | ranges::views::filter(
-                                        [](auto const &instance) { return instance.role == ReplicationRole::MAIN; });
-
-            // TODO: (andi) Add support for this
-            // MG_ASSERT(std::ranges::distance(main) == 1, "There should be exactly one main instance");
+                                        [](auto const &instance) { return instance.status == ReplicationRole::MAIN; });
 
             std::ranges::for_each(main, [this](auto &main_instance) {
               spdlog::info("Starting main instance {}", main_instance.config.instance_name);
@@ -60,7 +57,7 @@ CoordinatorInstance::CoordinatorInstance()
             });
 
             std::ranges::for_each(repl_instances_, [this](auto &instance) {
-              instance.SetNewMainUUID(raft_state_.GetUUID());  // TODO: (andi) Rename
+              instance.SetNewMainUUID(raft_state_.GetUUID());
               instance.StartFrequentCheck();
             });
           },
@@ -69,13 +66,13 @@ CoordinatorInstance::CoordinatorInstance()
             repl_instances_.clear();
           })) {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::unique_lock{self->coord_instance_lock_};
+    auto lock = std::lock_guard{self->coord_instance_lock_};
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
     std::invoke(repl_instance.GetSuccessCallback(), self, repl_instance_name);
   };
 
   client_fail_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::unique_lock{self->coord_instance_lock_};
+    auto lock = std::lock_guard{self->coord_instance_lock_};
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
@@ -98,7 +95,6 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
             .raft_socket_address = instance->get_endpoint(),
             .cluster_role = "coordinator",
             .health = "unknown"};  // TODO: (andi) Get this info from RAFT and test it or when we will move
-                                   // CoordinatorState to every instance, we can be smarter about this using our RPC.
   };
   auto instances_status = utils::fmap(raft_state_.GetAllCoordinators(), coord_instance_to_status);
 
@@ -126,14 +122,14 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
       std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
     }
   } else {
-    auto const stringify_repl_role = [](ReplicationRole role) -> std::string {
-      return role == ReplicationRole::MAIN ? "main" : "replica";
+    auto const stringify_inst_status = [](ReplicationRole status) -> std::string {
+      return status == ReplicationRole::MAIN ? "main" : "replica";
     };
 
     // TODO: (andi) Add capability that followers can also return socket addresses
-    auto process_repl_instance_as_follower = [&stringify_repl_role](auto const &instance) -> InstanceStatus {
+    auto process_repl_instance_as_follower = [&stringify_inst_status](auto const &instance) -> InstanceStatus {
       return {.instance_name = instance.config.instance_name,
-              .cluster_role = stringify_repl_role(instance.role),
+              .cluster_role = stringify_inst_status(instance.status),
               .health = "unknown"};
     };
 
@@ -355,11 +351,11 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
 
-  // TODO: (andi) Change so that RaftLogState is the central place for asking who is main...
+  auto const is_main = [this](ReplicationInstance const &instance) {
+    return IsMain(instance.InstanceName()) && instance.GetMainUUID() == raft_state_.GetUUID() && instance.IsAlive();
+  };
 
-  auto const is_main = [this](ReplicationInstance const &instance) { return IsMain(instance.InstanceName()); };
-
-  if (is_main(*inst_to_remove) && inst_to_remove->IsAlive()) {
+  if (is_main(*inst_to_remove)) {
     return UnregisterInstanceCoordinatorStatus::IS_MAIN;
   }
 
