@@ -15,6 +15,7 @@
 #include <limits>
 #include <memory>
 
+#include "utils/bloom_filter.hpp"
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
@@ -89,6 +90,7 @@ struct Transaction {
   uint64_t command_id{};
 
   std::deque<Delta> deltas;
+  utils::BloomFilter<Vertex *> index_invalidator;
   utils::pmr::list<MetadataDelta> md_deltas;
   bool must_abort{};
   IsolationLevel isolation_level{};

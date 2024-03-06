@@ -80,31 +80,34 @@ std::vector<LabelId> InMemoryLabelIndex::ListIndices() const {
   return ret;
 }
 
-void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                               utils::BloomFilter<Vertex *> const *filter) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
-  for (auto &label_storage : index_) {
+  for (auto &[label_id, index] : index_) {
     // before starting index, check if stop_requested
     if (token.stop_requested()) return;
 
-    auto vertices_acc = label_storage.second.access();
-    for (auto it = vertices_acc.begin(); it != vertices_acc.end();) {
+    auto index_acc = index.access();
+    auto it = index_acc.begin();
+    auto end_it = index_acc.end();
+    if (it == end_it) continue;
+    while (true) {
       // Hot loop, don't check stop_requested every time
       if (maybe_stop() && token.stop_requested()) return;
 
       auto next_it = it;
       ++next_it;
 
-      if (it->timestamp >= oldest_active_start_timestamp) {
-        it = next_it;
-        continue;
+      bool has_next = next_it != end_it;
+      if (it->timestamp < oldest_active_start_timestamp) {
+        bool redundant_duplicate = has_next && it->vertex == next_it->vertex;
+        if (redundant_duplicate || ((!filter || filter->maybe_contains(it->vertex)) &&
+                                    !AnyVersionHasLabel(*it->vertex, label_id, oldest_active_start_timestamp))) {
+          index_acc.remove(*it);
+        }
       }
-
-      if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex) ||
-          !AnyVersionHasLabel(*it->vertex, label_storage.first, oldest_active_start_timestamp)) {
-        vertices_acc.remove(*it);
-      }
-
+      if (!has_next) break;
       it = next_it;
     }
   }

@@ -275,6 +275,10 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
 
   auto deleted_vertices = maybe_deleted_vertices.GetValue();
 
+  for (auto const &vertex : deleted_vertices) {
+    transaction_.index_invalidator.insert(vertex.vertex_);
+  }
+
   return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }
 

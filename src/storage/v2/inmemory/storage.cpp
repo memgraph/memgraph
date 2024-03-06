@@ -890,6 +890,7 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   std::list<Gid> current_deleted_edges;
   std::list<Gid> current_deleted_vertices;
+  auto index_invalidator = utils::BloomFilter<Vertex *>{};
 
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
     for (auto &delta : deltas) {
@@ -939,22 +940,26 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
   // 1.b.1) unlink, gathering the removals
   for (auto &gc_deltas : linked_undo_buffers) {
     unlink_remove_clear(gc_deltas.deltas_);
+    index_invalidator.merge(std::move(gc_deltas.index_invalidator));
   }
   // 1.b.2) clear the list of deltas deques
   linked_undo_buffers.clear();
 
   // STEP 2) this transactions deltas also mininal unlinking + remove + clear
   unlink_remove_clear(transaction_.deltas);
+  index_invalidator.merge(std::move(transaction_.index_invalidator));
 
   // STEP 3) skip_list removals
-  if (!current_deleted_vertices.empty()) {
+  if (!index_invalidator.empty()) {
     // 3.a) clear from indexes first
     std::stop_source dummy;
-    mem_storage->indices_.RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token());
+    mem_storage->indices_.RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token(), index_invalidator);
     auto *mem_unique_constraints =
         static_cast<InMemoryUniqueConstraints *>(mem_storage->constraints_.unique_constraints_.get());
     mem_unique_constraints->RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token());
+  }
 
+  if (!current_deleted_vertices.empty()) {
     // 3.b) remove from veretex skip_list
     auto vertex_acc = mem_storage->vertices_.access();
     for (auto gid : current_deleted_vertices) {
@@ -1179,7 +1184,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         engine_guard.unlock();
 
         garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
-                                          std::move(transaction_.commit_timestamp));
+                                          std::move(transaction_.commit_timestamp), utils::BloomFilter<Vertex *>{});
       });
 
       /// We MUST unlink (aka. remove) entries in indexes and constraints
@@ -1228,8 +1233,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
       // Only hand over delta to be GC'ed if there was any deltas
       mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
         // using mark of 0 as GC will assign a mark_timestamp after unlinking
-        committed_transactions.emplace_back(0, std::move(transaction_.deltas),
-                                            std::move(transaction_.commit_timestamp));
+        committed_transactions.emplace_back(0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp),
+                                            std::move(transaction_.index_invalidator));
       });
     }
     commit_timestamp_.reset();
@@ -1524,12 +1529,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   committed_transactions_.WithLock(
       [&](auto &committed_transactions) { committed_transactions.swap(linked_undo_buffers); });
 
-  // Flag that will be used to determine whether the Index GC should be run. It
-  // should be run when there were any items that were cleaned up (there were
-  // updates between this run of the GC and the previous run of the GC). This
-  // eliminates high CPU usage when the GC doesn't have to clean up anything.
-  bool run_index_cleanup = !linked_undo_buffers.empty() || !garbage_undo_buffers_->empty() || need_full_scan_vertices ||
-                           need_full_scan_edges;
+  auto index_invalidator = utils::BloomFilter<Vertex *>{};
 
   auto const end_linked_undo_buffers = linked_undo_buffers.end();
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
@@ -1671,7 +1671,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
     // Now unlinked, move to unlinked_undo_buffers
     auto const to_move = linked_entry;
-    ++linked_entry;  // advanced to next before we move the list node
+    ++linked_entry;                                                  // advanced to next before we move the list node
+    index_invalidator.merge(std::move(to_move->index_invalidator));  // track potential invalidations
     unlinked_undo_buffers.splice(unlinked_undo_buffers.end(), linked_undo_buffers, to_move);
   }
 
@@ -1682,16 +1683,26 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     });
   }
 
+  // Flag that will be used to determine whether the Index GC should be run. It
+  // should be run when there were any items that were cleaned up (there were
+  // updates between this run of the GC and the previous run of the GC). This
+  // eliminates high CPU usage when the GC doesn't have to clean up anything.
+  bool force_index_cleanup = need_full_scan_vertices || need_full_scan_edges;
+
   // After unlinking deltas from vertices, we refresh the indices. That way
   // we're sure that none of the vertices from `current_deleted_vertices`
   // appears in an index, and we can safely remove the from the main storage
   // after the last currently active transaction is finished.
-  if (run_index_cleanup) {
+  if (!index_invalidator.empty() || force_index_cleanup) {
     // This operation is very expensive as it traverses through all of the items
     // in every index every time.
     auto token = stop_source.get_token();
     if (!token.stop_requested()) {
-      indices_.RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      auto filter = std::optional<utils::BloomFilter<Vertex *>>{};
+      if (!force_index_cleanup) {
+        filter = std::move(index_invalidator);
+      }
+      indices_.RemoveObsoleteEntries(oldest_active_start_timestamp, token, std::move(filter));
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
       mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token));
     }

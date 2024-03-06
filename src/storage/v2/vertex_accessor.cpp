@@ -123,6 +123,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   transaction_->constraint_verification_info.AddedLabel(vertex_);
   storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, label);
+  transaction_->index_invalidator.insert(vertex_);
 
   return true;
 }
@@ -151,6 +152,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
   storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, label);
+  transaction_->index_invalidator.insert(vertex_);
 
   return true;
 }
@@ -283,6 +285,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   }
   storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_);
   transaction_->manyDeltasCache.Invalidate(vertex_, property);
+  transaction_->index_invalidator.insert(vertex_);
 
   return std::move(current_value);
 }
@@ -314,6 +317,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
           } else {
             transaction->constraint_verification_info.RemovedProperty(vertex);
           }
+          transaction->index_invalidator.insert(vertex);
         }
         result = true;
       }};
@@ -352,6 +356,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
           } else {
             transaction->constraint_verification_info.RemovedProperty(vertex);
           }
+          transaction->index_invalidator.insert(vertex);
         }
       }};
   std::invoke(atomic_memory_block);
@@ -384,6 +389,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
           transaction->manyDeltasCache.Invalidate(vertex, property);
         }
         vertex->properties.ClearProperties();
+        transaction->index_invalidator.insert(vertex);
       }};
   std::invoke(atomic_memory_block);
 

@@ -432,8 +432,12 @@ class InMemoryStorage final : public Storage {
   std::mutex gc_lock_;
 
   struct GCDeltas {
-    GCDeltas(uint64_t mark_timestamp, std::deque<Delta> deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
-        : mark_timestamp_{mark_timestamp}, deltas_{std::move(deltas)}, commit_timestamp_{std::move(commit_timestamp)} {}
+    GCDeltas(uint64_t mark_timestamp, std::deque<Delta> deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp,
+             utils::BloomFilter<Vertex *> indexInvalidator)
+        : mark_timestamp_{mark_timestamp},
+          deltas_{std::move(deltas)},
+          commit_timestamp_{std::move(commit_timestamp)},
+          index_invalidator(std::move(indexInvalidator)) {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
@@ -441,6 +445,8 @@ class InMemoryStorage final : public Storage {
     uint64_t mark_timestamp_{};                                  //!< a timestamp no active transaction currently has
     std::deque<Delta> deltas_;                                   //!< the deltas that need cleaning
     std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
+    utils::BloomFilter<Vertex *>
+        index_invalidator{};  //!< bloom filter of maybe Vertex * that invalidated one or more indexes
   };
 
   // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited
