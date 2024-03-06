@@ -1937,18 +1937,17 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
       const auto label_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
       labels.emplace_back(storage_->GetLabelIx(label_name));
       query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
-    }
-  }
-  else {
-    // expression
-    // auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
-    // users_identifiers.insert(variable);
-    // return static_cast<Expression *>(storage_->Create<Identifier>(variable));
+    } else {
+      // expression
+      // auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
+      // users_identifiers.insert(variable);
+      // return static_cast<Expression *>(storage_->Create<Identifier>(variable));
 
-    // labels.emplace_back(std::any_cast<Expression *>(node_label->accept(this)));
-    auto variable = std::any_cast<std::string>(label_name->variable()->accept(this));
-    users_identifiers.insert(variable);
-    labels.emplace_back(static_cast<Expression *>(storage_->Create<Identifier>(variable)));
+      // labels.emplace_back(std::any_cast<Expression *>(node_label->accept(this)));
+      auto variable = std::any_cast<std::string>(label_name->variable()->accept(this));
+      users_identifiers.insert(variable);
+      labels.emplace_back(static_cast<Expression *>(storage_->Create<Identifier>(variable)));
+    }
   }
   return labels;
 }
