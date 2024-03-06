@@ -326,7 +326,7 @@ json ToJson(NamedExpression *nexpr) {
   return json;
 }
 
-json ToJson(const std::vector<std::pair<storage::PropertyId, Expression *>> &properties, const DbAccessor &dba) {
+json ToJson(const PropertiesMapList &properties, const DbAccessor &dba) {
   json json;
   for (const auto &prop_pair : properties) {
     json.emplace(ToJson(prop_pair.first, dba), ToJson(prop_pair.second));
@@ -334,7 +334,7 @@ json ToJson(const std::vector<std::pair<storage::PropertyId, Expression *>> &pro
   return json;
 }
 
-json ToJson(const std::vector<std::variant<storage::LabelId, Expression *>> &labels, const DbAccessor &dba) {
+json ToJson(const std::vector<StorageLabelType> &labels, const DbAccessor &dba) {
   json json;
   for (const auto &label : labels) {
     if (const auto *label_node = std::get_if<Expression *>(&label)) {

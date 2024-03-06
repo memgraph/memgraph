@@ -178,7 +178,7 @@ inline void AbortCheck(ExecutionContext const &context) {
   if (auto const reason = MustAbort(context); reason != AbortReason::NO_ABORT) throw HintedAbortError(reason);
 }
 
-std::vector<storage::LabelId> EvaluateLabels(const std::vector<std::variant<storage::LabelId, Expression *>> &labels,
+std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType> &labels,
                                              ExpressionEvaluator &evaluator, DbAccessor *dba) {
   std::vector<storage::LabelId> result;
   result.reserve(labels.size());
@@ -3141,7 +3141,7 @@ void SetProperties::SetPropertiesCursor::Shutdown() { input_cursor_->Shutdown();
 void SetProperties::SetPropertiesCursor::Reset() { input_cursor_->Reset(); }
 
 SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                     std::vector<std::variant<storage::LabelId, query::Expression *>> labels)
+                     std::vector<StorageLabelType> labels)
     : input_(input), input_symbol_(std::move(input_symbol)), labels_(std::move(labels)) {}
 
 ACCEPT_WITH_INPUT(SetLabels)
@@ -3303,7 +3303,7 @@ void RemoveProperty::RemovePropertyCursor::Shutdown() { input_cursor_->Shutdown(
 void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                           std::vector<std::variant<storage::LabelId, query::Expression *>> labels)
+                           std::vector<StorageLabelType> labels)
     : input_(input), input_symbol_(std::move(input_symbol)), labels_(std::move(labels)) {}
 
 ACCEPT_WITH_INPUT(RemoveLabels)

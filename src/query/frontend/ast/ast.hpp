@@ -1248,6 +1248,8 @@ class AllPropertiesLookup : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
+using QueryLabelType = std::variant<LabelIx, Expression *>;
+
 class LabelsTest : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
@@ -1280,8 +1282,7 @@ class LabelsTest : public memgraph::query::Expression {
 
  protected:
   LabelsTest(Expression *expression, const std::vector<LabelIx> &labels) : expression_(expression), labels_(labels) {}
-  LabelsTest(Expression *expression, const std::vector<std::variant<LabelIx, Expression *>> &labels)
-      : expression_(expression) {
+  LabelsTest(Expression *expression, const std::vector<QueryLabelType> &labels) : expression_(expression) {
     labels_.reserve(labels.size());
     for (const auto &label : labels) {
       if (const auto *label_ix = std::get_if<LabelIx>(&label)) {
@@ -1781,7 +1782,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
     return visitor.PostVisit(*this);
   }
 
-  std::vector<std::variant<memgraph::query::LabelIx, memgraph::query::Expression *>> labels_;
+  std::vector<QueryLabelType> labels_;
   std::variant<std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>,
                memgraph::query::ParameterLookup *>
       properties_;
@@ -2643,7 +2644,7 @@ class SetLabels : public memgraph::query::Clause {
   }
 
   memgraph::query::Identifier *identifier_{nullptr};
-  std::vector<std::variant<memgraph::query::LabelIx, memgraph::query::Expression *>> labels_;
+  std::vector<QueryLabelType> labels_;
 
   SetLabels *Clone(AstStorage *storage) const override {
     SetLabels *object = storage->Create<SetLabels>();
@@ -2711,7 +2712,7 @@ class RemoveLabels : public memgraph::query::Clause {
   }
 
   memgraph::query::Identifier *identifier_{nullptr};
-  std::vector<std::variant<memgraph::query::LabelIx, memgraph::query::Expression *>> labels_;
+  std::vector<QueryLabelType> labels_;
 
   RemoveLabels *Clone(AstStorage *storage) const override {
     RemoveLabels *object = storage->Create<RemoveLabels>();
