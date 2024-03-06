@@ -358,7 +358,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
       spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
       return std::nullopt;
     }
-    // TODO(antoniofilipovic) What is the logic here?
     std::sort(wal_files.begin(), wal_files.end());
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.
@@ -437,17 +436,13 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
           last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
         }
 
-        bool epoch_history_empty = epoch_history->empty();
-        bool epoch_not_recorded = !epoch_history_empty && epoch_history->back().first != wal_file.epoch_id;
         auto last_loaded_timestamp_value = last_loaded_timestamp.value_or(0);
-
-        if (epoch_history_empty || epoch_not_recorded) {
-          epoch_history->emplace_back(std::string(wal_file.epoch_id), last_loaded_timestamp_value);
-        }
-
-        auto last_epoch_updated = !epoch_history_empty && epoch_history->back().first == wal_file.epoch_id &&
-                                  epoch_history->back().second < last_loaded_timestamp_value;
-        if (last_epoch_updated) {
+        if (epoch_history->empty() || epoch_history->back().first != wal_file.epoch_id) {
+          // no history or new epoch, add it
+          epoch_history->emplace_back(wal_file.epoch_id, last_loaded_timestamp_value);
+          repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
+        } else if (epoch_history->back().second < last_loaded_timestamp_value) {
+          // existing epoch, update with newer timestamp
           epoch_history->back().second = last_loaded_timestamp_value;
         }
 
@@ -469,11 +464,11 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
-  spdlog::info("Set epoch id: {}  with commit timestamp {}", std::string(repl_storage_state.epoch_.id()),
-               repl_storage_state.last_commit_timestamp_);
+  spdlog::trace("Set epoch id: {}  with commit timestamp {}", std::string(repl_storage_state.epoch_.id()),
+                repl_storage_state.last_commit_timestamp_);
 
   std::for_each(repl_storage_state.history.begin(), repl_storage_state.history.end(), [](auto &history) {
-    spdlog::info("epoch id: {}  with commit timestamp {}", std::string(history.first), history.second);
+    spdlog::trace("epoch id: {}  with commit timestamp {}", std::string(history.first), history.second);
   });
   return recovery_info;
 }
