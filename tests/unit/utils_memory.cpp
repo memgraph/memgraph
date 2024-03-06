@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -291,7 +291,7 @@ TEST(PoolResource, AllocationWithOverflow) {
     EXPECT_THROW(mem.Allocate((std::numeric_limits<size_t>::max() - 1U) / max_blocks_per_chunk, 1U), std::bad_alloc);
   }
   {
-    const size_t max_blocks_per_chunk = memgraph::utils::impl::Pool::MaxBlocksInChunk();
+    const size_t max_blocks_per_chunk = memgraph::utils::impl::Pool::MaxBlocksInChunk;
     memgraph::utils::PoolResource mem(max_blocks_per_chunk, std::numeric_limits<size_t>::max());
     EXPECT_THROW(mem.Allocate(std::numeric_limits<size_t>::max(), 1U), std::bad_alloc);
     // Throws because initial chunk block is aligned to

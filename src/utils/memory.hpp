@@ -16,6 +16,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <forward_list>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -383,36 +386,46 @@ class MonotonicBufferResource final : public MemoryResource {
 namespace impl {
 
 template <class T>
+using AList = std::forward_list<T, Allocator<T>>;
+
+template <class T>
 using AVector = std::vector<T, Allocator<T>>;
 
 /// Holds a number of Chunks each serving blocks of particular size. When a
-/// Chunk runs out of available blocks, a new Chunk is allocated. The naming is
-/// taken from `libstdc++` implementation, but the implementation details are
-/// more similar to `FixedAllocator` described in "Small Object Allocation" from
-/// "Modern C++ Design".
+/// Chunk runs out of available blocks, a new Chunk is allocated.
 class Pool final {
   /// Holds a pointer into a chunk of memory which consists of equal sized
-  /// blocks. Each Chunk can handle `std::numeric_limits<unsigned char>::max()`
-  /// number of blocks. Blocks form a "free-list", where each unused block has
-  /// an embedded index to the next unused block.
+  /// blocks. Blocks form a "free-list"
   struct Chunk {
-    unsigned char *data;
-    unsigned char first_available_block_ix;
-    unsigned char blocks_available;
+    // TODO: make blocks_per_chunk a per chunk thing (ie. allow chunk growth)
+    std::byte *raw_data;
+    explicit Chunk(std::byte *rawData) : raw_data(rawData) {}
+    std::byte *build_freelist(std::size_t block_size, std::size_t blocks_in_chunk) {
+      auto current = raw_data;
+      std::byte *prev = nullptr;
+      auto end = current + (blocks_in_chunk * block_size);
+      while (current != end) {
+        std::byte **list_entry = reinterpret_cast<std::byte **>(current);
+        *list_entry = std::exchange(prev, current);
+        current += block_size;
+      }
+      DMG_ASSERT(prev != nullptr);
+      return prev;
+    }
   };
 
-  unsigned char blocks_per_chunk_;
-  size_t block_size_;
-  AVector<Chunk> chunks_;
-  Chunk *last_alloc_chunk_{nullptr};
-  Chunk *last_dealloc_chunk_{nullptr};
+  std::byte *free_list_{nullptr};
+  uint8_t blocks_per_chunk_{};
+  std::size_t block_size_{};
+  std::size_t data_size_;
+  std::size_t alignment_;
+
+  AList<Chunk> chunks_;  // TODO: do ourself so we can do fast Release (detect monotonic, do nothing)
 
  public:
-  static constexpr auto MaxBlocksInChunk() {
-    return std::numeric_limits<decltype(Chunk::first_available_block_ix)>::max();
-  }
+  static constexpr auto MaxBlocksInChunk = std::numeric_limits<decltype(blocks_per_chunk_)>::max();
 
-  Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *memory);
+  Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *chunk_memory);
 
   Pool(const Pool &) = delete;
   Pool &operator=(const Pool &) = delete;
