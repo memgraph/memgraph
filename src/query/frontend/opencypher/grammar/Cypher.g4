@@ -191,7 +191,7 @@ relationshipTypes : ':' relTypeName ( '|' ':'? relTypeName )* ;
 
 nodeLabels : nodeLabel ( nodeLabel )* ;
 
-nodeLabel : ':' labelName;
+nodeLabel : ':' labelName ;
 
 labelName : symbolicName
           | parameter
