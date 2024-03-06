@@ -45,9 +45,9 @@ auto RaftState::InitRaftServer() -> void {
   asio_opts.thread_pool_size_ = 1;
 
   raft_params params;
-  params.heart_beat_interval_ = 400;
-  params.election_timeout_lower_bound_ = 4000;
-  params.election_timeout_upper_bound_ = 6000;
+  params.heart_beat_interval_ = 100;
+  params.election_timeout_lower_bound_ = 200;
+  params.election_timeout_upper_bound_ = 400;
   params.reserved_log_items_ = 5;
   params.snapshot_distance_ = 5;
   params.client_req_timeout_ = 3000;
@@ -59,7 +59,7 @@ auto RaftState::InitRaftServer() -> void {
   // happens between the current leader and followers.
   // The value must be <= election_timeout_lower_bound_ so that cluster can never
   // have multiple leaders.
-  params.leadership_expiry_ = 3000;
+  params.leadership_expiry_ = 200;
 
   raft_server::init_options init_opts;
   init_opts.raft_callback_ = [this](cb_func::Type event_type, cb_func::Param *param) -> nuraft::CbReturnCode {
