@@ -30,77 +30,67 @@ auto CoordinatorStateMachine::IsReplica(std::string_view instance_name) const ->
   return cluster_state_.IsReplica(instance_name);
 }
 
-auto CoordinatorStateMachine::CreateLog(std::string_view log) -> ptr<buffer> {
-  ptr<buffer> log_buf = buffer::alloc(sizeof(uint32_t) + log.size());
+auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
+  auto const log_dump = log.dump();
+  ptr<buffer> log_buf = buffer::alloc(sizeof(uint32_t) + log_dump.size());
   buffer_serializer bs(log_buf);
-  bs.put_str(log.data());
+  bs.put_str(log_dump);
   return log_buf;
 }
 
 auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorClientConfig const &config) -> ptr<buffer> {
-  auto const str_log = fmt::format("{}*register", config.ToString());
-  return CreateLog(str_log);
+  return CreateLog({{"action", RaftLogAction::REGISTER_REPLICATION_INSTANCE}, {"info", config}});
 }
 
 auto CoordinatorStateMachine::SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer> {
-  auto const str_log = fmt::format("{}*unregister", instance_name);
-  return CreateLog(str_log);
+  return CreateLog({{"action", RaftLogAction::UNREGISTER_REPLICATION_INSTANCE}, {"info", instance_name}});
 }
 
 auto CoordinatorStateMachine::SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer> {
-  auto const str_log = fmt::format("{}*promote", instance_name);
-  return CreateLog(str_log);
+  return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_MAIN}, {"info", instance_name}});
 }
 
 auto CoordinatorStateMachine::SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer> {
-  auto const str_log = fmt::format("{}*demote", instance_name);
-  return CreateLog(str_log);
+  return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_REPLICA}, {"info", instance_name}});
 }
 
 auto CoordinatorStateMachine::SerializeUpdateUUID(utils::UUID const &uuid) -> ptr<buffer> {
-  auto const str_log = fmt::format("{}*update_uuid", nlohmann::json{{"uuid", uuid}}.dump());
-  return CreateLog(str_log);
+  return CreateLog({{"action", RaftLogAction::UPDATE_UUID}, {"info", uuid}});
 }
 
 auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction> {
   buffer_serializer bs(data);
+  auto const json = nlohmann::json::parse(bs.get_str());
 
-  auto const log_str = bs.get_str();
-  auto const sep = log_str.find('*');
-  auto const action = log_str.substr(sep + 1);
-  auto const info = log_str.substr(0, sep);
+  auto const action = json["action"].get<RaftLogAction>();
+  auto const &info = json["info"];
 
-  if (action == "register") {
-    return {CoordinatorClientConfig::FromString(info), RaftLogAction::REGISTER_REPLICATION_INSTANCE};
+  switch (action) {
+    case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
+      return {info.get<CoordinatorClientConfig>(), action};
+    case RaftLogAction::UPDATE_UUID:
+      return {info.get<utils::UUID>(), action};
+    case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
+    case RaftLogAction::SET_INSTANCE_AS_MAIN:
+      [[fallthrough]];
+    case RaftLogAction::SET_INSTANCE_AS_REPLICA:
+      return {info.get<std::string>(), action};
   }
-  if (action == "unregister") {
-    return {info, RaftLogAction::UNREGISTER_REPLICATION_INSTANCE};
-  }
-  if (action == "promote") {
-    return {info, RaftLogAction::SET_INSTANCE_AS_MAIN};
-  }
-  if (action == "demote") {
-    return {info, RaftLogAction::SET_INSTANCE_AS_REPLICA};
-  }
-  if (action == "update_uuid") {
-    auto const json = nlohmann::json::parse(info);
-    return {json.at("uuid").get<utils::UUID>(), RaftLogAction::UPDATE_UUID};
-  }
-
   throw std::runtime_error("Unknown action");
 }
 
 auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*data*/) -> ptr<buffer> { return nullptr; }
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
-  buffer_serializer bs(data);
-
   auto const [parsed_data, log_action] = DecodeLog(data);
   cluster_state_.DoAction(parsed_data, log_action);
-
   last_committed_idx_ = log_idx;
-  // TODO: (andi) Don't return nullptr
-  return nullptr;
+
+  // Return raft log number
+  ptr<buffer> ret = buffer::alloc(sizeof(log_idx));
+  buffer_serializer bs_ret(ret);
+  bs_ret.put_u64(log_idx);
+  return ret;
 }
 
 auto CoordinatorStateMachine::commit_config(ulong const log_idx, ptr<cluster_config> & /*new_conf*/) -> void {

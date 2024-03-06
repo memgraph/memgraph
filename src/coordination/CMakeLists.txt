@@ -23,6 +23,7 @@ target_sources(mg-coordination
         include/nuraft/coordinator_state_manager.hpp
 
         PRIVATE
+        coordinator_config.cpp
         coordinator_client.cpp
         coordinator_state.cpp
         coordinator_rpc.cpp
