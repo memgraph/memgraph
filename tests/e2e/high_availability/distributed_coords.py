@@ -743,5 +743,215 @@ def test_registering_4_coords():
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
 
+def test_registering_coord_log_store():
+    # Goal of this test is to assure registering a bunch of instances and de-registering works properly
+    # w.r.t nuRaft log
+    # 1. Start basic instances # 3 logs
+    # 2. Check all is there
+    # 3. Create 3 additional instances and add them to cluster # 3 logs -> 1st snapshot
+    # 4. Check everything is there
+    # 5. Set main # 1 log
+    # 6. Check correct state
+    # 7. Drop 2 new instances # 2 logs
+    # 8. Check correct state
+    # 9. Drop 1 new instance # 1 log -> 2nd snapshot
+    # 10. Check correct state
+    # 11.
+
+    # 6. Have only basic instances
+
+    INSTANCES_DESCRIPTION = {
+        "instance_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10011",
+            ],
+            "log_file": "instance_1.log",
+            "data_directory": f"{TEMP_DIR}/instance_1",
+            "setup_queries": [],
+        },
+        "instance_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10012",
+            ],
+            "log_file": "instance_2.log",
+            "data_directory": f"{TEMP_DIR}/instance_2",
+            "setup_queries": [],
+        },
+        "instance_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7689",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10013",
+            ],
+            "log_file": "instance_3.log",
+            "data_directory": f"{TEMP_DIR}/instance_3",
+            "setup_queries": [],
+        },
+        "coordinator_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--raft-server-id=1",
+                "--raft-server-port=10111",
+            ],
+            "log_file": "coordinator1.log",
+            "setup_queries": [],
+        },
+        "coordinator_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7691",
+                "--log-level=TRACE",
+                "--raft-server-id=2",
+                "--raft-server-port=10112",
+            ],
+            "log_file": "coordinator2.log",
+            "setup_queries": [],
+        },
+        "coordinator_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7692",
+                "--log-level=TRACE",
+                "--raft-server-id=3",
+                "--raft-server-port=10113",
+            ],
+            "log_file": "coordinator3.log",
+            "setup_queries": [],
+        },
+        "coordinator_4": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7693",
+                "--log-level=TRACE",
+                "--raft-server-id=4",
+                "--raft-server-port=10114",
+            ],
+            "log_file": "coordinator4.log",
+            "setup_queries": [
+                "ADD COORDINATOR 1 ON '127.0.0.1:10111';",
+                "ADD COORDINATOR 2 ON '127.0.0.1:10112';",
+                "ADD COORDINATOR 3 ON '127.0.0.1:10113';",
+                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'",
+                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'",
+                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'",
+            ],
+        },
+    }
+    assert "SET INSTANCE instance_3 TO MAIN" not in INSTANCES_DESCRIPTION["coordinator_4"]["setup_queries"]
+
+    # 1
+    interactive_mg_runner.start_all(INSTANCES_DESCRIPTION)
+
+    # 2
+    coord_cursor = connect(host="localhost", port=7693).cursor()
+
+    def retrieve_data_show_repl_cluster():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    coordinators = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_4", "127.0.0.1:10114", "", "unknown", "coordinator"),
+    ]
+
+    basic_instances = [
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
+    ]
+
+    expected_data_on_coord = []
+    expected_data_on_coord.extend(coordinators)
+    expected_data_on_coord.extend(basic_instances)
+
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
+
+    # 3
+    instances_ports_added = [10011, 10012, 10013]
+    bolt_port_id = 7700
+    coord_port_id = 10014
+
+    additional_instances = []
+    for i in range(4, 7):
+        instance_name = f"instance_{i}"
+        args_desc = [
+            "--experimental-enabled=high-availability",
+            "--log-level=TRACE",
+        ]
+
+        bolt_port = f"--bolt-port={bolt_port_id}"
+
+        coord_server_port = f"--coordinator-server-port={coord_port_id}"
+
+        args_desc.append(bolt_port)
+        args_desc.append(coord_server_port)
+
+        instance_description = {
+            "args": args_desc,
+            "log_file": f"instance_{i}.log",
+            "data_directory": f"{TEMP_DIR}/instance_{i}",
+            "setup_queries": [],
+        }
+
+        full_instance_desc = {instance_name: instance_description}
+        interactive_mg_runner.start(full_instance_desc, instance_name)
+        repl_port_id = coord_port_id - 10
+        assert repl_port_id < 10011, "Wrong test setup, repl port must be smaller than smallest coord port id"
+
+        execute_and_fetch_all(
+            coord_cursor,
+            f"REGISTER INSTANCE {instance_name} ON '127.0.0.1:{coord_port_id}' WITH '127.0.0.1:{repl_port_id}'",
+        )
+
+        additional_instances.append((f"{instance_name}", "", f"127.0.0.1:{coord_port_id}", "up", "replica"))
+        instances_ports_added.append(coord_port_id)
+        coord_port_id += 1
+        bolt_port_id += 1
+
+    # 4
+    expected_data_on_coord.extend(additional_instances)
+
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
+
+    # 5
+    execute_and_fetch_all(coord_cursor, "SET INSTANCE instance_3 TO MAIN")
+
+    # 6
+    basic_instances.pop()
+    basic_instances.append(("instance_3", "", "127.0.0.1:10013", "up", "main"))
+
+    new_expected_data_on_coordinator = []
+
+    new_expected_data_on_coordinator.extend(coordinators)
+    new_expected_data_on_coordinator.extend(basic_instances)
+    new_expected_data_on_coordinator.extend(additional_instances)
+
+    mg_sleep_and_assert(new_expected_data_on_coordinator, retrieve_data_show_repl_cluster)
+    # 7
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
