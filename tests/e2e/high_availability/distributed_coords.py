@@ -295,6 +295,48 @@ def test_distributed_automatic_failover_after_coord_dies():
 def test_registering_4_coords():
     # Goal of this test is to assure registering of multiple coordinators in row works
     INSTANCES_DESCRIPTION = {
+        "instance_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10011",
+            ],
+            "log_file": "instance_1.log",
+            "data_directory": f"{TEMP_DIR}/instance_1",
+            "setup_queries": [],
+        },
+        "instance_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10012",
+            ],
+            "log_file": "instance_2.log",
+            "data_directory": f"{TEMP_DIR}/instance_2",
+            "setup_queries": [],
+        },
+        "instance_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7689",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10013",
+            ],
+            "log_file": "instance_3.log",
+            "data_directory": f"{TEMP_DIR}/instance_3",
+            "setup_queries": [],
+        },
         "coordinator_1": {
             "args": [
                 "--experimental-enabled=high-availability",
@@ -335,15 +377,16 @@ def test_registering_4_coords():
             "args": [
                 "--experimental-enabled=high-availability",
                 "--bolt-port",
-                "7692",
+                "7693",
                 "--log-level=TRACE",
-                "--raft-server-id=3",
-                "--raft-server-port=10113",
+                "--raft-server-id=4",
+                "--raft-server-port=10114",
             ],
-            "log_file": "coordinator3.log",
+            "log_file": "coordinator4.log",
             "setup_queries": [
-                "ADD COORDINATOR 1 ON '127.0.0.1:10111'",
-                "ADD COORDINATOR 2 ON '127.0.0.1:10112'",
+                "ADD COORDINATOR 1 ON '127.0.0.1:10111';",
+                "ADD COORDINATOR 2 ON '127.0.0.1:10112';",
+                "ADD COORDINATOR 3 ON '127.0.0.1:10113';",
                 "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'",
                 "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'",
                 "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'",
@@ -356,12 +399,18 @@ def test_registering_4_coords():
 
     coord_cursor = connect(host="localhost", port=7693).cursor()
 
-    for query in [
-        "ADD COORDINATOR 1 ON '127.0.0.1:10111';",
-        "ADD COORDINATOR 2 ON '127.0.0.1:10112';",
-        "ADD COORDINATOR 3 ON '127.0.0.1:10113';",
-    ]:
-        execute_and_fetch_all(coord_cursor, query)
+    def retrieve_data_show_repl_cluster():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
 
 if __name__ == "__main__":

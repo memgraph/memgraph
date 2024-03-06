@@ -128,7 +128,6 @@ def test_register_repl_instances_then_coordinators():
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
     assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 1 ON '127.0.0.1:10111'")
-    time.sleep(1)
     assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 2 ON '127.0.0.1:10112'")
 
     def check_coordinator3():
@@ -175,7 +174,6 @@ def test_register_coordinator_then_repl_instances():
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
     assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 1 ON '127.0.0.1:10111'")
-    time.sleep(1)
     assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 2 ON '127.0.0.1:10112'")
     execute_and_fetch_all(
         coordinator3_cursor, "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'"
@@ -232,7 +230,6 @@ def test_coordinators_communication_with_restarts():
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
     assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 1 ON '127.0.0.1:10111'")
-    time.sleep(1)
     assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 2 ON '127.0.0.1:10112'")
     execute_and_fetch_all(
         coordinator3_cursor, "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'"
@@ -300,7 +297,6 @@ def test_unregister_replicas(kill_instance):
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
     assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 1 ON '127.0.0.1:10111'")
-    time.sleep(1)
     assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 2 ON '127.0.0.1:10112'")
     execute_and_fetch_all(
         coordinator3_cursor, "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'"
@@ -435,7 +431,7 @@ def test_unregister_main():
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
     assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 1 ON '127.0.0.1:10111'")
-    time.sleep(1)
+
     assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 2 ON '127.0.0.1:10112'")
     execute_and_fetch_all(
         coordinator3_cursor, "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'"
