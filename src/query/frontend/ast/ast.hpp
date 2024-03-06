@@ -3628,7 +3628,8 @@ class PatternComprehension : public memgraph::query::Expression {
   }
 
  protected:
-  PatternComprehension(Identifier *variable, Pattern *pattern) : variable_(variable), pattern_(pattern) {}
+  PatternComprehension(Identifier *variable, Pattern *pattern, Where *filter, Expression *resultExpr)
+      : variable_(variable), pattern_(pattern), filter_(filter), resultExpr_(resultExpr) {}
 
  private:
   friend class AstStorage;
