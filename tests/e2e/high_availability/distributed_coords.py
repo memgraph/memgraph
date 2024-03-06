@@ -587,6 +587,55 @@ def test_old_main_comes_back_on_new_leader_as_main():
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_3")
 
 
+def test_old_main_comes_back_on_new_leader_as_main():
+    # 1. Start all instances.
+    # 2. Kill all instances
+    # 3. Kill the leader
+    # 4. Start the old main instance
+    # 5. Run SHOW INSTANCES on the new leader and check that the old main instance is main once again
+
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_3")
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    def show_instances_coord1():
+        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+
+    def show_instances_coord2():
+        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
+
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "replica"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "main"),
+    ]
+    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
+    mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
 
