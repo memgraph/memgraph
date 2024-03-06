@@ -292,5 +292,78 @@ def test_distributed_automatic_failover_after_coord_dies():
     mg_sleep_and_assert_collection(expected_data_on_new_main_old_alive, retrieve_data_show_replicas)
 
 
+def test_registering_4_coords():
+    # Goal of this test is to assure registering of multiple coordinators in row works
+    INSTANCES_DESCRIPTION = {
+        "coordinator_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--raft-server-id=1",
+                "--raft-server-port=10111",
+            ],
+            "log_file": "coordinator1.log",
+            "setup_queries": [],
+        },
+        "coordinator_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7691",
+                "--log-level=TRACE",
+                "--raft-server-id=2",
+                "--raft-server-port=10112",
+            ],
+            "log_file": "coordinator2.log",
+            "setup_queries": [],
+        },
+        "coordinator_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7692",
+                "--log-level=TRACE",
+                "--raft-server-id=3",
+                "--raft-server-port=10113",
+            ],
+            "log_file": "coordinator3.log",
+            "setup_queries": [],
+        },
+        "coordinator_4": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7692",
+                "--log-level=TRACE",
+                "--raft-server-id=3",
+                "--raft-server-port=10113",
+            ],
+            "log_file": "coordinator3.log",
+            "setup_queries": [
+                "ADD COORDINATOR 1 ON '127.0.0.1:10111'",
+                "ADD COORDINATOR 2 ON '127.0.0.1:10112'",
+                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'",
+                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'",
+                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'",
+                "SET INSTANCE instance_3 TO MAIN",
+            ],
+        },
+    }
+
+    interactive_mg_runner.start_all(INSTANCES_DESCRIPTION)
+
+    coord_cursor = connect(host="localhost", port=7693).cursor()
+
+    for query in [
+        "ADD COORDINATOR 1 ON '127.0.0.1:10111';",
+        "ADD COORDINATOR 2 ON '127.0.0.1:10112';",
+        "ADD COORDINATOR 3 ON '127.0.0.1:10113';",
+    ]:
+        execute_and_fetch_all(coord_cursor, query)
+
+
 if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-k", "test_registering_4_coords"]))
     sys.exit(pytest.main([__file__, "-rA"]))
