@@ -84,11 +84,12 @@ show_databases_w_user_setup_queries: &show_databases_w_user_setup_queries
   - "GRANT DATABASE db1 TO user;"
   - "GRANT ALL PRIVILEGES TO user2;"
   - "GRANT DATABASE db2 TO user2;"
+  - "GRANT DATABASE memgraph TO user2;"
   - "REVOKE DATABASE memgraph FROM user2;"
   - "SET MAIN DATABASE db2 FOR user2"
   - "GRANT ALL PRIVILEGES TO user3;"
   - "GRANT DATABASE * TO user3;"
-  - "REVOKE DATABASE memgraph FROM user3;"
+  - "DENY DATABASE memgraph FROM user3;"
   - "SET MAIN DATABASE db1 FOR user3"
 
 create_delete_filtering_in_memory_cluster: &create_delete_filtering_in_memory_cluster

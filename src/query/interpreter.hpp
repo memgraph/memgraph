@@ -84,16 +84,6 @@ class CoordinatorQueryHandler {
   CoordinatorQueryHandler(CoordinatorQueryHandler &&) = default;
   CoordinatorQueryHandler &operator=(CoordinatorQueryHandler &&) = default;
 
-  struct Replica {
-    std::string name;
-    std::string socket_address;
-    ReplicationQuery::SyncMode sync_mode;
-    std::optional<double> timeout;
-    uint64_t current_timestamp_of_replica;
-    uint64_t current_number_of_timestamp_behind_master;
-    ReplicationQuery::ReplicaState state;
-  };
-
   struct MainReplicaStatus {
     std::string_view name;
     std::string_view socket_address;
@@ -105,25 +95,24 @@ class CoordinatorQueryHandler {
   };
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterReplicationInstance(std::string const &coordinator_socket_address,
-                                           std::string const &replication_socket_address,
+  virtual void RegisterReplicationInstance(std::string_view coordinator_socket_address,
+                                           std::string_view replication_socket_address,
                                            std::chrono::seconds const &instance_health_check_frequency,
                                            std::chrono::seconds const &instance_down_timeout,
                                            std::chrono::seconds const &instance_get_uuid_frequency,
-                                           std::string const &instance_name, CoordinatorQuery::SyncMode sync_mode) = 0;
+                                           std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void UnregisterInstance(std::string const &instance_name) = 0;
+  virtual void UnregisterInstance(std::string_view instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetReplicationInstanceToMain(const std::string &instance_name) = 0;
+  virtual void SetReplicationInstanceToMain(std::string_view instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual auto AddCoordinatorInstance(uint32_t raft_server_id, std::string const &coordinator_socket_address)
-      -> void = 0;
+  virtual auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view coordinator_socket_address) -> void = 0;
 };
 #endif
 
@@ -210,7 +199,7 @@ class Interpreter final {
     std::optional<std::string> db;
   };
 
-  std::optional<std::string> username_;
+  std::shared_ptr<QueryUserOrRole> user_or_role_{};
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
 
@@ -300,7 +289,7 @@ class Interpreter final {
 
   void ResetUser();
 
-  void SetUser(std::string_view username);
+  void SetUser(std::shared_ptr<QueryUserOrRole> user);
 
   std::optional<memgraph::system::Transaction> system_transaction_{};
 

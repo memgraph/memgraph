@@ -1,7 +1,5 @@
 #!/bin/bash
-
 set -Eeuo pipefail
-
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
@@ -9,8 +7,10 @@ check_operating_system "centos-9"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
-    coreutils-common gcc gcc-c++ make # generic build tools
     wget # used for archive download
+    coreutils-common gcc gcc-c++ make # generic build tools
+    # NOTE: Pure libcurl conflicts with libcurl-minimal
+    libcurl-devel # cmake build requires it
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     zlib-devel # zlib library used for all builds
@@ -63,6 +63,8 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     cyrus-sasl-devel
 )
+
+MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp
@@ -123,7 +125,9 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
-    yum update -y
+    # --nobest is used because of libipt because we install custom versions
+    # because libipt-devel is not available on CentOS 9 Stream
+    yum update -y --nobest
     yum install -y wget git python3 python3-pip
 
     for pkg in $1; do

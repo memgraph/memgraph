@@ -229,6 +229,13 @@ inline std::vector<std::string> Split(const std::string_view src, const std::str
   return res;
 }
 
+inline std::vector<std::string_view> SplitView(const std::string_view src, const std::string_view delimiter,
+                                               int splits = -1) {
+  std::vector<std::string_view> res;
+  Split(&res, src, delimiter, splits);
+  return res;
+}
+
 /**
  * Split a string by whitespace into a vector.
  * Runs of consecutive whitespace are regarded as a single delimiter.
@@ -242,7 +249,7 @@ std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out, c
   if (src.empty()) return out;
   // TODO: Investigate how much regex allocate and perhaps replace with custom
   // solution doing no allocations.
-  std::regex not_whitespace("[^\\s]+");
+  static std::regex not_whitespace("[^\\s]+");
   auto matches_begin = std::cregex_iterator(src.data(), src.data() + src.size(), not_whitespace);
   auto matches_end = std::cregex_iterator();
   out->reserve(std::distance(matches_begin, matches_end));

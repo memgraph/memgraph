@@ -1,9 +1,9 @@
 #!/bin/bash
-
 set -Eeuo pipefail
-
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
+
+# IMPORTANT: Deprecated since memgraph v2.12.0.
 
 check_operating_system "debian-10"
 check_architecture "x86_64"

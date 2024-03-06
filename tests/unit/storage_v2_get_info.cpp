@@ -13,12 +13,11 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 
-#include "disk_test_utils.hpp"
+#include "dbms/constants.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
-#include "storage/v2/storage_error.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -31,6 +30,7 @@ class InfoTest : public testing::Test {
  protected:
   void SetUp() override {
     std::filesystem::remove_all(storage_directory);
+    config_.salient.name = memgraph::dbms::kDefaultDB;
     memgraph::storage::UpdatePaths(config_, storage_directory);
     config_.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
@@ -135,7 +135,7 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  StorageInfo info = this->storage->GetInfo(true, ReplicationRole::MAIN);  // force to use configured directory
+  StorageInfo info = this->storage->GetInfo(ReplicationRole::MAIN);
 
   ASSERT_EQ(info.vertex_count, 5);
   ASSERT_EQ(info.edge_count, 2);
