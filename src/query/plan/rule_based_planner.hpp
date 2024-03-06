@@ -194,7 +194,7 @@ class RuleBasedPlanner {
         uint64_t merge_id = 0;
         uint64_t subquery_id = 0;
 
-        std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops;
+        std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pattern_comprehension_ops;
 
         if (single_query_part.pattern_comprehension_matchings.size() > 1) {
           throw utils::NotYetImplemented("Multiple pattern comprehensions.");
@@ -203,16 +203,15 @@ class RuleBasedPlanner {
           std::unique_ptr<LogicalOperator> new_input;
           MatchContext match_ctx{matching.second, *context.symbol_table, context.bound_symbols};
           new_input = PlanMatching(match_ctx, std::move(new_input));
-          std::vector<NamedExpression *> exprs = {matching.second.result_expr};
-          new_input = std::make_unique<Produce>(std::move(new_input), exprs);
-          pc_ops.emplace(matching.first, std::move(new_input));
+          new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.second.result_expr});
+          pattern_comprehension_ops.emplace(matching.first, std::move(new_input));
         }
 
         for (const auto &clause : single_query_part.remaining_clauses) {
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
           if (auto *ret = utils::Downcast<Return>(clause)) {
             input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, context.is_write_query,
-                                       context.bound_symbols, *context.ast_storage, pc_ops);
+                                       context.bound_symbols, *context.ast_storage, pattern_comprehension_ops);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             input_op = GenMerge(*merge, std::move(input_op), single_query_part.merge_matching[merge_id++]);
             // Treat MERGE clause as write, because we do not know if it will
@@ -220,7 +219,7 @@ class RuleBasedPlanner {
             context.is_write_query = true;
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
             input_op = impl::GenWith(*with, std::move(input_op), *context.symbol_table, context.is_write_query,
-                                     context.bound_symbols, *context.ast_storage, pc_ops);
+                                     context.bound_symbols, *context.ast_storage, pattern_comprehension_ops);
             // WITH clause advances the command, so reset the flag.
             context.is_write_query = false;
           } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
@@ -259,7 +258,7 @@ class RuleBasedPlanner {
                                            single_query_part, merge_id);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
             input_op = HandleSubquery(std::move(input_op), single_query_part.subqueries[subquery_id++],
-                                      *context.symbol_table, *context_->ast_storage, pc_ops);
+                                      *context.symbol_table, *context_->ast_storage, pattern_comprehension_ops);
           } else {
             throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
           }
