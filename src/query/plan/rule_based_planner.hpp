@@ -276,9 +276,8 @@ class RuleBasedPlanner {
 
   storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
 
-  std::vector<std::variant<storage::LabelId, Expression *>> GetLabelIds(
-      const std::vector<std::variant<LabelIx, Expression *>> &labels) {
-    std::vector<std::variant<storage::LabelId, Expression *>> label_ids;
+  std::vector<StorageLabelType> GetLabelIds(const std::vector<QueryLabelType> &labels) {
+    std::vector<StorageLabelType> label_ids;
     label_ids.reserve(labels.size());
     for (const auto &label : labels) {
       if (const auto *label_atom = std::get_if<LabelIx>(&label)) {

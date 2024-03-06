@@ -290,7 +290,7 @@ TYPED_TEST(OperatorToStringTest, SetProperties) {
 TYPED_TEST(OperatorToStringTest, SetLabels) {
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
-  std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels;
+  std::vector<StorageLabelType> labels;
   labels.emplace_back(this->dba.NameToLabel("label1"));
   labels.emplace_back(this->dba.NameToLabel("label2"));
   last_op = std::make_shared<plan::SetLabels>(last_op, node_sym, labels);
@@ -312,7 +312,7 @@ TYPED_TEST(OperatorToStringTest, RemoveProperty) {
 TYPED_TEST(OperatorToStringTest, RemoveLabels) {
   auto node_sym = this->GetSymbol("node");
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
-  std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels;
+  std::vector<StorageLabelType> labels;
   labels.emplace_back(this->dba.NameToLabel("label1"));
   labels.emplace_back(this->dba.NameToLabel("label2"));
   last_op = std::make_shared<plan::RemoveLabels>(last_op, node_sym, labels);

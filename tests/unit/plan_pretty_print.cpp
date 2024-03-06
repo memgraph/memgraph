@@ -516,8 +516,7 @@ TYPED_TEST(PrintToJsonTest, SetLabels) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::SetLabels>(
       last_op, node_sym,
-      std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>>{
-          this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
+      std::vector<StorageLabelType>{this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
 
   this->Check(last_op.get(), R"(
           {
@@ -556,8 +555,7 @@ TYPED_TEST(PrintToJsonTest, RemoveLabels) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
   last_op = std::make_shared<plan::RemoveLabels>(
       last_op, node_sym,
-      std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>>{
-          this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
+      std::vector<StorageLabelType>{this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
 
   this->Check(last_op.get(), R"(
           {

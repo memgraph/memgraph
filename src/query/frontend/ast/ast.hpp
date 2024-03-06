@@ -2661,7 +2661,7 @@ class SetLabels : public memgraph::query::Clause {
   }
 
  protected:
-  SetLabels(Identifier *identifier, std::vector<std::variant<LabelIx, Expression *>> labels)
+  SetLabels(Identifier *identifier, std::vector<QueryLabelType> labels)
       : identifier_(identifier), labels_(std::move(labels)) {}
 
  private:
@@ -2729,7 +2729,7 @@ class RemoveLabels : public memgraph::query::Clause {
   }
 
  protected:
-  RemoveLabels(Identifier *identifier, std::vector<std::variant<LabelIx, Expression *>> labels)
+  RemoveLabels(Identifier *identifier, std::vector<QueryLabelType> labels)
       : identifier_(identifier), labels_(std::move(labels)) {}
 
  private:

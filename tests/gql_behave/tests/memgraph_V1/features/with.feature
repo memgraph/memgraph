@@ -341,7 +341,7 @@ Feature: With
             | n                                 |
             | (:label1:label2 {name: 'label1'}) |
 
-    Scenario: With test 20:
+    Scenario: With test 21:
         Given an empty graph
         And having executed:
             """

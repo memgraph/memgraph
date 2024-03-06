@@ -497,7 +497,7 @@ class MatchCreateNodeWithAuthFixture : public QueryPlanTest<StorageType> {
     NodeCreationInfo m{};
 
     m.symbol = symbol_table.CreateSymbol("m", true);
-    std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels{dba.NameToLabel("l2")};
+    std::vector<StorageLabelType> labels{dba.NameToLabel("l2")};
     m.labels = labels;
     // creation op
     auto create_node = std::make_shared<CreateNode>(n_scan_all.op_, m);
@@ -627,7 +627,7 @@ class MatchCreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
     // data for the second node
     NodeCreationInfo m;
     m.symbol = cycle ? n_scan_all.sym_ : symbol_table.CreateSymbol("m", true);
-    std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels{dba.NameToLabel("l2")};
+    std::vector<StorageLabelType> labels{dba.NameToLabel("l2")};
     m.labels = labels;
 
     EdgeCreationInfo r;
@@ -1231,7 +1231,7 @@ TYPED_TEST(QueryPlanTest, SetLabels) {
   ASSERT_TRUE(dba.InsertVertex().AddLabel(label1).HasValue());
   ASSERT_TRUE(dba.InsertVertex().AddLabel(label1).HasValue());
   dba.AdvanceCommand();
-  std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels;
+  std::vector<StorageLabelType> labels;
   labels.emplace_back(label2);
   labels.emplace_back(label3);
 
@@ -1257,7 +1257,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
     ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).HasValue());
     ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).HasValue());
     dba.AdvanceCommand();
-    std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels_variant;
+    std::vector<StorageLabelType> labels_variant;
     labels_variant.emplace_back(labels[1]);
     labels_variant.emplace_back(labels[2]);
 
@@ -1400,7 +1400,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabels) {
   ASSERT_TRUE(v2.AddLabel(label1).HasValue());
   ASSERT_TRUE(v2.AddLabel(label3).HasValue());
   dba.AdvanceCommand();
-  std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels;
+  std::vector<StorageLabelType> labels;
   labels.emplace_back(label1);
   labels.emplace_back(label2);
 
@@ -1431,7 +1431,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
     ASSERT_TRUE(v2.AddLabel(labels[0]).HasValue());
     ASSERT_TRUE(v2.AddLabel(labels[2]).HasValue());
     dba.AdvanceCommand();
-    std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels_variant;
+    std::vector<StorageLabelType> labels_variant;
     labels_variant.emplace_back(labels[0]);
     labels_variant.emplace_back(labels[1]);
 
@@ -1577,7 +1577,7 @@ TYPED_TEST(QueryPlanTest, SetRemove) {
   auto label1 = dba.NameToLabel("label1");
   auto label2 = dba.NameToLabel("label2");
   dba.AdvanceCommand();
-  std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels;
+  std::vector<StorageLabelType> labels;
   labels.emplace_back(label1);
   labels.emplace_back(label2);
   // Create operations which match (v) and set and remove v :label.
@@ -1782,7 +1782,7 @@ TYPED_TEST(QueryPlanTest, SetLabelsOnNull) {
   auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("label");
-  std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels;
+  std::vector<StorageLabelType> labels;
   labels.emplace_back(label);
   SymbolTable symbol_table;
   auto n = MakeScanAll(this->storage, symbol_table, "n");
@@ -1812,7 +1812,7 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsOnNull) {
   auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("label");
-  std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels;
+  std::vector<StorageLabelType> labels;
   labels.emplace_back(label);
   SymbolTable symbol_table;
   auto n = MakeScanAll(this->storage, symbol_table, "n");
@@ -1918,7 +1918,7 @@ TYPED_TEST(QueryPlanTest, DeleteRemoveLabels) {
   auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
-  std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>> labels{dba.NameToLabel("label")};
+  std::vector<StorageLabelType> labels{dba.NameToLabel("label")};
   auto rem_op = std::make_shared<plan::RemoveLabels>(delete_op, n.sym_, labels);
   auto accumulate_op = std::make_shared<plan::Accumulate>(rem_op, rem_op->ModifiedSymbols(symbol_table), true);
 

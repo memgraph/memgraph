@@ -183,12 +183,10 @@ TYPED_TEST(ReadWriteTypeCheckTest, SetRemovePropertiesLabels) {
       plan::SetProperties::Op::REPLACE);
   last_op = std::make_shared<plan::SetLabels>(
       last_op, node_sym,
-      std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>>{
-          this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
+      std::vector<StorageLabelType>{this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
   last_op = std::make_shared<plan::RemoveLabels>(
       last_op, node_sym,
-      std::vector<std::variant<memgraph::storage::LabelId, memgraph::query::Expression *>>{
-          this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
+      std::vector<StorageLabelType>{this->dba.NameToLabel("label1"), this->dba.NameToLabel("label2")});
 
   this->CheckPlanType(last_op.get(), RWType::RW);
 }
