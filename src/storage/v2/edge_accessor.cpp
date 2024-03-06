@@ -129,10 +129,12 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
   using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
-  std::optional<ReturnType> current_value;
+  std::optional<ReturnType> current_value = edge_.ptr->properties.GetProperty(property);
+  if (current_value == value) {
+    return std::move(*current_value);
+  }
   utils::AtomicMemoryBlock atomic_memory_block{
       [&current_value, &property, &value, transaction = transaction_, edge = edge_]() {
-        current_value.emplace(edge.ptr->properties.GetProperty(property));
         // We could skip setting the value if the previous one is the same to the new
         // one. This would save some memory as a delta would not be created as well as
         // avoid copying the value. The reason we are not doing that is because the

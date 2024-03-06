@@ -268,6 +268,9 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
+  if (current_value == value) {
+    return std::move(current_value);
+  }
 
   utils::AtomicMemoryBlock atomic_memory_block{
       [transaction = transaction_, vertex = vertex_, &value, &property, &current_value]() {
