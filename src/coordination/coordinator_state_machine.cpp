@@ -14,6 +14,10 @@
 #include "nuraft/coordinator_state_machine.hpp"
 #include "utils/logging.hpp"
 
+namespace {
+constexpr int MAX_SNAPSHOTS = 3;
+}  // namespace
+
 namespace memgraph::coordination {
 
 auto CoordinatorStateMachine::FindCurrentMainInstanceName() const -> std::optional<std::string> {
@@ -176,7 +180,6 @@ auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -
   auto ctx = cs_new<SnapshotCtx>(snapshot, cluster_state_);
   snapshots_[snapshot->get_last_log_idx()] = ctx;
 
-  constexpr int MAX_SNAPSHOTS = 3;
   while (snapshots_.size() > MAX_SNAPSHOTS) {
     snapshots_.erase(snapshots_.begin());
   }

@@ -40,7 +40,7 @@ CoordinatorInstance::CoordinatorInstance()
                             });
 
             std::ranges::for_each(replicas, [this](auto &replica) {
-              spdlog::info("Starting replication instance {}", replica.config.instance_name);
+              spdlog::info("Started pinging replication instance {}", replica.config.instance_name);
               repl_instances_.emplace_back(this, replica.config, client_succ_cb_, client_fail_cb_,
                                            &CoordinatorInstance::ReplicaSuccessCallback,
                                            &CoordinatorInstance::ReplicaFailCallback);
@@ -50,7 +50,7 @@ CoordinatorInstance::CoordinatorInstance()
                                         [](auto const &instance) { return instance.status == ReplicationRole::MAIN; });
 
             std::ranges::for_each(main, [this](auto &main_instance) {
-              spdlog::info("Starting main instance {}", main_instance.config.instance_name);
+              spdlog::info("Started pinging main instance {}", main_instance.config.instance_name);
               repl_instances_.emplace_back(this, main_instance.config, client_succ_cb_, client_fail_cb_,
                                            &CoordinatorInstance::MainSuccessCallback,
                                            &CoordinatorInstance::MainFailCallback);
@@ -314,17 +314,20 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig co
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
+  auto const undo_action_ = [this]() { repl_instances_.pop_back(); };
+
   auto *new_instance = &repl_instances_.emplace_back(this, config, client_succ_cb_, client_fail_cb_,
                                                      &CoordinatorInstance::ReplicaSuccessCallback,
                                                      &CoordinatorInstance::ReplicaFailCallback);
 
   if (!new_instance->SendDemoteToReplicaRpc()) {
     spdlog::error("Failed to send demote to replica rpc for instance {}", config.instance_name);
-    repl_instances_.pop_back();
+    undo_action_();
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
   }
 
   if (!raft_state_.AppendRegisterReplicationInstanceLog(config)) {
+    undo_action_();
     return RegisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
