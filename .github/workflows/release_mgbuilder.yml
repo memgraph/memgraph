@@ -1,0 +1,190 @@
+name: Publish memgraph-builder docker images
+
+on:
+  workflow_dispatch:
+    inputs:
+      toolchain_version:
+        type: choice
+        description: "Toolchain version for the builder"
+        options:
+          - v4
+          - v5
+      target_os:
+        type: choice
+        description: "Target OS for the builder"
+        default: 'debian-11'
+        options:
+          - all
+          - all-amd64
+          - all-arm
+          - amzn-2
+          - centos-7
+          - centos-9
+          - debian-10
+          - debian-11
+          - debian-11-arm
+          - fedora-36
+          - ubuntu-18_04
+          - ubuntu-20_04
+          - ubuntu-22_04
+          - ubuntu-22_04-arm
+      force_release:
+        type: boolean
+        description: "Overwrite existing image on dockerhub"
+        required: false
+        default: false
+
+jobs:
+  amd_build:
+    if: ${{ !startsWith(github.event.inputs.target_os, 'all') && !endsWith(github.event.inputs.target_os, '-arm') }}
+    name: "Build and publish specific amd64 image"
+    runs-on: [self-hosted, DockerMgBuild, X64]
+    env:
+      DOCKER_ORG: "memgraph"
+      DOCKER_REPO: "memgraph-builder"
+      DOCKER_IMAGE_TAG: "${{ github.event.inputs.toolchain_version }}_${{ github.event.inputs.target_os }}"
+      ARCHITECTURE: "amd64"
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Check if specified image is already pushed
+        run: |
+          if [[ $FORCE_RELEASE = true ]]; then
+            EXISTS=1
+          else
+            EXISTS=$(docker manifest inspect $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG > /dev/null; echo $?)
+          fi
+          if [[ $EXISTS -eq 0 ]]; then
+            echo "Image $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG already exists, skipping next step ..."
+          fi
+          echo "EXISTS=$EXISTS" >> $GITHUB_ENV
+      - name: "Build and publish image" 
+        if: env.EXISTS == 1
+        run: |
+          echo "Building and publishing $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG"
+          ./release/package/run.sh build ${{ github.event.inputs.toolchain_version }} ${{ github.event.inputs.target_os }} $ARCHITECTURE --publish
+
+  arm_build:
+    if: ${{ !startsWith(github.event.inputs.target_os, 'all') && endsWith(github.event.inputs.target_os, '-arm') }}
+    name: "Build and publish specific arm image"
+    runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
+    env:
+      DOCKER_ORG: "memgraph"
+      DOCKER_REPO: "memgraph-builder"
+      DOCKER_IMAGE_TAG: "${{ github.event.inputs.toolchain_version }}_${{ github.event.inputs.target_os }}"
+      ARCHITECTURE: "arm64"
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: "Unlock keychain for current session" # Required beacuse ARM builds run on macos
+        run: security -v unlock-keychain -p ${{ secrets.SELF_HOSTED_RUNNER_PASSWORD }} ~/Library/Keychains/login.keychain-db
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Check if specified image is already pushed
+        run: |
+          if [[ $FORCE_RELEASE = true ]]; then
+            EXISTS=1
+          else
+            EXISTS=$(docker manifest inspect $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG > /dev/null; echo $?)
+          fi
+          if [[ $EXISTS -eq 0 ]]; then
+            echo "Image $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG already exists, skipping next step ..."
+          fi
+          echo "EXISTS=$EXISTS" >> $GITHUB_ENV
+      - name: "Build and publish image" 
+        if: env.EXISTS == 1
+        run: |
+          echo "Building and publishing $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG"
+          ./release/package/run.sh build ${{ github.event.inputs.toolchain_version }} ${{ github.event.inputs.target_os }} $ARCHITECTURE --publish
+
+  all_amd_build:
+    if: ${{ github.event.inputs.target_os == 'all-amd64' ||  github.event.inputs.target_os == 'all'}}
+    name: "Build and publish all amd64 images"
+    runs-on: [self-hosted, DockerMgBuild, X64]
+    strategy:
+      matrix:
+        target_os: [amzn-2, centos-7, centos-9, debian-10, debian-11, fedora-36, ubuntu-18_04, ubuntu-20_04, ubuntu-22_04]
+    env:
+      DOCKER_ORG: "memgraph"
+      DOCKER_REPO: "memgraph-builder"
+      DOCKER_IMAGE_TAG: "${{ github.event.inputs.toolchain_version }}_${{ github.event.inputs.target_os }}"
+      ARCHITECTURE: "amd64"
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Check if specified image is already pushed
+        run: |
+          if [[ $FORCE_RELEASE = true ]]; then
+            EXISTS=1
+          else
+            EXISTS=$(docker manifest inspect $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG > /dev/null; echo $?)
+          fi
+          if [[ $EXISTS -eq 0 ]]; then
+            echo "Image $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG already exists, skipping next step ..."
+          fi
+          echo "EXISTS=$EXISTS" >> $GITHUB_ENV
+      - name: "Build and publish image" 
+        if: env.EXISTS == 1
+        run: |
+          echo "Building and publishing $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG"
+          ./release/package/run.sh build ${{ github.event.inputs.toolchain_version }} ${{ github.event.inputs.target_os }} $ARCHITECTURE --publish
+
+  all_arm_build:
+    if: ${{ github.event.inputs.target_os == 'all-arm' ||  github.event.inputs.target_os == 'all'}}
+    name: "Build and publish all arm images"
+    runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
+    strategy:
+      matrix:
+        target_os: [debian-11-arm, ubuntu-22_04-arm]
+    env:
+      DOCKER_ORG: "memgraph"
+      DOCKER_REPO: "memgraph-builder"
+      DOCKER_IMAGE_TAG: "${{ github.event.inputs.toolchain_version }}_${{ github.event.inputs.target_os }}"
+      ARCHITECTURE: "arm64"
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: "Unlock keychain for current session" # Required beacuse ARM builds run on macos
+        run: security -v unlock-keychain -p ${{ secrets.SELF_HOSTED_RUNNER_PASSWORD }} ~/Library/Keychains/login.keychain-db
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Check if specified image is already pushed
+        run: |
+          if [[ $FORCE_RELEASE = true ]]; then
+            EXISTS=1
+          else
+            EXISTS=$(docker manifest inspect $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG > /dev/null; echo $?)
+          fi
+          if [[ $EXISTS -eq 0 ]]; then
+            echo "Image $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG already exists, skipping next step ..."
+          fi
+          echo "EXISTS=$EXISTS" >> $GITHUB_ENV
+      - name: "Build and publish image" 
+        if: env.EXISTS == 1
+        run: |
+          echo "Building and publishing $DOCKER_ORG/$DOCKER_REPO:$DOCKER_IMAGE_TAG"
+          ./release/package/run.sh build ${{ github.event.inputs.toolchain_version }} ${{ github.event.inputs.target_os }} $ARCHITECTURE --publish
