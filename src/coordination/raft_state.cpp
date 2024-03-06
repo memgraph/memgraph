@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #ifdef MG_ENTERPRISE
-
 #include <chrono>
 
 #include "coordination/coordinator_config.hpp"
