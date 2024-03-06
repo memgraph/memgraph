@@ -229,6 +229,13 @@ inline std::vector<std::string> Split(const std::string_view src, const std::str
   return res;
 }
 
+inline std::vector<std::string_view> SplitView(const std::string_view src, const std::string_view delimiter,
+                                               int splits = -1) {
+  std::vector<std::string_view> res;
+  Split(&res, src, delimiter, splits);
+  return res;
+}
+
 /**
  * Split a string by whitespace into a vector.
  * Runs of consecutive whitespace are regarded as a single delimiter.

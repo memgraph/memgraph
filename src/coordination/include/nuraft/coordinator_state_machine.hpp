@@ -13,8 +13,14 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_config.hpp"
+#include "nuraft/coordinator_cluster_state.hpp"
+#include "nuraft/raft_log_action.hpp"
+
 #include <spdlog/spdlog.h>
 #include <libnuraft/nuraft.hxx>
+
+#include <variant>
 
 namespace memgraph::coordination {
 
@@ -36,9 +42,19 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
   ~CoordinatorStateMachine() override {}
 
-  static auto EncodeRegisterReplicationInstance(const std::string &name) -> ptr<buffer>;
+  auto FindCurrentMainInstanceName() const -> std::optional<std::string>;
+  auto MainExists() const -> bool;
+  auto IsMain(std::string_view instance_name) const -> bool;
+  auto IsReplica(std::string_view instance_name) const -> bool;
 
-  static auto DecodeRegisterReplicationInstance(buffer &data) -> std::string;
+  static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
+  static auto SerializeRegisterInstance(CoordinatorClientConfig const &config) -> ptr<buffer>;
+  static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeUpdateUUID(utils::UUID const &uuid) -> ptr<buffer>;
+
+  static auto DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction>;
 
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
@@ -64,11 +80,31 @@ class CoordinatorStateMachine : public state_machine {
 
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
+  auto GetInstances() const -> std::vector<InstanceState>;
+  auto GetUUID() const -> utils::UUID;
+
  private:
+  struct SnapshotCtx {
+    SnapshotCtx(ptr<snapshot> &snapshot, CoordinatorClusterState const &cluster_state)
+        : snapshot_(snapshot), cluster_state_(cluster_state) {}
+
+    ptr<snapshot> snapshot_;
+    CoordinatorClusterState cluster_state_;
+  };
+
+  auto create_snapshot_internal(ptr<snapshot> snapshot) -> void;
+
+  CoordinatorClusterState cluster_state_;
+
+  // mutable utils::RWLock lock{utils::RWLock::Priority::READ};
+
   std::atomic<uint64_t> last_committed_idx_{0};
 
-  ptr<snapshot> last_snapshot_;
+  // TODO: (andi) Maybe not needed, remove it
+  std::map<uint64_t, ptr<SnapshotCtx>> snapshots_;
+  std::mutex snapshots_lock_;
 
+  ptr<snapshot> last_snapshot_;
   std::mutex last_snapshot_lock_;
 };
 
