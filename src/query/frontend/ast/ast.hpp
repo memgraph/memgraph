@@ -21,6 +21,7 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query {
@@ -3586,7 +3587,8 @@ class PatternComprehension : public memgraph::query::Expression {
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       if (variable_) {
-        variable_->Accept(visitor);
+        throw utils::NotYetImplemented("Variable in pattern comprehension.");
+        // variable_->Accept(visitor);
       }
       pattern_->Accept(visitor);
       if (filter_) {
