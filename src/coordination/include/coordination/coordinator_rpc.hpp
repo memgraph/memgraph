@@ -90,7 +90,7 @@ struct UnregisterReplicaReq {
   static void Load(UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
   static void Save(UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
 
-  explicit UnregisterReplicaReq(std::string instance_name) : instance_name(std::move(instance_name)) {}
+  explicit UnregisterReplicaReq(std::string_view inst_name) : instance_name(inst_name) {}
 
   UnregisterReplicaReq() = default;
 
