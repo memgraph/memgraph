@@ -62,7 +62,7 @@ utils::BasicResult<std::string> KafkaStream::SetStreamOffset(const int64_t offse
 namespace {
 const std::string kTopicsKey{"topics"};
 const std::string kConsumerGroupKey{"consumer_group"};
-const std::string kBoostrapServers{"bootstrap_servers"};
+const std::string kBootstrapServers{"bootstrap_servers"};
 const std::string kConfigs{"configs"};
 const std::string kCredentials{"credentials"};
 
@@ -73,7 +73,7 @@ void to_json(nlohmann::json &data, KafkaStream::StreamInfo &&info) {
   data[kCommonInfoKey] = std::move(info.common_info);
   data[kTopicsKey] = std::move(info.topics);
   data[kConsumerGroupKey] = info.consumer_group;
-  data[kBoostrapServers] = std::move(info.bootstrap_servers);
+  data[kBootstrapServers] = std::move(info.bootstrap_servers);
   data[kConfigs] = std::move(info.configs);
   data[kCredentials] = std::move(info.credentials);
 }
@@ -82,7 +82,7 @@ void from_json(const nlohmann::json &data, KafkaStream::StreamInfo &info) {
   data.at(kCommonInfoKey).get_to(info.common_info);
   data.at(kTopicsKey).get_to(info.topics);
   data.at(kConsumerGroupKey).get_to(info.consumer_group);
-  data.at(kBoostrapServers).get_to(info.bootstrap_servers);
+  data.at(kBootstrapServers).get_to(info.bootstrap_servers);
   // These values might not be present in the persisted JSON object
   info.configs = data.value(kConfigs, kDefaultConfigsMap);
   info.credentials = data.value(kCredentials, kDefaultConfigsMap);

@@ -136,7 +136,7 @@ def main():
         thread.daemon = True
         thread.start()
         # Kill Memgraph at arbitrary point in time. It makse sense to ensure
-        # that at least one snapshot has to be generated beucase we want to
+        # that at least one snapshot has to be generated because we want to
         # test the entire recovery process (Snapshot + WAL).
         # Also it makes sense to run this test for a longer period of time
         # but with small --snapshot-cycle-sec to force that Memgraph is being

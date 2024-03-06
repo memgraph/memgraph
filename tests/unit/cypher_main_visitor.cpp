@@ -178,7 +178,7 @@ class ClonedAstGenerator : public Base {
 };
 
 // This generator strips ast, clones it and then plugs stripped out literals in
-// the same way it is done in ast cacheing in interpreter.
+// the same way it is done in ast caching in interpreter.
 class CachedAstGenerator : public Base {
  public:
   Query *ParseQuery(const std::string &query_string) override {

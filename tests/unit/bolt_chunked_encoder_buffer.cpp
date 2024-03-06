@@ -37,7 +37,7 @@ struct BoltChunkedEncoderBuffer : ::testing::Test {
  *
  * @param data pointer on data array (array of bytes)
  * @param size of data array
- * @param offset offset from the begining of the test data
+ * @param offset offset from the beginning of the test data
  */
 void VerifyChunkOfTestData(uint8_t *data, int size, uint64_t offset = 0) {
   // first two bytes are size (big endian)

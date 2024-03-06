@@ -28,7 +28,7 @@ else ()
 endif(CCACHE_FOUND AND USE_CCACHE)
 
 # choose a compiler
-# NOTE: must be choosen before use of project() or enable_language()
+# NOTE: must be chosen before use of project() or enable_language()
 find_program(CLANG_FOUND clang)
 find_program(CLANGXX_FOUND clang++)
 if (CLANG_FOUND AND CLANGXX_FOUND)
