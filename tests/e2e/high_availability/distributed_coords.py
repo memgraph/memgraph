@@ -406,13 +406,13 @@ def test_registering_4_coords():
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("coordinator_4", "127.0.0.1:10114", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-k", "test_registering_4_coords"]))
     sys.exit(pytest.main([__file__, "-rA"]))
