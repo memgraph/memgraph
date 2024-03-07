@@ -145,7 +145,7 @@ bool PlanPrinter::PreVisit(query::plan::Union &op) {
 
 bool PlanPrinter::PreVisit(query::plan::RollUpApply &op) {
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  Branch(*op.second_branch_);
+  Branch(*op.list_collection_branch_);
   op.input_->Accept(*this);
   return false;
 }

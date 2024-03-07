@@ -5626,7 +5626,7 @@ UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
 
 RollUpApply::RollUpApply(const std::shared_ptr<LogicalOperator> &input,
                          std::shared_ptr<LogicalOperator> &&second_branch)
-    : input_(input), second_branch_(second_branch) {}
+    : input_(input), list_collection_branch_(second_branch) {}
 
 std::vector<Symbol> RollUpApply::OutputSymbols(const SymbolTable & /*symbol_table*/) const {
   std::vector<Symbol> symbols;
@@ -5637,10 +5637,10 @@ std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const
 
 bool RollUpApply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
-    if (!input_ || !second_branch_) {
-      throw utils::NotYetImplemented("Pattern comprehension. One of branch is null! Please contact support.");
+    if (!input_ || !list_collection_branch_) {
+      throw utils::NotYetImplemented("One of the branches in pattern comprehension is null! Please contact support.");
     }
-    input_->Accept(visitor) && second_branch_->Accept(visitor);
+    input_->Accept(visitor) && list_collection_branch_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
 }

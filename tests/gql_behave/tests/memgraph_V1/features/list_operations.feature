@@ -312,7 +312,7 @@ Feature: List operators
             """
         Then an error should be raised
 
-     Scenario: Simple list pattern comprehension
+     Scenario: Function inside pattern comprehension's expression
         Given graph "graph_keanu"
         When executing query:
             """

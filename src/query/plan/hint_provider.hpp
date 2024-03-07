@@ -208,7 +208,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(RollUpApply &op) override {
     op.input()->Accept(*this);
-    op.second_branch_->Accept(*this);
+    op.list_collection_branch_->Accept(*this);
     return false;
   }
 

@@ -2660,12 +2660,12 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<RollUpApply>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
-    object->second_branch_ = second_branch_ ? second_branch_->Clone(storage) : nullptr;
+    object->list_collection_branch_ = list_collection_branch_ ? list_collection_branch_->Clone(storage) : nullptr;
     return object;
   }
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
-  std::shared_ptr<memgraph::query::plan::LogicalOperator> second_branch_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> list_collection_branch_;
 };
 
 }  // namespace plan

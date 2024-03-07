@@ -458,7 +458,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(RollUpApply &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
-    RewriteBranch(&op.second_branch_);
+    RewriteBranch(&op.list_collection_branch_);
     return false;
   }
 
