@@ -122,7 +122,8 @@ auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_po
   if (cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
     spdlog::info("Request to add server {} to the cluster accepted", endpoint);
   } else {
-    throw RaftAddServerException("Failed to accept request to add server {} to the cluster", endpoint);
+    throw RaftAddServerException("Failed to accept request to add server {} to the cluster with error code {}",
+                                 endpoint, cmd_result->get_result_code());
   }
 
   // Waiting for server to join
