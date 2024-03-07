@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #ifdef MG_ENTERPRISE
-
 #include <chrono>
 
 #include "coordination/coordinator_config.hpp"
@@ -43,18 +42,24 @@ RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_fo
 
 auto RaftState::InitRaftServer() -> void {
   asio_service::options asio_opts;
-  asio_opts.thread_pool_size_ = 1;  // TODO: (andi) Improve this
+  asio_opts.thread_pool_size_ = 1;
 
   raft_params params;
   params.heart_beat_interval_ = 100;
   params.election_timeout_lower_bound_ = 200;
   params.election_timeout_upper_bound_ = 400;
-  // 5 logs are preserved before the last snapshot
   params.reserved_log_items_ = 5;
-  // Create snapshot for every 5 log appends
   params.snapshot_distance_ = 5;
   params.client_req_timeout_ = 3000;
   params.return_method_ = raft_params::blocking;
+
+  // If the leader doesn't receive any response from quorum nodes
+  // in 200ms, it will step down.
+  // This allows us to achieve strong consistency even if network partition
+  // happens between the current leader and followers.
+  // The value must be <= election_timeout_lower_bound_ so that cluster can never
+  // have multiple leaders.
+  params.leadership_expiry_ = 200;
 
   raft_server::init_options init_opts;
   init_opts.raft_callback_ = [this](cb_func::Type event_type, cb_func::Param *param) -> nuraft::CbReturnCode {
@@ -117,7 +122,8 @@ auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_po
   if (cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
     spdlog::info("Request to add server {} to the cluster accepted", endpoint);
   } else {
-    throw RaftAddServerException("Failed to accept request to add server {} to the cluster", endpoint);
+    throw RaftAddServerException("Failed to accept request to add server {} to the cluster with error code {}",
+                                 endpoint, cmd_result->get_result_code());
   }
 
   // Waiting for server to join
