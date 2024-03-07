@@ -352,6 +352,7 @@ cypherKeyword : ALL
               | BY
               | CALL
               | CASE
+              | COALESCE
               | CONSTRAINT
               | CONTAINS
               | COUNT
@@ -362,6 +363,7 @@ cypherKeyword : ALL
               | DESCENDING
               | DETACH
               | DISTINCT
+              | DROP
               | ELSE
               | END
               | ENDS
@@ -373,11 +375,15 @@ cypherKeyword : ALL
               | IN
               | INDEX
               | INFO
+              | INSTANCE
               | IS
+              | KB
               | KEY
               | LIMIT
               | L_SKIP
               | MATCH
+              | MB
+              | MEMORY
               | MERGE
               | NODE
               | NONE
@@ -390,6 +396,7 @@ cypherKeyword : ALL
               | PROFILE
               | QUERY
               | REDUCE
+              | REGISTER
               | REMOVE
               | RETURN
               | SET
@@ -401,6 +408,7 @@ cypherKeyword : ALL
               | TRUE
               | UNION
               | UNIQUE
+              | UNLIMITED
               | UNWIND
               | WHEN
               | WHERE
