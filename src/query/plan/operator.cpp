@@ -5624,4 +5624,25 @@ UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem);
 }
 
+RollUpApply::RollUpApply(const std::shared_ptr<LogicalOperator> &input,
+                         std::shared_ptr<LogicalOperator> &&second_branch)
+    : input_(input), list_collection_branch_(second_branch) {}
+
+std::vector<Symbol> RollUpApply::OutputSymbols(const SymbolTable & /*symbol_table*/) const {
+  std::vector<Symbol> symbols;
+  return symbols;
+}
+
+std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const { return OutputSymbols(table); }
+
+bool RollUpApply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    if (!input_ || !list_collection_branch_) {
+      throw utils::NotYetImplemented("One of the branches in pattern comprehension is null! Please contact support.");
+    }
+    input_->Accept(visitor) && list_collection_branch_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
 }  // namespace memgraph::query::plan
