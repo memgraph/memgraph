@@ -359,3 +359,18 @@ Feature: With
         Then the result should be:
             | n                                 |
             | (:label2:label1 {name: 'label1'}) |
+
+    Scenario: With test 22:
+        Given an empty graph
+        And having executed:
+            """
+            WITH {value: {label: "labelvalue"}} as label
+            CREATE (n:label.value.label);
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n             |
+            | (:labelvalue) |
