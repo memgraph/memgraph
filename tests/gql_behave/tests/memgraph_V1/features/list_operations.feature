@@ -300,11 +300,6 @@ Feature: List operators
             RETURN n.name, [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years
             """
         Then an error should be raised
-#        Then the result should be:
-#            | n.name               | years                 |
-#            | "Keanu Reeves"       | [2021,2003,2003,1999] |
-#            | "Carrie-Anne Moss"   | [2003,1999]           |
-#            | "Laurence Fishburne" | [1999]                |
 
      Scenario: Multiple list pattern comprehensions in Return
         Given graph "graph_keanu"
@@ -316,11 +311,6 @@ Feature: List operators
                 [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.title] AS titles
             """
         Then an error should be raised
-#        Then the result should be:
-#            | n.name               | years                 | titles                                                                                      |
-#            | "Keanu Reeves"       | [2021,2003,2003,1999] | ["The Matrix Resurrections", "The Matrix", "The Matrix Reloaded", "The Matrix Revolutions"] |
-#            | "Carrie-Anne Moss"   | [2003,1999]           | ["The Matrix Reloaded", "The Matrix"]                                                       |
-#            | "Laurence Fishburne" | [1999]                | ["The Matrix"]
 
      Scenario: Simple list pattern comprehension
         Given graph "graph_keanu"
@@ -330,9 +320,6 @@ Feature: List operators
             RETURN [p = (keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | size(nodes(p))] AS nodes
             """
         Then an error should be raised
-#        Then the result should be:
-#            | nodes                 |
-#            | [2,2,2,2] |                                                                          |
 
      Scenario: Multiple list pattern comprehensions in With
         Given graph "graph_keanu"
@@ -346,8 +333,3 @@ Feature: List operators
             RETURN actor.name, years, titles;
             """
         Then an error should be raised
-#        Then the result should be:
-#            | n.name               | years            | titles                                                                        |
-#            | "Keanu Reeves"       | [2021,2003,2003] | ["The Matrix Resurrections", "The Matrix Reloaded", "The Matrix Revolutions"] |
-#            | "Carrie-Anne Moss"   | [2003]           | ["The Matrix Reloaded"]                                                       |
-#            | "Laurence Fishburne" | []               | []                                                                            |
