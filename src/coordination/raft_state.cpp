@@ -127,8 +127,8 @@ auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_po
   bool added{false};
   while (!maybe_stop()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(waiting_period));
-    auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(raft_server_id));
-    if (nullptr != server_config.get()) {
+    const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(raft_server_id));
+    if (server_config) {
       spdlog::trace("Server with id {} added to cluster", raft_server_id);
       added = true;
       break;
