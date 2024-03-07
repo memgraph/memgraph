@@ -768,6 +768,32 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
   return true;
 }
 
+bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
+  auto &scope = scopes_.back();
+
+  if (scope.in_set_property) {
+    throw utils::NotYetImplemented("Pattern Comprehension cannot be used within SET clause.!");
+  }
+
+  if (scope.in_with) {
+    throw utils::NotYetImplemented("Pattern Comprehension cannot be used within WITH!");
+  }
+
+  if (scope.in_reduce) {
+    throw utils::NotYetImplemented("Pattern Comprehension cannot be used within REDUCE!");
+  }
+
+  if (scope.num_if_operators) {
+    throw utils::NotYetImplemented("IF operator cannot be used with Pattern Comprehension!");
+  }
+
+  const auto &symbol = CreateAnonymousSymbol();
+  pc.MapTo(symbol);
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) { return true; }
+
 void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<Identifier *> &identifiers) {
   auto &scope = scopes_.back();
   std::vector<std::pair<std::optional<Symbol>, Identifier *>> prev_symbols;

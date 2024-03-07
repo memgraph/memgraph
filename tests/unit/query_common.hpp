@@ -635,3 +635,5 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define DROP_USER(usernames) storage.Create<memgraph::query::DropUser>((usernames))
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)
 #define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(this->storage, __VA_ARGS__)
+#define PATTERN_COMPREHENSION(variable, pattern, filter, resultExpr) \
+  this->storage.template Create<memgraph::query::PatternComprehension>(variable, pattern, filter, resultExpr)

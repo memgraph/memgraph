@@ -638,20 +638,20 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
 
   // If there are any pattern filters, we add those as well
   for (auto &filter : matching.filters) {
-    PatternFilterVisitor visitor(symbol_table, storage);
+    PatternVisitor visitor(symbol_table, storage);
 
     filter.expression->Accept(visitor);
-    filter.matchings = visitor.getMatchings();
+    filter.matchings = visitor.getFilterMatchings();
   }
 }
 
-PatternFilterVisitor::PatternFilterVisitor(SymbolTable &symbol_table, AstStorage &storage)
+PatternVisitor::PatternVisitor(SymbolTable &symbol_table, AstStorage &storage)
     : symbol_table_(symbol_table), storage_(storage) {}
-PatternFilterVisitor::PatternFilterVisitor(const PatternFilterVisitor &) = default;
-PatternFilterVisitor::PatternFilterVisitor(PatternFilterVisitor &&) noexcept = default;
-PatternFilterVisitor::~PatternFilterVisitor() = default;
+PatternVisitor::PatternVisitor(const PatternVisitor &) = default;
+PatternVisitor::PatternVisitor(PatternVisitor &&) noexcept = default;
+PatternVisitor::~PatternVisitor() = default;
 
-void PatternFilterVisitor::Visit(Exists &op) {
+void PatternVisitor::Visit(Exists &op) {
   std::vector<Pattern *> patterns;
   patterns.push_back(op.pattern_);
 
@@ -661,10 +661,10 @@ void PatternFilterVisitor::Visit(Exists &op) {
   filter_matching.type = PatternFilterType::EXISTS;
   filter_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
 
-  matchings_.push_back(std::move(filter_matching));
+  filter_matchings_.push_back(std::move(filter_matching));
 }
 
-std::vector<FilterMatching> PatternFilterVisitor::getMatchings() { return matchings_; }
+std::vector<FilterMatching> PatternVisitor::getFilterMatchings() { return filter_matchings_; }
 
 static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
                          SymbolTable &symbol_table) {
@@ -676,6 +676,30 @@ static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, A
       ParseForeach(*nested, query_part, storage, symbol_table);
     }
   }
+}
+
+static void ParseReturn(query::Return &ret, AstStorage &storage, SymbolTable &symbol_table,
+                        std::unordered_map<std::string, PatternComprehensionMatching> &matchings) {
+  PatternVisitor visitor(symbol_table, storage);
+
+  for (auto *expr : ret.body_.named_expressions) {
+    expr->Accept(visitor);
+    auto pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
+    for (auto &matching : pattern_comprehension_matchings) {
+      matchings.emplace(expr->name_, matching);
+    }
+  }
+}
+
+void PatternVisitor::Visit(NamedExpression &op) { op.expression_->Accept(*this); }
+
+void PatternVisitor::Visit(PatternComprehension &op) {
+  PatternComprehensionMatching matching;
+  AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
+  matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
+  matching.result_expr->MapTo(symbol_table_.at(op));
+
+  pattern_comprehension_matchings_.push_back(std::move(matching));
 }
 
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be
@@ -709,7 +733,8 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         // This query part is done, continue with a new one.
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();
-      } else if (utils::IsSubtype(*clause, Return::kType)) {
+      } else if (auto *ret = utils::Downcast<Return>(clause)) {
+        ParseReturn(*ret, storage, symbol_table, query_part->pattern_comprehension_matchings);
         return query_parts;
       }
     }
