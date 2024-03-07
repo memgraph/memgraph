@@ -587,6 +587,127 @@ def test_old_main_comes_back_on_new_leader_as_main():
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_3")
 
 
+def test_registering_4_coords():
+    # Goal of this test is to assure registering of multiple coordinators in row works
+    INSTANCES_DESCRIPTION = {
+        "instance_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10011",
+            ],
+            "log_file": "instance_1.log",
+            "data_directory": f"{TEMP_DIR}/instance_1",
+            "setup_queries": [],
+        },
+        "instance_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10012",
+            ],
+            "log_file": "instance_2.log",
+            "data_directory": f"{TEMP_DIR}/instance_2",
+            "setup_queries": [],
+        },
+        "instance_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7689",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10013",
+            ],
+            "log_file": "instance_3.log",
+            "data_directory": f"{TEMP_DIR}/instance_3",
+            "setup_queries": [],
+        },
+        "coordinator_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--raft-server-id=1",
+                "--raft-server-port=10111",
+            ],
+            "log_file": "coordinator1.log",
+            "setup_queries": [],
+        },
+        "coordinator_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7691",
+                "--log-level=TRACE",
+                "--raft-server-id=2",
+                "--raft-server-port=10112",
+            ],
+            "log_file": "coordinator2.log",
+            "setup_queries": [],
+        },
+        "coordinator_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7692",
+                "--log-level=TRACE",
+                "--raft-server-id=3",
+                "--raft-server-port=10113",
+            ],
+            "log_file": "coordinator3.log",
+            "setup_queries": [],
+        },
+        "coordinator_4": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7693",
+                "--log-level=TRACE",
+                "--raft-server-id=4",
+                "--raft-server-port=10114",
+            ],
+            "log_file": "coordinator4.log",
+            "setup_queries": [
+                "ADD COORDINATOR 1 ON '127.0.0.1:10111';",
+                "ADD COORDINATOR 2 ON '127.0.0.1:10112';",
+                "ADD COORDINATOR 3 ON '127.0.0.1:10113';",
+                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'",
+                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'",
+                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'",
+                "SET INSTANCE instance_3 TO MAIN",
+            ],
+        },
+    }
+
+    interactive_mg_runner.start_all(INSTANCES_DESCRIPTION)
+
+    coord_cursor = connect(host="localhost", port=7693).cursor()
+
+    def retrieve_data_show_repl_cluster():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_4", "127.0.0.1:10114", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
-

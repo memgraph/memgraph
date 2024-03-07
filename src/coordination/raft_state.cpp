@@ -54,7 +54,7 @@ auto RaftState::InitRaftServer() -> void {
   params.return_method_ = raft_params::blocking;
 
   // If the leader doesn't receive any response from quorum nodes
-  // in 3000ms, it will step down.
+  // in 200ms, it will step down.
   // This allows us to achieve strong consistency even if network partition
   // happens between the current leader and followers.
   // The value must be <= election_timeout_lower_bound_ so that cluster can never
