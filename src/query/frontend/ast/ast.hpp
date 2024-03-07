@@ -21,6 +21,7 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query {
@@ -3586,7 +3587,7 @@ class PatternComprehension : public memgraph::query::Expression {
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
       if (variable_) {
-        variable_->Accept(visitor);
+        throw utils::NotYetImplemented("Variable in pattern comprehension.");
       }
       pattern_->Accept(visitor);
       if (filter_) {
@@ -3615,7 +3616,8 @@ class PatternComprehension : public memgraph::query::Expression {
   int32_t symbol_pos_{-1};
 
   PatternComprehension *Clone(AstStorage *storage) const override {
-    PatternComprehension *object = storage->Create<PatternComprehension>();
+    auto *object = storage->Create<PatternComprehension>();
+    object->variable_ = variable_ ? variable_->Clone(storage) : nullptr;
     object->pattern_ = pattern_ ? pattern_->Clone(storage) : nullptr;
     object->filter_ = filter_ ? filter_->Clone(storage) : nullptr;
     object->resultExpr_ = resultExpr_ ? resultExpr_->Clone(storage) : nullptr;
@@ -3625,7 +3627,8 @@ class PatternComprehension : public memgraph::query::Expression {
   }
 
  protected:
-  PatternComprehension(Identifier *variable, Pattern *pattern) : variable_(variable), pattern_(pattern) {}
+  PatternComprehension(Identifier *variable, Pattern *pattern, Where *filter, Expression *resultExpr)
+      : variable_(variable), pattern_(pattern), filter_(filter), resultExpr_(resultExpr) {}
 
  private:
   friend class AstStorage;
