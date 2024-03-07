@@ -195,7 +195,7 @@ nodeLabel : ':' labelName ;
 
 labelName : symbolicName
           | parameter
-          | variable ( propertyLookup )*
+          | variable ( propertyLookup )+
           ;
 
 relTypeName : symbolicName ;
