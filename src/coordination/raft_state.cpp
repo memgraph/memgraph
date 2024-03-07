@@ -11,10 +11,11 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/raft_state.hpp"
+#include <chrono>
 
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/raft_state.hpp"
 #include "utils/counter.hpp"
 
 namespace memgraph::coordination {
@@ -110,10 +111,34 @@ auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_po
     -> void {
   auto const endpoint = fmt::format("{}:{}", raft_address, raft_port);
   srv_config const srv_config_to_add(static_cast<int>(raft_server_id), endpoint);
-  if (!raft_server_->add_srv(srv_config_to_add)->get_accepted()) {
-    throw RaftAddServerException("Failed to add server {} to the cluster", endpoint);
+
+  auto cmd_result = raft_server_->add_srv(srv_config_to_add);
+
+  if (cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
+    spdlog::info("Request to add server {} to the cluster accepted", endpoint);
+  } else {
+    throw RaftAddServerException("Failed to accept request to add server {} to the cluster", endpoint);
   }
-  spdlog::info("Request to add server {} to the cluster accepted", endpoint);
+
+  // Waiting for server to join
+  constexpr int max_tries{10};
+  auto maybe_stop = utils::ResettableCounter<max_tries>();
+  constexpr int waiting_period{200};
+  bool added{false};
+  while (!maybe_stop()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(waiting_period));
+    const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(raft_server_id));
+    if (server_config) {
+      spdlog::trace("Server with id {} added to cluster", raft_server_id);
+      added = true;
+      break;
+    }
+  }
+
+  if (!added) {
+    throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", endpoint,
+                                 max_tries * waiting_period);
+  }
 }
 
 auto RaftState::GetAllCoordinators() const -> std::vector<ptr<srv_config>> {
