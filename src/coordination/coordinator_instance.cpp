@@ -559,6 +559,18 @@ auto CoordinatorInstance::IsReplica(std::string_view instance_name) const -> boo
 
 auto CoordinatorInstance::GetRoutingTable() -> RoutingTable {
   auto res = RoutingTable{};
+
+  // auto const get_coord_bolt_socket_addr = [](ptr<srv_config> const &instance) -> std::string {
+  //   return "localhost:7687";  // TODO: (andi) Needs to be saved either in RAFT log or somewhere separately and rely
+  //   on
+  //                             // custom persistence or environment variables
+  // };
+
+  // std::ranges::for_each(raft_state_.GetAllCoordinators(), [&res, &get_coord_bolt_socket_addr](ptr<srv_config> const
+  // &instance) {
+  //   res.emplace_back(get_coord_bolt_socket_addr(instance), "ROUTE");
+  // });
+
   res.emplace_back(std::vector<std::string>{"localhost:7687"}, "WRITE");
   return res;
 }

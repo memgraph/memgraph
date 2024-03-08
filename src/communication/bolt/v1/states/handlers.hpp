@@ -502,15 +502,19 @@ State HandleRoute(TSession &session, const Marker marker) {
   }
 
 #ifdef MG_ENTERPRISE
-  auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), {});
+  try {
+    auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), {});
+    spdlog::trace("Routing result: {}", res);
 
-  spdlog::trace("Routing result: {}", res);
-
-  if (!session.encoder_.MessageSuccess(std::move(res))) {
-    spdlog::trace("Couldn't send result of routing!");
-    return State::Close;
+    if (!session.encoder_.MessageSuccess(std::move(res))) {
+      spdlog::trace("Couldn't send result of routing!");
+      return State::Close;
+    }
+    return State::Idle;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
   }
-  return State::Idle;
+
 #else
   session.encoder_buffer_.Clear();
   bool fail_sent =

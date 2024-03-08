@@ -131,6 +131,13 @@ auto CoordinatorClusterState::GetInstances() const -> std::vector<InstanceState>
   return instances_ | ranges::views::values | ranges::to<std::vector<InstanceState>>;
 }
 
+auto CoordinatorClusterState::GetReplicas() const -> std::vector<InstanceState> {
+  auto lock = std::shared_lock{log_lock_};
+  return instances_ | ranges::views::values |
+         ranges::views::filter([](auto const &entry) { return entry.status == ReplicationRole::REPLICA; }) |
+         ranges::to<std::vector<InstanceState>>;
+}
+
 auto CoordinatorClusterState::GetUUID() const -> utils::UUID { return uuid_; }
 
 auto CoordinatorClusterState::FindCurrentMainInstanceName() const -> std::optional<std::string> {

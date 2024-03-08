@@ -80,6 +80,12 @@ class CoordinatorClusterState {
 
   auto GetInstances() const -> std::vector<InstanceState>;
 
+  auto GetReplicas() const -> std::vector<InstanceState>;
+
+  // TODO: (andi) Semantic of this isn't that great, we should do the check with uuid somehow or make sure there is only
+  // main in the cluster
+  // auto GetMains() const -> std::vector<InstanceState>;
+
   auto GetUUID() const -> utils::UUID;
 
  private:

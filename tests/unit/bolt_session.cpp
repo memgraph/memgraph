@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -113,6 +113,14 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   void Abort() override { md_.clear(); }
 
   bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) override { return true; }
+
+#ifdef MG_ENTERPRISE
+  auto Route(std::map<std::string, Value> const & /*routing*/,
+             std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
+             std::map<std::string, Value> const & /*extra*/) -> std::map<std::string, Value> override {
+    return {};
+  }
+#endif
 
   std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
 
@@ -1028,7 +1036,6 @@ TEST(BoltSession, Noop) {
 }
 
 TEST(BoltSession, Route) {
-  // Memgraph does not support route message, but it handles it
   {
     SCOPED_TRACE("v1");
     INIT_VARS;
@@ -1045,85 +1052,9 @@ TEST(BoltSession, Route) {
     ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
     ExecuteInit(input_stream, session, output, true);
     ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)));
-    static constexpr uint8_t expected_resp[] = {
-        0x00 /*two bytes of chunk header, chunk contains 64 bytes of data*/,
-        0x40,
-        0xb1 /*TinyStruct1*/,
-        0x7f /*Failure*/,
-        0xa2 /*TinyMap with 2 items*/,
-        0x84 /*TinyString with 4 chars*/,
-        'c',
-        'o',
-        'd',
-        'e',
-        0x82 /*TinyString with 2 chars*/,
-        '6',
-        '6',
-        0x87 /*TinyString with 7 chars*/,
-        'm',
-        'e',
-        's',
-        's',
-        'a',
-        'g',
-        'e',
-        0xd0 /*String*/,
-        0x2b /*With 43 chars*/,
-        'R',
-        'o',
-        'u',
-        't',
-        'e',
-        ' ',
-        'm',
-        'e',
-        's',
-        's',
-        'a',
-        'g',
-        'e',
-        ' ',
-        'i',
-        's',
-        ' ',
-        'n',
-        'o',
-        't',
-        ' ',
-        's',
-        'u',
-        'p',
-        'p',
-        'o',
-        'r',
-        't',
-        'e',
-        'd',
-        ' ',
-        'i',
-        'n',
-        ' ',
-        'M',
-        'e',
-        'm',
-        'g',
-        'r',
-        'a',
-        'p',
-        'h',
-        '!',
-        0x00 /*Terminating zeros*/,
-        0x00,
-    };
-    EXPECT_EQ(input_stream.size(), 0U);
-    CheckOutput(output, expected_resp, sizeof(expected_resp));
-    EXPECT_EQ(session.state_, State::Error);
 
-    SCOPED_TRACE("Try to reset connection after ROUTE failed");
-    ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4::reset_req, sizeof(v4::reset_req)));
-    EXPECT_EQ(input_stream.size(), 0U);
-    CheckOutput(output, success_resp, sizeof(success_resp));
     EXPECT_EQ(session.state_, State::Idle);
+    CheckSuccessMessage(output);
   }
 }
 
