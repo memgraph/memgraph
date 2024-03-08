@@ -1,4 +1,7 @@
-Please provide here some general information about the PR.
+### Description
+
+Please briefly explain the changes you made here.
+
 
 Please delete either the [master < EPIC] or [master < Task] part, depending on what are your needs.
 
@@ -13,7 +16,7 @@ Please delete either the [master < EPIC] or [master < Task] part, depending on w
     - **[FINAL GIT MESSAGE]**
 
 
-To keep documentation flow in sync, please check the following items:
+### Documentation checklist
 - [ ] Add the documentation label tag
 - [ ] Add the bug / feature label tag
 - [ ] Add the milestone for which this feature is intended
