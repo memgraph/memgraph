@@ -355,7 +355,7 @@ class ReplQueryHandler {
       const auto replication_config =
           replication::ReplicationClientConfig{.name = name,
                                                .mode = repl_mode,
-                                               .ip_address = ip,
+                                               .ip_address = std::string(ip),
                                                .port = port,
                                                .replica_check_frequency = replica_check_frequency,
                                                .ssl = std::nullopt};
@@ -410,7 +410,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
       : coordinator_handler_(coordinator_state) {}
 
-  void UnregisterInstance(std::string const &instance_name) override {
+  void UnregisterInstance(std::string_view instance_name) override {
     auto status = coordinator_handler_.UnregisterReplicationInstance(instance_name);
     switch (status) {
       using enum memgraph::coordination::UnregisterInstanceCoordinatorStatus;
@@ -423,6 +423,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER:
         throw QueryRuntimeException("Couldn't unregister replica instance since coordinator is not a leader!");
+      case RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Couldn't unregister replica instance since raft server couldn't append the log!");
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
@@ -431,20 +433,18 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void RegisterReplicationInstance(std::string const &coordinator_socket_address,
-                                   std::string const &replication_socket_address,
+  void RegisterReplicationInstance(std::string_view coordinator_socket_address,
+                                   std::string_view replication_socket_address,
                                    std::chrono::seconds const &instance_check_frequency,
                                    std::chrono::seconds const &instance_down_timeout,
                                    std::chrono::seconds const &instance_get_uuid_frequency,
-                                   std::string const &instance_name, CoordinatorQuery::SyncMode sync_mode) override {
-    const auto maybe_replication_ip_port =
-        io::network::Endpoint::ParseSocketOrAddress(replication_socket_address, std::nullopt);
+                                   std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) override {
+    const auto maybe_replication_ip_port = io::network::Endpoint::ParseSocketOrAddress(replication_socket_address);
     if (!maybe_replication_ip_port) {
       throw QueryRuntimeException("Invalid replication socket address!");
     }
 
-    const auto maybe_coordinator_ip_port =
-        io::network::Endpoint::ParseSocketOrAddress(coordinator_socket_address, std::nullopt);
+    const auto maybe_coordinator_ip_port = io::network::Endpoint::ParseSocketOrAddress(coordinator_socket_address);
     if (!maybe_replication_ip_port) {
       throw QueryRuntimeException("Invalid replication socket address!");
     }
@@ -452,14 +452,14 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     const auto [replication_ip, replication_port] = *maybe_replication_ip_port;
     const auto [coordinator_server_ip, coordinator_server_port] = *maybe_coordinator_ip_port;
     const auto repl_config = coordination::CoordinatorClientConfig::ReplicationClientInfo{
-        .instance_name = instance_name,
+        .instance_name = std::string(instance_name),
         .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
-        .replication_ip_address = replication_ip,
+        .replication_ip_address = std::string(replication_ip),
         .replication_port = replication_port};
 
     auto coordinator_client_config =
-        coordination::CoordinatorClientConfig{.instance_name = instance_name,
-                                              .ip_address = coordinator_server_ip,
+        coordination::CoordinatorClientConfig{.instance_name = std::string(instance_name),
+                                              .ip_address = std::string(coordinator_server_ip),
                                               .port = coordinator_server_port,
                                               .instance_health_check_frequency_sec = instance_check_frequency,
                                               .instance_down_timeout_sec = instance_down_timeout,
@@ -472,18 +472,17 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
-      case ENDPOINT_EXISTS:
+      case COORD_ENDPOINT_EXISTS:
         throw QueryRuntimeException(
-            "Couldn't register replica instance since instance with such endpoint already exists!");
+            "Couldn't register replica instance since instance with such coordinator endpoint already exists!");
+      case REPL_ENDPOINT_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance since instance with such replication endpoint already exists!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("REGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER:
         throw QueryRuntimeException("Couldn't register replica instance since coordinator is not a leader!");
-      case RAFT_COULD_NOT_ACCEPT:
-        throw QueryRuntimeException(
-            "Couldn't register replica instance since raft server couldn't accept the log! Most likely the raft "
-            "instance is not a leader!");
-      case RAFT_COULD_NOT_APPEND:
+      case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Couldn't register replica instance since raft server couldn't append the log!");
       case RPC_FAILED:
         throw QueryRuntimeException(
@@ -494,19 +493,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, std::string const &raft_socket_address) -> void override {
-    auto const maybe_ip_and_port = io::network::Endpoint::ParseSocketOrIpAddress(raft_socket_address);
+  auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view raft_socket_address) -> void override {
+    auto const maybe_ip_and_port = io::network::Endpoint::ParseSocketOrAddress(raft_socket_address);
     if (maybe_ip_and_port) {
       auto const [ip, port] = *maybe_ip_and_port;
-      spdlog::info("Adding instance {} with raft socket address {}:{}.", raft_server_id, port, ip);
+      spdlog::info("Adding instance {} with raft socket address {}:{}.", raft_server_id, ip, port);
       coordinator_handler_.AddCoordinatorInstance(raft_server_id, port, ip);
     } else {
       spdlog::error("Invalid raft socket address {}.", raft_socket_address);
     }
   }
 
-  void SetReplicationInstanceToMain(const std::string &instance_name) override {
-    auto status = coordinator_handler_.SetReplicationInstanceToMain(instance_name);
+  void SetReplicationInstanceToMain(std::string_view instance_name) override {
+    auto const status = coordinator_handler_.SetReplicationInstanceToMain(instance_name);
     switch (status) {
       using enum memgraph::coordination::SetInstanceToMainCoordinatorStatus;
       case NO_INSTANCE_WITH_NAME:
@@ -515,6 +514,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't set instance to main since there is already a main instance in cluster!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
+      case NOT_LEADER:
+        throw QueryRuntimeException("Couldn't set instance to main since coordinator is not a leader!");
+      case RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Couldn't promote instance since raft server couldn't append the log!");
       case COULD_NOT_PROMOTE_TO_MAIN:
         throw QueryRuntimeException(
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
@@ -1209,7 +1212,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       };
 
       notifications->emplace_back(
-          SeverityLevel::INFO, NotificationCode::REGISTER_COORDINATOR_SERVER,
+          SeverityLevel::INFO, NotificationCode::REGISTER_REPLICATION_INSTANCE,
           fmt::format("Coordinator has registered coordinator server on {} for instance {}.",
                       coordinator_socket_address_tv.ValueString(), coordinator_query->instance_name_));
       return callback;
@@ -1251,17 +1254,16 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Only coordinator can run SHOW INSTANCES.");
       }
 
-      callback.header = {"name", "raft_socket_address", "coordinator_socket_address", "alive", "role"};
+      callback.header = {"name", "raft_socket_address", "coordinator_socket_address", "health", "role"};
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      replica_nfields = callback.header.size()]() mutable {
         auto const instances = handler.ShowInstances();
         auto const converter = [](const auto &status) -> std::vector<TypedValue> {
           return {TypedValue{status.instance_name}, TypedValue{status.raft_socket_address},
-                  TypedValue{status.coord_socket_address}, TypedValue{status.is_alive},
-                  TypedValue{status.cluster_role}};
+                  TypedValue{status.coord_socket_address}, TypedValue{status.health}, TypedValue{status.cluster_role}};
         };
 
-        return utils::fmap(converter, instances);
+        return utils::fmap(instances, converter);
       };
       return callback;
     }
@@ -2677,6 +2679,75 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       RWType::W};
 }
 
+PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                    std::vector<Notification> *notifications, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw IndexInMulticommandTxException();
+  }
+
+  auto *index_query = utils::Downcast<EdgeIndexQuery>(parsed_query.query);
+  std::function<void(Notification &)> handler;
+
+  MG_ASSERT(current_db.db_acc_, "Index query expects a current DB");
+  auto &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
+  auto *storage = db_acc->storage();
+  auto edge_type = storage->NameToEdgeType(index_query->edge_type_.name);
+
+  Notification index_notification(SeverityLevel::INFO);
+  switch (index_query->action_) {
+    case EdgeIndexQuery::Action::CREATE: {
+      index_notification.code = NotificationCode::CREATE_INDEX;
+      index_notification.title = fmt::format("Created index on edge-type {}.", index_query->edge_type_.name);
+
+      handler = [dba, edge_type, label_name = index_query->edge_type_.name,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
+        auto maybe_index_error = dba->CreateIndex(edge_type);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+
+        if (maybe_index_error.HasError()) {
+          index_notification.code = NotificationCode::EXISTENT_INDEX;
+          index_notification.title = fmt::format("Index on edge-type {} already exists.", label_name);
+        }
+      };
+      break;
+    }
+    case EdgeIndexQuery::Action::DROP: {
+      index_notification.code = NotificationCode::DROP_INDEX;
+      index_notification.title = fmt::format("Dropped index on edge-type {}.", index_query->edge_type_.name);
+      handler = [dba, edge_type, label_name = index_query->edge_type_.name,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
+        auto maybe_index_error = dba->DropIndex(edge_type);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+
+        if (maybe_index_error.HasError()) {
+          index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+          index_notification.title = fmt::format("Index on edge-type {} doesn't exist.", label_name);
+        }
+      };
+      break;
+    }
+  }
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
+          AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+        handler(index_notification);
+        notifications->push_back(index_notification);
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::W};
+}
+
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                InterpreterContext *interpreter_context, Interpreter &interpreter) {
   if (in_explicit_transaction) {
@@ -3481,6 +3552,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         auto *storage = database->storage();
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
+        const std::string_view edge_type_index_mark{"edge-type"};
         auto info = dba->ListAllIndices();
         auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
@@ -3494,6 +3566,10 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
               {TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(item.first)),
                TypedValue(storage->PropertyToName(item.second)),
                TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, item.second)))});
+        }
+        for (const auto &item : info.edge_type) {
+          results.push_back({TypedValue(edge_type_index_mark), TypedValue(storage->EdgeTypeToName(item)), TypedValue(),
+                             TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item)))});
         }
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();
@@ -4281,13 +4357,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
         utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
         utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
-        utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<DatabaseInfoQuery>(parsed_query.query) ||
-        utils::Downcast<ConstraintQuery>(parsed_query.query);
+        utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
+        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
       bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr ||
+                    utils::Downcast<EdgeIndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
                     upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
@@ -4324,6 +4401,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                          &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<EdgeIndexQuery>(parsed_query.query)) {
+      prepared_query = PrepareEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                                             &query_execution->notifications, current_db_);
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
