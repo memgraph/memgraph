@@ -46,6 +46,8 @@ CoordinatorInstance::CoordinatorInstance()
                                            &CoordinatorInstance::ReplicaFailCallback);
             });
 
+            // TODO(antoniofilipovic): is this correct or we have a bug
+            // Multiple main instances, each will do failover
             auto main = instances | ranges::views::filter(
                                         [](auto const &instance) { return instance.status == ReplicationRole::MAIN; });
 
@@ -62,7 +64,9 @@ CoordinatorInstance::CoordinatorInstance()
             });
           },
           [this]() {
+            // TODO (antoniofilipovic) We can enter here without lock and remove all instances
             spdlog::info("Leader changed, stopping all replication instances!");
+            // we should probably change this to defunct state
             repl_instances_.clear();
           })) {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
@@ -122,19 +126,21 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
       std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
     }
   } else {
-    auto const stringify_inst_status = [](ReplicationRole status) -> std::string {
-      return status == ReplicationRole::MAIN ? "main" : "replica";
+    auto const stringify_inst_status = [this](const ReplicationInstance &instance) -> std::string {
+      if (!instance.IsAlive()) return "unknown";
+      if (raft_state_.IsMain(instance.InstanceName())) return "main";
+      return "replica";
     };
 
     // TODO: (andi) Add capability that followers can also return socket addresses
-    auto process_repl_instance_as_follower = [&stringify_inst_status](auto const &instance) -> InstanceStatus {
-      return {.instance_name = instance.config.instance_name,
-              .cluster_role = stringify_inst_status(instance.status),
+    auto process_repl_instance_as_follower =
+        [&stringify_inst_status](const ReplicationInstance &instance) -> InstanceStatus {
+      return {.instance_name = instance.InstanceName(),
+              .cluster_role = stringify_inst_status(instance),
               .health = "unknown"};
     };
 
-    std::ranges::transform(raft_state_.GetInstances(), std::back_inserter(instances_status),
-                           process_repl_instance_as_follower);
+    std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_follower);
   }
 
   return instances_status;

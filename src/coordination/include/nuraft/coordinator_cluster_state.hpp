@@ -35,6 +35,8 @@ using replication_coordination_glue::ReplicationRole;
 struct InstanceState {
   CoordinatorClientConfig config;
   ReplicationRole status;
+  // TODO(antoniofilipovic) We might need this because we need to track correct instance
+  // utils::UUID main_uuid_;
 
   friend auto operator==(InstanceState const &lhs, InstanceState const &rhs) -> bool {
     return lhs.config == rhs.config && lhs.status == rhs.status;
@@ -84,6 +86,7 @@ class CoordinatorClusterState {
 
  private:
   std::map<std::string, InstanceState, std::less<>> instances_{};
+  // Current uuid of MAIN which other replicas listen too
   utils::UUID uuid_{};
   mutable utils::ResourceLock log_lock_{};
 };
