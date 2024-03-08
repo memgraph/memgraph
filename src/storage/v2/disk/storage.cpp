@@ -629,8 +629,7 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCac
       /// TODO: here are doing serialization and then later deserialization again -> expensive
       LoadVertexToLabelIndexCache(transaction, utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
                                   utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels, vertex.properties),
-                                  CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
-                                  indexed_vertices->access());
+                                  vertex.delta, indexed_vertices->access());
     }
   }
   return gids;
