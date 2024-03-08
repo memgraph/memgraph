@@ -26,6 +26,8 @@
 
 namespace memgraph::coordination {
 
+using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string>>;
+
 struct NewMainRes {
   std::string most_up_to_date_instance;
   std::string latest_epoch;
@@ -49,6 +51,8 @@ class CoordinatorInstance {
   auto TryFailover() -> void;
 
   auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
+
+  auto GetRoutingTable() -> RoutingTable;
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
 

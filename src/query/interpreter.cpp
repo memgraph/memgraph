@@ -4266,6 +4266,12 @@ void Interpreter::RollbackTransaction() {
   ResetInterpreter();
 }
 
+#ifdef MG_ENTERPRISE
+auto Interpreter::Route(std::map<std::string, std::string> const & /*routing*/) -> RouteResult {
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable()};
+}
+#endif
+
 #if MG_ENTERPRISE
 // Before Prepare or during Prepare, but single-threaded.
 // TODO: Is there any cleanup?

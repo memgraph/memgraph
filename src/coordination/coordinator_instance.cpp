@@ -557,5 +557,11 @@ auto CoordinatorInstance::IsReplica(std::string_view instance_name) const -> boo
   return raft_state_.IsReplica(instance_name);
 }
 
+auto CoordinatorInstance::GetRoutingTable() -> RoutingTable {
+  auto res = RoutingTable{};
+  res.emplace_back(std::vector<std::string>{"localhost:7687"}, "WRITE");
+  return res;
+}
+
 }  // namespace memgraph::coordination
 #endif

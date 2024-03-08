@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -79,9 +79,10 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
     }
     case Signature::Route: {
       if constexpr (bolt_minor >= 3) {
-        if (signature == Signature::Route) return HandleRoute<TSession>(session, marker);
+        spdlog::trace("Route signature detected");
+        return HandleRoute<TSession>(session, marker);
       } else {
-        spdlog::trace("Supported only in bolt v4.3");
+        spdlog::trace("Supported only in bolt versions >= 4.3");
         return State::Close;
       }
     }
@@ -113,6 +114,7 @@ State RunHandlerV5(Signature signature, TSession &session, State state, Marker m
     case Signature::Noop:
       return HandleNoop<TSession>(state);
     case Signature::Route:
+      spdlog::trace("Route signature detected");
       return HandleRoute<TSession>(session, marker);
     case Signature::LogOff:
       return HandleLogOff<TSession>();

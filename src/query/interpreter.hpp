@@ -247,6 +247,14 @@ class Interpreter final {
     std::optional<std::string> db;
   };
 
+#ifdef MG_ENTERPRISE
+  struct RouteResult {
+    int ttl{300};
+    std::string db{};  // Currently not used since we don't have any specific replication groups etc.
+    coordination::RoutingTable servers{};
+  };
+#endif
+
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
@@ -271,6 +279,10 @@ class Interpreter final {
   Interpreter::PrepareResult Prepare(const std::string &query,
                                      const std::map<std::string, storage::PropertyValue> &params,
                                      QueryExtras const &extras);
+
+#ifdef MG_ENTERPRISE
+  auto Route(std::map<std::string, std::string> const &routing) -> RouteResult;
+#endif
 
   /**
    * Execute the last prepared query and stream *all* of the results into the

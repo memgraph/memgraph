@@ -47,6 +47,8 @@ class CoordinatorState {
   // NOTE: The client code must check that the server exists before calling this method.
   auto GetCoordinatorServer() const -> CoordinatorServer &;
 
+  auto GetRoutingTable() -> RoutingTable;
+
  private:
   struct CoordinatorMainReplicaData {
     std::unique_ptr<CoordinatorServer> coordinator_server_;

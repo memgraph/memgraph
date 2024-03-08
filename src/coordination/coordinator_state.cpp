@@ -105,5 +105,11 @@ auto CoordinatorState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t 
   return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(raft_server_id, raft_port, raft_address);
 }
 
+auto CoordinatorState::GetRoutingTable() -> RoutingTable {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot get routing table since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetRoutingTable();
+}
+
 }  // namespace memgraph::coordination
 #endif
