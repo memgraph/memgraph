@@ -23,21 +23,22 @@ disk_cluster: &disk_cluster
         - "STORAGE MODE ON_DISK_TRANSACTIONAL"
       validation_queries: []
 
+
 workloads:
-#   - name: "Kafka streams start, stop and show"
-#     binary: "tests/e2e/pytest_runner.sh"
-#     proc: "tests/e2e/streams/transformations/"
-#     args: ["streams/kafka_streams_tests.py"]
-#     <<: *in_memory_cluster
-#
-#   - name: "Streams with users"
-#     binary: "tests/e2e/pytest_runner.sh"
-#     proc: "tests/e2e/streams/transformations/"
-#     args: ["streams/streams_owner_tests.py"]
-#     <<: *in_memory_cluster
-#
-#   - name: "Pulsar streams start, stop and show"
-#     binary: "tests/e2e/pytest_runner.sh"
-#     proc: "tests/e2e/streams/transformations/"
-#     args: ["streams/pulsar_streams_tests.py"]
-#     <<: *in_memory_cluster
+  - name: "Kafka streams start, stop and show"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/streams/transformations/"
+    args: ["streams/kafka_streams_tests.py"]
+    <<: *in_memory_cluster
+
+  - name: "Streams with users"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/streams/transformations/"
+    args: ["streams/streams_owner_tests.py"]
+    <<: *in_memory_cluster
+
+  - name: "Pulsar streams start, stop and show"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/streams/transformations/"
+    args: ["streams/pulsar_streams_tests.py"]
+    <<: *in_memory_cluster
