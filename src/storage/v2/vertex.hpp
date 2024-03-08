@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,11 @@
 
 namespace memgraph::storage {
 
+struct MergeVerticesTag {};
+
 struct Vertex {
+  Vertex(Gid gid, Delta *delta, MergeVerticesTag) : gid(gid), deleted(false), delta(delta) {}
+
   Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
                   delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT,

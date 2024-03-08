@@ -50,6 +50,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
@@ -1342,7 +1343,7 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
 VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
                                                  storage::Gid gid, std::vector<LabelId> label_ids,
                                                  PropertyStore properties, Delta *delta) {
-  auto [it, inserted] = accessor.insert(Vertex{gid, delta});
+  auto [it, inserted] = accessor.insert(Vertex{gid, delta, MergeVerticesTag{}});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
   it->labels = std::move(label_ids);
