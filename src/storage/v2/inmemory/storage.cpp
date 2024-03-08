@@ -20,6 +20,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 
 /// REPLICATION ///
@@ -109,6 +110,7 @@ InMemoryStorage::InMemoryStorage(Config config)
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_commit_timestamp) {
         repl_storage_state_.last_commit_timestamp_ = *info->last_commit_timestamp;
+        spdlog::trace("Recovering last commit timestamp {}", *info->last_commit_timestamp);
       }
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -349,6 +351,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
         transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
         transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
+        // Update indices if they exist.
+        storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+
         // Increment edge count.
         storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
       }};
@@ -552,6 +557,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
         CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, new_from_vertex, edge_ref);
         to_vertex->in_edges.emplace_back(edge_type, new_from_vertex, edge_ref);
 
+        auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+        auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
+        mem_edge_type_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex, edge_ref,
+                                                      edge_type, transaction_);
+
         transaction_.manyDeltasCache.Invalidate(new_from_vertex, edge_type, EdgeDirection::OUT);
         transaction_.manyDeltasCache.Invalidate(old_from_vertex, edge_type, EdgeDirection::OUT);
         transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
@@ -657,6 +667,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
         from_vertex->out_edges.emplace_back(edge_type, new_to_vertex, edge_ref);
         CreateAndLinkDelta(&transaction_, new_to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge_ref);
         new_to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge_ref);
+
+        auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+        auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
+        mem_edge_type_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex, edge_ref,
+                                                      edge_type, transaction_);
 
         transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
         transaction_.manyDeltasCache.Invalidate(old_to_vertex, edge_type, EdgeDirection::IN);
@@ -1263,6 +1278,18 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
+    EdgeTypeId edge_type) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
+  if (!mem_edge_type_index->CreateIndex(edge_type, in_memory->vertices_.access())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_create, edge_type);
+  return {};
+}
+
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1288,6 +1315,18 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
+    EdgeTypeId edge_type) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Drop index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
+  if (!mem_edge_type_index->DropIndex(edge_type)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
   return {};
 }
 
@@ -1380,6 +1419,11 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(
       mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
+  auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(storage_->indices_.edge_type_index_.get());
+  return EdgesIterable(mem_edge_type_index->Edges(edge_type, view, storage_, &transaction_));
 }
 
 Transaction InMemoryStorage::CreateTransaction(
@@ -2016,6 +2060,10 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_CREATE, md_delta.label,
                                   final_commit_timestamp);
       } break;
+      case MetadataDelta::Action::EDGE_INDEX_CREATE: {
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE, md_delta.edge_type,
+                                  final_commit_timestamp);
+      } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
         const auto &info = md_delta.label_property;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE, info.label,
@@ -2023,6 +2071,10 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
       } break;
       case MetadataDelta::Action::LABEL_INDEX_DROP: {
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_DROP, md_delta.label,
+                                  final_commit_timestamp);
+      } break;
+      case MetadataDelta::Action::EDGE_INDEX_DROP: {
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP, md_delta.edge_type,
                                   final_commit_timestamp);
       } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
@@ -2088,6 +2140,12 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 uint64_t final_commit_timestamp) {
   wal_file_->AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
   repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+}
+
+void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
+                                                uint64_t final_commit_timestamp) {
+  wal_file_->AppendOperation(operation, edge_type, final_commit_timestamp);
+  repl_storage_state_.AppendOperation(operation, edge_type, final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -2239,7 +2297,8 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices()};
+  auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
+  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices(), mem_edge_type_index->ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);

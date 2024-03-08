@@ -45,11 +45,9 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
   memgraph::utils::UUID db_uuid;
   std::string default_name = std::string(memgraph::dbms::kDefaultDB);
 
-  auto db_histories = memgraph::utils::fmap(
-      [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
-        return std::make_pair(std::string(pair.first), pair.second);
-      },
-      histories);
+  auto db_histories = memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
+    return std::make_pair(std::string(pair.first), pair.second);
+  });
 
   memgraph::replication_coordination_glue::DatabaseHistory history{
       .db_uuid = db_uuid, .history = db_histories, .name = default_name};
@@ -67,8 +65,8 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
       instance.ChooseMostUpToDateInstance(instance_database_histories);
   ASSERT_TRUE(instance_name == "instance_1" || instance_name == "instance_2" || instance_name == "instance_3");
-  ASSERT_TRUE(*latest_epoch == db_histories.back().first);
-  ASSERT_TRUE(*latest_commit_timestamp == db_histories.back().second);
+  ASSERT_TRUE(latest_epoch == db_histories.back().first);
+  ASSERT_TRUE(latest_commit_timestamp == db_histories.back().second);
 }
 
 TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
@@ -91,11 +89,9 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
   memgraph::utils::UUID db_uuid;
   std::string default_name = std::string(memgraph::dbms::kDefaultDB);
 
-  auto db_histories = memgraph::utils::fmap(
-      [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
-        return std::make_pair(std::string(pair.first), pair.second);
-      },
-      histories);
+  auto db_histories = memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
+    return std::make_pair(std::string(pair.first), pair.second);
+  });
 
   db_histories.back().second = 51;
   memgraph::replication_coordination_glue::DatabaseHistory history1{
@@ -121,8 +117,8 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
       instance.ChooseMostUpToDateInstance(instance_database_histories);
 
   ASSERT_TRUE(instance_name == "instance_3");
-  ASSERT_TRUE(*latest_epoch == db_histories.back().first);
-  ASSERT_TRUE(*latest_commit_timestamp == db_histories.back().second);
+  ASSERT_TRUE(latest_epoch == db_histories.back().first);
+  ASSERT_TRUE(latest_commit_timestamp == db_histories.back().second);
 }
 
 TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
@@ -145,11 +141,9 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
   memgraph::utils::UUID db_uuid;
   std::string default_name = std::string(memgraph::dbms::kDefaultDB);
 
-  auto db_histories = memgraph::utils::fmap(
-      [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
-        return std::make_pair(std::string(pair.first), pair.second);
-      },
-      histories);
+  auto db_histories = memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
+    return std::make_pair(std::string(pair.first), pair.second);
+  });
 
   memgraph::replication_coordination_glue::DatabaseHistory history{
       .db_uuid = db_uuid, .history = db_histories, .name = default_name};
@@ -162,11 +156,10 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
 
   histories.emplace_back(memgraph::utils::UUID{}, 60);
   histories.emplace_back(memgraph::utils::UUID{}, 65);
-  auto db_histories_longest = memgraph::utils::fmap(
-      [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
+  auto db_histories_longest =
+      memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
         return std::make_pair(std::string(pair.first), pair.second);
-      },
-      histories);
+      });
 
   memgraph::replication_coordination_glue::DatabaseHistory history_longest{
       .db_uuid = db_uuid, .history = db_histories_longest, .name = default_name};
@@ -179,8 +172,8 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
       instance.ChooseMostUpToDateInstance(instance_database_histories);
 
   ASSERT_TRUE(instance_name == "instance_3");
-  ASSERT_TRUE(*latest_epoch == db_histories_longest.back().first);
-  ASSERT_TRUE(*latest_commit_timestamp == db_histories_longest.back().second);
+  ASSERT_TRUE(latest_epoch == db_histories_longest.back().first);
+  ASSERT_TRUE(latest_commit_timestamp == db_histories_longest.back().second);
 }
 
 TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
@@ -200,11 +193,9 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
   memgraph::utils::UUID db_uuid;
   std::string default_name = std::string(memgraph::dbms::kDefaultDB);
 
-  auto db_histories = memgraph::utils::fmap(
-      [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
-        return std::make_pair(std::string(pair.first), pair.second);
-      },
-      histories);
+  auto db_histories = memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
+    return std::make_pair(std::string(pair.first), pair.second);
+  });
 
   memgraph::replication_coordination_glue::DatabaseHistory history{
       .db_uuid = db_uuid, .history = db_histories, .name = default_name};
@@ -217,11 +208,10 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
   auto oldest_commit_timestamp{5};
   auto newest_different_epoch = memgraph::utils::UUID{};
   histories.emplace_back(newest_different_epoch, oldest_commit_timestamp);
-  auto db_histories_different = memgraph::utils::fmap(
-      [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
+  auto db_histories_different =
+      memgraph::utils::fmap(histories, [](const std::pair<memgraph::utils::UUID, uint64_t> &pair) {
         return std::make_pair(std::string(pair.first), pair.second);
-      },
-      histories);
+      });
 
   memgraph::replication_coordination_glue::DatabaseHistory history_3{
       .db_uuid = db_uuid, .history = db_histories_different, .name = default_name};
@@ -241,6 +231,6 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
       instance.ChooseMostUpToDateInstance(instance_database_histories);
 
   ASSERT_TRUE(instance_name == "instance_3");
-  ASSERT_TRUE(*latest_epoch == std::string(newest_different_epoch));
-  ASSERT_TRUE(*latest_commit_timestamp == oldest_commit_timestamp);
+  ASSERT_TRUE(latest_epoch == std::string(newest_different_epoch));
+  ASSERT_TRUE(latest_commit_timestamp == oldest_commit_timestamp);
 }
