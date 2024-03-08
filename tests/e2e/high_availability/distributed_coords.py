@@ -175,6 +175,7 @@ def get_instances_description_no_setup():
                 "--raft-server-port=10111",
             ],
             "log_file": "coordinator1.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_1",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -187,6 +188,7 @@ def get_instances_description_no_setup():
                 "--raft-server-port=10112",
             ],
             "log_file": "coordinator2.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_2",
             "setup_queries": [],
         },
         "coordinator_3": {
@@ -199,6 +201,7 @@ def get_instances_description_no_setup():
                 "--raft-server-port=10113",
             ],
             "log_file": "coordinator3.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_3",
             "setup_queries": [],
         },
     }
@@ -996,7 +999,7 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     # 1
     inner_memgraph_instances = get_instances_description_no_setup()
-    interactive_mg_runner.start_all(inner_memgraph_instances)
+    interactive_mg_runner.start_all(inner_memgraph_instances, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
@@ -1208,7 +1211,32 @@ def test_multiple_failovers_in_row_no_leadership_change():
         ]
     )
 
+    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
+    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
+    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+
     # 14.
+
+    def show_replicas():
+        return sorted(list(execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")))
+
+    replicas = [
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(replicas, show_replicas)
 
     def get_vertex_count_func(cursor):
         def get_vertex_count():
