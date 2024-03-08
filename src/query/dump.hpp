@@ -63,5 +63,6 @@ struct PullPlanDump {
   PullChunk CreateDropInternalIndexPullChunk();
   PullChunk CreateInternalIndexCleanupPullChunk();
   PullChunk CreateTriggersPullChunk();
+  PullChunk CreateEdgeTypeIndicesPullChunk();
 };
 }  // namespace memgraph::query

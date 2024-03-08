@@ -2240,6 +2240,34 @@ class IndexQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class EdgeIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action { CREATE, DROP };
+
+  EdgeIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::EdgeIndexQuery::Action action_;
+  memgraph::query::EdgeTypeIx edge_type_;
+
+  EdgeIndexQuery *Clone(AstStorage *storage) const override {
+    EdgeIndexQuery *object = storage->Create<EdgeIndexQuery>();
+    object->action_ = action_;
+    object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
+    return object;
+  }
+
+ protected:
+  EdgeIndexQuery(Action action, EdgeTypeIx edge_type) : action_(action), edge_type_(edge_type) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class Create : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;

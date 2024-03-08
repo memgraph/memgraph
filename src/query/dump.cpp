@@ -242,6 +242,10 @@ void DumpLabelIndex(std::ostream *os, query::DbAccessor *dba, const storage::Lab
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << ";";
 }
 
+void DumpEdgeTypeIndex(std::ostream *os, query::DbAccessor *dba, const storage::EdgeTypeId edge_type) {
+  *os << "CREATE EDGE INDEX ON :" << EscapeName(dba->EdgeTypeToName(edge_type)) << ";";
+}
+
 void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
                             storage::PropertyId property) {
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << EscapeName(dba->PropertyToName(property))
@@ -297,7 +301,9 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    // Internal index cleanup
                    CreateInternalIndexCleanupPullChunk(),
                    // Dump all triggers
-                   CreateTriggersPullChunk()} {}
+                   CreateTriggersPullChunk(),
+                   // Dump all edge-type indices
+                   CreateEdgeTypeIndicesPullChunk()} {}
 
 bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
@@ -345,6 +351,33 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelIndicesPullChunk() {
     }
 
     if (global_index == label.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypeIndicesPullChunk() {
+  // Dump all label indices
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &edge_type = indices_info_->edge_type;
+
+    size_t local_counter = 0;
+    while (global_index < edge_type.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      DumpEdgeTypeIndex(&os, dba_, edge_type[global_index]);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == edge_type.size()) {
       return local_counter;
     }
 

@@ -111,8 +111,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
 auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
   auto lock = std::shared_lock{log_lock_};
 
-  // .at(0) is hack to solve the problem with json serialization of map
-  auto const log = nlohmann::json{instances_}.at(0).dump();
+  auto const log = nlohmann::json(instances_).dump();
 
   data = buffer::alloc(sizeof(uint32_t) + log.size());
   buffer_serializer bs(data);
