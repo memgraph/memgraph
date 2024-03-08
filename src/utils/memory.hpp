@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <forward_list>
@@ -449,7 +450,169 @@ class Pool final {
   void Release();
 };
 
+// C++ overloads for clz
+constexpr auto clz(unsigned int x) { return __builtin_clz(x); }
+constexpr auto clz(unsigned long x) { return __builtin_clzl(x); }
+constexpr auto clz(unsigned long long x) { return __builtin_clzll(x); }
+
+template <typename T>
+constexpr auto bits_sizeof = sizeof(T) * CHAR_BIT;
+
+/// 0-based bit index of the most significant bit assumed that `n` != 0
+template <typename T>
+constexpr auto msb_index(T n) {
+  return bits_sizeof<T> - clz(n) - T(1);
+}
+
+/* This function will in O(1) time provide a bin index based on:
+ * B  - the number of most significant bits to be sensitive to
+ * LB - the value that should be considered below the consideration for bin index of 0 (LB is exclusive)
+ *
+ * lets say we were:
+ * - sensitive to two bits (B == 2)
+ * - lowest bin is for 8 (LB == 8)
+ *
+ * our bin indexes would look like:
+ *   0 - 0000'1100 12
+ *   1 - 0001'0000 16
+ *   2 - 0001'1000 24
+ *   3 - 0010'0000 32
+ *   4 - 0011'0000 48
+ *   5 - 0100'0000 64
+ *   6 - 0110'0000 96
+ *   7 - 1000'0000 128
+ *   8 - 1100'0000 192
+ *   ...
+ *
+ * Example:
+ * Given n == 70, we want to return the bin index to the first value which is
+ * larger than n.
+ * bin_index<2,8>(70) => 6, as 64 (index 5) < 70 and 70 <= 96 (index 6)
+ */
+template <std::size_t B = 2, std::size_t LB = 8>
+constexpr std::size_t bin_index(std::size_t n) {
+  static_assert(B >= 1U, "Needs to be sensitive to at least one bit");
+  static_assert(LB != 0U, "Lower bound need to be non-zero");
+  DMG_ASSERT(n > LB);
+
+  // We will alway be sensitive to at least the MSB
+  // exponent tells us how many bits we need to use to select within a level
+  constexpr auto kExponent = B - 1U;
+  // 2^exponent gives the size of each level
+  constexpr auto kSize = 1U << kExponent;
+  // offset help adjust results down to be inline with bin_index(LB) == 0
+  constexpr auto kOffset = msb_index(LB);
+
+  auto const msb_idx = msb_index(n);
+  DMG_ASSERT(msb_idx != 0);
+
+  auto const mask = (1u << msb_idx) - 1u;
+  auto const under = n & mask;
+  auto const selector = under >> (msb_idx - kExponent);
+
+  auto const rest = under & (mask >> kExponent);
+  auto const no_overflow = rest == 0U;
+
+  auto const msb_level = kSize * (msb_idx - kOffset);
+  return msb_level + selector - no_overflow;
+}
+
+// This is the inverse opperation for bin_index
+// bin_size(bin_index(X)-1) < X <= bin_size(bin_index(X))
+template <std::size_t B = 2, std::size_t LB = 8>
+std::size_t bin_size(std::size_t idx) {
+  constexpr auto kExponent = B - 1U;
+  constexpr auto kSize = 1U << kExponent;
+  constexpr auto kOffset = msb_index(LB);
+
+  // no need to optimise `/` or `%` compiler can see `kSize` is a power of 2
+  auto const level = (idx + 1) / kSize;
+  auto const sub_level = (idx + 1) % kSize;
+  return (1U << (level + kOffset)) | (sub_level << (level + kOffset - kExponent));
+}
+
+template <std::size_t Bits, std::size_t LB, std::size_t UB>
+struct MultiPool {
+  static_assert(LB < UB, "lower bound must be less than upper bound");
+  static_assert(IsPow2(LB) && IsPow2(UB), "Design untested for non powers of 2");
+
+  // upper bound is inclusive
+  static bool is_size_handled(std::size_t size) { return LB < size && size <= UB; }
+  static bool is_above_upper_bound(std::size_t size) { return UB < size; }
+
+  static constexpr auto n_bins = bin_index<Bits, LB>(UB) + 1U;
+
+  MultiPool(uint8_t blocks_per_chunk, MemoryResource *memory, MemoryResource *internal_memory)
+      : blocks_per_chunk_{blocks_per_chunk}, memory_{memory}, internal_memory_{internal_memory} {}
+
+  ~MultiPool() {
+    if (pools_) {
+      auto pool_alloc = Allocator<Pool>(internal_memory_);
+      for (auto i = 0U; i != n_bins; ++i) {
+        pool_alloc.destroy(&pools_[i]);
+      }
+      pool_alloc.deallocate(pools_, n_bins);
+    }
+  }
+
+  void *allocate(std::size_t bytes) {
+    auto idx = bin_index<Bits, LB>(bytes);
+    if (!pools_) initialise_pools();
+    return pools_[idx].Allocate();
+  }
+
+  void deallocate(void *ptr, std::size_t bytes) {
+    auto idx = bin_index<Bits, LB>(bytes);
+    pools_[idx].Deallocate(ptr);
+  }
+
+ private:
+  void initialise_pools() {
+    auto pool_alloc = Allocator<Pool>(internal_memory_);
+    auto pools = pool_alloc.allocate(n_bins);
+    try {
+      for (auto i = 0U; i != n_bins; ++i) {
+        auto block_size = bin_size<Bits, LB>(i);
+        pool_alloc.construct(&pools[i], block_size, blocks_per_chunk_, memory_);
+      }
+      pools_ = pools;
+    } catch (...) {
+      pool_alloc.deallocate(pools, n_bins);
+      throw;
+    }
+  }
+
+  Pool *pools_{};
+  uint8_t blocks_per_chunk_{};
+  MemoryResource *memory_{};
+  MemoryResource *internal_memory_{};
+};
+
 }  // namespace impl
+
+class PoolResource2 final : public MemoryResource {
+ public:
+  PoolResource2(uint8_t blocks_per_chunk, MemoryResource *memory = NewDeleteResource(),
+                MemoryResource *internal_memory = NewDeleteResource())
+      : pool_8_(8, blocks_per_chunk, memory),
+        pools_2bit_(blocks_per_chunk, memory, internal_memory),
+        pools_3bit_(blocks_per_chunk, memory, internal_memory),
+        pools_4bit_(blocks_per_chunk, memory, internal_memory),
+        unpooled_memory_{internal_memory} {}
+  ~PoolResource2() override = default;
+
+ private:
+  void *DoAllocate(size_t bytes, size_t alignment) override;
+  void DoDeallocate(void *p, size_t bytes, size_t alignment) override;
+  bool DoIsEqual(MemoryResource const &other) const noexcept override;
+
+ private:
+  impl::Pool pool_8_;
+  impl::MultiPool<2, 8, 128> pools_2bit_;
+  impl::MultiPool<3, 128, 512> pools_3bit_;
+  impl::MultiPool<4, 512, 1024> pools_4bit_;
+  MemoryResource *unpooled_memory_;
+};
 
 /// MemoryResource which serves allocation requests for different block sizes.
 ///
