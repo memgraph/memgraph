@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -156,4 +156,7 @@ constexpr utils::TypeInfo query::plan::IndexedJoin::kType{utils::TypeId::INDEXED
 
 constexpr utils::TypeInfo query::plan::HashJoin::kType{utils::TypeId::HASH_JOIN, "HashJoin",
                                                        &query::plan::LogicalOperator::kType};
+
+constexpr utils::TypeInfo query::plan::RollUpApply::kType{utils::TypeId::ROLLUP_APPLY, "RollUpApply",
+                                                          &query::plan::LogicalOperator::kType};
 }  // namespace memgraph

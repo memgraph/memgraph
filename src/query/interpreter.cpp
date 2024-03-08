@@ -497,7 +497,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     auto const maybe_ip_and_port = io::network::Endpoint::ParseSocketOrAddress(raft_socket_address);
     if (maybe_ip_and_port) {
       auto const [ip, port] = *maybe_ip_and_port;
-      spdlog::info("Adding instance {} with raft socket address {}:{}.", raft_server_id, port, ip);
+      spdlog::info("Adding instance {} with raft socket address {}:{}.", raft_server_id, ip, port);
       coordinator_handler_.AddCoordinatorInstance(raft_server_id, port, ip);
     } else {
       spdlog::error("Invalid raft socket address {}.", raft_socket_address);
