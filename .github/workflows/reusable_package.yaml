@@ -1,0 +1,97 @@
+name: Reusable package make and upload
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        type: string
+        description: "Target os. Default value is debian-11."
+        default: 'debian-11'
+      aarch:
+        type: string
+        description: "Target architecture. Default value is amd."
+        default: 'amd'
+      runner_aarch_label:
+        type: string
+        description: "Runner architecture label. Amd is built on X64, arm on ARM64. Default value is X64."
+        default: 'X64'
+      toolchain:
+        type: string
+        description: "Toolchain version. Default value is v5."
+        default: 'v5'
+      build_type:
+        type: string
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
+      additional_build_args:
+        type: string
+        description: "Additional build flags (--for-platform, --for-docker ...). Default value is empty."
+        default: ''
+      timeout_minutes:
+        type: string
+        description: "Timeout in minutes for the job. Default value is 60."
+        default: 60
+
+jobs:
+  package-amd:
+    runs-on: [self-hosted, DockerMgBuild, ${{ github.event.inputs.runner_aarch_label }}]
+    timeout-minutes: ${{ github.event.inputs.timeout_minutes }}
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+
+      - name: "Build Memgraph binaries"
+        run: |
+          ./release/package/run2.sh \
+          --toolchain ${{ github.event.inputs.toolchain }} \
+          --os ${{ github.event.inputs.os }} \
+          --arch ${{ github.event.inputs.aarch }} \
+          --build-type ${{ github.event.inputs.build_type }} \
+          --threads $THREADS \
+          build-memgraph ${{ github.event.inputs.additional_build_args }}
+
+      - name: "Make package"
+        run: |
+          ./release/package/run2.sh \
+          --toolchain ${{ github.event.inputs.toolchain }} \
+          --os ${{ github.event.inputs.os }} \
+          --arch ${{ github.event.inputs.aarch }} \
+          --build-type ${{ github.event.inputs.build_type }} \
+          package-memgraph
+
+      - name: "Copy package"
+        run: |
+          ./release/package/run2.sh \
+          --toolchain ${{ github.event.inputs.toolchain }} \
+          --os ${{ github.event.inputs.os }} \
+          --arch ${{ github.event.inputs.aarch }} \
+          copy --package
+
+      - name: "Upload package"
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.inputs.os }}
+          path: build/output/${{ github.event.inputs.os }}/memgraph*
+
+  # MAKE DOCKER WORK
+  # docker:
+  #   if: ${{ github.event.inputs.target_os == 'docker' || github.event.inputs.target_os == 'all' }}
+  #   runs-on: [self-hosted, DockerMgBuild, X64]
+  #   timeout-minutes: 60
+  #   steps:
+  #     - name: "Set up repository"
+  #       uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0 # Required because of release/get_version.py
+  #     - name: "Build package"
+  #       run: |
+  #         cd release/package
+  #         ./run.sh package debian-11 ${{ github.event.inputs.build_type }} --for-docker
+  #         ./run.sh docker
+  #     - name: "Upload package"
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: docker
+  #         path: build/output/docker/memgraph*.tar.gz

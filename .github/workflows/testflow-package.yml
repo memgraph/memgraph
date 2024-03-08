@@ -1,0 +1,301 @@
+name: Package memgraph
+
+on:
+  workflow_dispatch:
+    inputs:
+      memgraph_version:
+        description: "Memgraph version to upload as. Leave this field empty if you don't want to upload binaries to S3. Format: 'X.Y.Z'"
+        required: false
+      build_type:
+        type: choice
+        description: "Memgraph Build type. Default value is Release"
+        default: 'Release'
+        options:
+          - Release
+          - RelWithDebInfo
+      target_os:
+        type: choice
+        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. Default is Debian 11"
+        default: 'debian-11'
+        options:
+          - all
+          - amzn-2
+          - centos-7
+          - centos-9
+          - debian-10
+          - debian-11
+          - debian-11-arm
+          - debian-11-platform
+          - debian-11-docker
+          - debian-11-arm-docker
+          - debian-12
+          - debian-12-arm
+          - fedora-36
+          - fedora-38
+          - fedora-39
+          - rocky-9
+          - ubuntu-18.04
+          - ubuntu-20.04
+          - ubuntu-22.04
+          - ubuntu-22.04-arm
+      toolchain:
+        type: choice
+        description: "Toolchain version with which memgraph will be packaged. Default is v5"
+        default: 'v5'
+        options:
+          - v4
+          - v5
+
+jobs:
+  AmazonLinux2:
+    if: ${{ github.event.inputs.target_os == 'amzn-2' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "amzn-2"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  CentOS7:
+    if: ${{ github.event.inputs.target_os == 'centos-7' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "centos-7"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  CentOS9:
+    if: ${{ github.event.inputs.target_os == 'centos-9' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "centos-9"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Fedora36:
+    if: ${{ github.event.inputs.target_os == 'fedora-36' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "fedora-36"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Fedora38:
+    if: ${{ github.event.inputs.target_os == 'fedora-38' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "fedora-38"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Fedora39:
+    if: ${{ github.event.inputs.target_os == 'fedora-39' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "fedora-39"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  RockyLinux9:
+    if: ${{ github.event.inputs.target_os == 'rocky-9' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "rocky-9"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Debian10:
+    if: ${{ github.event.inputs.target_os == 'debian-10' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-10"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Debian11:
+    if: ${{ github.event.inputs.target_os == 'debian-11' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-11"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Debian11-platform:
+    if: ${{ github.event.inputs.target_os == 'debian-11-platform' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-11"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+      additional_build_args: "--for-platform"
+    secrets: inherit
+
+  Debian11-docker:
+    if: ${{ github.event.inputs.target_os == 'debian-11-docker' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-11"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+      additional_build_args: "--for-docker"
+    secrets: inherit
+
+  Debian11-arm:
+    if: ${{ github.event.inputs.target_os == 'debian-11-arm' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-11-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "arm"
+      runner_aarch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 120
+    secrets: inherit
+
+  Debian11-arm-docker:
+    if: ${{ github.event.inputs.target_os == 'debian-11-arm-docker' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-11-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "arm"
+      runner_aarch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 120
+      additional_build_args: "--for-docker"
+    secrets: inherit
+
+  Debian12:
+    if: ${{ github.event.inputs.target_os == 'debian-12' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-12"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Debian12-arm:
+    if: ${{ github.event.inputs.target_os == 'debian-12-arm' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-12-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "arm"
+      runner_aarch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 120
+    secrets: inherit
+
+  Ubuntu18.04:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-18.04' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-18.04"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Ubuntu20.04:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-20.04' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-20.04"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Ubuntu22.04:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-22.04' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-22.04"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "amd"
+      runner_aarch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Ubuntu22.04-arm:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-22.04-arm' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-22.04-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      aarch: "arm"
+      runner_aarch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 120
+    secrets: inherit
+
+  # upload-to-s3:
+  #   # only run upload if we specified version. Allows for runs without upload
+  #   if: "${{ github.event.inputs.memgraph_version != '' }}"
+  #   needs: [amzn-2, centos-7, centos-9, debian-10, debian-11, debian-11-arm, debian-11-platform, docker, fedora-36, ubuntu-18_04, ubuntu-20_04, ubuntu-22_04, ubuntu-22_04-arm]
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Download artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         # name: # if name input parameter is not provided, all artifacts are downloaded
+  #                 # and put in directories named after each one.
+  #         path: build/output/release
+  #     - name: Upload to S3
+  #       uses: jakejarvis/s3-sync-action@v0.5.1
+  #       env:
+  #         AWS_S3_BUCKET: "download.memgraph.com"
+  #         AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+  #         AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+  #         AWS_REGION: "eu-west-1"
+  #         SOURCE_DIR: "build/output/release"
+  #         DEST_DIR: "memgraph/v${{ github.event.inputs.memgraph_version }}/"
