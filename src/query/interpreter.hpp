@@ -109,7 +109,8 @@ struct QueryAllocator {
 
 #ifndef MG_MEMORY_PROFILE
   memgraph::utils::MonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
-  memgraph::utils::PoolResource pool{kPoolBlockPerChunk, kPoolMaxBlockSize, &monotonic, upstream_resource()};
+  memgraph::utils::PoolResource2 pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+//  memgraph::utils::PoolResource pool{kPoolBlockPerChunk, kPoolMaxBlockSize, &monotonic, upstream_resource()};
 #endif
 };
 
