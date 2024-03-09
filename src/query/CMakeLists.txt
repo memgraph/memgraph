@@ -43,6 +43,8 @@ set(mg_query_sources
     query_user.cpp
 )
 
+add_subdirectory(custom_cursors)
+
 add_library(mg-query STATIC ${mg_query_sources})
 target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-query PUBLIC dl
@@ -60,6 +62,7 @@ target_link_libraries(mg-query PUBLIC dl
     mg::system
     mg-flags
     mg-dbms
+    mg_custom_cursors
     mg-events)
 
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")

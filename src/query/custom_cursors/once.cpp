@@ -9,26 +9,21 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "query/custom_cursors/once.hpp"
+#include "query/context.hpp"
+#include "query/interpret/frame.hpp"
+#include "spdlog/spdlog.h"
+#include "utils/logging.hpp"
 
-#include "gflags/gflags.h"
+namespace memgraph::query::custom_cursors {
 
-// Short help flag.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(experimental_enabled);
+bool OnceCursor::Pull(Frame & /*unused*/, ExecutionContext & /*unused*/) {
+  SPDLOG_WARN("Once");
+  return false;
+}
 
-namespace memgraph::flags {
+void OnceCursor::Shutdown() {}
 
-// Each bit is an enabled experiment
-// old experiments can be reused once code cleanup has happened
-enum class Experiments : uint8_t {
-  SYSTEM_REPLICATION = 1 << 0,
-  HIGH_AVAILABILITY = 1 << 1,
-  ALTERNATIVE_STORAGE = 1 << 2,
-};
+void OnceCursor::Reset() {}
 
-bool AreExperimentsEnabled(Experiments experiments);
-
-void InitializeExperimental();
-
-}  // namespace memgraph::flags
+}  // namespace memgraph::query::custom_cursors

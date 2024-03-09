@@ -27,6 +27,7 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "flags/experimental.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
@@ -35,6 +36,7 @@
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/context.hpp"
+#include "query/custom_cursors/all.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -198,6 +200,10 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
 
 UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::OnceOperator);
+
+  if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::ALTERNATIVE_STORAGE)) {
+    return MakeUniqueCursorPtr<memgraph::query::custom_cursors::OnceCursor>(mem);
+  }
 
   return MakeUniqueCursorPtr<OnceCursor>(mem);
 }
