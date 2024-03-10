@@ -26,6 +26,11 @@
 #include "utils/memory_tracker.hpp"
 
 namespace memgraph::storage {
+std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
+                                                 Vertex *to_vertex, Storage *storage, Transaction *transaction,
+                                                 bool for_deleted) {
+  return std::nullopt;
+}
 
 bool EdgeAccessor::IsDeleted() const {
   if (!storage_->config_.salient.items.properties_on_edges) {

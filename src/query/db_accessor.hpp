@@ -439,6 +439,12 @@ class DbAccessor final {
     return std::nullopt;
   }
 
+  std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
+    auto maybe_edge = accessor_->FindEdge(gid, view);
+    if (maybe_edge) return EdgeAccessor(*maybe_edge);
+    return std::nullopt;
+  }
+
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
   void TrackCurrentThreadAllocations() {
@@ -788,6 +794,8 @@ class SubgraphDbAccessor final {
   VerticesIterable Vertices(storage::View view);
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view);
+
+  std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view);
 
   Graph *getGraph();
 

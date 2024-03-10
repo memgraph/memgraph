@@ -1426,6 +1426,15 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Vie
   return EdgesIterable(mem_edge_type_index->Edges(edge_type, view, storage_, &transaction_));
 }
 
+std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto acc = mem_storage->edges_.access();
+  auto it = acc.find(gid);
+  if (it == acc.end()) return std::nullopt;
+  // Create EdgeAccessor!
+  return {};
+}
+
 Transaction InMemoryStorage::CreateTransaction(
     IsolationLevel isolation_level, StorageMode storage_mode,
     memgraph::replication_coordination_glue::ReplicationRole replication_role) {

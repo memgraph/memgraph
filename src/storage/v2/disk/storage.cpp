@@ -913,6 +913,10 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   return disk_storage->FindVertex(gid, &transaction_, view);
 }
 
+std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(storage::Gid gid, View view) {
+  throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented.");
+}
+
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges,
                                         bool detach) {
