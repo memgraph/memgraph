@@ -27,20 +27,13 @@ else ()
   message(STATUS "CCache: Not used")
 endif(CCACHE_FOUND AND USE_CCACHE)
 
-# choose a compiler
-# NOTE: must be choosen before use of project() or enable_language()
-find_program(CLANG_FOUND clang)
-find_program(CLANGXX_FOUND clang++)
-if (CLANG_FOUND AND CLANGXX_FOUND)
-  set(CMAKE_C_COMPILER ${CLANG_FOUND})
-  set(CMAKE_CXX_COMPILER ${CLANGXX_FOUND})
-else()
-  message(FATAL_ERROR "Couldn't find clang and/or clang++!")
-endif()
-
 # -----------------------------------------------------------------------------
 
 project(memgraph LANGUAGES C CXX)
+
+if (NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    message(FATAL_ERROR "Clang compiler is required")
+endif()
 
 #TODO: upgrade to cmake 3.24 + CheckIPOSupported
 #cmake_policy(SET CMP0138 NEW)

@@ -31,7 +31,7 @@ jobs:
           # Build debug binaries.
 
           cd build
-          cmake ..
+          CC=clang CXX=clang++ cmake ..
           make -j$THREADS
 
       - name: Run clang-tidy
