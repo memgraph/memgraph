@@ -1428,11 +1428,32 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Vie
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  auto acc = mem_storage->edges_.access();
-  auto it = acc.find(gid);
-  if (it == acc.end()) return std::nullopt;
-  // Create EdgeAccessor!
-  return {};
+
+  // TODO replace this logic once we have a proper edge struct in place.
+  // This should be only temporary, currently we have to do this whole
+  // lookup through all the vertices, since the edge struct only has a
+  // pointer to it's GID, it has no information whatsoever about the from
+  // and to vertices.
+  auto acc = mem_storage->vertices_.access();
+  auto maybe_edge_info = std::invoke([&]() -> std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> {
+    for (auto &vertex : acc) {
+      for (auto &edge : vertex.out_edges) {
+        if (std::get<2>(edge).gid == gid) {
+          return std::make_tuple(std::get<2>(edge), std::get<0>(edge), &vertex, std::get<1>(edge));
+        }
+      }
+    }
+    return std::nullopt;
+  });
+
+  if (!maybe_edge_info) {
+    return std::nullopt;
+  }
+
+  auto &edge_info = *maybe_edge_info;
+
+  return EdgeAccessor::Create(std::get<0>(edge_info), std::get<1>(edge_info), std::get<2>(edge_info),
+                              std::get<3>(edge_info), storage_, &transaction_);
 }
 
 Transaction InMemoryStorage::CreateTransaction(
