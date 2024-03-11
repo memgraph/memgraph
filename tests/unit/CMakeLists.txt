@@ -459,3 +459,6 @@ add_unit_test(routing_table.cpp)
 target_link_libraries(${test_prefix}routing_table gflags mg-coordination mg-repl_coord_glue)
 target_include_directories(${test_prefix}routing_table PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
+
+add_unit_test(pds.cpp)
+target_link_libraries(${test_prefix}pds mg-storage-v2)
