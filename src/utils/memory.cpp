@@ -160,7 +160,18 @@ Pool::Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *ch
 }
 
 Pool::~Pool() {
-  if (!chunks_.empty()) Release();
+  if (!chunks_.empty()) {
+    auto *resource = GetUpstreamResource();
+    if (!dynamic_cast<MonotonicBufferResource *>(resource)) {
+      auto const dataSize = blocks_per_chunk_ * block_size_;
+      auto const alignment = Ceil2(block_size_);
+      for (auto &chunk : chunks_) {
+        resource->Deallocate(chunk.raw_data, dataSize, alignment);
+      }
+    }
+    chunks_.clear();
+  }
+  free_list_ = nullptr;
 }
 
 void *Pool::Allocate() {
@@ -185,125 +196,21 @@ void Pool::Deallocate(void *p) {
   *reinterpret_cast<std::byte **>(p) = std::exchange(free_list_, reinterpret_cast<std::byte *>(p));
 }
 
-void Pool::Release() {
-  auto *resource = GetUpstreamResource();
-  if (!dynamic_cast<utils::MonotonicBufferResource *>(resource)) {
-    auto const data_size = blocks_per_chunk_ * block_size_;
-    auto const alignment = Ceil2(block_size_);
-    for (auto &chunk : chunks_) {
-      resource->Deallocate(chunk.raw_data, data_size, alignment);
-    }
-  }
-  chunks_.clear();
-  free_list_ = nullptr;
-}
-
 }  // namespace impl
-
-PoolResource::PoolResource(size_t max_blocks_per_chunk, size_t max_block_size, MemoryResource *memory_pools,
-                           MemoryResource *memory_unpooled)
-    : pools_(memory_pools),
-      unpooled_(memory_unpooled),
-      max_blocks_per_chunk_(std::min(max_blocks_per_chunk, static_cast<size_t>(impl::Pool::MaxBlocksInChunk))),
-      max_block_size_(max_block_size) {
-  MG_ASSERT(max_blocks_per_chunk_ > 0U, "Invalid number of blocks per chunk");
-  MG_ASSERT(max_block_size_ > 0U, "Invalid size of block");
-}
-
-void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
-  // Take the max of `bytes` and `alignment` so that we simplify handling
-  // alignment requests.
-  size_t block_size = std::max(bytes, alignment);
-  // Check that we have received a regular allocation request with non-padded
-  // structs/classes in play. These will always have
-  // `sizeof(T) % alignof(T) == 0`. Special requests which don't have that
-  // property can never be correctly handled with contiguous blocks. We would
-  // have to write a general-purpose allocator which has to behave as complex
-  // as malloc/free.
-  if (block_size % alignment != 0) throw BadAlloc("Requested bytes must be a multiple of alignment");
-  if (block_size > max_block_size_) {
-    // Allocate a big block.
-    BigBlock big_block{bytes, alignment, GetUpstreamResourceBlocks()->Allocate(bytes, alignment)};
-    // Insert the big block in the sorted position.
-    auto it = std::lower_bound(unpooled_.begin(), unpooled_.end(), big_block,
-                               [](const auto &a, const auto &b) { return a.data < b.data; });
-    try {
-      unpooled_.insert(it, big_block);
-    } catch (...) {
-      GetUpstreamResourceBlocks()->Deallocate(big_block.data, bytes, alignment);
-      throw;
-    }
-    return big_block.data;
-  }
-  // Allocate a regular block, first check if last_alloc_pool_ is suitable.
-  if (last_alloc_pool_ && last_alloc_pool_->GetBlockSize() == block_size) {
-    return last_alloc_pool_->Allocate();
-  }
-  // Find the pool with greater or equal block_size.
-  impl::Pool pool(block_size, max_blocks_per_chunk_, GetUpstreamResource());
-  auto it = std::lower_bound(pools_.begin(), pools_.end(), pool,
-                             [](const auto &a, const auto &b) { return a.GetBlockSize() < b.GetBlockSize(); });
-  if (it != pools_.end() && it->GetBlockSize() == block_size) {
-    last_alloc_pool_ = &*it;
-    last_dealloc_pool_ = &*it;
-    return it->Allocate();
-  }
-  // We don't have a pool for this block_size, so insert it in the sorted
-  // position.
-  it = pools_.emplace(it, std::move(pool));
-  last_alloc_pool_ = &*it;
-  last_dealloc_pool_ = &*it;
-  return it->Allocate();
-}
-
-void PoolResource::DoDeallocate(void *p, size_t bytes, size_t alignment) {
-  size_t block_size = std::max(bytes, alignment);
-  DMG_ASSERT(block_size % alignment == 0,
-             "PoolResource shouldn't serve allocation requests where bytes aren't "
-             "a multiple of alignment");
-  if (block_size > max_block_size_) [[unlikely]] {
-    // Deallocate a big block.
-    BigBlock big_block{bytes, alignment, p};
-    auto it = std::lower_bound(unpooled_.begin(), unpooled_.end(), big_block,
-                               [](const auto &a, const auto &b) { return a.data < b.data; });
-    MG_ASSERT(it != unpooled_.end(), "Failed deallocation");
-    MG_ASSERT(it->data == p && it->bytes == bytes && it->alignment == alignment, "Failed deallocation");
-    unpooled_.erase(it);
-    GetUpstreamResourceBlocks()->Deallocate(p, bytes, alignment);
-    return;
-  }
-  // Deallocate a regular block, first check if last_dealloc_pool_ is suitable.
-  if (last_dealloc_pool_ && last_dealloc_pool_->GetBlockSize() == block_size) return last_dealloc_pool_->Deallocate(p);
-  // Find the pool with equal block_size.
-  impl::Pool pool(block_size, max_blocks_per_chunk_, GetUpstreamResource());
-  auto it = std::lower_bound(pools_.begin(), pools_.end(), pool,
-                             [](const auto &a, const auto &b) { return a.GetBlockSize() < b.GetBlockSize(); });
-  MG_ASSERT(it != pools_.end(), "Failed deallocation");
-  MG_ASSERT(it->GetBlockSize() == block_size, "Failed deallocation");
-  last_alloc_pool_ = &*it;
-  last_dealloc_pool_ = &*it;
-  return it->Deallocate(p);
-}
-
-void PoolResource::Release() {
-  for (auto &pool : pools_) pool.Release();
-  pools_.clear();
-  for (auto &big_block : unpooled_)
-    GetUpstreamResourceBlocks()->Deallocate(big_block.data, big_block.bytes, big_block.alignment);
-  unpooled_.clear();
-  last_alloc_pool_ = nullptr;
-  last_dealloc_pool_ = nullptr;
-}
-
-// PoolResource END
 
 struct NullMemoryResourceImpl final : public MemoryResource {
   NullMemoryResourceImpl() = default;
+  NullMemoryResourceImpl(NullMemoryResourceImpl const &) = default;
+  NullMemoryResourceImpl &operator=(NullMemoryResourceImpl const &) = default;
+  NullMemoryResourceImpl(NullMemoryResourceImpl &&) = default;
+  NullMemoryResourceImpl &operator=(NullMemoryResourceImpl &&) = default;
   ~NullMemoryResourceImpl() override = default;
 
  private:
-  void *DoAllocate(size_t bytes, size_t alignment) override { throw BadAlloc{"NullMemoryResource doesn't allocate"}; }
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
+  void *DoAllocate(size_t /*bytes*/, size_t /*alignment*/) override {
+    throw BadAlloc{"NullMemoryResource doesn't allocate"};
+  }
+  void DoDeallocate(void * /*p*/, size_t /*bytes*/, size_t /*alignment*/) override {
     throw BadAlloc{"NullMemoryResource doesn't deallocate"};
   }
   bool DoIsEqual(MemoryResource const &other) const noexcept override {
@@ -319,59 +226,59 @@ MemoryResource *NullMemoryResource() noexcept {
 namespace impl {
 
 /// 1 bit sensitivity test
-static_assert(bin_index<1>(9u) == 0);
-static_assert(bin_index<1>(10u) == 0);
-static_assert(bin_index<1>(11u) == 0);
-static_assert(bin_index<1>(12u) == 0);
-static_assert(bin_index<1>(13u) == 0);
-static_assert(bin_index<1>(14u) == 0);
-static_assert(bin_index<1>(15u) == 0);
-static_assert(bin_index<1>(16u) == 0);
+static_assert(bin_index<1>(9U) == 0);
+static_assert(bin_index<1>(10U) == 0);
+static_assert(bin_index<1>(11U) == 0);
+static_assert(bin_index<1>(12U) == 0);
+static_assert(bin_index<1>(13U) == 0);
+static_assert(bin_index<1>(14U) == 0);
+static_assert(bin_index<1>(15U) == 0);
+static_assert(bin_index<1>(16U) == 0);
 
-static_assert(bin_index<1>(17u) == 1);
-static_assert(bin_index<1>(18u) == 1);
-static_assert(bin_index<1>(19u) == 1);
-static_assert(bin_index<1>(20u) == 1);
-static_assert(bin_index<1>(21u) == 1);
-static_assert(bin_index<1>(22u) == 1);
-static_assert(bin_index<1>(23u) == 1);
-static_assert(bin_index<1>(24u) == 1);
-static_assert(bin_index<1>(25u) == 1);
-static_assert(bin_index<1>(26u) == 1);
-static_assert(bin_index<1>(27u) == 1);
-static_assert(bin_index<1>(28u) == 1);
-static_assert(bin_index<1>(29u) == 1);
-static_assert(bin_index<1>(30u) == 1);
-static_assert(bin_index<1>(31u) == 1);
-static_assert(bin_index<1>(32u) == 1);
+static_assert(bin_index<1>(17U) == 1);
+static_assert(bin_index<1>(18U) == 1);
+static_assert(bin_index<1>(19U) == 1);
+static_assert(bin_index<1>(20U) == 1);
+static_assert(bin_index<1>(21U) == 1);
+static_assert(bin_index<1>(22U) == 1);
+static_assert(bin_index<1>(23U) == 1);
+static_assert(bin_index<1>(24U) == 1);
+static_assert(bin_index<1>(25U) == 1);
+static_assert(bin_index<1>(26U) == 1);
+static_assert(bin_index<1>(27U) == 1);
+static_assert(bin_index<1>(28U) == 1);
+static_assert(bin_index<1>(29U) == 1);
+static_assert(bin_index<1>(30U) == 1);
+static_assert(bin_index<1>(31U) == 1);
+static_assert(bin_index<1>(32U) == 1);
 
 /// 2 bit sensitivity test
 
-static_assert(bin_index<2>(9u) == 0);
-static_assert(bin_index<2>(10u) == 0);
-static_assert(bin_index<2>(11u) == 0);
-static_assert(bin_index<2>(12u) == 0);
+static_assert(bin_index<2>(9U) == 0);
+static_assert(bin_index<2>(10U) == 0);
+static_assert(bin_index<2>(11U) == 0);
+static_assert(bin_index<2>(12U) == 0);
 
-static_assert(bin_index<2>(13u) == 1);
-static_assert(bin_index<2>(14u) == 1);
-static_assert(bin_index<2>(15u) == 1);
-static_assert(bin_index<2>(16u) == 1);
+static_assert(bin_index<2>(13U) == 1);
+static_assert(bin_index<2>(14U) == 1);
+static_assert(bin_index<2>(15U) == 1);
+static_assert(bin_index<2>(16U) == 1);
 
-static_assert(bin_index<2>(17u) == 2);
-static_assert(bin_index<2>(18u) == 2);
-static_assert(bin_index<2>(19u) == 2);
-static_assert(bin_index<2>(20u) == 2);
-static_assert(bin_index<2>(21u) == 2);
-static_assert(bin_index<2>(22u) == 2);
-static_assert(bin_index<2>(23u) == 2);
-static_assert(bin_index<2>(24u) == 2);
+static_assert(bin_index<2>(17U) == 2);
+static_assert(bin_index<2>(18U) == 2);
+static_assert(bin_index<2>(19U) == 2);
+static_assert(bin_index<2>(20U) == 2);
+static_assert(bin_index<2>(21U) == 2);
+static_assert(bin_index<2>(22U) == 2);
+static_assert(bin_index<2>(23U) == 2);
+static_assert(bin_index<2>(24U) == 2);
 
 }  // namespace impl
 
-void *PoolResource2::DoAllocate(size_t bytes, size_t alignment) {
+void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
   // Take the max of `bytes` and `alignment` so that we simplify handling
   // alignment requests.
-  size_t block_size = std::max({bytes, alignment, 1ul});
+  size_t block_size = std::max({bytes, alignment, 1UL});
   // Check that we have received a regular allocation request with non-padded
   // structs/classes in play. These will always have
   // `sizeof(T) % alignof(T) == 0`. Special requests which don't have that
@@ -380,29 +287,35 @@ void *PoolResource2::DoAllocate(size_t bytes, size_t alignment) {
   // as malloc/free.
   if (block_size % alignment != 0) throw BadAlloc("Requested bytes must be a multiple of alignment");
 
-  if (pools_5bit_.is_above_upper_bound(block_size)) return unpooled_memory_->Allocate(bytes, alignment);
-  if (pools_3bit_.is_size_handled(block_size)) return pools_3bit_.allocate(block_size);
-  if (pools_4bit_.is_size_handled(block_size)) return pools_4bit_.allocate(block_size);
-  if (pools_5bit_.is_size_handled(block_size)) return pools_5bit_.allocate(block_size);
-  DMG_ASSERT(block_size <= 64);
-  return mini_pools_[(block_size - 1ul) / 8ul].Allocate();
+  if (block_size <= 64) {
+    return mini_pools_[(block_size - 1UL) / 8UL].Allocate();
+  }
+  if (block_size <= 128) {
+    return pools_3bit_.allocate(block_size);
+  }
+  if (block_size <= 512) {
+    return pools_4bit_.allocate(block_size);
+  }
+  if (block_size <= 1024) {
+    return pools_5bit_.allocate(block_size);
+  }
+  return unpooled_memory_->Allocate(bytes, alignment);
 }
-void PoolResource2::DoDeallocate(void *p, size_t bytes, size_t alignment) {
-  size_t block_size = std::max({bytes, alignment, 1ul});
+void PoolResource::DoDeallocate(void *p, size_t bytes, size_t alignment) {
+  size_t block_size = std::max({bytes, alignment, 1UL});
   DMG_ASSERT(block_size % alignment == 0);
 
-  if (pools_5bit_.is_above_upper_bound(block_size)) {
-    unpooled_memory_->Deallocate(p, bytes, alignment);
-  } else if (pools_3bit_.is_size_handled(block_size)) {
+  if (block_size <= 64) {
+    mini_pools_[(block_size - 1UL) / 8UL].Deallocate(p);
+  } else if (block_size <= 128) {
     pools_3bit_.deallocate(p, block_size);
-  } else if (pools_4bit_.is_size_handled(block_size)) {
+  } else if (block_size <= 512) {
     pools_4bit_.deallocate(p, block_size);
-  } else if (pools_5bit_.is_size_handled(block_size)) {
+  } else if (block_size <= 1024) {
     pools_5bit_.deallocate(p, block_size);
   } else {
-    DMG_ASSERT(block_size <= 64);
-    mini_pools_[(block_size - 1ul) / 8ul].Deallocate(p);
+    unpooled_memory_->Deallocate(p, bytes, alignment);
   }
 }
-bool PoolResource2::DoIsEqual(MemoryResource const &other) const noexcept { return this == &other; }
+bool PoolResource::DoIsEqual(MemoryResource const &other) const noexcept { return this == &other; }
 }  // namespace memgraph::utils
