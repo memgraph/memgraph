@@ -1419,7 +1419,8 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     delta->prev.Set(&*it);
-    edge.ptr->properties.SetBuffer(properties);
+    // TODO Re-enable
+    // edge.ptr->properties.SetBuffer(properties);
   }
 
   ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_DESERIALIZED_OBJECT, from_vertex->gid, to_vertex->gid, edge_type,
