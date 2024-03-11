@@ -239,9 +239,7 @@ class PatternVisitor : public ExpressionVisitor<void> {
   void Visit(PatternComprehension &op) override;
 
   std::vector<FilterMatching> getFilterMatchings();
-  std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings() {
-    return pattern_comprehension_matchings_;
-  }
+  std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
 
   SymbolTable &symbol_table_;
   AstStorage &storage_;

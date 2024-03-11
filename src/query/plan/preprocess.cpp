@@ -660,6 +660,10 @@ void PatternVisitor::Visit(Exists &op) {
 
 std::vector<FilterMatching> PatternVisitor::getFilterMatchings() { return filter_matchings_; }
 
+std::vector<PatternComprehensionMatching> PatternVisitor::getPatternComprehensionMatchings() {
+  return pattern_comprehension_matchings_;
+}
+
 static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
                          SymbolTable &symbol_table) {
   for (auto *clause : foreach.clauses_) {
