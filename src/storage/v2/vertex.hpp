@@ -26,7 +26,7 @@ namespace memgraph::storage {
 struct OnDiskStorageTag {};
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta, OnDiskStorageTag) : gid(gid), deleted(false), delta(delta) {}
+  Vertex(Gid gid, Delta *delta, OnDiskStorageTag /*unused*/) : gid(gid), deleted(false), delta(delta) {}
 
   Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
