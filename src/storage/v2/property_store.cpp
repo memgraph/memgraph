@@ -1051,6 +1051,14 @@ struct SpecificPropertyAndBufferInfo {
   uint64_t all_size;
 };
 
+// Struct used to return info about the property position
+struct SpecificPropertyAndBufferInfoMinimal {
+  uint64_t property_begin;
+  uint64_t property_end;
+
+  auto property_size() const { return property_end - property_begin; }
+};
+
 // Function used to find the position where the property should be in the data
 // buffer. It keeps the properties in the buffer sorted by `PropertyId` and
 // returns the positions in the buffer where the seeked property starts and
@@ -1081,6 +1089,27 @@ SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(Reader *reader, 
     all_end = reader->GetPosition();
   }
   return {property_begin, property_end, property_end - property_begin, all_begin, all_end, all_end - all_begin};
+}
+
+// Like FindSpecificPropertyAndBufferInfo, but will early exit. No need to find the "all" information
+SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(Reader *reader, PropertyId property) {
+  uint64_t property_begin = reader->GetPosition();
+  while (true) {
+    switch (HasExpectedProperty(reader, property)) {
+      case ExpectedPropertyStatus::MISSING_DATA:
+        [[fallthrough]];
+      case ExpectedPropertyStatus::GREATER: {
+        return {0, 0};
+      }
+      case ExpectedPropertyStatus::EQUAL: {
+        return {property_begin, reader->GetPosition()};
+      }
+      case ExpectedPropertyStatus::SMALLER: {
+        property_begin = reader->GetPosition();
+        break;
+      }
+    }
+  }
 }
 
 // All data buffers will be allocated to a power of 8 size.
@@ -1254,11 +1283,12 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
   BufferInfo buffer_info = GetBufferInfo(buffer_);
   Reader reader(buffer_info.data, buffer_info.size);
 
-  auto info = FindSpecificPropertyAndBufferInfo(&reader, property);
-  if (info.property_size == 0) return value.IsNull();
-  Reader prop_reader(buffer_info.data + info.property_begin, info.property_size);
+  auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, property);
+  auto property_size = info.property_size();
+  if (property_size == 0) return value.IsNull();
+  Reader prop_reader(buffer_info.data + info.property_begin, property_size);
   if (!CompareExpectedProperty(&prop_reader, property, value)) return false;
-  return prop_reader.GetPosition() == info.property_size;
+  return prop_reader.GetPosition() == property_size;
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {

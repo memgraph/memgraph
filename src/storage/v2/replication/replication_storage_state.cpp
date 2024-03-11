@@ -53,6 +53,16 @@ void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperati
   });
 }
 
+void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
+                                              uint64_t final_commit_timestamp) {
+  replication_clients_.WithLock([&](auto &clients) {
+    for (auto &client : clients) {
+      client->IfStreamingTransaction(
+          [&](auto &stream) { stream.AppendOperation(operation, edge_type, final_commit_timestamp); });
+    }
+  });
+}
+
 bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage,
                                                   DatabaseAccessProtector db_acc) {
   return replication_clients_.WithLock([=, db_acc = std::move(db_acc)](auto &clients) mutable {

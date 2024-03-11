@@ -18,6 +18,7 @@
 #include "coordination/raft_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "coordination/replication_instance.hpp"
+#include "utils/resource_lock.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/thread_pool.hpp"
 
@@ -25,33 +26,54 @@
 
 namespace memgraph::coordination {
 
+struct NewMainRes {
+  std::string most_up_to_date_instance;
+  std::string latest_epoch;
+  uint64_t latest_commit_timestamp;
+};
+using InstanceNameDbHistories = std::pair<std::string, replication_coordination_glue::DatabaseHistories>;
+
 class CoordinatorInstance {
  public:
   CoordinatorInstance();
 
-  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorClientConfig config) -> RegisterInstanceCoordinatorStatus;
-  [[nodiscard]] auto UnregisterReplicationInstance(std::string instance_name) -> UnregisterInstanceCoordinatorStatus;
+  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorClientConfig const &config)
+      -> RegisterInstanceCoordinatorStatus;
+  [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
+      -> UnregisterInstanceCoordinatorStatus;
 
-  [[nodiscard]] auto SetReplicationInstanceToMain(std::string instance_name) -> SetInstanceToMainCoordinatorStatus;
+  [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
   auto TryFailover() -> void;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
+  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
 
-  auto GetMainUUID() const -> utils::UUID;
-
-  auto SetMainUUID(utils::UUID new_uuid) -> void;
+  static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
 
  private:
-  HealthCheckCallback main_succ_cb_, main_fail_cb_, replica_succ_cb_, replica_fail_cb_;
+  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
 
-  // NOTE: Must be std::list because we rely on pointer stability
+  auto OnRaftCommitCallback(TRaftLog const &log_entry, RaftLogAction log_action) -> void;
+
+  auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance &;
+
+  void MainFailCallback(std::string_view);
+
+  void MainSuccessCallback(std::string_view);
+
+  void ReplicaSuccessCallback(std::string_view);
+
+  void ReplicaFailCallback(std::string_view);
+
+  auto IsMain(std::string_view instance_name) const -> bool;
+  auto IsReplica(std::string_view instance_name) const -> bool;
+
+  // NOTE: Must be std::list because we rely on pointer stability.
+  // Leader and followers should both have same view on repl_instances_
   std::list<ReplicationInstance> repl_instances_;
-  mutable utils::RWLock coord_instance_lock_{utils::RWLock::Priority::READ};
-
-  utils::UUID main_uuid_;
+  mutable utils::ResourceLock coord_instance_lock_{};
 
   RaftState raft_state_;
 };

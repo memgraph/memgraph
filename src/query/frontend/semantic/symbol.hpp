@@ -53,6 +53,8 @@ class Symbol {
   bool user_declared() const { return user_declared_; }
   int token_position() const { return token_position_; }
 
+  bool IsSymbolAnonym() const { return name_.substr(0U, 4U) == "anon"; }
+
   std::string name_;
   int64_t position_;
   bool user_declared_{true};
