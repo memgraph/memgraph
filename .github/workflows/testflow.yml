@@ -21,7 +21,7 @@ jobs:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       OS: debian-11
-      TOOLCHAIN: v5
+      TOOLCHAIN: v4
       ARCH: amd
       BUILD_TYPE: RelWithDebInfo
 
@@ -79,7 +79,7 @@ jobs:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       OS: debian-11
-      TOOLCHAIN: v5
+      TOOLCHAIN: v4
       ARCH: amd
       BUILD_TYPE: Debug
 
@@ -199,7 +199,7 @@ jobs:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       OS: debian-11
-      TOOLCHAIN: v5
+      TOOLCHAIN: v4
       ARCH: amd
       BUILD_TYPE: Debug
 
@@ -531,7 +531,7 @@ jobs:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       OS: debian-11
-      TOOLCHAIN: v5
+      TOOLCHAIN: v4
       ARCH: amd
       BUILD_TYPE: Release
 
