@@ -56,7 +56,7 @@ jobs:
       aarch: "amd"
       runner_aarch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
+      timeout_minutes: '60'
     secrets: inherit
 
   CentOS7:
