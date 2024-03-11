@@ -230,7 +230,7 @@ jobs:
       timeout_minutes: 120
     secrets: inherit
 
-  Ubuntu18.04:
+  Ubuntu18_04:
     if: ${{ github.event.inputs.target_os == 'ubuntu-18.04' || github.event.inputs.target_os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
@@ -242,7 +242,7 @@ jobs:
       timeout_minutes: 60
     secrets: inherit
 
-  Ubuntu20.04:
+  Ubuntu20_04:
     if: ${{ github.event.inputs.target_os == 'ubuntu-20.04' || github.event.inputs.target_os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
@@ -254,7 +254,7 @@ jobs:
       timeout_minutes: 60
     secrets: inherit
 
-  Ubuntu22.04:
+  Ubuntu22_04:
     if: ${{ github.event.inputs.target_os == 'ubuntu-22.04' || github.event.inputs.target_os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
@@ -266,7 +266,7 @@ jobs:
       timeout_minutes: 60
     secrets: inherit
 
-  Ubuntu22.04-arm:
+  Ubuntu22_04-arm:
     if: ${{ github.event.inputs.target_os == 'ubuntu-22.04-arm' || github.event.inputs.target_os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
