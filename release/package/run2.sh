@@ -487,9 +487,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-docker_compose_cmd="docker-compose"
-if ! which "docker-compose" >/dev/null; then
-    docker_compose_cmd="docker compose"
+docker_compose_cmd="docker compose"
+if ! which $docker_compose_cmd >/dev/null; then
+    docker_compose_cmd="docker-compose"
 fi
 
 ##################################################

@@ -143,7 +143,6 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads $THREADS \
           build-memgraph --coverage --asan --ubsan
-          # make -j$THREADS memgraph__unit
 
       - name: Run unit tests
         run: |
