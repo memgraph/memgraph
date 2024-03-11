@@ -1,7 +1,7 @@
 version: "3"
 services:
   mgbuild_v4_amzn-2:
-    image: "memgraph/mgbuild_v4_amzn-2"
+    image: "memgraph/mgbuild:v4_amzn-2"
     build:
       context: amzn-2
       args:
@@ -9,7 +9,7 @@ services:
     container_name: "mgbuild_v4_amzn-2"
 
   mgbuild_v4_centos-7:
-    image: "memgraph/mgbuild_v4_centos-7"
+    image: "memgraph/mgbuild:v4_centos-7"
     build:
       context: centos-7
       args:
@@ -17,7 +17,7 @@ services:
     container_name: "mgbuild_v4_centos-7"
 
   mgbuild_v4_centos-9:
-    image: "memgraph/mgbuild_v4_centos-9"
+    image: "memgraph/mgbuild:v4_centos-9"
     build:
       context: centos-9
       args:
@@ -25,7 +25,7 @@ services:
     container_name: "mgbuild_v4_centos-9"
 
   mgbuild_v4_debian-10:
-    image: "memgraph/mgbuild_v4_debian-10"
+    image: "memgraph/mgbuild:v4_debian-10"
     build:
       context: debian-10
       args:
@@ -33,7 +33,7 @@ services:
     container_name: "mgbuild_v4_debian-10"
 
   mgbuild_v4_debian-11:
-    image: "memgraph/mgbuild_v4_debian-11"
+    image: "memgraph/mgbuild:v4_debian-11"
     build:
       context: debian-11
       args:
@@ -41,7 +41,7 @@ services:
     container_name: "mgbuild_v4_debian-11"
 
   mgbuild_v4_fedora-36:
-    image: "memgraph/mgbuild_v4_fedora-36"
+    image: "memgraph/mgbuild:v4_fedora-36"
     build:
       context: fedora-36
       args:
@@ -49,7 +49,7 @@ services:
     container_name: "mgbuild_v4_fedora-36"
 
   mgbuild_v4_ubuntu-18.04:
-    image: "memgraph/mgbuild_v4_ubuntu-18.04"
+    image: "memgraph/mgbuild:v4_ubuntu-18.04"
     build:
       context: ubuntu-18.04
       args:
@@ -57,7 +57,7 @@ services:
     container_name: "mgbuild_v4_ubuntu-18.04"
 
   mgbuild_v4_ubuntu-20.04:
-    image: "memgraph/mgbuild_v4_ubuntu-20.04"
+    image: "memgraph/mgbuild:v4_ubuntu-20.04"
     build:
       context: ubuntu-20.04
       args:
@@ -65,7 +65,7 @@ services:
     container_name: "mgbuild_v4_ubuntu-20.04"
 
   mgbuild_v4_ubuntu-22.04:
-    image: "memgraph/mgbuild_v4_ubuntu-22.04"
+    image: "memgraph/mgbuild:v4_ubuntu-22.04"
     build:
       context: ubuntu-22.04
       args:

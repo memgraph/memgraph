@@ -533,11 +533,11 @@ case $command in
       fi
     ;;
     pull)
-      docker pull memgraph/mgbuild_${toolchain_version}_${os}
+      docker pull memgraph/mgbuild:${toolchain_version}_${os}
     ;;
     push)
       docker login $@
-      docker push memgraph/mgbuild_${toolchain_version}_${os}
+      docker push memgraph/mgbuild:${toolchain_version}_${os}
     ;;
     build-memgraph)
       build_memgraph $@

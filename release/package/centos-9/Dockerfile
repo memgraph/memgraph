@@ -27,4 +27,7 @@ USER mg
 # Install rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
+# Fix node
+RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash
+
 ENTRYPOINT ["sleep", "infinity"]
