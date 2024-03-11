@@ -595,9 +595,9 @@ class PoolResource2 final : public MemoryResource {
   PoolResource2(uint8_t blocks_per_chunk, MemoryResource *memory = NewDeleteResource(),
                 MemoryResource *internal_memory = NewDeleteResource())
       : pool_8_(8, blocks_per_chunk, memory),
-        pools_2bit_(blocks_per_chunk, memory, internal_memory),
         pools_3bit_(blocks_per_chunk, memory, internal_memory),
         pools_4bit_(blocks_per_chunk, memory, internal_memory),
+        pools_5bit_(blocks_per_chunk, memory, internal_memory),
         unpooled_memory_{internal_memory} {}
   ~PoolResource2() override = default;
 
@@ -608,9 +608,9 @@ class PoolResource2 final : public MemoryResource {
 
  private:
   impl::Pool pool_8_;
-  impl::MultiPool<2, 8, 128> pools_2bit_;
-  impl::MultiPool<3, 128, 512> pools_3bit_;
-  impl::MultiPool<4, 512, 1024> pools_4bit_;
+  impl::MultiPool<3, 8, 128> pools_3bit_;
+  impl::MultiPool<4, 128, 512> pools_4bit_;
+  impl::MultiPool<5, 512, 1024> pools_5bit_;
   MemoryResource *unpooled_memory_;
 };
 

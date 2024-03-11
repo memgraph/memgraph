@@ -154,13 +154,13 @@ Pool::Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *ch
     : blocks_per_chunk_(blocks_per_chunk),
       block_size_(block_size),
       data_size_{blocks_per_chunk_ * block_size_},
-      alignment_{Ceil2(block_size_)},
       chunks_(chunk_memory) {
   // Use the next pow2 of block_size_ as alignment, so that we cover alignment
   // requests between 1 and block_size_. Users of this class should make sure
   // that requested alignment of particular blocks is never greater than the
   // block itself.
   if (block_size_ > std::numeric_limits<size_t>::max() / blocks_per_chunk_) throw BadAlloc("Allocation size overflow");
+  alignment_ = Ceil2(block_size_);
   if (alignment_ < block_size_) throw BadAlloc("Allocation alignment overflow");
 }
 
@@ -381,10 +381,10 @@ void *PoolResource2::DoAllocate(size_t bytes, size_t alignment) {
   // as malloc/free.
   if (block_size % alignment != 0) throw BadAlloc("Requested bytes must be a multiple of alignment");
 
-  if (pools_4bit_.is_above_upper_bound(block_size)) return unpooled_memory_->Allocate(bytes, alignment);
-  if (pools_2bit_.is_size_handled(block_size)) return pools_2bit_.allocate(block_size);
+  if (pools_5bit_.is_above_upper_bound(block_size)) return unpooled_memory_->Allocate(bytes, alignment);
   if (pools_3bit_.is_size_handled(block_size)) return pools_3bit_.allocate(block_size);
   if (pools_4bit_.is_size_handled(block_size)) return pools_4bit_.allocate(block_size);
+  if (pools_5bit_.is_size_handled(block_size)) return pools_5bit_.allocate(block_size);
   DMG_ASSERT(block_size <= 8);
   return pool_8_.Allocate();
 }
@@ -392,14 +392,14 @@ void PoolResource2::DoDeallocate(void *p, size_t bytes, size_t alignment) {
   size_t block_size = std::max(bytes, alignment);
   DMG_ASSERT(block_size % alignment == 0);
 
-  if (pools_4bit_.is_above_upper_bound(block_size)) {
+  if (pools_5bit_.is_above_upper_bound(block_size)) {
     unpooled_memory_->Deallocate(p, bytes, alignment);
-  } else if (pools_2bit_.is_size_handled(block_size)) {
-    pools_2bit_.deallocate(p, block_size);
   } else if (pools_3bit_.is_size_handled(block_size)) {
     pools_3bit_.deallocate(p, block_size);
   } else if (pools_4bit_.is_size_handled(block_size)) {
     pools_4bit_.deallocate(p, block_size);
+  } else if (pools_5bit_.is_size_handled(block_size)) {
+    pools_5bit_.deallocate(p, block_size);
   } else {
     DMG_ASSERT(block_size <= 8);
     pool_8_.Deallocate(p);
