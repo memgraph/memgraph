@@ -48,7 +48,7 @@ on:
 jobs:
   package:
     runs-on: [self-hosted, DockerMgBuild, ${{ github.event.inputs.runner_aarch_label }}]
-    timeout-minutes: ${{ github.event.inputs.timeout_minutes }}
+    # timeout-minutes: ${{ github.event.inputs.timeout_minutes }}
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v4
