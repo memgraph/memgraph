@@ -106,8 +106,8 @@ uint64_t ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage
   return response.current_commit_timestamp;
 }
 
-/// This method tries to find the optimal path for recoverying a single replica.
-/// Based on the last commit transfered to replica it tries to update the
+/// This method tries to find the optimal path for recovering a single replica.
+/// Based on the last commit transferred to replica it tries to update the
 /// replica using durability files - WALs and Snapshots. WAL files are much
 /// smaller in size as they contain only the Deltas (changes) made during the
 /// transactions while Snapshots contain all the data. For that reason we prefer
@@ -175,7 +175,7 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
   auto add_snapshot = [&]() {
     if (!latest_snapshot) return;
     const auto lock_success = locker_acc.AddPath(latest_snapshot->path);
-    MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant snapshot path.");
+    MG_ASSERT(!lock_success.HasError(), "Tried to lock a non-existent snapshot path.");
     recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
   };
 
@@ -233,7 +233,7 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
     }
   }
 
-  // In all cases, if we have a current wal file we need to use itW
+  // In all cases, if we have a current wal file we need to use it
   if (current_wal_seq_num) {
     // NOTE: File not handled directly, so no need to lock it
     recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});

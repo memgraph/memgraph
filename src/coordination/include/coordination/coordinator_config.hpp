@@ -14,11 +14,15 @@
 #ifdef MG_ENTERPRISE
 
 #include "replication_coordination_glue/mode.hpp"
+#include "utils/string.hpp"
 
 #include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
+
+#include <fmt/format.h>
+#include "json/json.hpp"
 
 namespace memgraph::coordination {
 
@@ -32,7 +36,11 @@ struct CoordinatorClientConfig {
   std::chrono::seconds instance_down_timeout_sec{5};
   std::chrono::seconds instance_get_uuid_frequency_sec{10};
 
-  auto SocketAddress() const -> std::string { return ip_address + ":" + std::to_string(port); }
+  auto CoordinatorSocketAddress() const -> std::string { return fmt::format("{}:{}", ip_address, port); }
+  auto ReplicationSocketAddress() const -> std::string {
+    return fmt::format("{}:{}", replication_client_info.replication_ip_address,
+                       replication_client_info.replication_port);
+  }
 
   struct ReplicationClientInfo {
     std::string instance_name;
@@ -74,6 +82,12 @@ struct CoordinatorServerConfig {
 
   friend bool operator==(CoordinatorServerConfig const &, CoordinatorServerConfig const &) = default;
 };
+
+void to_json(nlohmann::json &j, CoordinatorClientConfig const &config);
+void from_json(nlohmann::json const &j, CoordinatorClientConfig &config);
+
+void to_json(nlohmann::json &j, ReplClientInfo const &config);
+void from_json(nlohmann::json const &j, ReplClientInfo &config);
 
 }  // namespace memgraph::coordination
 #endif

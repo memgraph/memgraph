@@ -291,3 +291,45 @@ Feature: List operators
 #        Then the result should be:
 #            | years                 |
 #            | [2021,2003,2003,1999] |
+
+     Scenario: Multiple entries with list pattern comprehension
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (n:Person)
+            RETURN n.name, [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years
+            """
+        Then an error should be raised
+
+     Scenario: Multiple list pattern comprehensions in Return
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (n:Person)
+            RETURN n.name,
+                [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years,
+                [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.title] AS titles
+            """
+        Then an error should be raised
+
+     Scenario: Function inside pattern comprehension's expression
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (keanu:Person {name: 'Keanu Reeves'})
+            RETURN [p = (keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | size(nodes(p))] AS nodes
+            """
+        Then an error should be raised
+
+     Scenario: Multiple list pattern comprehensions in With
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (n) WHERE size(n.name) > 5
+            WITH
+                n AS actor,
+                [(n)-->(m) WHERE m.released > 2000 | m.title] AS titles,
+                [(n)-->(m) WHERE m.released > 2000 | m.released] AS years
+            RETURN actor.name, years, titles;
+            """
+        Then an error should be raised

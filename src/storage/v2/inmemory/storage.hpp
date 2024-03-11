@@ -16,6 +16,7 @@
 #include <memory>
 #include <utility>
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
@@ -53,6 +54,7 @@ class InMemoryStorage final : public Storage {
                                                     const InMemoryStorage *storage);
   friend class InMemoryLabelIndex;
   friend class InMemoryLabelPropertyIndex;
+  friend class InMemoryEdgeTypeIndex;
 
  public:
   enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };
@@ -107,6 +109,8 @@ class InMemoryStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
+
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount() const override {
@@ -143,6 +147,10 @@ class InMemoryStorage final : public Storage {
                                     const std::optional<utils::Bound<PropertyValue>> &upper) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(
           label, property, lower, upper);
+    }
+
+    uint64_t ApproximateEdgeCount(EdgeTypeId id) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_index_->ApproximateEdgeCount(id);
     }
 
     template <typename TResult, typename TIndex, typename TIndexKey>
@@ -204,6 +212,10 @@ class InMemoryStorage final : public Storage {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->IndexExists(label, property);
     }
 
+    bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_index_->IndexExists(edge_type);
+    }
+
     IndicesInfo ListAllIndices() const override;
 
     ConstraintsInfo ListAllConstraints() const override;
@@ -239,6 +251,14 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
 
+    /// Create an index.
+    /// Returns void if the index has been created.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `IndexDefinitionError`: the index already exists.
+    /// @throw std::bad_alloc
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type) override;
+
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
@@ -252,6 +272,13 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
+
+    /// Drop an existing index.
+    /// Returns void if the index has been dropped.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `IndexDefinitionError`: the index does not exist.
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
@@ -334,7 +361,7 @@ class InMemoryStorage final : public Storage {
   std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                          std::optional<IsolationLevel> override_isolation_level) override;
 
-  void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) override;
+  void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
@@ -367,7 +394,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   template <bool force>
-  void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard = {});
+  void CollectGarbage(std::unique_lock<utils::ResourceLock> main_guard, bool periodic);
 
   bool InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch);
   void FinalizeWalFile();
@@ -378,20 +405,17 @@ class InMemoryStorage final : public Storage {
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
                                  DatabaseAccessProtector db_acc);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
+                                 uint64_t final_commit_timestamp);
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label, LabelIndexStats stats,
                                  uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  const std::set<PropertyId> &properties, LabelPropertyIndexStats property_stats,
                                  uint64_t final_commit_timestamp);
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  const std::set<PropertyId> &properties, LabelIndexStats stats,
                                  LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp);

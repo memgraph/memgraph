@@ -27,6 +27,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(IndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
+  void Visit(EdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
   void Visit(AnalyzeGraphQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(AuthQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
