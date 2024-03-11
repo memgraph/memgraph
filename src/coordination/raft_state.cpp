@@ -30,6 +30,11 @@ using nuraft::raft_server;
 using nuraft::srv_config;
 using raft_result = cmd_result<ptr<buffer>>;
 
+template <typename E>
+constexpr typename std::underlying_type<E>::type to_underlying(E e) noexcept {
+  return static_cast<typename std::underlying_type<E>::type>(e);
+}
+
 RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
                      uint32_t raft_port, std::string raft_address)
     : raft_endpoint_(raft_address, raft_port),
@@ -123,7 +128,7 @@ auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_po
     spdlog::info("Request to add server {} to the cluster accepted", endpoint);
   } else {
     throw RaftAddServerException("Failed to accept request to add server {} to the cluster with error code {}",
-                                 endpoint, fmt::underlying(cmd_result->get_result_code()));
+                                 endpoint, to_underlying(cmd_result->get_result_code()));
   }
 
   // Waiting for server to join
@@ -174,7 +179,7 @@ auto RaftState::AppendRegisterReplicationInstanceLog(CoordinatorClientConfig con
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to register instance {} with error code {}", config.instance_name,
-                  fmt::underlying(res->get_result_code()));
+                  to_underlying(res->get_result_code()));
     return false;
   }
 
@@ -196,7 +201,7 @@ auto RaftState::AppendUnregisterReplicationInstanceLog(std::string_view instance
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to unregister instance {} with error code {}", instance_name,
-                  fmt::underlying(res->get_result_code()));
+                  to_underlying(res->get_result_code()));
     return false;
   }
   return true;
@@ -217,7 +222,7 @@ auto RaftState::AppendSetInstanceAsMainLog(std::string_view instance_name) -> bo
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to promote instance {} with error code {}", instance_name,
-                  fmt::underlying(res->get_result_code()));
+                  to_underlying(res->get_result_code()));
     return false;
   }
   return true;
@@ -237,7 +242,7 @@ auto RaftState::AppendSetInstanceAsReplicaLog(std::string_view instance_name) ->
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to promote instance {} with error code {}", instance_name,
-                  fmt::underlying(res->get_result_code()));
+                  to_underlying(res->get_result_code()));
     return false;
   }
 
@@ -256,7 +261,7 @@ auto RaftState::AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool {
   spdlog::info("Request for updating UUID accepted");
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to update UUID with error code {}", fmt::underlying(res->get_result_code()));
+    spdlog::error("Failed to update UUID with error code {}", to_underlying(res->get_result_code()));
     return false;
   }
 
