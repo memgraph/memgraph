@@ -7,11 +7,11 @@ on:
         type: string
         description: "Target os. Default value is debian-11."
         default: 'debian-11'
-      aarch:
+      arch:
         type: string
         description: "Target architecture. Default value is amd."
         default: 'amd'
-      runner_aarch_label:
+      runner_arch_label:
         type: string
         description: "Runner architecture label. Amd is built on X64, arm on ARM64. Default value is X64."
         default: 'X64'
@@ -47,7 +47,7 @@ on:
 
 jobs:
   package:
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_aarch_label }}"]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: ${{ inputs.timeout_minutes }}
     steps:
       - name: "Set up repository"
@@ -55,14 +55,21 @@ jobs:
         with:
           fetch-depth: 0 # Required because of release/get_version.py
 
+      - name: "Spin up mgbuild container"
+        run: |
+          ./release/package/run2.sh \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.arch }} \
+          run
+
       - name: "Build Memgraph binaries"
         run: |
           ./release/package/run2.sh \
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
-          --arch ${{ inputs.aarch }} \
+          --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
-          --threads $THREADS \
           build-memgraph ${{ inputs.additional_build_args }}
 
       - name: "Make package"
@@ -70,7 +77,7 @@ jobs:
           ./release/package/run2.sh \
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
-          --arch ${{ inputs.aarch }} \
+          --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
           package-memgraph
 
@@ -79,14 +86,23 @@ jobs:
           ./release/package/run2.sh \
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
-          --arch ${{ inputs.aarch }} \
+          --arch ${{ inputs.arch }} \
           copy --package
 
       - name: "Upload package"
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.os }}
-          path: build/output/${{ inputs.os }}/memgraph*
+          path: "build/output/${{ inputs.os }}/memgraph*"
+
+      - name: "Stop mgbuild container"
+        if: always()
+        run: |
+          ./release/package/run2.sh \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.arch }} \
+          stop --remove
 
   upload-to-s3:
     if: ${{ inputs.push_to_s3 == 'true' }}
@@ -97,7 +113,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ${{ inputs.os }}
-          path: build/output/release
+          path: "build/output/release"
 
       - name: Upload to S3
         uses: jakejarvis/s3-sync-action@v0.5.1

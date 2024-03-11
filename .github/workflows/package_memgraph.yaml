@@ -53,8 +53,8 @@ jobs:
     with:
       os: "amzn-2"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -65,8 +65,8 @@ jobs:
     with:
       os: "centos-7"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -77,8 +77,8 @@ jobs:
     with:
       os: "centos-9"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -89,8 +89,8 @@ jobs:
     with:
       os: "fedora-36"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -101,8 +101,8 @@ jobs:
     with:
       os: "fedora-38"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -113,8 +113,8 @@ jobs:
     with:
       os: "fedora-39"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -125,8 +125,8 @@ jobs:
     with:
       os: "rocky-9"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -137,8 +137,8 @@ jobs:
     with:
       os: "debian-10"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -149,8 +149,8 @@ jobs:
     with:
       os: "debian-11"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -161,8 +161,8 @@ jobs:
     with:
       os: "debian-11"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
       additional_build_args: "--for-platform"
@@ -174,8 +174,8 @@ jobs:
     with:
       os: "debian-11"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
       additional_build_args: "--for-docker"
@@ -187,8 +187,8 @@ jobs:
     with:
       os: "debian-11-arm"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "arm"
-      runner_aarch_label: "ARM64"
+      arch: "arm"
+      runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 120
     secrets: inherit
@@ -199,8 +199,8 @@ jobs:
     with:
       os: "debian-11-arm"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "arm"
-      runner_aarch_label: "ARM64"
+      arch: "arm"
+      runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 120
       additional_build_args: "--for-docker"
@@ -212,8 +212,8 @@ jobs:
     with:
       os: "debian-12"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -224,8 +224,8 @@ jobs:
     with:
       os: "debian-12-arm"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "arm"
-      runner_aarch_label: "ARM64"
+      arch: "arm"
+      runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 120
     secrets: inherit
@@ -236,8 +236,8 @@ jobs:
     with:
       os: "ubuntu-18.04"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -248,8 +248,8 @@ jobs:
     with:
       os: "ubuntu-20.04"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -260,8 +260,8 @@ jobs:
     with:
       os: "ubuntu-22.04"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "amd"
-      runner_aarch_label: "X64"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
     secrets: inherit
@@ -272,8 +272,8 @@ jobs:
     with:
       os: "ubuntu-22.04-arm"
       toolchain: ${{ github.event.inputs.toolchain }}
-      aarch: "arm"
-      runner_aarch_label: "ARM64"
+      arch: "arm"
+      runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 120
     secrets: inherit
