@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include <flags/replication.hpp>
+#include "io/network/endpoint.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
 
@@ -79,9 +80,8 @@ class RaftState {
 
  private:
   // TODO: (andi) I think variables below can be abstracted/clean them.
+  io::network::Endpoint raft_endpoint_;
   uint32_t raft_server_id_;
-  uint32_t raft_port_;
-  std::string raft_address_;
 
   ptr<CoordinatorStateMachine> state_machine_;
   ptr<CoordinatorStateManager> state_manager_;

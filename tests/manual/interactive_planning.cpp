@@ -214,6 +214,8 @@ class InteractiveDbAccessor {
     return label_property_index_.at(key);
   }
 
+  bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type) { return true; }
+
   std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
     return dba_->GetIndexStats(label);
   }

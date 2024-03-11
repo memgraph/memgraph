@@ -23,6 +23,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/pretty_print.hpp"
+#include "query/plan/rewrite/edge_type_index_lookup.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
 #include "query/plan/rule_based_planner.hpp"
@@ -54,8 +55,11 @@ class PostProcessor final {
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
     auto index_lookup_plan =
         RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db, index_hints_);
-    return RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage,
-                                   context->db);
+    auto join_plan =
+        RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage, context->db);
+    auto edge_index_plan = RewriteWithEdgeTypeIndexRewriter(std::move(join_plan), context->symbol_table,
+                                                            context->ast_storage, context->db);
+    return edge_index_plan;
   }
 
   template <class TVertexCounts>

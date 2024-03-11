@@ -66,6 +66,9 @@ class ReplicaStream {
                        const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
   /// @throw rpc::RpcFailedException
+  void AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp);
+
+  /// @throw rpc::RpcFailedException
   replication::AppendDeltasRes Finalize();
 
   bool IsDefunct() const { return stream_.IsDefunct(); }
@@ -187,6 +190,13 @@ class ReplicationStorageClient {
    * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
   void UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc);
+
+  /**
+   * @brief Forcefully reset storage to as it is when started from scratch.
+   *
+   * @param storage pointer to the storage associated with the client
+   */
+  std::pair<bool, uint64_t> ForceResetStorage(Storage *storage);
 
   void LogRpcFailure();
 

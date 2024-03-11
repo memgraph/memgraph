@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -97,6 +97,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(NodeAtom &) override;
   bool PreVisit(EdgeAtom &) override;
   bool PostVisit(EdgeAtom &) override;
+  bool PreVisit(PatternComprehension &) override;
+  bool PostVisit(PatternComprehension &) override;
 
  private:
   // Scope stores the state of where we are when visiting the AST and a map of

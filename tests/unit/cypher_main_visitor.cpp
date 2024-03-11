@@ -4624,3 +4624,101 @@ TEST_P(CypherMainVisitorTest, CallSubquery) {
     ASSERT_TRUE(nested_match);
   }
 }
+
+TEST_P(CypherMainVisitorTest, PatternComprehension) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) RETURN [(n)-->(b) | b.val] AS res;"));
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+
+    const auto *pc = dynamic_cast<PatternComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(pc);
+
+    // Check for variable_
+    EXPECT_EQ(pc->variable_, nullptr);
+
+    // Check for pattern_
+    const auto pattern = pc->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    // Check for filter_
+    EXPECT_EQ(pc->filter_, nullptr);
+
+    // Check for resultExpr_
+    const auto *result_expr = pc->resultExpr_;
+    ASSERT_TRUE(result_expr);
+  }
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) RETURN [(n)-->(b) WHERE b.id=1 | b.val] AS res;"));
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+
+    const auto *pc = dynamic_cast<PatternComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(pc);
+
+    // Check for variable_
+    EXPECT_EQ(pc->variable_, nullptr);
+
+    // Check for pattern_
+    const auto pattern = pc->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    // Check for filter_
+    const auto *filter = pc->filter_;
+    ASSERT_TRUE(filter);
+    ASSERT_TRUE(filter->expression_);
+
+    // Check for resultExpr_
+    const auto *result_expr = pc->resultExpr_;
+    ASSERT_TRUE(result_expr);
+  }
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) RETURN [p = (n)-->(b) WHERE b.id=1 | b.val] AS res;"));
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+
+    const auto *pc = dynamic_cast<PatternComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(pc);
+
+    // Check for variable_
+    ASSERT_TRUE(pc->variable_);
+
+    // Check for pattern_
+    const auto pattern = pc->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    // Check for filter_
+    const auto *filter = pc->filter_;
+    ASSERT_TRUE(filter);
+    ASSERT_TRUE(filter->expression_);
+
+    // Check for resultExpr_
+    const auto *result_expr = pc->resultExpr_;
+    ASSERT_TRUE(result_expr);
+  }
+}

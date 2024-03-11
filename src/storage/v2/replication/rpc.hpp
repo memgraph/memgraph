@@ -210,6 +210,36 @@ struct TimestampRes {
 
 using TimestampRpc = rpc::RequestResponse<TimestampReq, TimestampRes>;
 
+struct ForceResetStorageReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(ForceResetStorageReq *self, memgraph::slk::Reader *reader);
+  static void Save(const ForceResetStorageReq &self, memgraph::slk::Builder *builder);
+  ForceResetStorageReq() = default;
+  explicit ForceResetStorageReq(const utils::UUID &main_uuid, const utils::UUID &db_uuid)
+      : main_uuid{main_uuid}, db_uuid{db_uuid} {}
+
+  utils::UUID main_uuid;
+  utils::UUID db_uuid;
+};
+
+struct ForceResetStorageRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(ForceResetStorageRes *self, memgraph::slk::Reader *reader);
+  static void Save(const ForceResetStorageRes &self, memgraph::slk::Builder *builder);
+  ForceResetStorageRes() = default;
+  ForceResetStorageRes(bool success, uint64_t current_commit_timestamp)
+      : success(success), current_commit_timestamp(current_commit_timestamp) {}
+
+  bool success;
+  uint64_t current_commit_timestamp;
+};
+
+using ForceResetStorageRpc = rpc::RequestResponse<ForceResetStorageReq, ForceResetStorageRes>;
+
 }  // namespace memgraph::storage::replication
 
 // SLK serialization declarations
@@ -266,5 +296,13 @@ void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::
 void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::ForceResetStorageReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::ForceResetStorageReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::ForceResetStorageRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::ForceResetStorageRes *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk

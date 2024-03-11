@@ -47,7 +47,7 @@ class CoordinatorStateMachine : public state_machine {
   auto IsMain(std::string_view instance_name) const -> bool;
   auto IsReplica(std::string_view instance_name) const -> bool;
 
-  static auto CreateLog(std::string_view log) -> ptr<buffer>;
+  static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
   static auto SerializeRegisterInstance(CoordinatorClientConfig const &config) -> ptr<buffer>;
   static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;
@@ -95,12 +95,8 @@ class CoordinatorStateMachine : public state_machine {
   auto create_snapshot_internal(ptr<snapshot> snapshot) -> void;
 
   CoordinatorClusterState cluster_state_;
-
-  // mutable utils::RWLock lock{utils::RWLock::Priority::READ};
-
   std::atomic<uint64_t> last_committed_idx_{0};
 
-  // TODO: (andi) Maybe not needed, remove it
   std::map<uint64_t, ptr<SnapshotCtx>> snapshots_;
   std::mutex snapshots_lock_;
 

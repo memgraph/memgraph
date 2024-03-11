@@ -135,8 +135,7 @@ auto CoordinatorClient::SendSwapMainUUIDRpc(utils::UUID const &uuid) const -> bo
 
 auto CoordinatorClient::SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool {
   try {
-    auto stream{rpc_client_.Stream<UnregisterReplicaRpc>(
-        std::string(instance_name))};  // TODO: (andi) Try to change to stream string_view and do just one copy later
+    auto stream{rpc_client_.Stream<UnregisterReplicaRpc>(instance_name)};
     if (!stream.AwaitResponse().success) {
       spdlog::error("Failed to receive successful RPC response for unregistering replica!");
       return false;

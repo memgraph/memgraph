@@ -10,11 +10,11 @@
 // licenses/APL.txt.
 
 #ifdef MG_ENTERPRISE
-
-#include "coordination/raft_state.hpp"
+#include <chrono>
 
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/raft_state.hpp"
 #include "utils/counter.hpp"
 
 namespace memgraph::coordination {
@@ -32,30 +32,34 @@ using raft_result = cmd_result<ptr<buffer>>;
 
 RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
                      uint32_t raft_port, std::string raft_address)
-    : raft_server_id_(raft_server_id),
-      raft_port_(raft_port),
-      raft_address_(std::move(raft_address)),
+    : raft_endpoint_(raft_address, raft_port),
+      raft_server_id_(raft_server_id),
       state_machine_(cs_new<CoordinatorStateMachine>()),
-      state_manager_(
-          cs_new<CoordinatorStateManager>(raft_server_id_, raft_address_ + ":" + std::to_string(raft_port_))),
+      state_manager_(cs_new<CoordinatorStateManager>(raft_server_id_, raft_endpoint_.SocketAddress())),
       logger_(nullptr),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {}
 
 auto RaftState::InitRaftServer() -> void {
   asio_service::options asio_opts;
-  asio_opts.thread_pool_size_ = 1;  // TODO: (andi) Improve this
+  asio_opts.thread_pool_size_ = 1;
 
   raft_params params;
   params.heart_beat_interval_ = 100;
   params.election_timeout_lower_bound_ = 200;
   params.election_timeout_upper_bound_ = 400;
-  // 5 logs are preserved before the last snapshot
   params.reserved_log_items_ = 5;
-  // Create snapshot for every 5 log appends
   params.snapshot_distance_ = 5;
   params.client_req_timeout_ = 3000;
   params.return_method_ = raft_params::blocking;
+
+  // If the leader doesn't receive any response from quorum nodes
+  // in 200ms, it will step down.
+  // This allows us to achieve strong consistency even if network partition
+  // happens between the current leader and followers.
+  // The value must be <= election_timeout_lower_bound_ so that cluster can never
+  // have multiple leaders.
+  params.leadership_expiry_ = 200;
 
   raft_server::init_options init_opts;
   init_opts.raft_callback_ = [this](cb_func::Type event_type, cb_func::Param *param) -> nuraft::CbReturnCode {
@@ -71,11 +75,11 @@ auto RaftState::InitRaftServer() -> void {
 
   raft_launcher launcher;
 
-  raft_server_ = launcher.init(state_machine_, state_manager_, logger_, static_cast<int>(raft_port_), asio_opts, params,
-                               init_opts);
+  raft_server_ =
+      launcher.init(state_machine_, state_manager_, logger_, raft_endpoint_.port, asio_opts, params, init_opts);
 
   if (!raft_server_) {
-    throw RaftServerStartException("Failed to launch raft server on {}:{}", raft_address_, raft_port_);
+    throw RaftServerStartException("Failed to launch raft server on {}", raft_endpoint_.SocketAddress());
   }
 
   auto maybe_stop = utils::ResettableCounter<20>();
@@ -86,7 +90,7 @@ auto RaftState::InitRaftServer() -> void {
     std::this_thread::sleep_for(std::chrono::milliseconds(250));
   } while (!maybe_stop());
 
-  throw RaftServerStartException("Failed to initialize raft server on {}:{}", raft_address_, raft_port_);
+  throw RaftServerStartException("Failed to initialize raft server on {}", raft_endpoint_.SocketAddress());
 }
 
 auto RaftState::MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb) -> RaftState {
@@ -102,18 +106,45 @@ auto RaftState::MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerC
 
 RaftState::~RaftState() { launcher_.shutdown(); }
 
-auto RaftState::InstanceName() const -> std::string { return "coordinator_" + std::to_string(raft_server_id_); }
+auto RaftState::InstanceName() const -> std::string {
+  return fmt::format("coordinator_{}", std::to_string(raft_server_id_));
+}
 
-auto RaftState::RaftSocketAddress() const -> std::string { return raft_address_ + ":" + std::to_string(raft_port_); }
+auto RaftState::RaftSocketAddress() const -> std::string { return raft_endpoint_.SocketAddress(); }
 
 auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address)
     -> void {
   auto const endpoint = fmt::format("{}:{}", raft_address, raft_port);
   srv_config const srv_config_to_add(static_cast<int>(raft_server_id), endpoint);
-  if (!raft_server_->add_srv(srv_config_to_add)->get_accepted()) {
-    throw RaftAddServerException("Failed to add server {} to the cluster", endpoint);
+
+  auto cmd_result = raft_server_->add_srv(srv_config_to_add);
+
+  if (cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
+    spdlog::info("Request to add server {} to the cluster accepted", endpoint);
+  } else {
+    throw RaftAddServerException("Failed to accept request to add server {} to the cluster with error code {}",
+                                 endpoint, cmd_result->get_result_code());
   }
-  spdlog::info("Request to add server {} to the cluster accepted", endpoint);
+
+  // Waiting for server to join
+  constexpr int max_tries{10};
+  auto maybe_stop = utils::ResettableCounter<max_tries>();
+  constexpr int waiting_period{200};
+  bool added{false};
+  while (!maybe_stop()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(waiting_period));
+    const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(raft_server_id));
+    if (server_config) {
+      spdlog::trace("Server with id {} added to cluster", raft_server_id);
+      added = true;
+      break;
+    }
+  }
+
+  if (!added) {
+    throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", endpoint,
+                                 max_tries * waiting_period);
+  }
 }
 
 auto RaftState::GetAllCoordinators() const -> std::vector<ptr<srv_config>> {

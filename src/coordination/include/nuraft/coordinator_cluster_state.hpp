@@ -21,6 +21,7 @@
 
 #include <libnuraft/nuraft.hxx>
 #include <range/v3/view.hpp>
+#include "json/json.hpp"
 
 #include <map>
 #include <numeric>
@@ -33,8 +34,15 @@ using replication_coordination_glue::ReplicationRole;
 
 struct InstanceState {
   CoordinatorClientConfig config;
-  ReplicationRole role;
+  ReplicationRole status;
+
+  friend auto operator==(InstanceState const &lhs, InstanceState const &rhs) -> bool {
+    return lhs.config == rhs.config && lhs.status == rhs.status;
+  }
 };
+
+void to_json(nlohmann::json &j, InstanceState const &instance_state);
+void from_json(nlohmann::json const &j, InstanceState &instance_state);
 
 using TRaftLog = std::variant<CoordinatorClientConfig, std::string, utils::UUID>;
 
@@ -45,6 +53,8 @@ using nuraft::ptr;
 class CoordinatorClusterState {
  public:
   CoordinatorClusterState() = default;
+  explicit CoordinatorClusterState(std::map<std::string, InstanceState, std::less<>> instances);
+
   CoordinatorClusterState(CoordinatorClusterState const &);
   CoordinatorClusterState &operator=(CoordinatorClusterState const &);
 
@@ -60,7 +70,7 @@ class CoordinatorClusterState {
 
   auto IsReplica(std::string_view instance_name) const -> bool;
 
-  auto InsertInstance(std::string_view instance_name, ReplicationRole role) -> void;
+  auto InsertInstance(std::string instance_name, InstanceState instance_state) -> void;
 
   auto DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void;
 
@@ -73,7 +83,7 @@ class CoordinatorClusterState {
   auto GetUUID() const -> utils::UUID;
 
  private:
-  std::map<std::string, InstanceState, std::less<>> instance_roles_;
+  std::map<std::string, InstanceState, std::less<>> instances_{};
   utils::UUID uuid_{};
   mutable utils::ResourceLock log_lock_{};
 };
