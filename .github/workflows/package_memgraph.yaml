@@ -1,7 +1,5 @@
 name: Package memgraph
 
-# TODO(gitbuda): Cleanup docker container if GHA job was canceled.
-
 on:
   workflow_dispatch:
     inputs:
@@ -17,8 +15,8 @@ on:
           - RelWithDebInfo
       target_os:
         type: choice
-        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. Default is Ubuntu 22.04"
-        default: 'ubuntu-22_04'
+        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. Default is Debian 11"
+        default: 'debian-11'
         options:
           - all
           - amzn-2
@@ -28,268 +26,254 @@ on:
           - debian-11
           - debian-11-arm
           - debian-11-platform
-          - docker
+          - debian-11-docker
+          - debian-11-arm-docker
+          - debian-12
+          - debian-12-arm
           - fedora-36
-          - ubuntu-18_04
-          - ubuntu-20_04
-          - ubuntu-22_04
-          - ubuntu-22_04-arm
+          - fedora-38
+          - fedora-39
+          - rocky-9
+          - ubuntu-18.04
+          - ubuntu-20.04
+          - ubuntu-22.04
+          - ubuntu-22.04-arm
+      toolchain:
+        type: choice
+        description: "Toolchain version with which memgraph will be packaged. Default is v5"
+        default: 'v5'
+        options:
+          - v4
+          - v5
 
 jobs:
-  amzn-2:
+  AmazonLinux2:
     if: ${{ github.event.inputs.target_os == 'amzn-2' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package amzn-2 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: amzn-2
-          path: build/output/amzn-2/memgraph*.rpm
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "amzn-2"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
 
-  centos-7:
+  CentOS7:
     if: ${{ github.event.inputs.target_os == 'centos-7' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package centos-7 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: centos-7
-          path: build/output/centos-7/memgraph*.rpm
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "centos-7"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
 
-  centos-9:
+  CentOS9:
     if: ${{ github.event.inputs.target_os == 'centos-9' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package centos-9 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: centos-9
-          path: build/output/centos-9/memgraph*.rpm
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "centos-9"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
 
-  debian-10:
-    if: ${{ github.event.inputs.target_os == 'debian-10' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-10 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: debian-10
-          path: build/output/debian-10/memgraph*.deb
-
-  debian-11:
-    if: ${{ github.event.inputs.target_os == 'debian-11' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-11 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: debian-11
-          path: build/output/debian-11/memgraph*.deb
-
-  debian-11-arm:
-    if: ${{ github.event.inputs.target_os == 'debian-11-arm' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 120
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-11-arm ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: debian-11-aarch64
-          path: build/output/debian-11-arm/memgraph*.deb
-
-  debian-11-platform:
-    if: ${{ github.event.inputs.target_os == 'debian-11-platform' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-11 ${{ github.event.inputs.build_type }} --for-platform
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: debian-11-platform
-          path: build/output/debian-11/memgraph*.deb
-
-  docker:
-    if: ${{ github.event.inputs.target_os == 'docker' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          cd release/package
-          ./run.sh package debian-11 ${{ github.event.inputs.build_type }} --for-docker
-          ./run.sh docker
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker
-          path: build/output/docker/memgraph*.tar.gz
-
-  fedora-36:
+  Fedora36:
     if: ${{ github.event.inputs.target_os == 'fedora-36' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package fedora-36 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: fedora-36
-          path: build/output/fedora-36/memgraph*.rpm
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "fedora-36"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
 
-  ubuntu-18_04:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-18_04' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-18.04 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-18.04
-          path: build/output/ubuntu-18.04/memgraph*.deb
+  Fedora38:
+    if: ${{ github.event.inputs.target_os == 'fedora-38' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "fedora-38"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
 
-  ubuntu-20_04:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-20_04' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-20.04 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-20.04
-          path: build/output/ubuntu-20.04/memgraph*.deb
+  Fedora39:
+    if: ${{ github.event.inputs.target_os == 'fedora-39' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "fedora-39"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
 
-  ubuntu-22_04:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-22_04' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-22.04 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-22.04
-          path: build/output/ubuntu-22.04/memgraph*.deb
+  RockyLinux9:
+    if: ${{ github.event.inputs.target_os == 'rocky-9' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "rocky-9"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
 
-  ubuntu-22_04-arm:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-22_04-arm' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 120
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-22.04-arm ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-22.04-aarch64
-          path: build/output/ubuntu-22.04-arm/memgraph*.deb
+  Debian10:
+    if: ${{ github.event.inputs.target_os == 'debian-10' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-10"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
 
-  upload-to-s3:
-    # only run upload if we specified version. Allows for runs without upload
-    if: "${{ github.event.inputs.memgraph_version != '' }}"
-    needs: [amzn-2, centos-7, centos-9, debian-10, debian-11, debian-11-arm, debian-11-platform, docker, fedora-36, ubuntu-18_04, ubuntu-20_04, ubuntu-22_04, ubuntu-22_04-arm]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          # name: # if name input parameter is not provided, all artifacts are downloaded
-                  # and put in directories named after each one.
-          path: build/output/release
-      - name: Upload to S3
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        env:
-          AWS_S3_BUCKET: "download.memgraph.com"
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output/release"
-          DEST_DIR: "memgraph/v${{ github.event.inputs.memgraph_version }}/"
+  Debian11:
+    if: ${{ github.event.inputs.target_os == 'debian-11' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-11"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Debian11-platform:
+    if: ${{ github.event.inputs.target_os == 'debian-11-platform' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-11"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+      additional_build_args: "--for-platform"
+    secrets: inherit
+
+  Debian11-docker:
+    if: ${{ github.event.inputs.target_os == 'debian-11-docker' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-11"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+      additional_build_args: "--for-docker"
+    secrets: inherit
+
+  Debian11-arm:
+    if: ${{ github.event.inputs.target_os == 'debian-11-arm' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-11-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "arm"
+      runner_arch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 120
+    secrets: inherit
+
+  Debian11-arm-docker:
+    if: ${{ github.event.inputs.target_os == 'debian-11-arm-docker' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-11-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "arm"
+      runner_arch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 120
+      additional_build_args: "--for-docker"
+    secrets: inherit
+
+  Debian12:
+    if: ${{ github.event.inputs.target_os == 'debian-12' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-12"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Debian12-arm:
+    if: ${{ github.event.inputs.target_os == 'debian-12-arm' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-12-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "arm"
+      runner_arch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 120
+    secrets: inherit
+
+  Ubuntu18_04:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-18.04' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-18.04"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Ubuntu20_04:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-20.04' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-20.04"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Ubuntu22_04:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-22.04' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-22.04"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Ubuntu22_04-arm:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-22.04-arm' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-22.04-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "arm"
+      runner_arch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 120
+    secrets: inherit
