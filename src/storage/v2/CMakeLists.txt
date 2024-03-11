@@ -43,6 +43,7 @@ add_library(mg-storage-v2 STATIC
         replication/rpc.cpp
         replication/replication_storage_state.cpp
         inmemory/replication/recovery.cpp
+        property_disk_store.cpp
 )
 
 target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils gflags absl::flat_hash_map mg-rpc mg-slk mg-events mg-memory)

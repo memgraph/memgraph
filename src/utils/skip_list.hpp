@@ -921,23 +921,27 @@ class SkipList final : detail::SkipListNode_base {
   }
 
   SkipList(SkipList &&other) noexcept : head_(other.head_), gc_(other.GetMemoryResource()), size_(other.size_.load()) {
-    other.head_ = nullptr;
+    if (this != &other) {
+      other.head_ = nullptr;
+    }
   }
 
   SkipList &operator=(SkipList &&other) noexcept {
-    MG_ASSERT(other.GetMemoryResource() == GetMemoryResource(),
-              "Move assignment with different MemoryResource is not supported");
-    TNode *head = head_;
-    while (head != nullptr) {
-      TNode *succ = head->nexts[0].load(std::memory_order_acquire);
-      size_t bytes = SkipListNodeSize(*head);
-      head->~TNode();
-      GetMemoryResource()->Deallocate(head, bytes);
-      head = succ;
+    if (this != &other) {
+      MG_ASSERT(other.GetMemoryResource() == GetMemoryResource(),
+                "Move assignment with different MemoryResource is not supported");
+      TNode *head = head_;
+      while (head != nullptr) {
+        TNode *succ = head->nexts[0].load(std::memory_order_acquire);
+        size_t bytes = SkipListNodeSize(*head);
+        head->~TNode();
+        GetMemoryResource()->Deallocate(head, bytes);
+        head = succ;
+      }
+      head_ = other.head_;
+      size_ = other.size_.load();
+      other.head_ = nullptr;
     }
-    head_ = other.head_;
-    size_ = other.size_.load();
-    other.head_ = nullptr;
     return *this;
   }
 
