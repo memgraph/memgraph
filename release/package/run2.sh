@@ -45,7 +45,7 @@ DEFAULT_ORGANIZATION_NAME="memgraph"
 # * create toolchain + OS combinations
 # * add option for selecting server for push and pull
 print_help () {
-  echo -e "\nUsage: ./run.sh [OPTIONS] COMMAND"
+  echo -e "\nUsage: ./run.sh [OPTIONS] COMMAND [COMMAND OPTIONS]"
   echo -e "\nInteract with mgbuild containers"
 
   echo -e "\nCommands:"
@@ -87,11 +87,6 @@ print_help () {
   echo -e "\npush options:"
   echo -e "  -p, --password string         Specify password for docker login"
   echo -e "  -u, --username string         Specify username for docker login"
-
-  # echo -e "\ncopy options:"
-  # echo -e "  --binary                 Copy built memgraph binary"
-  # echo -e "  --build-output           Copy entire build/output folder"
-  # echo -e "  --package                Copy packaged memgraph"
 }
 
 check_support() {
@@ -533,11 +528,21 @@ case $command in
       fi
     ;;
     pull)
-      docker pull memgraph/mgbuild:${toolchain_version}_${os}
+      cd $SCRIPT_DIR
+      if [[ "$os" == "all" ]]; then
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures
+      else
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull mgbuild_${toolchain_version}_${os}
+      fi
     ;;
     push)
       docker login $@
-      docker push memgraph/mgbuild:${toolchain_version}_${os}
+      cd $SCRIPT_DIR
+      if [[ "$os" == "all" ]]; then
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml push --ignore-push-failures
+      else
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml push mgbuild_${toolchain_version}_${os}
+      fi
     ;;
     build-memgraph)
       build_memgraph $@
