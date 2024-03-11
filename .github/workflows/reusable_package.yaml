@@ -28,7 +28,6 @@ on:
         description: "Additional build flags (--for-platform, --for-docker ...). Default value is empty."
         default: ''
       timeout_minutes:
-        type: string
         description: "Timeout in minutes for the job. Default value is 60."
         default: 60
       push_to_s3:
@@ -48,7 +47,7 @@ on:
 jobs:
   package:
     runs-on: [self-hosted, DockerMgBuild, "${{ github.event.inputs.runner_aarch_label }}"]
-    timeout-minutes: ${{ github.event.inputs.timeout_minutes }}
+    timeout-minutes: "${{ github.event.inputs.timeout_minutes }}"
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v4
