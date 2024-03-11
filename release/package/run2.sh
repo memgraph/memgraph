@@ -38,7 +38,7 @@ SUPPORTED_TESTS=(
     unit unit-coverage upload-to-bench-graph
 
 )
-DEFAULT_THREADS=$(nproc)
+DEFAULT_THREADS=0
 DEFAULT_ENTERPRISE_LICENSE=""
 DEFAULT_ORGANIZATION_NAME="memgraph"
 # TODO(deda): 
@@ -65,7 +65,7 @@ print_help () {
   echo -e "  --build-type string           Specify build type (\"${SUPPORTED_BUILD_TYPES[*]}\") (default \"$DEFAULT_BUILD_TYPE\")"
   echo -e "  --organization-name string    Specify the organization name (default \"memgraph\")"
   echo -e "  --os string                   Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
-  echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\")"
+  echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
 
   echo -e "\nSupported tests:"
@@ -266,8 +266,13 @@ build_memgraph () {
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
   # shellcheck disable=SC2016
-  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads'
-  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads -B mgconsole'
+  if [[ "$threads" == 0 ]]; then
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc)'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc) -B mgconsole'
+  else
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads -B mgconsole'
+  fi
 }
 
 package_memgraph() {
