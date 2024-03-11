@@ -130,7 +130,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
   using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
   std::optional<ReturnType> current_value = edge_.ptr->properties.GetProperty(property);
-  if (current_value == value) {
+  if (current_value == value && storage_->config_.salient.items.delta_on_identical_property_update) {
     return std::move(*current_value);
   }
   utils::AtomicMemoryBlock atomic_memory_block{
@@ -186,15 +186,18 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
+  bool should_apply_delta_if_identical_update = storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(edge_.ptr->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
-  utils::AtomicMemoryBlock atomic_memory_block{
-      [transaction_ = transaction_, edge_ = edge_, &properties, &id_old_new_change]() {
-        id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
-        for (auto &[property, old_value, new_value] : *id_old_new_change) {
-          CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
-        }
-      }};
+  utils::AtomicMemoryBlock atomic_memory_block{[transaction_ = transaction_, edge_ = edge_, &properties,
+                                                &id_old_new_change, should_apply_delta_if_identical_update]() {
+    id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
+    for (auto &[property, old_value, new_value] : *id_old_new_change) {
+      if (old_value != new_value || should_apply_delta_if_identical_update) {
+        CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
+      }
+    }
+  }};
   std::invoke(atomic_memory_block);
 
   return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};

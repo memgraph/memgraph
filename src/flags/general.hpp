@@ -84,6 +84,8 @@ DECLARE_bool(storage_parallel_schema_recovery);
 DECLARE_uint64(storage_recovery_thread_count);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_enable_schema_metadata);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(delta_on_identical_property_update);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(telemetry_enabled);
