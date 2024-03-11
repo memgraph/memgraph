@@ -47,8 +47,8 @@ on:
 
 jobs:
   package:
-    runs-on: [self-hosted, DockerMgBuild, "${{ github.event.inputs.runner_aarch_label }}"]
-    timeout-minutes: "${{ github.event.inputs.timeout_minutes }}"
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_aarch_label }}"]
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v4
@@ -58,60 +58,60 @@ jobs:
       - name: "Build Memgraph binaries"
         run: |
           ./release/package/run2.sh \
-          --toolchain ${{ github.event.inputs.toolchain }} \
-          --os ${{ github.event.inputs.os }} \
-          --arch ${{ github.event.inputs.aarch }} \
-          --build-type ${{ github.event.inputs.build_type }} \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.aarch }} \
+          --build-type ${{ inputs.build_type }} \
           --threads $THREADS \
-          build-memgraph ${{ github.event.inputs.additional_build_args }}
+          build-memgraph ${{ inputs.additional_build_args }}
 
       - name: "Make package"
         run: |
           ./release/package/run2.sh \
-          --toolchain ${{ github.event.inputs.toolchain }} \
-          --os ${{ github.event.inputs.os }} \
-          --arch ${{ github.event.inputs.aarch }} \
-          --build-type ${{ github.event.inputs.build_type }} \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.aarch }} \
+          --build-type ${{ inputs.build_type }} \
           package-memgraph
 
       - name: "Copy package"
         run: |
           ./release/package/run2.sh \
-          --toolchain ${{ github.event.inputs.toolchain }} \
-          --os ${{ github.event.inputs.os }} \
-          --arch ${{ github.event.inputs.aarch }} \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.aarch }} \
           copy --package
 
       - name: "Upload package"
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.event.inputs.os }}
-          path: build/output/${{ github.event.inputs.os }}/memgraph*
+          name: ${{ inputs.os }}
+          path: build/output/${{ inputs.os }}/memgraph*
 
   upload-to-s3:
-    if: ${{ github.event.inputs.push_to_s3 == 'true' }}
+    if: ${{ inputs.push_to_s3 == 'true' }}
     needs: [package]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ${{ github.event.inputs.os }}
+          name: ${{ inputs.os }}
           path: build/output/release
 
       - name: Upload to S3
         uses: jakejarvis/s3-sync-action@v0.5.1
         env:
-          AWS_S3_BUCKET: ${{ github.event.inputs.s3_bucket }}
+          AWS_S3_BUCKET: ${{ inputs.s3_bucket }}
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ github.event.inputs.s3_region }}
+          AWS_REGION: ${{ inputs.s3_region }}
           SOURCE_DIR: "build/output/release"
-          DEST_DIR: ${{ github.event.inputs.s3_dest_dir }}
+          DEST_DIR: ${{ inputs.s3_dest_dir }}
 
   # MAKE DOCKER WORK
   # docker:
-  #   if: ${{ github.event.inputs.target_os == 'docker' || github.event.inputs.target_os == 'all' }}
+  #   if: ${{ inputs.target_os == 'docker' || inputs.target_os == 'all' }}
   #   runs-on: [self-hosted, DockerMgBuild, X64]
   #   timeout-minutes: 60
   #   steps:
@@ -122,7 +122,7 @@ jobs:
   #     - name: "Build package"
   #       run: |
   #         cd release/package
-  #         ./run.sh package debian-11 ${{ github.event.inputs.build_type }} --for-docker
+  #         ./run.sh package debian-11 ${{ inputs.build_type }} --for-docker
   #         ./run.sh docker
   #     - name: "Upload package"
   #       uses: actions/upload-artifact@v4
