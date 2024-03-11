@@ -42,7 +42,7 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
   ~CoordinatorStateMachine() override {}
 
-  auto FindCurrentMainInstanceName() const -> std::optional<std::string>;
+  // TODO: (andi) Check API of this class.
   auto MainExists() const -> bool;
   auto IsMain(std::string_view instance_name) const -> bool;
   auto IsReplica(std::string_view instance_name) const -> bool;
@@ -81,6 +81,9 @@ class CoordinatorStateMachine : public state_machine {
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
   auto GetInstances() const -> std::vector<InstanceState>;
+  auto GetReplicas() const -> std::vector<InstanceState>;
+  auto GetMains() const -> std::vector<InstanceState>;
+
   auto GetUUID() const -> utils::UUID;
 
  private:

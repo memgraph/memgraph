@@ -138,17 +138,14 @@ auto CoordinatorClusterState::GetReplicas() const -> std::vector<InstanceState> 
          ranges::to<std::vector<InstanceState>>;
 }
 
-auto CoordinatorClusterState::GetUUID() const -> utils::UUID { return uuid_; }
-
-auto CoordinatorClusterState::FindCurrentMainInstanceName() const -> std::optional<std::string> {
+auto CoordinatorClusterState::GetMains() const -> std::vector<InstanceState> {
   auto lock = std::shared_lock{log_lock_};
-  auto const it =
-      std::ranges::find_if(instances_, [](auto const &entry) { return entry.second.status == ReplicationRole::MAIN; });
-  if (it == instances_.end()) {
-    return {};
-  }
-  return it->first;
+  return instances_ | ranges::views::values |
+         ranges::views::filter([](auto const &entry) { return entry.status == ReplicationRole::MAIN; }) |
+         ranges::to<std::vector<InstanceState>>;
 }
+
+auto CoordinatorClusterState::GetUUID() const -> utils::UUID { return uuid_; }
 
 }  // namespace memgraph::coordination
 #endif

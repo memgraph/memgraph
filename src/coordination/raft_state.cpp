@@ -261,10 +261,6 @@ auto RaftState::AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool {
   return true;
 }
 
-auto RaftState::FindCurrentMainInstanceName() const -> std::optional<std::string> {
-  return state_machine_->FindCurrentMainInstanceName();
-}
-
 auto RaftState::MainExists() const -> bool { return state_machine_->MainExists(); }
 
 auto RaftState::IsMain(std::string_view instance_name) const -> bool { return state_machine_->IsMain(instance_name); }
@@ -274,6 +270,10 @@ auto RaftState::IsReplica(std::string_view instance_name) const -> bool {
 }
 
 auto RaftState::GetInstances() const -> std::vector<InstanceState> { return state_machine_->GetInstances(); }
+
+auto RaftState::GetReplicas() const -> std::vector<InstanceState> { return state_machine_->GetReplicas(); }
+
+auto RaftState::GetMains() const -> std::vector<InstanceState> { return state_machine_->GetMains(); }
 
 auto RaftState::GetUUID() const -> utils::UUID { return state_machine_->GetUUID(); }
 

@@ -64,7 +64,6 @@ class RaftState {
   auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
 
-  auto FindCurrentMainInstanceName() const -> std::optional<std::string>;
   auto MainExists() const -> bool;
   auto IsMain(std::string_view instance_name) const -> bool;
   auto IsReplica(std::string_view instance_name) const -> bool;
@@ -76,6 +75,9 @@ class RaftState {
   auto AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool;
 
   auto GetInstances() const -> std::vector<InstanceState>;
+  auto GetReplicas() const -> std::vector<InstanceState>;
+  auto GetMains() const -> std::vector<InstanceState>;
+
   auto GetUUID() const -> utils::UUID;
 
  private:

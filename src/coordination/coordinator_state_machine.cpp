@@ -20,10 +20,6 @@ constexpr int MAX_SNAPSHOTS = 3;
 
 namespace memgraph::coordination {
 
-auto CoordinatorStateMachine::FindCurrentMainInstanceName() const -> std::optional<std::string> {
-  return cluster_state_.FindCurrentMainInstanceName();
-}
-
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
 
 auto CoordinatorStateMachine::IsMain(std::string_view instance_name) const -> bool {
@@ -208,6 +204,10 @@ auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -
 auto CoordinatorStateMachine::GetInstances() const -> std::vector<InstanceState> {
   return cluster_state_.GetInstances();
 }
+
+auto CoordinatorStateMachine::GetReplicas() const -> std::vector<InstanceState> { return cluster_state_.GetReplicas(); }
+
+auto CoordinatorStateMachine::GetMains() const -> std::vector<InstanceState> { return cluster_state_.GetMains(); }
 
 auto CoordinatorStateMachine::GetUUID() const -> utils::UUID { return cluster_state_.GetUUID(); }
 

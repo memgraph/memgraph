@@ -62,8 +62,6 @@ class CoordinatorClusterState {
   CoordinatorClusterState &operator=(CoordinatorClusterState &&other) noexcept;
   ~CoordinatorClusterState() = default;
 
-  auto FindCurrentMainInstanceName() const -> std::optional<std::string>;
-
   auto MainExists() const -> bool;
 
   auto IsMain(std::string_view instance_name) const -> bool;
@@ -82,9 +80,9 @@ class CoordinatorClusterState {
 
   auto GetReplicas() const -> std::vector<InstanceState>;
 
-  // TODO: (andi) Semantic of this isn't that great, we should do the check with uuid somehow or make sure there is only
-  // main in the cluster
-  // auto GetMains() const -> std::vector<InstanceState>;
+  // There could be multiple mains in the cluster if the previous main is down. Caller should take care of this by
+  // checking status isAlive or uuid.
+  auto GetMains() const -> std::vector<InstanceState>;
 
   auto GetUUID() const -> utils::UUID;
 
