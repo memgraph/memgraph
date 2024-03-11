@@ -52,26 +52,26 @@ in_memory_query_limit_cluster: &in_memory_query_limit_cluster
       setup_queries: []
       validation_queries: []
 
-args_450_MiB_limit: &args_450_MiB_limit
+args_350_MiB_limit: &args_350_MiB_limit
   - "--bolt-port"
   - *bolt_port
-  - "--memory-limit=450"
+  - "--memory-limit=350"
   - "--storage-gc-cycle-sec=180"
   - "--log-level=INFO"
 
-in_memory_450_MiB_limit_cluster: &in_memory_450_MiB_limit_cluster
+in_memory_350_MiB_limit_cluster: &in_memory_350_MiB_limit_cluster
   cluster:
     main:
-      args: *args_450_MiB_limit
+      args: *args_350_MiB_limit
       log_file: "memory-e2e.log"
       setup_queries: []
       validation_queries: []
 
 
-disk_450_MiB_limit_cluster: &disk_450_MiB_limit_cluster
+disk_350_MiB_limit_cluster: &disk_350_MiB_limit_cluster
   cluster:
     main:
-      args: *args_450_MiB_limit
+      args: *args_350_MiB_limit
       log_file: "memory-e2e.log"
       setup_queries: []
       validation_queries: []
@@ -192,22 +192,22 @@ workloads:
   - name: "Memory control for accumulation"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_accumulation"
     args: ["--bolt-port", *bolt_port]
-    <<: *in_memory_450_MiB_limit_cluster
+    <<: *in_memory_350_MiB_limit_cluster
 
   - name: "Memory control for accumulation on disk storage"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_accumulation"
     args: ["--bolt-port", *bolt_port]
-    <<: *disk_450_MiB_limit_cluster
+    <<: *disk_350_MiB_limit_cluster
 
   - name: "Memory control for edge create"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_edge_create"
     args: ["--bolt-port", *bolt_port]
-    <<: *in_memory_450_MiB_limit_cluster
+    <<: *in_memory_350_MiB_limit_cluster
 
   - name: "Memory control for edge create on disk storage"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_edge_create"
     args: ["--bolt-port", *bolt_port]
-    <<: *disk_450_MiB_limit_cluster
+    <<: *disk_350_MiB_limit_cluster
 
   - name: "Memory control for memory limit global thread alloc"
     binary: "tests/e2e/memory/memgraph__e2e__memory_limit_global_thread_alloc_proc"
