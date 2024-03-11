@@ -444,8 +444,6 @@ class Pool final {
   void *Allocate();
 
   void Deallocate(void *p);
-
-  void Release();
 };
 
 // C++ overloads for clz
@@ -589,9 +587,32 @@ struct MultiPool {
 
 }  // namespace impl
 
-class PoolResource2 final : public MemoryResource {
+/// MemoryResource which serves allocation requests for different block sizes.
+///
+/// PoolResource is not thread-safe!
+///
+/// This class has the following properties with regards to memory management.
+///
+///   * It consists of a collection of impl::Pool instances, each serving
+///     requests for different block sizes. Each impl::Pool manages a collection
+///     of impl::Pool::Chunk instances which are divided into blocks of uniform
+///     size.
+///   * Since this MemoryResource serves blocks of certain size, it cannot serve
+///     arbitrary alignment requests. Each requested block size must be a
+///     multiple of alignment or smaller than the alignment value.
+///   * An allocation request within the limits of the maximum block size will
+///     find a Pool serving the requested size. Some requests will share a larger
+///     pool size.
+///   * When a Pool exhausts its Chunk, a new one is allocated with the size for
+///     the maximum number of blocks.
+///   * Allocation requests which exceed the maximum block size will be
+///     forwarded to upstream MemoryResource.
+///   * Maximum number of blocks per chunk can be tuned by passing the
+///     arguments to the constructor.
+
+class PoolResource final : public MemoryResource {
  public:
-  PoolResource2(uint8_t blocks_per_chunk, MemoryResource *memory = NewDeleteResource(),
+  PoolResource(uint8_t blocks_per_chunk, MemoryResource *memory = NewDeleteResource(),
                 MemoryResource *internal_memory = NewDeleteResource())
       : mini_pools_{
             impl::Pool{8, blocks_per_chunk, memory},
@@ -607,7 +628,7 @@ class PoolResource2 final : public MemoryResource {
         pools_4bit_(blocks_per_chunk, memory, internal_memory),
         pools_5bit_(blocks_per_chunk, memory, internal_memory),
         unpooled_memory_{internal_memory} {}
-  ~PoolResource2() override = default;
+  ~PoolResource() override = default;
 
  private:
   void *DoAllocate(size_t bytes, size_t alignment) override;
@@ -620,109 +641,6 @@ class PoolResource2 final : public MemoryResource {
   impl::MultiPool<4, 128, 512> pools_4bit_;
   impl::MultiPool<5, 512, 1024> pools_5bit_;
   MemoryResource *unpooled_memory_;
-};
-
-/// MemoryResource which serves allocation requests for different block sizes.
-///
-/// PoolResource is not thread-safe!
-///
-/// This class has the following properties with regards to memory management.
-///
-///   * All allocated memory will be freed upon destruction, even if Deallocate
-///     has not been called for some of the allocated blocks.
-///   * It consists of a collection of impl::Pool instances, each serving
-///     requests for different block sizes. Each impl::Pool manages a collection
-///     of impl::Pool::Chunk instances which are divided into blocks of uniform
-///     size.
-///   * Since this MemoryResource serves blocks of certain size, it cannot serve
-///     arbitrary alignment requests. Each requested block size must be a
-///     multiple of alignment or smaller than the alignment value.
-///   * An allocation request within the limits of the maximum block size will
-///     find a Pool serving the requested size. If there's no Pool serving such
-///     a request, a new one is instantiated.
-///   * When a Pool exhausts its Chunk, a new one is allocated with the size for
-///     the maximum number of blocks.
-///   * Allocation requests which exceed the maximum block size will be
-///     forwarded to upstream MemoryResource.
-///   * Maximum block size and maximum number of blocks per chunk can be tuned
-///     by passing the arguments to the constructor.
-class PoolResource final : public MemoryResource {
- public:
-  /// Construct with given max_blocks_per_chunk, max_block_size and upstream
-  /// memory.
-  ///
-  /// The implementation will use std::min(max_blocks_per_chunk,
-  /// impl::Pool::MaxBlocksInChunk()) as the real maximum number of blocks per
-  /// chunk. Allocation requests exceeding max_block_size are simply forwarded
-  /// to upstream memory.
-  PoolResource(size_t max_blocks_per_chunk, size_t max_block_size, MemoryResource *memory_pools = NewDeleteResource(),
-               MemoryResource *memory_unpooled = NewDeleteResource());
-
-  PoolResource(const PoolResource &) = delete;
-  PoolResource &operator=(const PoolResource &) = delete;
-
-  PoolResource(PoolResource &&) = default;
-  PoolResource &operator=(PoolResource &&) = default;
-
-  ~PoolResource() override { Release(); }
-
-  MemoryResource *GetUpstreamResource() const { return pools_.get_allocator().GetMemoryResource(); }
-  MemoryResource *GetUpstreamResourceBlocks() const { return unpooled_.get_allocator().GetMemoryResource(); }
-
-  /// Release all allocated memory.
-  void Release();
-
- private:
-  // Big block larger than max_block_size_, doesn't go into a pool.
-  struct BigBlock {
-    size_t bytes;
-    size_t alignment;
-    void *data;
-  };
-
-  // TODO: Potential memory optimization is replacing `std::vector` with our
-  // custom vector implementation which doesn't store a `MemoryResource *`.
-  // Currently we have vectors for `pools_` and `unpooled_`, as well as each
-  // `impl::Pool` stores a `chunks_` vector.
-
-  // Pools are sorted by bound_size_, ascending.
-  impl::AVector<impl::Pool> pools_;
-  impl::Pool *last_alloc_pool_{nullptr};
-  impl::Pool *last_dealloc_pool_{nullptr};
-  // Unpooled BigBlocks are sorted by data pointer.
-  impl::AVector<BigBlock> unpooled_;
-  size_t max_blocks_per_chunk_;
-  size_t max_block_size_;
-
-  void *DoAllocate(size_t bytes, size_t alignment) override;
-
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override;
-
-  bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
-};
-
-/// Like PoolResource but uses SpinLock for thread safe usage.
-class SynchronizedPoolResource final : public MemoryResource {
- public:
-  SynchronizedPoolResource(size_t max_blocks_per_chunk, size_t max_block_size,
-                           MemoryResource *memory = NewDeleteResource())
-      : pool_memory_(max_blocks_per_chunk, max_block_size, memory) {}
-
- private:
-  PoolResource pool_memory_;
-  SpinLock lock_;
-
-  void *DoAllocate(size_t bytes, size_t alignment) override {
-    std::lock_guard<SpinLock> guard(lock_);
-    return pool_memory_.Allocate(bytes, alignment);
-  }
-
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
-    std::lock_guard<SpinLock> guard(lock_);
-    pool_memory_.Deallocate(p, bytes, alignment);
-  }
-
-  bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
 };
 
 class MemoryTrackingResource final : public utils::MemoryResource {
