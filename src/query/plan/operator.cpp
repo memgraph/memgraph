@@ -105,6 +105,7 @@ extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
 extern const Event ScanAllByIdOperator;
+extern const Event ScanAllByEdgeTypeOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -517,6 +518,60 @@ class ScanAllCursor : public Cursor {
   const char *op_name_;
 };
 
+template <typename TEdgesFun>
+class ScanAllByEdgeTypeCursor : public Cursor {
+ public:
+  explicit ScanAllByEdgeTypeCursor(const ScanAllByEdgeType &self, Symbol output_symbol, UniqueCursorPtr input_cursor,
+                                   storage::View view, TEdgesFun get_edges, const char *op_name)
+      : self_(self),
+        output_symbol_(std::move(output_symbol)),
+        input_cursor_(std::move(input_cursor)),
+        view_(view),
+        get_edges_(std::move(get_edges)),
+        op_name_(op_name) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    AbortCheck(context);
+
+    while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      auto next_vertices = get_edges_(frame, context);
+      if (!next_vertices) continue;
+
+      vertices_.emplace(std::move(next_vertices.value()));
+      vertices_it_.emplace(vertices_.value().begin());
+      vertices_end_it_.emplace(vertices_.value().end());
+    }
+
+    frame[output_symbol_] = *vertices_it_.value();
+    ++vertices_it_.value();
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    vertices_ = std::nullopt;
+    vertices_it_ = std::nullopt;
+    vertices_end_it_ = std::nullopt;
+  }
+
+ private:
+  const ScanAllByEdgeType &self_;
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  storage::View view_;
+  TEdgesFun get_edges_;
+  std::optional<typename std::result_of<TEdgesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
+  std::optional<decltype(vertices_.value().begin())> vertices_it_;
+  std::optional<decltype(vertices_.value().end())> vertices_end_it_;
+  const char *op_name_;
+};
+
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(std::move(output_symbol)), view_(view) {}
 
@@ -554,6 +609,33 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllByLabel");
+}
+
+ScanAllByEdgeType::ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                     storage::EdgeTypeId edge_type, storage::View view)
+    : input_(input ? input : std::make_shared<Once>()),
+      output_symbol_(std::move(output_symbol)),
+      view_(view),
+      edge_type_(edge_type) {}
+
+ACCEPT_WITH_INPUT(ScanAllByEdgeType)
+
+UniqueCursorPtr ScanAllByEdgeType::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypeOperator);
+
+  auto edges = [this](Frame &, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return std::make_optional(db->Edges(view_, edge_type_));
+  };
+
+  return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(edges)>>(
+      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(edges), "ScanAllByEdgeType");
+}
+
+std::vector<Symbol> ScanAllByEdgeType::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(output_symbol_);
+  return symbols;
 }
 
 // TODO(buda): Implement ScanAllByLabelProperty operator to iterate over
@@ -5622,6 +5704,27 @@ class HashJoinCursor : public Cursor {
 UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::HashJoinOperator);
   return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem);
+}
+
+RollUpApply::RollUpApply(const std::shared_ptr<LogicalOperator> &input,
+                         std::shared_ptr<LogicalOperator> &&second_branch)
+    : input_(input), list_collection_branch_(second_branch) {}
+
+std::vector<Symbol> RollUpApply::OutputSymbols(const SymbolTable & /*symbol_table*/) const {
+  std::vector<Symbol> symbols;
+  return symbols;
+}
+
+std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const { return OutputSymbols(table); }
+
+bool RollUpApply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    if (!input_ || !list_collection_branch_) {
+      throw utils::NotYetImplemented("One of the branches in pattern comprehension is null! Please contact support.");
+    }
+    input_->Accept(visitor) && list_collection_branch_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
 }
 
 }  // namespace memgraph::query::plan

@@ -12,7 +12,19 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
+#include <stdexcept>
+#include <string>
+
+#include "json/json.hpp"
 
 namespace memgraph::replication_coordination_glue {
+
 enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
+
+NLOHMANN_JSON_SERIALIZE_ENUM(ReplicationMode, {
+                                                  {ReplicationMode::SYNC, "sync"},
+                                                  {ReplicationMode::ASYNC, "async"},
+                                              })
+
 }  // namespace memgraph::replication_coordination_glue

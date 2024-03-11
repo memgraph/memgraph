@@ -14,6 +14,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
 #include "replication/include/replication/state.hpp"
+#include "replication_coordination_glue/common.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "utils/result.hpp"
@@ -149,6 +150,8 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 
   auto GetReplicaUUID() -> std::optional<utils::UUID>;
 
+  auto GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories;
+
  private:
   template <bool SendSwapUUID>
   auto RegisterReplica_(const memgraph::replication::ReplicationClientConfig &config)
@@ -207,8 +210,13 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
             auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
             client->Start(storage, std::move(db_acc));
             bool const success = std::invoke([state = client->State()]() {
+              // We force sync replicas in other situation
               if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
+#ifdef MG_ENTERPRISE
+                return FLAGS_coordinator_server_port != 0;
+#else
                 return false;
+#endif
               }
               return true;
             });
