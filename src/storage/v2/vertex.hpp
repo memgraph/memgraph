@@ -23,10 +23,10 @@
 
 namespace memgraph::storage {
 
-struct MergeVerticesTag {};
+struct OnDiskStorageTag {};
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta, MergeVerticesTag) : gid(gid), deleted(false), delta(delta) {}
+  Vertex(Gid gid, Delta *delta, OnDiskStorageTag) : gid(gid), deleted(false), delta(delta) {}
 
   Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||

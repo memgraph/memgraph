@@ -239,7 +239,7 @@ class DiskStorage final : public Storage {
       Transaction *transaction, const std::string &key, const std::string &value, Delta *index_delta,
       utils::SkipList<storage::Vertex>::Accessor index_accessor);
   std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelIndexCache(Transaction *transaction, LabelId label,
-                                                                        View view, std::list<Delta> &index_deltas,
+                                                                        View view,
                                                                         utils::SkipList<Vertex> *indexed_vertices);
 
   /// Label-property-index
@@ -247,7 +247,7 @@ class DiskStorage final : public Storage {
                                                                   PropertyId property);
   void HandleLoadingLabelPropertyForEdgeImportCache(Transaction *transaction, LabelId label, PropertyId property);
   std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
-      Transaction *transaction, LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
+      Transaction *transaction, LabelId label, PropertyId property, View view,
       utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter);
   void LoadVerticesFromDiskLabelPropertyIndex(Transaction *transaction, LabelId label, PropertyId property,
                                               const std::unordered_set<storage::Gid> &gids,
@@ -262,8 +262,7 @@ class DiskStorage final : public Storage {
   std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
       Transaction *transaction, LabelId label, PropertyId property, View view,
       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-      const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
-      utils::SkipList<Vertex> *indexed_vertices);
+      const std::optional<utils::Bound<PropertyValue>> &upper_bound, utils::SkipList<Vertex> *indexed_vertices);
   void LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
       Transaction *transaction, LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
