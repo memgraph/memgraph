@@ -69,6 +69,7 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/string.hpp"
+#include "utils/tag.hpp"
 #include "utils/temporal.hpp"
 #include "utils/typeinfo.hpp"
 
@@ -864,17 +865,15 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   // A helper function for expanding a node from an edge.
-  auto pull_node = [this, &frame](const EdgeAccessor &new_edge, EdgeAtom::Direction direction) {
+  auto pull_node = [this, &frame]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
+                                                                 utils::tag_value<direction>) {
     if (self_.common_.existing_node) return;
-    switch (direction) {
-      case EdgeAtom::Direction::IN:
-        frame[self_.common_.node_symbol] = new_edge.From();
-        break;
-      case EdgeAtom::Direction::OUT:
-        frame[self_.common_.node_symbol] = new_edge.To();
-        break;
-      case EdgeAtom::Direction::BOTH:
-        LOG_FATAL("Must indicate exact expansion direction here");
+    if constexpr (direction == EdgeAtom::Direction::IN) {
+      frame[self_.common_.node_symbol] = new_edge.From();
+    } else if constexpr (direction == EdgeAtom::Direction::OUT) {
+      frame[self_.common_.node_symbol] = new_edge.To();
+    } else {
+      LOG_FATAL("Must indicate exact expansion direction here");
     }
   };
 
@@ -893,7 +892,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
 #endif
 
       frame[self_.common_.edge_symbol] = edge;
-      pull_node(edge, EdgeAtom::Direction::IN);
+      pull_node(edge, utils::tag_v<EdgeAtom::Direction::IN>);
       return true;
     }
 
@@ -913,7 +912,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
 #endif
       frame[self_.common_.edge_symbol] = edge;
-      pull_node(edge, EdgeAtom::Direction::OUT);
+      pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
       return true;
     }
 
@@ -1007,12 +1006,12 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
           auto existing_node = *expansion_info_.existing_node;
 
           auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node));
-          in_edges_.emplace(edges_result.edges);
+          in_edges_.emplace(std::move(edges_result.edges));
           num_expanded_first = edges_result.expanded_count;
         }
       } else {
         auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
-        in_edges_.emplace(edges_result.edges);
+        in_edges_.emplace(std::move(edges_result.edges));
         num_expanded_first = edges_result.expanded_count;
       }
       if (in_edges_) {
@@ -1026,12 +1025,12 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         if (expansion_info_.existing_node) {
           auto existing_node = *expansion_info_.existing_node;
           auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node));
-          out_edges_.emplace(edges_result.edges);
+          out_edges_.emplace(std::move(edges_result.edges));
           num_expanded_second = edges_result.expanded_count;
         }
       } else {
         auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
-        out_edges_.emplace(edges_result.edges);
+        out_edges_.emplace(std::move(edges_result.edges));
         num_expanded_second = edges_result.expanded_count;
       }
       if (out_edges_) {
