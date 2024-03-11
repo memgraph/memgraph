@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,16 +20,13 @@
 namespace memgraph::storage {
 
 struct ModifiedEdgeInfo {
-  ModifiedEdgeInfo(Delta::Action delta, Gid from_vertex, Gid to_vertex, EdgeTypeId edge_type, const EdgeRef &edge)
-      : delta_action(delta),
-        src_vertex_gid(from_vertex),
-        dest_vertex_gid(to_vertex),
-        edge_type_id(edge_type),
-        edge_ref(edge) {}
+  ModifiedEdgeInfo(Delta::Action delta, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
+                   const EdgeRef &edge)
+      : delta_action(delta), src_vertex(from_vertex), dest_vertex(to_vertex), edge_type_id(edge_type), edge_ref(edge) {}
 
   Delta::Action delta_action;
-  Gid src_vertex_gid;
-  Gid dest_vertex_gid;
+  const Vertex *src_vertex;
+  const Vertex *dest_vertex;
   EdgeTypeId edge_type_id;
   EdgeRef edge_ref;
 };

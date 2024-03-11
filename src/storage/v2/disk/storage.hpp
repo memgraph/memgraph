@@ -211,6 +211,7 @@ class DiskStorage final : public Storage {
   /// Writing methods
   bool WriteVertexToVertexColumnFamily(Transaction *transaction, const Vertex &vertex);
   bool WriteEdgeToEdgeColumnFamily(Transaction *transaction, const std::string &serialized_edge_key,
+                                   const Vertex *src_vertex, const Vertex *dst_vertex,
                                    const std::string &serialized_edge_value);
   bool WriteEdgeToConnectivityIndex(Transaction *transaction, const std::string &vertex_gid,
                                     const std::string &edge_gid, rocksdb::ColumnFamilyHandle *handle, std::string mode);

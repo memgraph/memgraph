@@ -974,7 +974,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
     delta->prev.Set(&*it);
   }
 
-  ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_OBJECT, from_vertex->gid, to_vertex->gid, edge_type, edge);
+  ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_OBJECT, from_vertex, to_vertex, edge_type, edge);
   /// TODO: (andi) Change when decoupled edge creation from edge deletion.
   transaction_.AddModifiedEdge(gid, modified_edge);
 
@@ -1039,6 +1039,7 @@ bool DiskStorage::WriteVertexToVertexColumnFamily(Transaction *transaction, cons
 }
 
 bool DiskStorage::WriteEdgeToEdgeColumnFamily(Transaction *transaction, const std::string &serialized_edge_key,
+                                              const Vertex *src_vertex, const Vertex *dst_vertex,
                                               const std::string &serialized_edge_value) {
   MG_ASSERT(transaction->commit_timestamp, "Writing edge to disk but commit timestamp not set.");
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
@@ -1292,16 +1293,17 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   for (const auto &modified_edge : transaction->modified_edges_) {
     const std::string edge_gid = modified_edge.first.ToString();
     const Delta::Action root_action = modified_edge.second.delta_action;
-    const auto src_vertex_gid = modified_edge.second.src_vertex_gid.ToString();
-    const auto dst_vertex_gid = modified_edge.second.dest_vertex_gid.ToString();
+    const Vertex *src_vertex = modified_edge.second.src_vertex;
+    const Vertex *dst_vertex = modified_edge.second.dest_vertex;
 
     if (!config_.salient.items.properties_on_edges) {
       /// If the object was created then flush it, otherwise since properties on edges are false
       /// edge wasn't modified for sure.
       if (root_action == Delta::Action::DELETE_OBJECT &&
           !WriteEdgeToEdgeColumnFamily(
-              transaction, edge_gid,
-              utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid, modified_edge.second.edge_type_id))) {
+              transaction, edge_gid, src_vertex, dst_vertex,
+              utils::SerializeEdgeAsValue(src_vertex->gid.ToString(), dst_vertex->gid.ToString(),
+                                          modified_edge.second.edge_type_id))) {
         return StorageManipulationError{SerializationError{}};
       }
     } else {
@@ -1320,14 +1322,17 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
       /// TODO: (andi) I think this is not wrong but it would be better to use AtomicWrites across column families.
       if (!WriteEdgeToEdgeColumnFamily(
-              transaction, edge_gid,
-              utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid, modified_edge.second.edge_type_id, &*edge))) {
+              transaction, edge_gid, src_vertex, dst_vertex,
+              utils::SerializeEdgeAsValue(src_vertex->gid.ToString(), dst_vertex->gid.ToString(),
+                                          modified_edge.second.edge_type_id, &*edge))) {
         return StorageManipulationError{SerializationError{}};
       }
     }
     if (root_action == Delta::Action::DELETE_OBJECT &&
-        (!WriteEdgeToConnectivityIndex(transaction, src_vertex_gid, edge_gid, kvstore_->out_edges_chandle, "OUT") ||
-         !WriteEdgeToConnectivityIndex(transaction, dst_vertex_gid, edge_gid, kvstore_->in_edges_chandle, "IN"))) {
+        (!WriteEdgeToConnectivityIndex(transaction, src_vertex->gid.ToString(), edge_gid, kvstore_->out_edges_chandle,
+                                       "OUT") ||
+         !WriteEdgeToConnectivityIndex(transaction, dst_vertex->gid.ToString(), edge_gid, kvstore_->in_edges_chandle,
+                                       "IN"))) {
       return StorageManipulationError{SerializationError{}};
     }
   }
@@ -1422,8 +1427,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
     edge.ptr->properties.SetBuffer(properties);
   }
 
-  ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_DESERIALIZED_OBJECT, from_vertex->gid, to_vertex->gid, edge_type,
-                                 edge);
+  ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_DESERIALIZED_OBJECT, from_vertex, to_vertex, edge_type, edge);
   if (transaction->AddModifiedEdge(gid, modified_edge)) {
     spdlog::trace("Edge {} added to out edges of vertex with gid {}", gid.ToString(), from_vertex->gid.AsUint());
     spdlog::trace("Edge {} added to in edges of vertex with gid {}", gid.ToString(), to_vertex->gid.AsUint());

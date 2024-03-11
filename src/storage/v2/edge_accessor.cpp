@@ -145,7 +145,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   std::invoke(atomic_memory_block);
 
   if (transaction_->IsDiskStorage()) {
-    ModifiedEdgeInfo modified_edge(Delta::Action::SET_PROPERTY, from_vertex_->gid, to_vertex_->gid, edge_type_, edge_);
+    ModifiedEdgeInfo modified_edge(Delta::Action::SET_PROPERTY, from_vertex_, to_vertex_, edge_type_, edge_);
     transaction_->AddModifiedEdge(Gid(), modified_edge);
   }
 
