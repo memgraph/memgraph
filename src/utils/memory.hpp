@@ -418,8 +418,6 @@ class Pool final {
   std::byte *free_list_{nullptr};
   uint8_t blocks_per_chunk_{};
   std::size_t block_size_{};
-  std::size_t data_size_;
-  std::size_t alignment_;
 
   AList<Chunk> chunks_;  // TODO: do ourself so we can do fast Release (detect monotonic, do nothing)
 
@@ -535,6 +533,7 @@ template <std::size_t Bits, std::size_t LB, std::size_t UB>
 struct MultiPool {
   static_assert(LB < UB, "lower bound must be less than upper bound");
   static_assert(IsPow2(LB) && IsPow2(UB), "Design untested for non powers of 2");
+  static_assert((LB << Bits) % sizeof(void *) == 0, "Smallest pool must have space and alignment for freelist");
 
   // upper bound is inclusive
   static bool is_size_handled(std::size_t size) { return LB < size && size <= UB; }
@@ -594,7 +593,16 @@ class PoolResource2 final : public MemoryResource {
  public:
   PoolResource2(uint8_t blocks_per_chunk, MemoryResource *memory = NewDeleteResource(),
                 MemoryResource *internal_memory = NewDeleteResource())
-      : pool_8_(8, blocks_per_chunk, memory),
+      : mini_pools_{
+            impl::Pool{8, blocks_per_chunk, memory},
+            impl::Pool{16, blocks_per_chunk, memory},
+            impl::Pool{24, blocks_per_chunk, memory},
+            impl::Pool{32, blocks_per_chunk, memory},
+            impl::Pool{40, blocks_per_chunk, memory},
+            impl::Pool{48, blocks_per_chunk, memory},
+            impl::Pool{56, blocks_per_chunk, memory},
+            impl::Pool{64, blocks_per_chunk, memory},
+        },
         pools_3bit_(blocks_per_chunk, memory, internal_memory),
         pools_4bit_(blocks_per_chunk, memory, internal_memory),
         pools_5bit_(blocks_per_chunk, memory, internal_memory),
@@ -607,8 +615,8 @@ class PoolResource2 final : public MemoryResource {
   bool DoIsEqual(MemoryResource const &other) const noexcept override;
 
  private:
-  impl::Pool pool_8_;
-  impl::MultiPool<3, 8, 128> pools_3bit_;
+  std::array<impl::Pool, 8> mini_pools_;
+  impl::MultiPool<3, 64, 128> pools_3bit_;
   impl::MultiPool<4, 128, 512> pools_4bit_;
   impl::MultiPool<5, 512, 1024> pools_5bit_;
   MemoryResource *unpooled_memory_;
