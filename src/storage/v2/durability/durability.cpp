@@ -31,6 +31,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
@@ -199,9 +200,18 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   }
   spdlog::info("Label+property indices statistics are recreated.");
 
-  spdlog::info("Indices are recreated.");
+  // Recover edge-type indices.
+  spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
+  auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
+  for (const auto &item : indices_metadata.edge) {
+    if (!mem_edge_type_index->CreateIndex(item, vertices->access())) {
+      throw RecoveryFailure("The edge-type index must be created here!");
+    }
+    spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+  }
+  spdlog::info("Edge-type indices are recreated.");
 
-  spdlog::info("Recreating constraints from metadata.");
+  spdlog::info("Indices are recreated.");
 }
 
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
