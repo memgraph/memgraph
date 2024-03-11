@@ -29,7 +29,9 @@ namespace memgraph::storage {
 std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
                                                  Vertex *to_vertex, Storage *storage, Transaction *transaction,
                                                  bool for_deleted) {
-  return std::nullopt;
+  // TODO Take the view as well and determine if the
+  // constructs are visible or not. Checkout VertexAccessor.
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage, transaction, for_deleted);
 }
 
 bool EdgeAccessor::IsDeleted() const {

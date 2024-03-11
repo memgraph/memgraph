@@ -1429,16 +1429,24 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Vie
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
+  auto edge_acc = mem_storage->edges_.access();
+  auto edge_it = edge_acc.find(gid);
+  if (edge_it == edge_acc.end()) {
+    return std::nullopt;
+  }
+  auto *edge_ptr = &(*edge_it);
+
   // TODO replace this logic once we have a proper edge struct in place.
   // This should be only temporary, currently we have to do this whole
   // lookup through all the vertices, since the edge struct only has a
   // pointer to it's GID, it has no information whatsoever about the from
   // and to vertices.
   auto acc = mem_storage->vertices_.access();
+
   auto maybe_edge_info = std::invoke([&]() -> std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> {
     for (auto &vertex : acc) {
       for (auto &edge : vertex.out_edges) {
-        if (std::get<2>(edge).gid == gid) {
+        if (std::get<2>(edge).ptr == edge_ptr) {
           return std::make_tuple(std::get<2>(edge), std::get<0>(edge), &vertex, std::get<1>(edge));
         }
       }
