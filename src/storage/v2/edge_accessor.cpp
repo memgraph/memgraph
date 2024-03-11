@@ -130,7 +130,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
   using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
   std::optional<ReturnType> current_value = edge_.ptr->properties.GetProperty(property);
-  if (current_value == value && storage_->config_.salient.items.delta_on_identical_property_update) {
+  if (current_value == value && !storage_->config_.salient.items.delta_on_identical_property_update) {
     return std::move(*current_value);
   }
   utils::AtomicMemoryBlock atomic_memory_block{

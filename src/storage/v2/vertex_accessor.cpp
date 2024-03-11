@@ -268,7 +268,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
-  if (current_value == value && storage_->config_.salient.items.delta_on_identical_property_update) {
+  if (current_value == value && !storage_->config_.salient.items.delta_on_identical_property_update) {
     return std::move(current_value);
   }
 
