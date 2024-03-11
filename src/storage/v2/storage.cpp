@@ -48,6 +48,9 @@ Storage::Storage(Config config, StorageMode storage_mode)
       indices_(config, storage_mode),
       constraints_(config, storage_mode) {
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
+
+  // TODO: Make this work with MT
+  PDS::Init(config_.durability.storage_directory);
 }
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,

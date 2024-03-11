@@ -675,7 +675,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
       // TODO (mferencevic): Mitigate the memory allocation introduced here
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
-      encoder->WritePropertyValue(edge.properties.GetProperty(delta.property.key));
+      encoder->WritePropertyValue(edge.GetProperty(delta.property.key));
       break;
     }
     case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -966,7 +966,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           if (edge == edge_acc.end()) throw RecoveryFailure("The edge doesn't exist!");
           auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.vertex_edge_set_property.property));
           auto &property_value = delta.vertex_edge_set_property.value;
-          edge->properties.SetProperty(property_id, property_value);
+          edge->SetProperty(property_id, property_value);
           break;
         }
         case WalDeltaData::Type::TRANSACTION_END:

@@ -1177,7 +1177,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                  current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
             switch (current->action) {
               case Delta::Action::SET_PROPERTY: {
-                edge->properties.SetProperty(current->property.key, *current->property.value);
+                edge->SetProperty(current->property.key, *current->property.value);
                 break;
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
