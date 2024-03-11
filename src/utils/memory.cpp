@@ -151,33 +151,30 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
 namespace impl {
 
 Pool::Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *chunk_memory)
-    : blocks_per_chunk_(blocks_per_chunk),
-      block_size_(block_size),
-      data_size_{blocks_per_chunk_ * block_size_},
-      chunks_(chunk_memory) {
+    : blocks_per_chunk_(blocks_per_chunk), block_size_(block_size), chunks_(chunk_memory) {
   // Use the next pow2 of block_size_ as alignment, so that we cover alignment
   // requests between 1 and block_size_. Users of this class should make sure
   // that requested alignment of particular blocks is never greater than the
   // block itself.
   if (block_size_ > std::numeric_limits<size_t>::max() / blocks_per_chunk_) throw BadAlloc("Allocation size overflow");
-  alignment_ = Ceil2(block_size_);
-  if (alignment_ < block_size_) throw BadAlloc("Allocation alignment overflow");
 }
 
 Pool::~Pool() {
   if (!chunks_.empty()) Release();
-  DMG_ASSERT(chunks_.empty(), "You need to call Release before destruction!");
 }
 
 void *Pool::Allocate() {
-  if (!free_list_) {
+  if (!free_list_) [[unlikely]] {
     // need new chunk
-    auto *data = reinterpret_cast<std::byte *>(GetUpstreamResource()->Allocate(data_size_, alignment_));
+    auto const data_size = blocks_per_chunk_ * block_size_;
+    auto const alignment = Ceil2(block_size_);
+    auto *resource = GetUpstreamResource();
+    auto *data = reinterpret_cast<std::byte *>(resource->Allocate(data_size, alignment));
     try {
       auto &new_chunk = chunks_.emplace_front(data);
       free_list_ = new_chunk.build_freelist(block_size_, blocks_per_chunk_);
     } catch (...) {
-      GetUpstreamResource()->Deallocate(data, data_size_, alignment_);
+      resource->Deallocate(data, data_size, alignment);
       throw;
     }
   }
@@ -191,8 +188,10 @@ void Pool::Deallocate(void *p) {
 void Pool::Release() {
   auto *resource = GetUpstreamResource();
   if (!dynamic_cast<utils::MonotonicBufferResource *>(resource)) {
+    auto const data_size = blocks_per_chunk_ * block_size_;
+    auto const alignment = Ceil2(block_size_);
     for (auto &chunk : chunks_) {
-      resource->Deallocate(chunk.raw_data, data_size_, alignment_);
+      resource->Deallocate(chunk.raw_data, data_size, alignment);
     }
   }
   chunks_.clear();
@@ -372,7 +371,7 @@ static_assert(bin_index<2>(24u) == 2);
 void *PoolResource2::DoAllocate(size_t bytes, size_t alignment) {
   // Take the max of `bytes` and `alignment` so that we simplify handling
   // alignment requests.
-  size_t block_size = std::max(bytes, alignment);
+  size_t block_size = std::max({bytes, alignment, 1ul});
   // Check that we have received a regular allocation request with non-padded
   // structs/classes in play. These will always have
   // `sizeof(T) % alignof(T) == 0`. Special requests which don't have that
@@ -385,11 +384,11 @@ void *PoolResource2::DoAllocate(size_t bytes, size_t alignment) {
   if (pools_3bit_.is_size_handled(block_size)) return pools_3bit_.allocate(block_size);
   if (pools_4bit_.is_size_handled(block_size)) return pools_4bit_.allocate(block_size);
   if (pools_5bit_.is_size_handled(block_size)) return pools_5bit_.allocate(block_size);
-  DMG_ASSERT(block_size <= 8);
-  return pool_8_.Allocate();
+  DMG_ASSERT(block_size <= 64);
+  return mini_pools_[(block_size - 1ul) / 8ul].Allocate();
 }
 void PoolResource2::DoDeallocate(void *p, size_t bytes, size_t alignment) {
-  size_t block_size = std::max(bytes, alignment);
+  size_t block_size = std::max({bytes, alignment, 1ul});
   DMG_ASSERT(block_size % alignment == 0);
 
   if (pools_5bit_.is_above_upper_bound(block_size)) {
@@ -401,8 +400,8 @@ void PoolResource2::DoDeallocate(void *p, size_t bytes, size_t alignment) {
   } else if (pools_5bit_.is_size_handled(block_size)) {
     pools_5bit_.deallocate(p, block_size);
   } else {
-    DMG_ASSERT(block_size <= 8);
-    pool_8_.Deallocate(p);
+    DMG_ASSERT(block_size <= 64);
+    mini_pools_[(block_size - 1ul) / 8ul].Deallocate(p);
   }
 }
 bool PoolResource2::DoIsEqual(MemoryResource const &other) const noexcept { return this == &other; }
