@@ -31,9 +31,22 @@ on:
         type: string
         description: "Timeout in minutes for the job. Default value is 60."
         default: 60
+      push_to_s3:
+        type: boolean
+        description: "Should the final package be pushed to an S3 bucket. Default value is false"
+        default: false
+      s3_bucket:
+        type: string
+        description: "Name of the target S3 bucket."
+      s3_region:
+        type: string
+        description: "Region for the target S3 bucket."
+      s3_dest_dir:
+        type: string
+        description: "Target dir path in S3 bucket."
 
 jobs:
-  package-amd:
+  package:
     runs-on: [self-hosted, DockerMgBuild, ${{ github.event.inputs.runner_aarch_label }}]
     timeout-minutes: ${{ github.event.inputs.timeout_minutes }}
     steps:
@@ -74,6 +87,27 @@ jobs:
         with:
           name: ${{ github.event.inputs.os }}
           path: build/output/${{ github.event.inputs.os }}/memgraph*
+
+  upload-to-s3:
+    if: ${{ github.event.inputs.push_to_s3 == 'true' }}
+    needs: [package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ github.event.inputs.os }}
+          path: build/output/release
+
+      - name: Upload to S3
+        uses: jakejarvis/s3-sync-action@v0.5.1
+        env:
+          AWS_S3_BUCKET: ${{ github.event.inputs.s3_bucket }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ github.event.inputs.s3_region }}
+          SOURCE_DIR: "build/output/release"
+          DEST_DIR: ${{ github.event.inputs.s3_dest_dir }}
 
   # MAKE DOCKER WORK
   # docker:
