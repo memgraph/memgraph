@@ -83,56 +83,8 @@ jobs:
       timeout_minutes: 60
     secrets: inherit
 
-  Fedora36:
-    if: ${{ github.event.inputs.target_os == 'fedora-36' || github.event.inputs.target_os == 'all' }}
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: "fedora-36"
-      toolchain: ${{ github.event.inputs.toolchain }}
-      arch: "amd"
-      runner_arch_label: "X64"
-      build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
-    secrets: inherit
-
-  Fedora38:
-    if: ${{ github.event.inputs.target_os == 'fedora-38' || github.event.inputs.target_os == 'all' }}
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: "fedora-38"
-      toolchain: ${{ github.event.inputs.toolchain }}
-      arch: "amd"
-      runner_arch_label: "X64"
-      build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
-    secrets: inherit
-
-  Fedora39:
-    if: ${{ github.event.inputs.target_os == 'fedora-39' || github.event.inputs.target_os == 'all' }}
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: "fedora-39"
-      toolchain: ${{ github.event.inputs.toolchain }}
-      arch: "amd"
-      runner_arch_label: "X64"
-      build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
-    secrets: inherit
-
-  RockyLinux9:
-    if: ${{ github.event.inputs.target_os == 'rocky-9' || github.event.inputs.target_os == 'all' }}
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: "rocky-9"
-      toolchain: ${{ github.event.inputs.toolchain }}
-      arch: "amd"
-      runner_arch_label: "X64"
-      build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
-    secrets: inherit
-
   Debian10:
-    if: ${{ github.event.inputs.target_os == 'debian-10' || github.event.inputs.target_os == 'all' }}
+    if: ${{ (github.event.inputs.target_os == 'debian-10' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-10"
@@ -207,7 +159,7 @@ jobs:
     secrets: inherit
 
   Debian12:
-    if: ${{ github.event.inputs.target_os == 'debian-12' || github.event.inputs.target_os == 'all' }}
+    if: ${{ (github.event.inputs.target_os == 'debian-12' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-12"
@@ -219,7 +171,7 @@ jobs:
     secrets: inherit
 
   Debian12-arm:
-    if: ${{ github.event.inputs.target_os == 'debian-12-arm' || github.event.inputs.target_os == 'all' }}
+    if: ${{ (github.event.inputs.target_os == 'debian-12-arm' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-12-arm"
@@ -230,8 +182,56 @@ jobs:
       timeout_minutes: 120
     secrets: inherit
 
+  Fedora36:
+    if: ${{ (github.event.inputs.target_os == 'fedora-36' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "fedora-36"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Fedora38:
+    if: ${{ (github.event.inputs.target_os == 'fedora-38' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "fedora-38"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  Fedora39:
+    if: ${{ (github.event.inputs.target_os == 'fedora-39' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "fedora-39"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
+  RockyLinux9:
+    if: ${{ (github.event.inputs.target_os == 'rocky-9' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "rocky-9"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+    secrets: inherit
+
   Ubuntu18_04:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-18.04' || github.event.inputs.target_os == 'all' }}
+    if: ${{ (github.event.inputs.target_os == 'ubuntu-18.04' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-18.04"
