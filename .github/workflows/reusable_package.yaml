@@ -28,7 +28,7 @@ on:
         description: "Additional build flags (--for-platform, --for-docker ...). Default value is empty."
         default: ''
       timeout_minutes:
-        required: true
+        type: string
         description: "Timeout in minutes for the job. Default value is 60."
         default: '60'
       push_to_s3:
