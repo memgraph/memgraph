@@ -19,6 +19,7 @@ RUN git clone https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/rocky-9.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/rocky-9.sh install MEMGRAPH_BUILD_DEPS \
+    && pip3 install PyYAML \
     && cd .. && rm -rf memgraph
 
 # Create mg user and set as default

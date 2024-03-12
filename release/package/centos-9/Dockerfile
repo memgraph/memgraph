@@ -18,6 +18,7 @@ RUN git clone https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/centos-9.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/centos-9.sh install MEMGRAPH_BUILD_DEPS \
+    && pip3 install PyYAML \
     && cd .. && rm -rf memgraph
 
 # Create mg user and set as default
