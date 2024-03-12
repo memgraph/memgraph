@@ -1043,6 +1043,24 @@ bool DiskStorage::WriteEdgeToEdgeColumnFamily(Transaction *transaction, const st
                                               const std::string &serialized_edge_value) {
   MG_ASSERT(transaction->commit_timestamp, "Writing edge to disk but commit timestamp not set.");
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+
+  rocksdb::ReadOptions read_options;
+  std::string tmp_value;
+  rocksdb::Status status_read_src =
+      transaction->disk_transaction_->GetForUpdate(read_options, utils::SerializeVertex(*src_vertex), &tmp_value);
+  if (!status_read_src.ok()) {
+    spdlog::error("rocksdb: Failed to save edge {} with ts {} to edge column family, modified src vertex",
+                  serialized_edge_key, commit_ts);
+    return false;
+  }
+  rocksdb::Status status_read_dst =
+      transaction->disk_transaction_->GetForUpdate(read_options, utils::SerializeVertex(*dst_vertex), &tmp_value);
+  if (!status_read_dst.ok()) {
+    spdlog::error("rocksdb: Failed to save edge {} with ts {} to edge column family, modified dst vertex",
+                  serialized_edge_key, commit_ts);
+    return false;
+  }
+
   rocksdb::Status status =
       transaction->disk_transaction_->Put(kvstore_->edge_chandle, serialized_edge_key, serialized_edge_value);
 
