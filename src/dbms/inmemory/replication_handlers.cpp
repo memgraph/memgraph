@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// NOLINTBEGIN
 #include "dbms/inmemory/replication_handlers.hpp"
 #include <chrono>
 #include <optional>
@@ -917,5 +916,4 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
   spdlog::debug("Applied {} deltas", applied_deltas);
   return applied_deltas;
 }
-// NOLINTEND
 }  // namespace memgraph::dbms
