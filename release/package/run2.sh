@@ -487,10 +487,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-docker_compose_cmd="docker compose"
-if ! which $docker_compose_cmd >/dev/null; then
-    docker_compose_cmd="docker-compose"
+if docker compose version > /dev/null; then
+  docker_compose_cmd="docker compose"
+elif which docker-compose > /dev/null; then
+  docker_compose_cmd="docker-compose"
+else
+  echo -e "Missing command: There has to be installed either 'docker-compose' or 'docker compose'"
+  exit 1
 fi
+echo "Using $docker_compose_cmd"
 
 ##################################################
 ################# PARSE COMMAND ##################
