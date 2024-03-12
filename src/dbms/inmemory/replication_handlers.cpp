@@ -633,7 +633,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         break;
       }
       case WalDeltaData::Type::VERTEX_SET_PROPERTY: {
-        // spdlog::trace("       Vertex {} set property", delta.vertex_edge_set_property.gid.AsUint());
+        spdlog::trace("       Vertex {} set property", delta.vertex_edge_set_property.gid.AsUint());
         // NOLINTNEXTLINE
         auto *transaction = get_transaction(timestamp);
         // NOLINTNEXTLINE
@@ -684,7 +684,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         break;
       }
       case WalDeltaData::Type::EDGE_SET_PROPERTY: {
-        // spdlog::trace("       Edge {} set property", delta.vertex_edge_set_property.gid.AsUint());
+        spdlog::trace(" Edge {} set property", delta.vertex_edge_set_property.gid.AsUint());
         if (!storage->config_.salient.items.properties_on_edges)
           throw utils::BasicException(
               "Can't set properties on edges because properties on edges "
