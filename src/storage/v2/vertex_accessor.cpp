@@ -261,23 +261,31 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  auto current_value = vertex_->properties.GetProperty(property);
-  // We could skip setting the value if the previous one is the same to the new
-  // one. This would save some memory as a delta would not be created as well as
-  // avoid copying the value. The reason we are not doing that is because the
-  // current code always follows the logical pattern of "create a delta" and
-  // "modify in-place". Additionally, the created delta will make other
-  // transactions get a SERIALIZATION_ERROR.
-  if (current_value == value && !storage_->config_.salient.items.delta_on_identical_property_update) {
+  PropertyValue current_value;
+  bool early_exit = false;
+  const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
+  utils::AtomicMemoryBlock atomic_memory_block{[transaction = transaction_, vertex = vertex_, &value, &property,
+                                                &current_value, skip_duplicate_write, &early_exit]() {
+    current_value = vertex->properties.GetProperty(property);
+    // We could skip setting the value if the previous one is the same to the new
+    // one. This would save some memory as a delta would not be created as well as
+    // avoid copying the value. The reason we are not doing that is because the
+    // current code always follows the logical pattern of "create a delta" and
+    // "modify in-place". Additionally, the created delta will make other
+    // transactions get a SERIALIZATION_ERROR.
+    if (skip_duplicate_write && current_value == value) {
+      early_exit = true;
+      return;
+    }
+
+    CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
+    vertex->properties.SetProperty(property, value);
+  }};
+  std::invoke(atomic_memory_block);
+
+  if (early_exit) {
     return std::move(current_value);
   }
-
-  utils::AtomicMemoryBlock atomic_memory_block{
-      [transaction = transaction_, vertex = vertex_, &value, &property, &current_value]() {
-        CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
-        vertex->properties.SetProperty(property, value);
-      }};
-  std::invoke(atomic_memory_block);
 
   if (!value.IsNull()) {
     transaction_->constraint_verification_info.AddedProperty(vertex_);
@@ -338,21 +346,19 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  bool should_apply_delta_if_identical_update = storage_->config_.salient.items.delta_on_identical_property_update;
+  const bool skip_duplicate_update = storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock atomic_memory_block{[storage = storage_, transaction = transaction_, vertex = vertex_,
-                                                &properties, &id_old_new_change,
-                                                should_apply_delta_if_identical_update]() {
+                                                &properties, &id_old_new_change, skip_duplicate_update]() {
     id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
     if (!id_old_new_change.has_value()) {
       return;
     }
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
-      if (old_value != new_value || should_apply_delta_if_identical_update) {
-        CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, std::move(old_value));
-      }
+      if (skip_duplicate_update && old_value == new_value) continue;
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, std::move(old_value));
       transaction->manyDeltasCache.Invalidate(vertex, id);
       if (!new_value.IsNull()) {
         transaction->constraint_verification_info.AddedProperty(vertex);
