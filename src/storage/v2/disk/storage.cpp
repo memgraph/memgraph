@@ -1768,7 +1768,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     return StorageManipulationError{SerializationError{}};
   }
   spdlog::trace("rocksdb: Commit successful");
-
+  disk_storage->durable_metadata_.SaveBeforeClosingDB(disk_storage->timestamp_, disk_storage->vertex_count_,
+                                                      disk_storage->edge_count_);  // maybe rename this function
   is_transaction_active_ = false;
 
   return {};
