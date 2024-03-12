@@ -432,6 +432,21 @@ void TriggerStore::DropTrigger(const std::string &name) {
   storage_.Delete(name);
 }
 
+void TriggerStore::DropAll() {
+  std::unique_lock store_guard{store_lock_};
+  std::vector<std::string> trigger_names{};
+  for (auto &[name, trigger_data] : storage_) {
+    trigger_names.push_back(name);
+  }
+
+  for (const auto &trigger_name : trigger_names) {
+    storage_.Delete(trigger_name);
+  }
+
+  before_commit_triggers_.clear();
+  after_commit_triggers_.clear();
+}
+
 std::vector<TriggerStore::TriggerInfo> TriggerStore::GetTriggerInfo() const {
   std::vector<TriggerInfo> info;
   info.reserve(before_commit_triggers_.size() + after_commit_triggers_.size());

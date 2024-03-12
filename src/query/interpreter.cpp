@@ -3269,15 +3269,7 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db) {
     storage->DropGraph();
 
     auto trigger_store = db->trigger_store();
-    if (trigger_store->HasTriggers()) {
-      std::vector<std::string> trigger_names;
-      for (auto const &trigger_info : trigger_store->GetTriggerInfo()) {
-        trigger_names.push_back(trigger_info.name);
-      }
-      for (auto const &trigger_name : trigger_names) {
-        trigger_store->DropTrigger(trigger_name);
-      }
-    }
+    trigger_store->DropAll();
 
     auto streams = db->streams();
     streams->DropAll();

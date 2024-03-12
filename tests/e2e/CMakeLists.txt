@@ -77,6 +77,7 @@ add_subdirectory(garbage_collection)
 add_subdirectory(query_planning)
 add_subdirectory(awesome_functions)
 add_subdirectory(high_availability)
+add_subdirectory(drop_graph)
 
 add_subdirectory(replication_experimental)
 
