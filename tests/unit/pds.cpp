@@ -314,15 +314,15 @@ TEST_F(PdsTest, BasicUsage) {
 TEST_F(PdsTest, Get) {
   using namespace memgraph::storage;
   auto *pds = PDS::get();
-  pds->Set(Gid::FromInt(0), PropertyId::FromInt(1), PropertyValue{"test1"});
-  pds->Set(Gid::FromInt(0), PropertyId::FromInt(2), PropertyValue{"test2"});
-  pds->Set(Gid::FromInt(0), PropertyId::FromInt(3), PropertyValue{"test3"});
-  pds->Set(Gid::FromInt(1), PropertyId::FromInt(0), PropertyValue{"test0"});
-  pds->Set(Gid::FromInt(1), PropertyId::FromInt(2), PropertyValue{"test02"});
+  pds->Set(Gid::FromUint(0), PropertyId::FromUint(1), PropertyValue{"test1"});
+  pds->Set(Gid::FromUint(0), PropertyId::FromUint(2), PropertyValue{"test2"});
+  pds->Set(Gid::FromUint(0), PropertyId::FromUint(3), PropertyValue{"test3"});
+  pds->Set(Gid::FromUint(1), PropertyId::FromUint(0), PropertyValue{"test0"});
+  pds->Set(Gid::FromUint(1), PropertyId::FromUint(2), PropertyValue{"test02"});
 
-  auto all_0 = pds->Get(Gid::FromInt(0));
+  auto all_0 = pds->Get(Gid::FromUint(0));
   ASSERT_EQ(all_0.size(), 3);
-  ASSERT_EQ(all_0[PropertyId::FromInt(1)], PropertyValue{"test1"});
-  ASSERT_EQ(all_0[PropertyId::FromInt(2)], PropertyValue{"test2"});
-  ASSERT_EQ(all_0[PropertyId::FromInt(3)], PropertyValue{"test3"});
+  ASSERT_EQ(all_0[PropertyId::FromUint(1)], PropertyValue{"test1"});
+  ASSERT_EQ(all_0[PropertyId::FromUint(2)], PropertyValue{"test2"});
+  ASSERT_EQ(all_0[PropertyId::FromUint(3)], PropertyValue{"test3"});
 }

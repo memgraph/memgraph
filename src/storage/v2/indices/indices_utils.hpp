@@ -121,7 +121,7 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
     has_label = utils::Contains(vertex.labels, label);
     // Avoid IsPropertyEqual if already not possible
     if (delta == nullptr && (deleted || !has_label)) return false;
-    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
+    current_value_equal_to_value = vertex.IsPropertyEqual(key, value);
   }
 
   if (!deleted && has_label && current_value_equal_to_value) {
@@ -186,7 +186,7 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
     auto guard = std::shared_lock{vertex.lock};
     deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
-    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
+    current_value_equal_to_value = vertex.IsPropertyEqual(key, value);
     delta = vertex.delta;
   }
 
@@ -246,7 +246,7 @@ inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::pair<LabelId, Prope
   if (vertex.deleted || !utils::Contains(vertex.labels, label_property_pair.first)) {
     return;
   }
-  auto value = vertex.properties.GetProperty(label_property_pair.second);
+  auto value = vertex.GetProperty(label_property_pair.second);
   if (value.IsNull()) {
     return;
   }

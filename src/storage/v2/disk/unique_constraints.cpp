@@ -28,7 +28,7 @@ namespace {
 
 bool IsVertexUnderConstraint(const Vertex &vertex, const LabelId &constraint_label,
                              const std::set<PropertyId> &constraint_properties) {
-  return utils::Contains(vertex.labels, constraint_label) && vertex.properties.HasAllProperties(constraint_properties);
+  return utils::Contains(vertex.labels, constraint_label) && vertex.HasAllProperties(constraint_properties);
 }
 
 bool IsDifferentVertexWithSameConstraintLabel(const std::string &key, const Gid gid, const LabelId constraint_label) {
@@ -105,7 +105,7 @@ std::optional<ConstraintViolation> DiskUniqueConstraints::Validate(
 std::optional<ConstraintViolation> DiskUniqueConstraints::TestIfVertexSatisifiesUniqueConstraint(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
     const std::set<PropertyId> &constraint_properties) const {
-  auto property_values = vertex.properties.ExtractPropertyValues(constraint_properties);
+  auto property_values = vertex.ExtractPropertyValues(constraint_properties);
 
   /// TODO: better naming. Is vertex unique
   if (property_values.has_value() &&
@@ -227,10 +227,11 @@ bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &v
     if (IsVertexUnderConstraint(vertex, constraint_label, constraint_properties)) {
       auto key = utils::SerializeVertexAsKeyForUniqueConstraint(constraint_label, constraint_properties,
                                                                 vertex.gid.ToString());
-      auto value = utils::SerializeVertexAsValueForUniqueConstraint(constraint_label, vertex.labels, vertex.properties);
-      if (!disk_transaction->Put(key, value).ok()) {
-        return false;
-      }
+      // TODO: Re-enable
+      // auto value = utils::SerializeVertexAsValueForUniqueConstraint(constraint_label, vertex.labels,
+      // vertex.properties); if (!disk_transaction->Put(key, value).ok()) {
+      //   return false;
+      // }
     }
   }
   /// TODO: extract and better message

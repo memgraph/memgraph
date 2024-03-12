@@ -41,39 +41,39 @@ class PDS {
     return ptr_;
   }
 
-  std::string ToKey(Gid gid, PropertyId pid) {
+  static std::string ToKey(Gid gid, PropertyId pid) {
     std::string key(sizeof(gid) + sizeof(pid), '\0');
     memcpy(key.data(), &gid, sizeof(gid));
     memcpy(&key[sizeof(gid)], &pid, sizeof(pid));
     return key;
   }
 
-  std::string ToPrefix(Gid gid) {
+  static std::string ToPrefix(Gid gid) {
     std::string key(sizeof(gid), '\0');
     memcpy(key.data(), &gid, sizeof(gid));
     return key;
   }
 
-  Gid ToGid(std::string_view sv) {
+  static Gid ToGid(std::string_view sv) {
     uint64_t gid;
     gid = *((uint64_t *)sv.data());
     return Gid::FromUint(gid);
   }
 
-  PropertyId ToPid(std::string_view sv) {
+  static PropertyId ToPid(std::string_view sv) {
     uint32_t pid;
     pid = *((uint32_t *)&sv[sizeof(Gid)]);
     return PropertyId::FromUint(pid);
   }
 
-  PropertyValue ToPV(std::string_view sv) {
+  static PropertyValue ToPV(std::string_view sv) {
     PropertyValue pv;
     slk::Reader reader((const uint8_t *)sv.data(), sv.size());
     slk::Load(&pv, &reader);
     return pv;
   }
 
-  std::string ToStr(const PropertyValue &pv) {
+  static std::string ToStr(const PropertyValue &pv) {
     std::string val{};
     slk::Builder builder([&val](const uint8_t *data, size_t size, bool /*have_more*/) {
       const auto old_size = val.size();
@@ -120,6 +120,8 @@ class PDS {
   }
 
   void Clear(Gid gid) { kvstore_.DeletePrefix(ToPrefix(gid)); }
+
+  bool Has(Gid gid, PropertyId pid) { return kvstore_.Size(ToKey(gid, pid)) != 0; }
 
   // kvstore::KVStore::iterator Itr() {}
 
