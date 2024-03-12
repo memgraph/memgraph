@@ -59,7 +59,7 @@ MEMGRAPH_BUILD_DEPS=(
     doxygen graphviz # source documentation generators
     which nodejs golang custom-golang1.18.9 # for driver tests
     zip unzip java-11-openjdk-devel java-17-openjdk java-17-openjdk-devel custom-maven3.9.3 # for driver tests
-    sbcl # for custom Lisp C++ preprocessing
+    cl-asdf common-lisp-controller sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     cyrus-sasl-devel
@@ -165,6 +165,24 @@ install() {
         if [ "$pkg" == doxygen ]; then
             if ! dnf list installed doxygen >/dev/null 2>/dev/null; then
                 dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/d/doxygen-1.9.1-11.el9.x86_64.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == cl-asdf ]; then
+            if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
+                dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/cl-asdf-20101028-18.el8.noarch.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == common-lisp-controller ]; then
+            if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
+                dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/common-lisp-controller-7.4-20.el8.noarch.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == sbcl ]; then
+            if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
+                dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/sbcl-2.0.1-4.el8.x86_64.rpm
             fi
             continue
         fi
