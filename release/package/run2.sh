@@ -235,14 +235,6 @@ build_memgraph () {
   # Change ownership of copied files so the mg user inside container can access them
   docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR" 
 
-  # TODO(gitbuda): TOOLCHAIN_RUN_DEPS should be installed during the Docker
-  # image build phase, but that is not easy at this point because the
-  # environment/os/{os}.sh does not come within the toolchain package. When
-  # migrating to the next version of toolchain do that, and remove the
-  # TOOLCHAIN_RUN_DEPS installation from here.
-  # TODO(gitbuda): On the other side, having this here allows updating deps
-  # wihout reruning the build containers.
-  # TODO(gitbuda+deda): Make a decision on this, (deda thinks we should move this to the Dockerfiles to save on time)
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || /environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || /environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"

@@ -19,7 +19,6 @@ RUN git clone https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/amzn-2.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/amzn-2.sh install MEMGRAPH_BUILD_DEPS \
-    && pip3 install PyYAML \
     && cd .. && rm -rf memgraph
 
 # Create mg user and set as default
@@ -31,5 +30,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
 # Fix node
 RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash
+
+# Install PyYAML (only for amzn-2, centos-7, cento-9 and rocky-9)
+RUN pip3 install PyYAML
 
 ENTRYPOINT ["sleep", "infinity"]
