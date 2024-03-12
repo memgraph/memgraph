@@ -36,8 +36,13 @@ struct Edge {
 
   ~Edge() {
     // TODO: Don't want to do this here
-    ClearProperties();
+    if (!moved) ClearProperties();
   }
+
+  Edge(Edge &) = delete;
+  Edge &operator=(Edge &) = delete;
+  Edge(Edge &&) = default;
+  Edge &operator=(Edge &&) = delete;
 
   Gid gid;
 
@@ -47,21 +52,40 @@ struct Edge {
   bool deleted;
   // uint8_t PAD;
   // uint16_t PAD;
+  class HotFixMove {
+   public:
+    HotFixMove() {}
+    HotFixMove(HotFixMove &&other) noexcept {
+      if (this != &other) {
+        // We want only the latest object to be marked as not-moved; while all previous should be marked as moved
+        moved = false;
+        other.moved = true;
+      }
+    }
+    HotFixMove(HotFixMove &) = delete;
+    HotFixMove &operator=(HotFixMove &) = delete;
+    HotFixMove &operator=(HotFixMove &&) = delete;
+
+    operator bool() const { return moved; }
+
+   private:
+    bool moved{false};
+  } moved;
 
   Delta *delta;
 
-  // PSAPI Properties() { PDS::get(); }
+  Gid HotFixForGID() const { return Gid::FromUint(gid.AsUint() + (1 << 31)); }
 
   PropertyValue GetProperty(PropertyId property) const {
     if (deleted) return {};
-    const auto prop = PDS::get()->Get(gid, property);
+    const auto prop = PDS::get()->Get(HotFixForGID(), property);
     if (prop) return *prop;
     return {};
   }
 
   bool SetProperty(PropertyId property, const PropertyValue &value) {
     if (deleted) return {};
-    return PDS::get()->Set(gid, property, value);
+    return PDS::get()->Set(HotFixForGID(), property, value);
   }
 
   template <typename TContainer>
@@ -72,7 +96,7 @@ struct Edge {
       if (value.IsNull()) {
         continue;
       }
-      if (!pds->Set(gid, property, value)) {
+      if (!pds->Set(HotFixForGID(), property, value)) {
         return false;
       }
     }
@@ -81,12 +105,12 @@ struct Edge {
 
   void ClearProperties() {
     auto *pds = PDS::get();
-    pds->Clear(gid);
+    pds->Clear(HotFixForGID());
   }
 
   std::map<PropertyId, PropertyValue> Properties() {
     if (deleted) return {};
-    return PDS::get()->Get(gid);
+    return PDS::get()->Get(HotFixForGID());
   }
 
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
@@ -117,7 +141,7 @@ struct Edge {
 
   uint64_t PropertySize(PropertyId property) const {
     if (deleted) return {};
-    return PDS::get()->GetSize(gid, property);
+    return PDS::get()->GetSize(HotFixForGID(), property);
   }
 };
 

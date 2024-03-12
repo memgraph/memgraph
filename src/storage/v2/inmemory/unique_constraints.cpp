@@ -64,7 +64,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
 
     size_t i = 0;
     for (const auto &property : properties) {
-      current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, value_array[i]);
+      current_value_equal_to_value[i] = vertex.IsPropertyEqual(property, value_array[i]);
       property_array.values[i] = property;
       i++;
     }
@@ -155,7 +155,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
       // If delta we need to fetch for later processing
       size_t i = 0;
       for (const auto &property : properties) {
-        current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, values[i]);
+        current_value_equal_to_value[i] = vertex.IsPropertyEqual(property, values[i]);
         property_array.values[i] = property;
         i++;
       }
@@ -163,7 +163,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
       // otherwise do a short-circuiting check (we already know !deleted && has_label)
       size_t i = 0;
       for (const auto &property : properties) {
-        if (!vertex.properties.IsPropertyEqual(property, values[i])) return false;
+        if (!vertex.IsPropertyEqual(property, values[i])) return false;
         i++;
       }
       return true;
@@ -269,7 +269,7 @@ void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const T
     }
 
     for (auto &[props, storage] : constraint->second) {
-      auto values = vertex->properties.ExtractPropertyValues(props);
+      auto values = vertex->ExtractPropertyValues(props);
 
       if (!values) {
         continue;
@@ -334,7 +334,7 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::DoValidate(
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return std::nullopt;
   }
-  auto values = vertex.properties.ExtractPropertyValues(properties);
+  auto values = vertex.ExtractPropertyValues(properties);
   if (!values) {
     return std::nullopt;
   }
@@ -359,7 +359,7 @@ void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> vert
       }
 
       for (auto &[props, storage] : constraint->second) {
-        auto values = vertex->properties.ExtractPropertyValues(props);
+        auto values = vertex->ExtractPropertyValues(props);
 
         if (!values) {
           continue;
@@ -451,7 +451,7 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
     }
 
     for (const auto &[properties, storage] : constraint->second) {
-      auto value_array = vertex.properties.ExtractPropertyValues(properties);
+      auto value_array = vertex.ExtractPropertyValues(properties);
 
       if (!value_array) {
         continue;

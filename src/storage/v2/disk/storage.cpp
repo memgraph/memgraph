@@ -174,7 +174,7 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
 
 PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
   bool deleted = vertex.deleted;
-  PropertyValue value = vertex.properties.GetProperty(property);
+  PropertyValue value = vertex.GetProperty(property);
   Delta *delta = vertex.delta;
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
@@ -630,10 +630,11 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCac
       spdlog::trace("Loaded vertex with gid: {} from main index storage to label index", vertex.gid.ToString());
       uint64_t ts = utils::GetEarliestTimestamp(vertex.delta);
       /// TODO: here are doing serialization and then later deserialization again -> expensive
-      LoadVertexToLabelIndexCache(transaction, utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
-                                  utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels, vertex.properties),
-                                  CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
-                                  indexed_vertices->access());
+      // TODO: Re-enable
+      // LoadVertexToLabelIndexCache(transaction, utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
+      //                             utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels,
+      //                             vertex.properties), CreateDeleteDeserializedIndexObjectDelta(index_deltas,
+      //                             std::nullopt, ts), indexed_vertices->access());
     }
   }
   return gids;
@@ -680,10 +681,11 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
     gids.insert(vertex.gid);
     if (label_property_filter(vertex, label, property, view)) {
       uint64_t ts = utils::GetEarliestTimestamp(vertex.delta);
-      LoadVertexToLabelPropertyIndexCache(
-          transaction, utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
-          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
-          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts), indexed_vertices->access());
+      // TODO: Re-enable
+      // LoadVertexToLabelPropertyIndexCache(
+      //     transaction, utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
+      //     utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
+      //     CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts), indexed_vertices->access());
     }
   }
 
@@ -765,10 +767,11 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
     if (VertexHasLabel(vertex, label, transaction, view) &&
         IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
       uint64_t ts = utils::GetEarliestTimestamp(vertex.delta);
-      LoadVertexToLabelPropertyIndexCache(
-          transaction, utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
-          utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
-          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts), indexed_vertices->access());
+      // TODO: Re-enable
+      // LoadVertexToLabelPropertyIndexCache(
+      //     transaction, utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
+      //     utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
+      //     CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts), indexed_vertices->access());
     }
   }
   return gids;
@@ -1035,14 +1038,15 @@ bool DiskStorage::WriteVertexToVertexColumnFamily(Transaction *transaction, cons
   MG_ASSERT(transaction->commit_timestamp, "Writing vertex to disk but commit timestamp not set.");
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
   const auto ser_vertex = utils::SerializeVertex(vertex);
-  auto status = transaction->disk_transaction_->Put(kvstore_->vertex_chandle, ser_vertex,
-                                                    utils::SerializeProperties(vertex.properties));
-  if (status.ok()) {
-    spdlog::trace("rocksdb: Saved vertex with key {} and ts {} to vertex column family", ser_vertex, commit_ts);
-    return true;
-  }
-  spdlog::error("rocksdb: Failed to save vertex with key {} and ts {} to vertex column family", ser_vertex, commit_ts);
-  return false;
+  // TODO: Re-enable
+  // auto status = transaction->disk_transaction_->Put(kvstore_->vertex_chandle, ser_vertex,
+  //                                                   utils::SerializeProperties(vertex.properties));
+  // if (status.ok()) {
+  // spdlog::trace("rocksdb: Saved vertex with key {} and ts {} to vertex column family", ser_vertex, commit_ts);
+  return true;
+  // }
+  // spdlog::error("rocksdb: Failed to save vertex with key {} and ts {} to vertex column family", ser_vertex,
+  // commit_ts); return false;
 }
 
 bool DiskStorage::WriteEdgeToEdgeColumnFamily(Transaction *transaction, const std::string &serialized_edge_key,
@@ -1365,7 +1369,8 @@ VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
   it->labels = std::move(label_ids);
-  it->properties = std::move(properties);
+  // TODO: Re-enable
+  // it->properties = std::move(properties);
   delta->prev.Set(&*it);
   return {&*it, this, transaction};
 }

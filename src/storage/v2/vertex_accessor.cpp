@@ -265,7 +265,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   utils::AtomicMemoryBlock atomic_memory_block{
       [transaction = transaction_, vertex = vertex_, &value, &property, &current_value, skip_duplicate_write]() {
-        current_value = vertex->properties.GetProperty(property);
+        current_value = vertex->GetProperty(property);
         // We could skip setting the value if the previous one is the same to the new
         // one. This would save some memory as a delta would not be created as well as
         // avoid copying the value. The reason we are not doing that is because the
@@ -277,7 +277,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
         }
 
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
-        vertex->properties.SetProperty(property, value);
+        vertex->SetProperty(property, value);
 
         return false;
       }};
@@ -314,7 +314,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   bool result{false};
   utils::AtomicMemoryBlock atomic_memory_block{
       [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_]() {
-        if (!vertex->properties.InitProperties(properties)) {
+        if (!vertex->InitProperties(properties)) {
           result = false;
           return;
         }
@@ -351,11 +351,11 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   const bool skip_duplicate_update = storage_->config_.salient.items.delta_on_identical_property_update;
-  using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
+  using ReturnType = decltype(vertex_->UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock atomic_memory_block{[storage = storage_, transaction = transaction_, vertex = vertex_,
                                                 &properties, &id_old_new_change, skip_duplicate_update]() {
-    id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
+    id_old_new_change.emplace(vertex->UpdateProperties(properties));
     if (!id_old_new_change.has_value()) {
       return;
     }
@@ -372,7 +372,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
         }
       }
     }
-  }};
+  }};  // namespace memgraph::storage
   std::invoke(atomic_memory_block);
 
   return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
@@ -388,11 +388,11 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  using ReturnType = decltype(vertex_->properties.Properties());
+  using ReturnType = decltype(vertex_->Properties());
   std::optional<ReturnType> properties;
   utils::AtomicMemoryBlock atomic_memory_block{
       [storage = storage_, transaction = transaction_, vertex = vertex_, &properties]() {
-        properties.emplace(vertex->properties.Properties());
+        properties.emplace(vertex->Properties());
         if (!properties.has_value()) {
           return;
         }
@@ -404,7 +404,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
         if (transaction->constraint_verification_info) {
           transaction->constraint_verification_info->RemovedProperty(vertex);
         }
-        vertex->properties.ClearProperties();
+        vertex->ClearProperties();
       }};
   std::invoke(atomic_memory_block);
 
@@ -419,7 +419,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    value = vertex_->properties.GetProperty(property);
+    value = vertex_->GetProperty(property);
     delta = vertex_->delta;
   }
 
@@ -464,7 +464,7 @@ Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view)
     auto guard = std::shared_lock{vertex_->lock};
     Delta *delta = vertex_->delta;
     if (!delta) {
-      return vertex_->properties.PropertySize(property);
+      return vertex_->PropertySize(property);
     }
   }
 
@@ -487,7 +487,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    properties = vertex_->properties.Properties();
+    properties = vertex_->Properties();
     delta = vertex_->delta;
   }
 

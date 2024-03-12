@@ -141,11 +141,10 @@ class DeltaGenerator final {
     void SetProperty(memgraph::storage::Vertex *vertex, const std::string &property,
                      const memgraph::storage::PropertyValue &value) {
       auto property_id = memgraph::storage::PropertyId::FromUint(gen_->mapper_.NameToId(property));
-      auto &props = vertex->properties;
-      auto old_value = props.GetProperty(property_id);
+      auto old_value = vertex->GetProperty(property_id);
       memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::SetPropertyTag(),
                                             property_id, old_value);
-      props.SetProperty(property_id, value);
+      vertex->SetProperty(property_id, value);
       if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
       {
         memgraph::storage::durability::WalDeltaData data;
@@ -189,7 +188,7 @@ class DeltaGenerator final {
               ASSERT_NE(vertex, gen_->vertices_.end());
               auto property_id = memgraph::storage::PropertyId::FromUint(
                   gen_->mapper_.NameToId(data.vertex_edge_set_property.property));
-              data.vertex_edge_set_property.value = vertex->properties.GetProperty(property_id);
+              data.vertex_edge_set_property.value = vertex->GetProperty(property_id);
             }
             gen_->data_.emplace_back(commit_timestamp, data);
           }

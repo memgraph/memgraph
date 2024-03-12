@@ -626,7 +626,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
       // TODO (mferencevic): Mitigate the memory allocation introduced here
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
-      encoder->WritePropertyValue(vertex.properties.GetProperty(delta.property.key));
+      encoder->WritePropertyValue(vertex.GetProperty(delta.property.key));
       break;
     }
     case Delta::Action::ADD_LABEL:
@@ -882,7 +882,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.vertex_edge_set_property.property));
           auto &property_value = delta.vertex_edge_set_property.value;
 
-          vertex->properties.SetProperty(property_id, property_value);
+          vertex->SetProperty(property_id, property_value);
 
           break;
         }

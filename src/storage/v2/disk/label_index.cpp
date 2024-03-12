@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -90,12 +90,13 @@ bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_
     if (!utils::Contains(vertex.labels, index_label)) {
       continue;
     }
-    if (!disk_transaction
-             ->Put(utils::SerializeVertexAsKeyForLabelIndex(index_label, vertex.gid),
-                   utils::SerializeVertexAsValueForLabelIndex(index_label, vertex.labels, vertex.properties))
-             .ok()) {
-      return false;
-    }
+    // TODO: Re-enable
+    // if (!disk_transaction
+    //          ->Put(utils::SerializeVertexAsKeyForLabelIndex(index_label, vertex.gid),
+    //                utils::SerializeVertexAsValueForLabelIndex(index_label, vertex.labels, vertex.properties))
+    //          .ok()) {
+    //   return false;
+    // }
   }
 
   return CommitWithTimestamp(disk_transaction.get(), commit_timestamp);
