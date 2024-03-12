@@ -27,7 +27,7 @@
 namespace memgraph::storage {
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
+  Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), has_prop(false), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
                   delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
@@ -55,6 +55,7 @@ struct Vertex {
   bool deleted;
   // uint8_t PAD;
   // uint16_t PAD;
+  bool has_prop;
 
   class HotFixMove {
    public:
@@ -80,6 +81,7 @@ struct Vertex {
 
   PropertyValue GetProperty(PropertyId property) const {
     // if (deleted) return {};
+    if (!has_prop) return {};
     const auto prop = PDS::get()->Get(gid, property);
     if (prop) return *prop;
     return {};
@@ -87,21 +89,25 @@ struct Vertex {
 
   bool SetProperty(PropertyId property, const PropertyValue &value) {
     // if (deleted) return {};
+    has_prop = true;
     return PDS::get()->Set(gid, property, value);
   }
 
   bool HasProperty(PropertyId property) const {
     // if (deleted) return {};
+    if (!has_prop) return {};
     return PDS::get()->Has(gid, property);
   }
 
   bool HasAllProperties(const std::set<PropertyId> &properties) const {
     // if (deleted) return {};
+    if (!has_prop) return {};
     return std::all_of(properties.begin(), properties.end(), [this](const auto &prop) { return HasProperty(prop); });
   }
 
   bool IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
     // if (deleted) return {};
+    if (!has_prop) return value.IsNull();
     const auto val = GetProperty(property);
     return val == value;
   }
@@ -117,17 +123,20 @@ struct Vertex {
       if (!pds->Set(gid, property, value)) {
         return false;
       }
+      has_prop = true;
     }
     return true;
   }
 
   void ClearProperties() {
+    if (!has_prop) return;
     auto *pds = PDS::get();
     pds->Clear(gid);
   }
 
   std::map<PropertyId, PropertyValue> Properties() {
     // if (deleted) return {};
+    if (!has_prop) return {};
     return PDS::get()->Get(gid);
   }
 
@@ -159,11 +168,13 @@ struct Vertex {
 
   uint64_t PropertySize(PropertyId property) const {
     // if (deleted) return {};
+    if (!has_prop) return {};
     return PDS::get()->GetSize(gid, property);
   }
 
   std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const std::set<PropertyId> &properties) const {
     // if (deleted) return {};
+    if (!has_prop) return {};
     std::vector<PropertyValue> value_array;
     value_array.reserve(properties.size());
     for (const auto &prop : properties) {
