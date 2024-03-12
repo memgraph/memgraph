@@ -262,26 +262,26 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   PropertyValue current_value;
-  bool early_exit = false;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
-  utils::AtomicMemoryBlock atomic_memory_block{[transaction = transaction_, vertex = vertex_, &value, &property,
-                                                &current_value, skip_duplicate_write, &early_exit]() {
-    current_value = vertex->properties.GetProperty(property);
-    // We could skip setting the value if the previous one is the same to the new
-    // one. This would save some memory as a delta would not be created as well as
-    // avoid copying the value. The reason we are not doing that is because the
-    // current code always follows the logical pattern of "create a delta" and
-    // "modify in-place". Additionally, the created delta will make other
-    // transactions get a SERIALIZATION_ERROR.
-    if (skip_duplicate_write && current_value == value) {
-      early_exit = true;
-      return;
-    }
+  utils::AtomicMemoryBlock atomic_memory_block{
+      [transaction = transaction_, vertex = vertex_, &value, &property, &current_value, skip_duplicate_write]() {
+        current_value = vertex->properties.GetProperty(property);
+        // We could skip setting the value if the previous one is the same to the new
+        // one. This would save some memory as a delta would not be created as well as
+        // avoid copying the value. The reason we are not doing that is because the
+        // current code always follows the logical pattern of "create a delta" and
+        // "modify in-place". Additionally, the created delta will make other
+        // transactions get a SERIALIZATION_ERROR.
+        if (skip_duplicate_write && current_value == value) {
+          return true;
+        }
 
-    CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
-    vertex->properties.SetProperty(property, value);
-  }};
-  std::invoke(atomic_memory_block);
+        CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
+        vertex->properties.SetProperty(property, value);
+
+        return false;
+      }};
+  const bool early_exit = std::invoke(atomic_memory_block);
 
   if (early_exit) {
     return std::move(current_value);
