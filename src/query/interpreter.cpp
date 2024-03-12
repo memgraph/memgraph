@@ -1149,7 +1149,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
 auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
                     ExpressionVisitor<TypedValue> &evaluator)
-    -> std::optional<std::unordered_map<std::string, std::string>> {
+    -> std::optional<std::map<std::string, std::string, std::less<>>> {
   if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
         auto key_expr = entry.first->Accept(evaluator);
         auto value_expr = entry.second->Accept(evaluator);
@@ -1164,7 +1164,7 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
            auto value_expr = entry.second->Accept(evaluator);
            return std::pair{key_expr.ValueString(), value_expr.ValueString()};
          }) |
-         ranges::to<std::unordered_map<std::string, std::string>>;
+         ranges::to<std::map<std::string, std::string, std::less<>>>;
 }
 
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
@@ -1199,21 +1199,19 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Failed to parse config map!");
       }
 
-      // TODO: (andi) hide constants
-
       if (config_map->size() != 2) {
-        throw QueryRuntimeException(
-            "Config map must contain exactly 2 entries: 'bolt_server' and 'coordinator_server'!");
+        throw QueryRuntimeException("Config map must contain exactly 2 entries: {} and !", kCoordinatorServer,
+                                    kBoltServer);
       }
 
-      auto const &coordinator_server_it = config_map->find("coordinator_server");
+      auto const &coordinator_server_it = config_map->find(kCoordinatorServer);
       if (coordinator_server_it == config_map->end()) {
-        throw QueryRuntimeException("Config map must contain 'coordinator_server' entry!");
+        throw QueryRuntimeException("Config map must contain {} entry!", kCoordinatorServer);
       }
 
-      auto const &bolt_server_it = config_map->find("bolt_server");
+      auto const &bolt_server_it = config_map->find(kBoltServer);
       if (bolt_server_it == config_map->end()) {
-        throw QueryRuntimeException("Config map must contain 'bolt_server' entry!");
+        throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
       }
 
       auto coord_server_id = coordinator_query->coordinator_server_id_->Accept(evaluator).ValueInt();
@@ -1243,25 +1241,24 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Failed to parse config map!");
       }
 
-      // TODO: (andi) hide constants
       if (config_map->size() != 3) {
-        throw QueryRuntimeException(
-            "Config map must contain exactly 3 entries: 'bolt_server', 'management_server' and 'replication_server'!");
+        throw QueryRuntimeException("Config map must contain exactly 3 entries: {}, {} and {}!", kBoltServer,
+                                    kManagementServer, kReplicationServer);
       }
 
-      auto const &replication_server_it = config_map->find("replication_server");
+      auto const &replication_server_it = config_map->find(kReplicationServer);
       if (replication_server_it == config_map->end()) {
-        throw QueryRuntimeException("Config map must contain 'replication_server' entry!");
+        throw QueryRuntimeException("Config map must contain {} entry!", kReplicationServer);
       }
 
-      auto const &management_server_it = config_map->find("management_server");
+      auto const &management_server_it = config_map->find(kManagementServer);
       if (management_server_it == config_map->end()) {
-        throw QueryRuntimeException("Config map must contain 'management_server' entry!");
+        throw QueryRuntimeException("Config map must contain {} entry!", kManagementServer);
       }
 
-      auto const &bolt_server_it = config_map->find("bolt_server");
+      auto const &bolt_server_it = config_map->find(kBoltServer);
       if (bolt_server_it == config_map->end()) {
-        throw QueryRuntimeException("Config map must contain 'bolt_server' entry!");
+        throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
       }
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},

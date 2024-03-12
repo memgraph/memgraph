@@ -748,15 +748,6 @@ std::string_view ToString(const KafkaConfigKey key) {
   }
 }
 
-GENERATE_STREAM_CONFIG_KEY_ENUM(Coordinator, CONFIGS);
-
-std::string_view ToString(const CoordinatorConfigKey key) {
-  switch (key) {
-    case CoordinatorConfigKey::CONFIGS:
-      return "CONFIGS";
-  }
-}
-
 void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
   MapConfig<true, std::string>(memory, CommonStreamConfigKey::TRANSFORM, stream_query.transform_name_);
   MapConfig<false, Expression *>(memory, CommonStreamConfigKey::BATCH_INTERVAL, stream_query.batch_interval_);

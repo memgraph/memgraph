@@ -26,6 +26,11 @@
 
 namespace memgraph::query {
 
+constexpr std::string_view kBoltServer = "bolt_server";
+constexpr std::string_view kReplicationServer = "replication_server";
+constexpr std::string_view kCoordinatorServer = "coordinator_server";
+constexpr std::string_view kManagementServer = "management_server";
+
 struct LabelIx {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
