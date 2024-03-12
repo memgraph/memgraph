@@ -1802,7 +1802,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
   auto values = std::vector<TypedValue>(output_symbols.size());
   const auto stream_values = [&] {
-    for (auto const i : ranges::views::iota(0ul, output_symbols.size())) {
+    for (auto const i : ranges::views::iota(0UL, output_symbols.size())) {
       values[i] = frame_[output_symbols[i]];
     }
     stream->Result(values);
