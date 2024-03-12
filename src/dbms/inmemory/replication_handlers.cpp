@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// NOLINTBEGIN
 #include "dbms/inmemory/replication_handlers.hpp"
 #include <chrono>
 #include <optional>
@@ -34,7 +35,7 @@ using memgraph::storage::PropertyId;
 using memgraph::storage::UniqueConstraints;
 using memgraph::storage::View;
 using memgraph::storage::durability::WalDeltaData;
-// NOLINTBEGIN
+
 namespace memgraph::dbms {
 namespace {
 std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder) {
