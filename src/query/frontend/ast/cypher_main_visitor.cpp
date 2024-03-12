@@ -398,24 +398,17 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
 antlrcpp::Any CypherMainVisitor::visitRegisterInstanceOnCoordinator(
     MemgraphCypher::RegisterInstanceOnCoordinatorContext *ctx) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
-  if (!ctx->replicationSocketAddress()->literal()->StringLiteral()) {
-    throw SemanticException("Replication socket address should be a string literal!");
-  }
 
-  if (!ctx->coordinatorSocketAddress()->literal()->StringLiteral()) {
-    throw SemanticException("Coordinator socket address should be a string literal!");
-  }
   coordinator_query->action_ = CoordinatorQuery::Action::REGISTER_INSTANCE;
-  coordinator_query->replication_socket_address_ =
-      std::any_cast<Expression *>(ctx->replicationSocketAddress()->accept(this));
-  coordinator_query->coordinator_socket_address_ =
-      std::any_cast<Expression *>(ctx->coordinatorSocketAddress()->accept(this));
   coordinator_query->instance_name_ = std::any_cast<std::string>(ctx->instanceName()->symbolicName()->accept(this));
-  if (ctx->ASYNC()) {
-    coordinator_query->sync_mode_ = memgraph::query::CoordinatorQuery::SyncMode::ASYNC;
-  } else {
-    coordinator_query->sync_mode_ = memgraph::query::CoordinatorQuery::SyncMode::SYNC;
-  }
+  coordinator_query->configs_ =
+      std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
+  coordinator_query->sync_mode_ = [ctx]() {
+    if (ctx->ASYNC()) {
+      return CoordinatorQuery::SyncMode::ASYNC;
+    }
+    return CoordinatorQuery::SyncMode::SYNC;
+  }();
 
   return coordinator_query;
 }
@@ -431,17 +424,10 @@ antlrcpp::Any CypherMainVisitor::visitUnregisterInstanceOnCoordinator(
 antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::AddCoordinatorInstanceContext *ctx) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
 
-  if (!ctx->raftSocketAddress()->literal()->StringLiteral()) {
-    throw SemanticException("Raft socket address should be a string literal!");
-  }
-
-  if (!ctx->raftServerId()->literal()->numberLiteral()) {
-    throw SemanticException("Raft server id should be a number literal!");
-  }
-
   coordinator_query->action_ = CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE;
-  coordinator_query->raft_socket_address_ = std::any_cast<Expression *>(ctx->raftSocketAddress()->accept(this));
-  coordinator_query->raft_server_id_ = std::any_cast<Expression *>(ctx->raftServerId()->accept(this));
+  coordinator_query->coordinator_server_id_ = std::any_cast<Expression *>(ctx->coordinatorServerId()->accept(this));
+  coordinator_query->configs_ =
+      std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
 
   return coordinator_query;
 }
@@ -759,6 +745,15 @@ std::string_view ToString(const KafkaConfigKey key) {
       return "CONFIGS";
     case KafkaConfigKey::CREDENTIALS:
       return "CREDENTIALS";
+  }
+}
+
+GENERATE_STREAM_CONFIG_KEY_ENUM(Coordinator, CONFIGS);
+
+std::string_view ToString(const CoordinatorConfigKey key) {
+  switch (key) {
+    case CoordinatorConfigKey::CONFIGS:
+      return "CONFIGS";
   }
 }
 

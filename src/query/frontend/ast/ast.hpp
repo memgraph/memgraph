@@ -3140,24 +3140,21 @@ class CoordinatorQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::CoordinatorQuery::Action action_;
-  std::string instance_name_;
-  memgraph::query::Expression *replication_socket_address_{nullptr};
-  memgraph::query::Expression *coordinator_socket_address_{nullptr};
-  memgraph::query::Expression *raft_socket_address_{nullptr};
-  memgraph::query::Expression *raft_server_id_{nullptr};
+  std::string instance_name_{};
+  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
+  memgraph::query::Expression *coordinator_server_id_{nullptr};
   memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
 
   CoordinatorQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CoordinatorQuery>();
+
     object->action_ = action_;
     object->instance_name_ = instance_name_;
-    object->replication_socket_address_ =
-        replication_socket_address_ ? replication_socket_address_->Clone(storage) : nullptr;
+    object->coordinator_server_id_ = coordinator_server_id_ ? coordinator_server_id_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
-    object->coordinator_socket_address_ =
-        coordinator_socket_address_ ? coordinator_socket_address_->Clone(storage) : nullptr;
-    object->raft_socket_address_ = raft_socket_address_ ? raft_socket_address_->Clone(storage) : nullptr;
-    object->raft_server_id_ = raft_server_id_ ? raft_server_id_->Clone(storage) : nullptr;
+    for (const auto &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
 
     return object;
   }

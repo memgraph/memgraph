@@ -1146,6 +1146,27 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 }
 
 #ifdef MG_ENTERPRISE
+
+auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
+                    ExpressionVisitor<TypedValue> &evaluator)
+    -> std::optional<std::unordered_map<std::string, std::string>> {
+  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
+        auto key_expr = entry.first->Accept(evaluator);
+        auto value_expr = entry.second->Accept(evaluator);
+        return !key_expr.IsString() || !value_expr.IsString();
+      })) {
+    spdlog::error("Config map must contain only string keys and values!");
+    return std::nullopt;
+  }
+
+  return ranges::views::all(config_map) | ranges::views::transform([&evaluator](const auto &entry) {
+           auto key_expr = entry.first->Accept(evaluator);
+           auto value_expr = entry.second->Accept(evaluator);
+           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
+         }) |
+         ranges::to<std::unordered_map<std::string, std::string>>;
+}
+
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
                                 const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
@@ -1173,17 +1194,39 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
-      auto raft_socket_address_tv = coordinator_query->raft_socket_address_->Accept(evaluator);
-      auto raft_server_id_tv = coordinator_query->raft_server_id_->Accept(evaluator);
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, raft_socket_address_tv,
-                     raft_server_id_tv]() mutable {
-        handler.AddCoordinatorInstance(raft_server_id_tv.ValueInt(), std::string(raft_socket_address_tv.ValueString()));
+      auto config_map = ParseConfigMap(coordinator_query->configs_, evaluator);
+      if (!config_map) {
+        throw QueryRuntimeException("Failed to parse config map!");
+      }
+
+      // TODO: (andi) hide constants
+
+      if (config_map->size() != 2) {
+        throw QueryRuntimeException(
+            "Config map must contain exactly 2 entries: 'bolt_server' and 'coordinator_server'!");
+      }
+
+      auto const &coordinator_server_it = config_map->find("coordinator_server");
+      if (coordinator_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain 'coordinator_server' entry!");
+      }
+
+      auto const &bolt_server_it = config_map->find("bolt_server");
+      if (bolt_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain 'bolt_server' entry!");
+      }
+
+      auto coord_server_id = coordinator_query->coordinator_server_id_->Accept(evaluator).ValueInt();
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id,
+                     coordinator_server = coordinator_server_it->second]() mutable {
+        handler.AddCoordinatorInstance(coord_server_id, coordinator_server);
         return std::vector<std::vector<TypedValue>>();
       };
 
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::ADD_COORDINATOR_INSTANCE,
                                   fmt::format("Coordinator has added instance {} on coordinator server {}.",
-                                              coordinator_query->instance_name_, raft_socket_address_tv.ValueString()));
+                                              coordinator_query->instance_name_, coordinator_server_it->second));
       return callback;
     }
     case CoordinatorQuery::Action::REGISTER_INSTANCE: {
@@ -1194,27 +1237,50 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       // the argument to Callback.
       EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      auto config_map = ParseConfigMap(coordinator_query->configs_, evaluator);
 
-      auto coordinator_socket_address_tv = coordinator_query->coordinator_socket_address_->Accept(evaluator);
-      auto replication_socket_address_tv = coordinator_query->replication_socket_address_->Accept(evaluator);
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coordinator_socket_address_tv,
-                     replication_socket_address_tv,
+      if (!config_map) {
+        throw QueryRuntimeException("Failed to parse config map!");
+      }
+
+      // TODO: (andi) hide constants
+      if (config_map->size() != 3) {
+        throw QueryRuntimeException(
+            "Config map must contain exactly 3 entries: 'bolt_server', 'management_server' and 'replication_server'!");
+      }
+
+      auto const &replication_server_it = config_map->find("replication_server");
+      if (replication_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain 'replication_server' entry!");
+      }
+
+      auto const &management_server_it = config_map->find("management_server");
+      if (management_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain 'management_server' entry!");
+      }
+
+      auto const &bolt_server_it = config_map->find("bolt_server");
+      if (bolt_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain 'bolt_server' entry!");
+      }
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      instance_health_check_frequency_sec = config.instance_health_check_frequency_sec,
+                     management_server = management_server_it->second,
+                     replication_server = replication_server_it->second, bolt_server = bolt_server_it->second,
                      instance_name = coordinator_query->instance_name_,
                      instance_down_timeout_sec = config.instance_down_timeout_sec,
                      instance_get_uuid_frequency_sec = config.instance_get_uuid_frequency_sec,
                      sync_mode = coordinator_query->sync_mode_]() mutable {
-        handler.RegisterReplicationInstance(std::string(coordinator_socket_address_tv.ValueString()),
-                                            std::string(replication_socket_address_tv.ValueString()),
-                                            instance_health_check_frequency_sec, instance_down_timeout_sec,
-                                            instance_get_uuid_frequency_sec, instance_name, sync_mode);
+        handler.RegisterReplicationInstance(management_server, replication_server, instance_health_check_frequency_sec,
+                                            instance_down_timeout_sec, instance_get_uuid_frequency_sec, instance_name,
+                                            sync_mode);
         return std::vector<std::vector<TypedValue>>();
       };
 
-      notifications->emplace_back(
-          SeverityLevel::INFO, NotificationCode::REGISTER_REPLICATION_INSTANCE,
-          fmt::format("Coordinator has registered coordinator server on {} for instance {}.",
-                      coordinator_socket_address_tv.ValueString(), coordinator_query->instance_name_));
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICATION_INSTANCE,
+                                  fmt::format("Coordinator has registered replication instance on {} for instance {}.",
+                                              bolt_server_it->second, coordinator_query->instance_name_));
       return callback;
     }
     case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
