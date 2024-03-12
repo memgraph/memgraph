@@ -16,7 +16,7 @@ SUPPORTED_OS=(
     centos-7 centos-9
     debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-36 fedora-38 fedora-39
-    rocky-9
+    rocky-9.3
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
 )
 DEFAULT_BUILD_TYPE="Release"

@@ -33,7 +33,7 @@ on:
           - fedora-36
           - fedora-38
           - fedora-39
-          - rocky-9
+          - rocky-9.3
           - ubuntu-18.04
           - ubuntu-20.04
           - ubuntu-22.04
@@ -221,11 +221,11 @@ jobs:
       timeout_minutes: 60
     secrets: inherit
 
-  RockyLinux9:
-    if: ${{ (github.event.inputs.target_os == 'rocky-9' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+  RockyLinux9_3:
+    if: ${{ (github.event.inputs.target_os == 'rocky-9.3' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
-      os: "rocky-9"
+      os: "rocky-9.3"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       runner_arch_label: "X64"
