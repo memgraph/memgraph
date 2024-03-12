@@ -48,6 +48,7 @@
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 #include "range/v3/all.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -179,6 +180,20 @@ inline void AbortCheck(ExecutionContext const &context) {
   if (auto const reason = MustAbort(context); reason != AbortReason::NO_ABORT) throw HintedAbortError(reason);
 }
 
+std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType> &labels,
+                                             ExpressionEvaluator &evaluator, DbAccessor *dba) {
+  std::vector<storage::LabelId> result;
+  result.reserve(labels.size());
+  for (const auto &label : labels) {
+    if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
+      result.emplace_back(*label_atom);
+    } else {
+      result.emplace_back(dba->NameToLabel(std::get<Expression *>(label)->Accept(evaluator).ValueString()));
+    }
+  }
+  return result;
+}
+
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -214,12 +229,13 @@ CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeCreati
 
 // Creates a vertex on this GraphDb. Returns a reference to vertex placed on the
 // frame.
-VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context) {
+VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context,
+                                  std::vector<storage::LabelId> &labels, ExpressionEvaluator &evaluator) {
   auto &dba = *context.db_accessor;
   auto new_node = dba.InsertVertex();
   context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
-  for (auto label : node_info.labels) {
-    auto maybe_error = new_node.AddLabel(label);
+  for (const auto &label : labels) {
+    auto maybe_error = std::invoke([&] { return new_node.AddLabel(label); });
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
@@ -234,10 +250,6 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
     }
     context.execution_stats[ExecutionStats::Key::CREATED_LABELS] += 1;
   }
-  // Evaluator should use the latest accessors, as modified in this query, when
-  // setting properties on new nodes.
-  ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                storage::View::NEW);
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
   std::map<storage::PropertyId, storage::PropertyValue> properties;
@@ -277,16 +289,21 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("CreateNode");
-#ifdef MG_ENTERPRISE
-  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(self_.node_info_.labels,
-                                 memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-    throw QueryRuntimeException("Vertex not created due to not having enough permission!");
-  }
-#endif
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
 
   if (input_cursor_->Pull(frame, context)) {
-    auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+    // we have to resolve the labels before we can check for permissions
+    auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
+
+#ifdef MG_ENTERPRISE
+    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      throw QueryRuntimeException("Vertex not created due to not having enough permission!");
+    }
+#endif
+
+    auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
@@ -370,6 +387,9 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   if (!input_cursor_->Pull(frame, context)) return false;
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
+  auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast()) {
@@ -381,7 +401,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
     if (context.auth_checker &&
         !(context.auth_checker->Has(self_.edge_info_.edge_type,
                                     memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
-          context.auth_checker->Has(self_.node_info_.labels, fine_grained_permission))) {
+          context.auth_checker->Has(labels, fine_grained_permission))) {
       throw QueryRuntimeException("Edge not created due to not having enough permission!");
     }
   }
@@ -391,14 +411,8 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &v1 = vertex_value.ValueVertex();
 
-  // Similarly to CreateNode, newly created edges and nodes should use the
-  // storage::View::NEW.
-  // E.g. we pickup new properties: `CREATE (n {p: 42}) -[:r {ep: n.p}]-> ()`
-  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                storage::View::NEW);
-
   // get the destination vertex (possibly an existing node)
-  auto &v2 = OtherVertex(frame, context);
+  auto &v2 = OtherVertex(frame, context, labels, evaluator);
 
   // create an edge between the two nodes
   auto *dba = context.db_accessor;
@@ -429,13 +443,15 @@ void CreateExpand::CreateExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void CreateExpand::CreateExpandCursor::Reset() { input_cursor_->Reset(); }
 
-VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, ExecutionContext &context) {
+VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, ExecutionContext &context,
+                                                              std::vector<storage::LabelId> &labels,
+                                                              ExpressionEvaluator &evaluator) {
   if (self_.existing_node_) {
     TypedValue &dest_node_value = frame[self_.node_info_.symbol];
     ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.ValueVertex();
   } else {
-    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
@@ -3208,8 +3224,8 @@ void SetProperties::SetPropertiesCursor::Shutdown() { input_cursor_->Shutdown();
 void SetProperties::SetPropertiesCursor::Reset() { input_cursor_->Reset(); }
 
 SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                     const std::vector<storage::LabelId> &labels)
-    : input_(input), input_symbol_(std::move(input_symbol)), labels_(labels) {}
+                     std::vector<StorageLabelType> labels)
+    : input_(input), input_symbol_(std::move(input_symbol)), labels_(std::move(labels)) {}
 
 ACCEPT_WITH_INPUT(SetLabels)
 
@@ -3229,15 +3245,17 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetLabels");
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
+  if (!input_cursor_->Pull(frame, context)) return false;
+  auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(self_.labels_, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
   }
 #endif
-
-  if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
   // Skip setting labels on Null (can occur in optional match).
@@ -3253,7 +3271,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 #endif
 
-  for (auto label : self_.labels_) {
+  for (auto label : labels) {
     auto maybe_value = vertex.AddLabel(label);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
@@ -3368,8 +3386,8 @@ void RemoveProperty::RemovePropertyCursor::Shutdown() { input_cursor_->Shutdown(
 void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                           const std::vector<storage::LabelId> &labels)
-    : input_(input), input_symbol_(std::move(input_symbol)), labels_(labels) {}
+                           std::vector<StorageLabelType> labels)
+    : input_(input), input_symbol_(std::move(input_symbol)), labels_(std::move(labels)) {}
 
 ACCEPT_WITH_INPUT(RemoveLabels)
 
@@ -3389,15 +3407,17 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveLabels");
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
+  if (!input_cursor_->Pull(frame, context)) return false;
+  auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(self_.labels_, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
   }
 #endif
-
-  if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
   // Skip removing labels on Null (can occur in optional match).
@@ -3413,7 +3433,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   }
 #endif
 
-  for (auto label : self_.labels_) {
+  for (auto label : labels) {
     auto maybe_value = vertex.RemoveLabel(label);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
