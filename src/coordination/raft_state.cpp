@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 #include <chrono>
 
+#include <spdlog/spdlog.h>
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/raft_state.hpp"

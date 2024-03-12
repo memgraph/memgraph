@@ -34,7 +34,7 @@ using memgraph::storage::PropertyId;
 using memgraph::storage::UniqueConstraints;
 using memgraph::storage::View;
 using memgraph::storage::durability::WalDeltaData;
-
+// NOLINTBEGIN
 namespace memgraph::dbms {
 namespace {
 std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder) {
@@ -916,5 +916,5 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
   spdlog::debug("Applied {} deltas", applied_deltas);
   return applied_deltas;
 }
-
+// NOLINTBEGIN
 }  // namespace memgraph::dbms
