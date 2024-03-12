@@ -162,12 +162,10 @@ Pool::Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *ch
 Pool::~Pool() {
   if (!chunks_.empty()) {
     auto *resource = GetUpstreamResource();
-    if (!dynamic_cast<MonotonicBufferResource *>(resource)) {
-      auto const dataSize = blocks_per_chunk_ * block_size_;
-      auto const alignment = Ceil2(block_size_);
-      for (auto &chunk : chunks_) {
-        resource->Deallocate(chunk.raw_data, dataSize, alignment);
-      }
+    auto const dataSize = blocks_per_chunk_ * block_size_;
+    auto const alignment = Ceil2(block_size_);
+    for (auto &chunk : chunks_) {
+      resource->Deallocate(chunk.raw_data, dataSize, alignment);
     }
     chunks_.clear();
   }
