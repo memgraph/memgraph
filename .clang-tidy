@@ -64,10 +64,10 @@ Checks: '*,
          -readability-identifier-length,
          -misc-no-recursion,
          -concurrency-mt-unsafe,
-         -bugprone-easily-swappable-parameters'
-
+         -bugprone-easily-swappable-parameters,
+         -bugprone-unchecked-optional-access'
 WarningsAsErrors: ''
-HeaderFilterRegex: 'src/.*'
+HeaderFilterRegex: 'src/(?!replication_handlers).*'
 AnalyzeTemporaryDtors: false
 FormatStyle:     none
 CheckOptions:

@@ -61,6 +61,8 @@ def run_tidy(task_queue, lock, timeout, exit_status, running_processes):
 
         proc = None
         try:
+            sys.stderr.write(": ".join(command))
+            sys.stderr.flush()
             proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             with lock:
                 running_processes.add(proc)
@@ -250,8 +252,9 @@ def main():
         common_clang_tidy_args.append("-extra-arg=%s" % arg)
     for arg in args.extra_arg_before:
         common_clang_tidy_args.append("-extra-arg-before=%s" % arg)
-
+    print(common_clang_tidy_args)
     for name in lines_by_file:
+        print(name)
         line_filter_json = json.dumps([{"name": name, "lines": lines_by_file[name]}], separators=(",", ":"))
 
         # Run clang-tidy on files containing changes.
@@ -266,7 +269,7 @@ def main():
         command.extend(common_clang_tidy_args)
         command.append(name)
         command.extend(clang_tidy_args)
-
+        print(command)
         task_queue.put(command)
 
     # Wait for all threads to be done.
