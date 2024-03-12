@@ -433,3 +433,21 @@ Feature: Merge feature
             MERGE ()-[:TYPE {id:null}]->()
             """
         Then an error should be raised
+
+    Scenario: Merge node with unwind with null property error
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, null, 3] as x
+            MERGE ({id: x})
+            """
+        Then an error should be raised
+
+    Scenario: Merge edge with unwind with null property error
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, null, 3] as x
+            MERGE ()-[:TYPE {id:x}]->()
+            """
+        Then an error should be raised

@@ -745,14 +745,6 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
   return true;
 }
 
-bool SymbolGenerator::Visit(PrimitiveLiteral &primitive_literal) {
-  auto &scope = scopes_.back();
-  if (scope.in_merge && primitive_literal.value_.IsNull()) {
-    throw SemanticException("Cannot merge node or relationship entity because of null property value!");
-  }
-  return true;
-}
-
 bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) { return true; }
 
 void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<Identifier *> &identifiers) {

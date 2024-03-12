@@ -4297,6 +4297,9 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Merge");
 
+  context.evaluation_context.scope.in_merge = true;
+  memgraph::utils::OnScopeExit merge_exit([&] { context.evaluation_context.scope.in_merge = false; });
+
   while (true) {
     if (pull_input_) {
       if (input_cursor_->Pull(frame, context)) {
