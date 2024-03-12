@@ -1044,7 +1044,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 const auto &properties = index_stats.property_label.l2p.find(current->label.value);
                 if (properties != index_stats.property_label.l2p.end()) {
                   for (const auto &property : properties->second) {
-                    auto current_value = vertex->properties.GetProperty(property);
+                    auto current_value = vertex->GetProperty(property);
                     if (!current_value.IsNull()) {
                       label_property_cleanup[current->label.value].emplace_back(std::move(current_value), vertex);
                     }
@@ -1065,13 +1065,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 //  value
                 const auto &labels = index_stats.property_label.p2l.find(current->property.key);
                 if (labels != index_stats.property_label.p2l.end()) {
-                  auto current_value = vertex->properties.GetProperty(current->property.key);
+                  auto current_value = vertex->GetProperty(current->property.key);
                   if (!current_value.IsNull()) {
                     property_cleanup[current->property.key].emplace_back(std::move(current_value), vertex);
                   }
                 }
                 // Setting the correct value
-                vertex->properties.SetProperty(current->property.key, *current->property.value);
+                vertex->SetProperty(current->property.key, *current->property.value);
                 break;
               }
               case Delta::Action::ADD_IN_EDGE: {

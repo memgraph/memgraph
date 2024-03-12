@@ -90,7 +90,7 @@ void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *v
     if (label_prop.first != added_label) {
       continue;
     }
-    auto prop_value = vertex_after_update->properties.GetProperty(label_prop.second);
+    auto prop_value = vertex_after_update->GetProperty(label_prop.second);
     if (!prop_value.IsNull()) {
       auto acc = storage.access();
       acc.insert(Entry{std::move(prop_value), vertex_after_update, tx.start_timestamp});
