@@ -769,7 +769,7 @@ bool PlanToJsonVisitor::PreVisit(OrderBy &op) {
 
   for (auto i = 0; i < op.order_by_.size(); ++i) {
     json json;
-    json["ordering"] = ToString(op.compare_.ordering_[i]);
+    json["ordering"] = ToString(op.compare_.orderings()[i].ordering());
     json["expression"] = ToJson(op.order_by_[i]);
     self["order_by"].push_back(json);
   }
