@@ -74,7 +74,7 @@ class DeltaGenerator final {
     explicit Transaction(DeltaGenerator *gen)
         : gen_(gen),
           transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-                       gen->storage_mode_, false) {}
+                       gen->storage_mode_, false, false) {}
 
    public:
     memgraph::storage::Vertex *CreateVertex() {
