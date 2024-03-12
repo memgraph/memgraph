@@ -68,7 +68,7 @@ jobs:
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
-          run
+          run --pull
 
       - name: "Build Memgraph binaries"
         run: |

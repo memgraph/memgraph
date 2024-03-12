@@ -50,7 +50,7 @@ print_help () {
 
   echo -e "\nCommands:"
   echo -e "  build                         Build mgbuild image"
-  echo -e "  run                           Run mgbuild container"
+  echo -e "  run [OPTIONS]                 Run mgbuild container"
   echo -e "  stop [OPTIONS]                Stop mgbuild container"
   echo -e "  pull                          Pull mgbuild image from dockerhub"
   echo -e "  push OPTIONS                  Push mgbuild image to dockerhub"
@@ -76,6 +76,9 @@ print_help () {
   echo -e "  --init-only                   Only run init script"
   echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
   echo -e "  --for-platform                Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM to cmake"
+
+  echo -e "\nrun options:"
+  echo -e "  --pull                        Pull the mgbuild image before running"
 
   echo -e "\nstop options:"
   echo -e "  --remove                      Remove the stopped mgbuild container"
@@ -503,9 +506,24 @@ case $command in
     ;;
     run)
       cd $SCRIPT_DIR
+      pull=false
+      if [[ "$#" -gt 0 ]]; then
+        if [[ "$1" == "--pull" ]]; then
+          pull=true
+        else
+          echo "Error: Unknown flag '$1'"
+          exit 1
+        fi
+      fi
       if [[ "$os" == "all" ]]; then
+        if [[ "$pull" == "true" ]]; then
+          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures
+        fi
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d
       else
+        if [[ "$pull" == "true" ]]; then
+          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull mgbuild_${toolchain_version}_${os}
+        fi
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d mgbuild_${toolchain_version}_${os}
       fi
     ;;

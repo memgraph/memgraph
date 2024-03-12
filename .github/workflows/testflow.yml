@@ -39,7 +39,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --pull
 
       - name: Build release binaries
         run: |
@@ -97,7 +97,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --pull
 
         # This is also needed if we want do to comparison against other branches
         # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
@@ -216,7 +216,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --pull
 
       - name: Build release binaries
         run: |
@@ -313,7 +313,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --pull
 
       - name: Build release binaries
         run: |
@@ -476,7 +476,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --pull
 
       - name: Build release binaries
         run: |
@@ -548,7 +548,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run
+          run --pull
 
       - name: Build release binaries
         run: |
