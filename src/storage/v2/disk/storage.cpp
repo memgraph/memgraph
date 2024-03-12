@@ -1046,15 +1046,15 @@ bool DiskStorage::WriteEdgeToEdgeColumnFamily(Transaction *transaction, const st
 
   rocksdb::ReadOptions read_options;
   std::string tmp_value;
-  rocksdb::Status status_read_src =
-      transaction->disk_transaction_->GetForUpdate(read_options, utils::SerializeVertex(*src_vertex), &tmp_value);
+  rocksdb::Status status_read_src = transaction->disk_transaction_->GetForUpdate(
+      read_options, kvstore_->vertex_chandle, utils::SerializeVertex(*src_vertex), &tmp_value);
   if (!status_read_src.ok()) {
     spdlog::error("rocksdb: Failed to save edge {} with ts {} to edge column family, modified src vertex",
                   serialized_edge_key, commit_ts);
     return false;
   }
-  rocksdb::Status status_read_dst =
-      transaction->disk_transaction_->GetForUpdate(read_options, utils::SerializeVertex(*dst_vertex), &tmp_value);
+  rocksdb::Status status_read_dst = transaction->disk_transaction_->GetForUpdate(
+      read_options, kvstore_->vertex_chandle, utils::SerializeVertex(*dst_vertex), &tmp_value);
   if (!status_read_dst.ok()) {
     spdlog::error("rocksdb: Failed to save edge {} with ts {} to edge column family, modified dst vertex",
                   serialized_edge_key, commit_ts);
