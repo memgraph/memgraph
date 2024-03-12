@@ -118,7 +118,7 @@ jobs:
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
       additional_build_args: "--for-platform"
-      artifact_name: "debian11-platform"
+      artifact_name: "debian-11-platform"
     secrets: inherit
 
   Debian11-docker:
@@ -132,7 +132,7 @@ jobs:
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
       additional_build_args: "--for-docker"
-      artifact_name: "debian11-docker"
+      artifact_name: "debian-11-docker"
     secrets: inherit
 
   # Debian11-arm:
@@ -158,7 +158,7 @@ jobs:
   #     build_type: ${{ github.event.inputs.build_type }}
   #     timeout_minutes: 120
   #     additional_build_args: "--for-docker"
-  #     artifact_name: "debian11-arm-docker"
+  #     artifact_name: "debian-11-arm-docker"
   #   secrets: inherit
 
   Debian12:

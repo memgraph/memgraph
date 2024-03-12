@@ -479,9 +479,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if docker compose version > /dev/null; then
+if docker compose version > /dev/null 2>&1; then
   docker_compose_cmd="docker compose"
-elif which docker-compose > /dev/null; then
+elif which docker-compose > /dev/null 2>&1; then
   docker_compose_cmd="docker-compose"
 else
   echo -e "Missing command: There has to be installed either 'docker-compose' or 'docker compose'"
