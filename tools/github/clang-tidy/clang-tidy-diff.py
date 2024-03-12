@@ -61,8 +61,6 @@ def run_tidy(task_queue, lock, timeout, exit_status, running_processes):
 
         proc = None
         try:
-            sys.stderr.write(": ".join(command))
-            sys.stderr.flush()
             proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             with lock:
                 running_processes.add(proc)
