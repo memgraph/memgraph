@@ -162,6 +162,12 @@ install() {
             fi
             continue
         fi
+        if [ "$pkg" == doxygen ]; then
+            if ! dnf list installed doxygen >/dev/null 2>/dev/null; then
+                dnf install -y https://dl.rockylinux.org/pub/rocky/9/CRB/x86_64/os/Packages/d/doxygen-1.9.1-11.el9.x86_64.rpm
+            fi
+            continue
+        fi
         if [ "$pkg" == PyYAML ]; then
             if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
                 pip3 install --user PyYAML
