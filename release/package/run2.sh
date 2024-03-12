@@ -518,11 +518,15 @@ case $command in
       if [[ "$os" == "all" ]]; then
         if [[ "$pull" == "true" ]]; then
           $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures
+        elif [[ "$docker_compose_cmd" == "docker compose" ]]; then
+            $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures --policy missing
         fi
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d
       else
         if [[ "$pull" == "true" ]]; then
           $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull mgbuild_${toolchain_version}_${os}
+        elif ! docker image inspect memgraph/mgbuild:${toolchain_version}_${os} > /dev/null 2>&1; then
+          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures mgbuild_${toolchain_version}_${os}
         fi
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d mgbuild_${toolchain_version}_${os}
       fi
