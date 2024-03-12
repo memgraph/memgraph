@@ -1737,15 +1737,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
 
-  const auto stream_values = [&]() {
-    // TODO: The streamed values should also probably use the above memory.
-    std::vector<TypedValue> values;
-    values.reserve(output_symbols.size());
-
-    for (const auto &symbol : output_symbols) {
-      values.emplace_back(frame_[symbol]);
+  auto values = std::vector<TypedValue>(output_symbols.size());
+  const auto stream_values = [&] {
+    for (auto const i : ranges::views::iota(0ul, output_symbols.size())) {
+      values[i] = frame_[output_symbols[i]];
     }
-
     stream->Result(values);
   };
 
