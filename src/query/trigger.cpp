@@ -435,11 +435,11 @@ void TriggerStore::DropTrigger(const std::string &name) {
 void TriggerStore::DropAll() {
   std::unique_lock store_guard{store_lock_};
   std::vector<std::string> trigger_names{};
-  for (auto &[name, trigger_data] : storage_) {
+  for (auto const &[name, trigger_data] : storage_) {
     trigger_names.push_back(name);
   }
 
-  for (const auto &trigger_name : trigger_names) {
+  for (auto const &trigger_name : trigger_names) {
     storage_.Delete(trigger_name);
   }
 

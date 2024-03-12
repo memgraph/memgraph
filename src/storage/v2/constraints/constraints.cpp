@@ -36,7 +36,7 @@ void Constraints::AbortEntries(std::span<Vertex const *const> vertices, uint64_t
 
 void Constraints::DropGraphClearConstraints() const {
   static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->DropGraphClearConstraints();
-  existence_constraints_.get()->DropGraphClearConstraints();
+  existence_constraints_->DropGraphClearConstraints();
 }
 
 }  // namespace memgraph::storage

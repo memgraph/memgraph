@@ -341,7 +341,7 @@ antlrcpp::Any CypherMainVisitor::visitEdgeImportModeQuery(MemgraphCypher::EdgeIm
   return edge_import_mode_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitDropGraphQuery(MemgraphCypher::DropGraphQueryContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitDropGraphQuery(MemgraphCypher::DropGraphQueryContext * /*ctx*/) {
   auto *drop_graph_query = storage_->Create<DropGraphQuery>();
   query_ = drop_graph_query;
   return drop_graph_query;

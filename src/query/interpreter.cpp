@@ -3268,10 +3268,10 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db) {
     }
     storage->DropGraph();
 
-    auto trigger_store = db->trigger_store();
+    auto *trigger_store = db->trigger_store();
     trigger_store->DropAll();
 
-    auto streams = db->streams();
+    auto *streams = db->streams();
     streams->DropAll();
 
     return std::vector<std::vector<TypedValue>>();
