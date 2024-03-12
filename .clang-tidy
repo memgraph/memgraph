@@ -67,7 +67,7 @@ Checks: '*,
          -bugprone-easily-swappable-parameters,
          -bugprone-unchecked-optional-access'
 WarningsAsErrors: ''
-HeaderFilterRegex: 'src/(?!replication_handlers).*'
+HeaderFilterRegex: 'src/.*'
 AnalyzeTemporaryDtors: false
 FormatStyle:     none
 CheckOptions:
