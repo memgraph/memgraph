@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include <fmt/format.h>
 #include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
@@ -188,7 +189,7 @@ class PropertyValue {
     return map_v.val_;
   }
 
-  std::string ToString() const {
+  [[nodiscard]] inline std::string ToString() const {
     switch (type_) {
       case Type::Null:
         return "null";

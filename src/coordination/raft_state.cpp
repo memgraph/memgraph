@@ -11,10 +11,15 @@
 
 #ifdef MG_ENTERPRISE
 #include <chrono>
+#include <type_traits>
 
+#include <libnuraft/nuraft.hxx>
 #include "coordination/coordinator_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/raft_state.hpp"
+#include "nuraft/coordinator_state_machine.hpp"
+#include "nuraft/coordinator_state_manager.hpp"
+#include "spdlog/spdlog.h"
 #include "utils/counter.hpp"
 
 namespace memgraph::coordination {
@@ -30,9 +35,8 @@ using nuraft::raft_server;
 using nuraft::srv_config;
 using raft_result = cmd_result<ptr<buffer>>;
 
-template <typename E>
-constexpr typename std::underlying_type<E>::type to_underlying(E e) noexcept {
-  return static_cast<typename std::underlying_type<E>::type>(e);
+constexpr typename std::underlying_type_t<nuraft::cmd_result_code> to_underlying(nuraft::cmd_result_code val) noexcept {
+  return static_cast<typename std::underlying_type_t<nuraft::cmd_result_code>>(val);
 }
 
 RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
