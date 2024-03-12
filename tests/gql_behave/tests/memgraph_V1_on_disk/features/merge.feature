@@ -417,3 +417,19 @@ Feature: Merge feature
             | ({a: 1}) |
             | ({a: 2}) |
             | ({a: 3)) |
+
+    Scenario: Merge node with null property error
+        Given an empty graph
+        When executing query:
+            """
+            MERGE ({id: null})
+            """
+        Then an error should be raised
+
+    Scenario: Merge edge with null property error
+        Given an empty graph
+        When executing query:
+            """
+            MERGE ()-[:TYPE {id:null}]->()
+            """
+        Then an error should be raised
