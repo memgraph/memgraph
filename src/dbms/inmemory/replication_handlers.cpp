@@ -917,5 +917,5 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
   spdlog::debug("Applied {} deltas", applied_deltas);
   return applied_deltas;
 }
-// NOLINTBEGIN
+// NOLINTEND
 }  // namespace memgraph::dbms
