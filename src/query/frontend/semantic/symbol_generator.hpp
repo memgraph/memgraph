@@ -68,6 +68,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Foreach &) override;
   bool PreVisit(SetProperty & /*set_property*/) override;
   bool PostVisit(SetProperty & /*set_property*/) override;
+  bool PreVisit(SetLabels &) override;
+  bool PostVisit(SetLabels & /*set_labels*/) override;
+  bool PreVisit(RemoveLabels &) override;
+  bool PostVisit(RemoveLabels & /*remove_labels*/) override;
 
   // Expressions
   ReturnType Visit(Identifier &) override;
@@ -130,6 +134,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_set_property{false};
     bool in_call_subquery{false};
     bool has_return{false};
+    bool in_set_labels{false};
+    bool in_remove_labels{false};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
     bool in_pattern_atom_identifier{false};
