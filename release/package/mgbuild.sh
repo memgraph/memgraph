@@ -86,15 +86,20 @@ print_help () {
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
 
   echo -e "\nbuild-memgraph options:"
+  echo -e "  --asan                        Build with ASAN"
   echo -e "  --community                   Build community version"
-  echo -e "  --init-only                   Only run init script"
+  echo -e "  --coverage                    Build with code coverage"
   echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
   echo -e "  --for-platform                Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM to cmake"
+  echo -e "  --init-only                   Only run init script"
+  echo -e "  --no-copy                     Don't copy the memgraph repo from host."
+  echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
+  echo -e "  --ubsan                       Build with UBSAN"
 
   echo -e "\ncopy options:"
   echo -e "  --binary                      Copy memgraph binary from mgbuild container to host"
-  echo -e "  --package                     Copy memgraph package from mgbuild container to host"
   echo -e "  --build-logs                  Copy build logs from mgbuild container to host"
+  echo -e "  --package                     Copy memgraph package from mgbuild container to host"
 
   echo -e "\npush options:"
   echo -e "  -p, --password string         Specify password for docker login"
@@ -221,6 +226,7 @@ build_memgraph () {
   local init_only=false
   local for_docker=false
   local for_platform=false
+  local copy_from_host=true
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -261,6 +267,10 @@ build_memgraph () {
         ubsan_flag="-DUBSAN=ON"
         shift 1
       ;;
+      --no-copy)
+        copy_from_host=false
+        shift 1
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         exit 1
@@ -268,8 +278,7 @@ build_memgraph () {
     esac
   done
 
-  echo "Building Memgraph for $os on $build_container..."
-  echo "Copying project files..."
+  echo "Initializing deps ..."
   # If master is not the current branch, fetch it, because the get_version
   # script depends on it. If we are on master, the fetch command is going to
   # fail so that's why there is the explicit check.
@@ -279,11 +288,12 @@ build_memgraph () {
       git fetch origin master:master
   fi
 
-  # Ensure we have a clean build directory
-  docker exec -u mg "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR && mkdir -p $MGBUILD_ROOT_DIR"
-
-  # TODO(gitbuda): Revisit copying the whole repo -> makese sense under CI.
-  docker cp "$PROJECT_ROOT/." "$build_container:$MGBUILD_ROOT_DIR/"
+  if [[ "$copy_from_host" == "true" ]]; then
+    # Ensure we have a clean build directory
+    docker exec -u mg "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR && mkdir -p $MGBUILD_ROOT_DIR"
+    echo "Copying project files..."
+    docker cp "$PROJECT_ROOT/." "$build_container:$MGBUILD_ROOT_DIR/"
+  fi
   # Change ownership of copied files so the mg user inside container can access them
   docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR" 
 
@@ -299,6 +309,7 @@ build_memgraph () {
     return
   fi
 
+  echo "Building Memgraph for $os on $build_container..."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
   # Fix cmake failing locally if remote is clone via ssh
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git remote set-url origin https://github.com/memgraph/memgraph.git"
@@ -309,6 +320,10 @@ build_memgraph () {
   
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
+  # Default value for $threads is 0 instead of $(nproc) because macos 
+  # doesn't support the nproc command.
+  # 0 is set for default value and checked here because mgbuild containers
+  # support nproc
   # shellcheck disable=SC2016
   if [[ "$threads" == 0 ]]; then
     docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc)'
