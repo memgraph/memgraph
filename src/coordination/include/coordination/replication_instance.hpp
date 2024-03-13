@@ -67,7 +67,7 @@ class ReplicationInstance {
   auto PauseFrequentCheck() -> void;
   auto ResumeFrequentCheck() -> void;
 
-  auto ReplicationClientInfo() const -> ReplClientInfo;
+  auto ReplicationClientInfo() const -> ReplicationClientInfo;
 
   auto EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool;
 

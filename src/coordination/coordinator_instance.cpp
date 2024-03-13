@@ -382,9 +382,9 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port,
-                                                 std::string_view raft_address) -> void {
-  raft_state_.AddCoordinatorInstance(raft_server_id, raft_port, raft_address);
+auto CoordinatorInstance::AddCoordinatorInstance(uint32_t raft_server_id,
+                                                 io::network::Endpoint const &coordinator_server) -> void {
+  raft_state_.AddCoordinatorInstance(raft_server_id, coordinator_server);
 }
 
 void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) {

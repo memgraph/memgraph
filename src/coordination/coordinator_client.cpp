@@ -33,8 +33,7 @@ auto CreateClientContext(memgraph::coordination::CoordinatorClientConfig const &
 CoordinatorClient::CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorClientConfig config,
                                      HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb)
     : rpc_context_{CreateClientContext(config)},
-      rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
-                  &rpc_context_},
+      rpc_client_{config.mgt_server, &rpc_context_},
       config_{std::move(config)},
       coord_instance_{coord_instance},
       succ_cb_{std::move(succ_cb)},
@@ -86,7 +85,9 @@ void CoordinatorClient::StopFrequentCheck() { instance_checker_.Stop(); }
 void CoordinatorClient::PauseFrequentCheck() { instance_checker_.Pause(); }
 void CoordinatorClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
 
-auto CoordinatorClient::ReplicationClientInfo() const -> ReplClientInfo { return config_.replication_client_info; }
+auto CoordinatorClient::ReplicationClientInfo() const -> coordination::ReplicationClientInfo {
+  return config_.replication_client_info;
+}
 
 auto CoordinatorClient::SendPromoteReplicaToMainRpc(const utils::UUID &uuid,
                                                     ReplicationClientsInfo replication_clients_info) const -> bool {

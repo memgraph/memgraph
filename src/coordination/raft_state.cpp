@@ -113,9 +113,9 @@ auto RaftState::InstanceName() const -> std::string {
 
 auto RaftState::RaftSocketAddress() const -> std::string { return raft_endpoint_.SocketAddress(); }
 
-auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address)
+auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, io::network::Endpoint const &coordinator_server)
     -> void {
-  auto const endpoint = fmt::format("{}:{}", raft_address, raft_port);
+  auto const endpoint = coordinator_server.SocketAddress();
   srv_config const srv_config_to_add(static_cast<int>(raft_server_id), endpoint);
 
   auto cmd_result = raft_server_->add_srv(srv_config_to_add);

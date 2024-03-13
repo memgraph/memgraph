@@ -50,7 +50,7 @@ class CoordinatorInstance {
 
   auto TryFailover() -> void;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
+  auto AddCoordinatorInstance(uint32_t raft_server_id, io::network::Endpoint const &coordinator_server) -> void;
 
   auto GetRoutingTable() -> RoutingTable;
 
@@ -58,8 +58,6 @@ class CoordinatorInstance {
 
  private:
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
-
-  auto OnRaftCommitCallback(TRaftLog const &log_entry, RaftLogAction log_action) -> void;
 
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance &;
 
@@ -75,7 +73,6 @@ class CoordinatorInstance {
   auto IsReplica(std::string_view instance_name) const -> bool;
 
   // NOTE: Must be std::list because we rely on pointer stability.
-  // Leader and followers should both have same view on repl_instances_
   std::list<ReplicationInstance> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 

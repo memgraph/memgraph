@@ -13,6 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/string.hpp"
 
@@ -28,35 +29,33 @@ namespace memgraph::coordination {
 
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 
+struct ReplicationClientInfo {
+  std::string instance_name{};
+  replication_coordination_glue::ReplicationMode replication_mode{};
+  io::network::Endpoint replication_server;
+
+  friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
+};
+
 struct CoordinatorClientConfig {
-  std::string instance_name;
-  std::string ip_address;
-  uint16_t port{};
+  auto BoltSocketAddress() const -> std::string { return bolt_server.SocketAddress(); }
+  auto CoordinatorSocketAddress() const -> std::string { return mgt_server.SocketAddress(); }
+  auto ReplicationSocketAddress() const -> std::string {
+    return replication_client_info.replication_server.SocketAddress();
+  }
+
+  std::string instance_name{};
+  io::network::Endpoint mgt_server;
+  io::network::Endpoint bolt_server;
+  ReplicationClientInfo replication_client_info;
+
   std::chrono::seconds instance_health_check_frequency_sec{1};
   std::chrono::seconds instance_down_timeout_sec{5};
   std::chrono::seconds instance_get_uuid_frequency_sec{10};
 
-  auto CoordinatorSocketAddress() const -> std::string { return fmt::format("{}:{}", ip_address, port); }
-  auto ReplicationSocketAddress() const -> std::string {
-    return fmt::format("{}:{}", replication_client_info.replication_ip_address,
-                       replication_client_info.replication_port);
-  }
-
-  struct ReplicationClientInfo {
-    std::string instance_name;
-    replication_coordination_glue::ReplicationMode replication_mode{};
-    std::string replication_ip_address;
-    uint16_t replication_port{};
-
-    friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
-  };
-
-  ReplicationClientInfo replication_client_info;
-
   struct SSL {
     std::string key_file;
     std::string cert_file;
-
     friend bool operator==(const SSL &, const SSL &) = default;
   };
 
@@ -64,8 +63,6 @@ struct CoordinatorClientConfig {
 
   friend bool operator==(CoordinatorClientConfig const &, CoordinatorClientConfig const &) = default;
 };
-
-using ReplClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
 
 struct CoordinatorServerConfig {
   std::string ip_address;
@@ -86,8 +83,8 @@ struct CoordinatorServerConfig {
 void to_json(nlohmann::json &j, CoordinatorClientConfig const &config);
 void from_json(nlohmann::json const &j, CoordinatorClientConfig &config);
 
-void to_json(nlohmann::json &j, ReplClientInfo const &config);
-void from_json(nlohmann::json const &j, ReplClientInfo &config);
+void to_json(nlohmann::json &j, ReplicationClientInfo const &config);
+void from_json(nlohmann::json const &j, ReplicationClientInfo &config);
 
 }  // namespace memgraph::coordination
 #endif

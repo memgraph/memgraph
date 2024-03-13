@@ -42,7 +42,7 @@ class CoordinatorState {
 
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
+  auto AddCoordinatorInstance(uint32_t raft_server_id, io::network::Endpoint const &coordinator_server) -> void;
 
   // NOTE: The client code must check that the server exists before calling this method.
   auto GetCoordinatorServer() const -> CoordinatorServer &;

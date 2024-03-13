@@ -15,24 +15,22 @@
 
 namespace memgraph::coordination {
 
-void to_json(nlohmann::json &j, ReplClientInfo const &config) {
+void to_json(nlohmann::json &j, ReplicationClientInfo const &config) {
   j = nlohmann::json{{"instance_name", config.instance_name},
                      {"replication_mode", config.replication_mode},
-                     {"replication_ip_address", config.replication_ip_address},
-                     {"replication_port", config.replication_port}};
+                     {"replication_server", config.replication_server}};
 }
 
-void from_json(nlohmann::json const &j, ReplClientInfo &config) {
+void from_json(nlohmann::json const &j, ReplicationClientInfo &config) {
   config.instance_name = j.at("instance_name").get<std::string>();
   config.replication_mode = j.at("replication_mode").get<replication_coordination_glue::ReplicationMode>();
-  config.replication_ip_address = j.at("replication_ip_address").get<std::string>();
-  config.replication_port = j.at("replication_port").get<uint16_t>();
+  config.replication_server = j.at("replication_server").get<io::network::Endpoint>();
 }
 
 void to_json(nlohmann::json &j, CoordinatorClientConfig const &config) {
   j = nlohmann::json{{"instance_name", config.instance_name},
-                     {"ip_address", config.ip_address},
-                     {"port", config.port},
+                     {"mgt_server", config.mgt_server},
+                     {"bolt_server", config.bolt_server},
                      {"instance_health_check_frequency_sec", config.instance_health_check_frequency_sec.count()},
                      {"instance_down_timeout_sec", config.instance_down_timeout_sec.count()},
                      {"instance_get_uuid_frequency_sec", config.instance_get_uuid_frequency_sec.count()},
@@ -41,13 +39,13 @@ void to_json(nlohmann::json &j, CoordinatorClientConfig const &config) {
 
 void from_json(nlohmann::json const &j, CoordinatorClientConfig &config) {
   config.instance_name = j.at("instance_name").get<std::string>();
-  config.ip_address = j.at("ip_address").get<std::string>();
-  config.port = j.at("port").get<uint16_t>();
+  config.mgt_server = j.at("mgt_server").get<io::network::Endpoint>();
+  config.bolt_server = j.at("bolt_server").get<io::network::Endpoint>();
   config.instance_health_check_frequency_sec =
       std::chrono::seconds{j.at("instance_health_check_frequency_sec").get<int>()};
   config.instance_down_timeout_sec = std::chrono::seconds{j.at("instance_down_timeout_sec").get<int>()};
   config.instance_get_uuid_frequency_sec = std::chrono::seconds{j.at("instance_get_uuid_frequency_sec").get<int>()};
-  config.replication_client_info = j.at("replication_client_info").get<ReplClientInfo>();
+  config.replication_client_info = j.at("replication_client_info").get<ReplicationClientInfo>();
 }
 
 }  // namespace memgraph::coordination

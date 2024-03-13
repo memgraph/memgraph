@@ -25,7 +25,7 @@ namespace memgraph::coordination {
 
 class CoordinatorInstance;
 using HealthCheckClientCallback = std::function<void(CoordinatorInstance *, std::string_view)>;
-using ReplicationClientsInfo = std::vector<ReplClientInfo>;
+using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
 class CoordinatorClient {
  public:
@@ -62,7 +62,7 @@ class CoordinatorClient {
 
   auto SendGetInstanceUUIDRpc() const -> memgraph::utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>>;
 
-  auto ReplicationClientInfo() const -> ReplClientInfo;
+  auto ReplicationClientInfo() const -> ReplicationClientInfo;
 
   auto SendGetInstanceTimestampsRpc() const
       -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories>;

@@ -40,7 +40,7 @@ class CoordinatorHandler {
 
   auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
+  auto AddCoordinatorInstance(uint32_t raft_server_id, io::network::Endpoint const &coordinator_server) -> void;
 
  private:
   coordination::CoordinatorState &coordinator_state_;

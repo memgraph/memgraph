@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_config.hpp"
+#include "io/network/endpoint.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/raft_log_action.hpp"
 #include "utils/file.hpp"
@@ -22,7 +23,8 @@
 using memgraph::coordination::CoordinatorClientConfig;
 using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::RaftLogAction;
-using memgraph::coordination::ReplClientInfo;
+using memgraph::coordination::ReplicationClientInfo;
+using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
 using memgraph::utils::UUID;
 
@@ -36,22 +38,25 @@ class RaftLogSerialization : public ::testing::Test {
 };
 
 TEST_F(RaftLogSerialization, ReplClientInfo) {
-  ReplClientInfo info{"instance_name", ReplicationMode::SYNC, "127.0.0.1", 10111};
+  ReplicationClientInfo info{.instance_name = "instance_name",
+                             .replication_mode = ReplicationMode::SYNC,
+                             .replication_server = Endpoint{"127.0.0.1", 10111}};
 
   nlohmann::json j = info;
-  ReplClientInfo info2 = j.get<memgraph::coordination::ReplClientInfo>();
+  ReplicationClientInfo info2 = j.get<memgraph::coordination::ReplicationClientInfo>();
 
   ASSERT_EQ(info, info2);
 }
 
 TEST_F(RaftLogSerialization, CoordinatorClientConfig) {
-  CoordinatorClientConfig config{"instance3",
-                                 "127.0.0.1",
-                                 10112,
-                                 std::chrono::seconds{1},
-                                 std::chrono::seconds{5},
-                                 std::chrono::seconds{10},
-                                 {"instance_name", ReplicationMode::ASYNC, "replication_ip_address", 10001},
+  CoordinatorClientConfig config{.instance_name = "instance3",
+                                 .mgt_server = Endpoint{"127.0.0.1", 10112},
+                                 .replication_client_info = {.instance_name = "instance_name",
+                                                             .replication_mode = ReplicationMode::ASYNC,
+                                                             .replication_server = Endpoint{"127.0.0.1", 10001}},
+                                 .instance_health_check_frequency_sec = std::chrono::seconds{1},
+                                 .instance_down_timeout_sec = std::chrono::seconds{5},
+                                 .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                  .ssl = std::nullopt};
 
   nlohmann::json j = config;
@@ -106,13 +111,14 @@ TEST_F(RaftLogSerialization, RaftLogActionUpdateUUID) {
 }
 
 TEST_F(RaftLogSerialization, RegisterInstance) {
-  CoordinatorClientConfig config{"instance3",
-                                 "127.0.0.1",
-                                 10112,
-                                 std::chrono::seconds{1},
-                                 std::chrono::seconds{5},
-                                 std::chrono::seconds{10},
-                                 {"instance_name", ReplicationMode::ASYNC, "replication_ip_address", 10001},
+  CoordinatorClientConfig config{.instance_name = "instance3",
+                                 .mgt_server = Endpoint{"127.0.0.1", 10112},
+                                 .replication_client_info = {.instance_name = "instance_name",
+                                                             .replication_mode = ReplicationMode::ASYNC,
+                                                             .replication_server = Endpoint{"127.0.0.1", 10001}},
+                                 .instance_health_check_frequency_sec = std::chrono::seconds{1},
+                                 .instance_down_timeout_sec = std::chrono::seconds{5},
+                                 .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                  .ssl = std::nullopt};
 
   auto buffer = CoordinatorStateMachine::SerializeRegisterInstance(config);

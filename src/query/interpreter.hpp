@@ -143,8 +143,8 @@ class CoordinatorQueryHandler {
   };
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterReplicationInstance(std::string_view coordinator_socket_address,
-                                           std::string_view replication_socket_address,
+  virtual void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
+                                           std::string_view replication_server,
                                            std::chrono::seconds const &instance_health_check_frequency,
                                            std::chrono::seconds const &instance_down_timeout,
                                            std::chrono::seconds const &instance_get_uuid_frequency,
@@ -160,7 +160,8 @@ class CoordinatorQueryHandler {
   virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view coordinator_socket_address) -> void = 0;
+  virtual auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view bolt_server,
+                                      std::string_view coordinator_server) -> void = 0;
 };
 #endif
 

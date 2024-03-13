@@ -82,7 +82,7 @@ auto ReplicationInstance::StopFrequentCheck() -> void { client_.StopFrequentChec
 auto ReplicationInstance::PauseFrequentCheck() -> void { client_.PauseFrequentCheck(); }
 auto ReplicationInstance::ResumeFrequentCheck() -> void { client_.ResumeFrequentCheck(); }
 
-auto ReplicationInstance::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo {
+auto ReplicationInstance::ReplicationClientInfo() const -> coordination::ReplicationClientInfo {
   return client_.ReplicationClientInfo();
 }
 

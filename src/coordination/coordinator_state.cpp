@@ -98,11 +98,11 @@ auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
   return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
 }
 
-auto CoordinatorState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port,
-                                              std::string_view raft_address) -> void {
+auto CoordinatorState::AddCoordinatorInstance(uint32_t raft_server_id, io::network::Endpoint const &coordinator_server)
+    -> void {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
-  return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(raft_server_id, raft_port, raft_address);
+  return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(raft_server_id, coordinator_server);
 }
 
 auto CoordinatorState::GetRoutingTable() -> RoutingTable {

@@ -58,7 +58,7 @@ class RaftState {
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
+  auto AddCoordinatorInstance(uint32_t raft_server_id, io::network::Endpoint const &coordinator_server) -> void;
   auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
   auto RequestLeadership() -> bool;
