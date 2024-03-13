@@ -16,6 +16,7 @@ jobs:
   community_build:
     name: "Community build"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 60
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -74,6 +75,7 @@ jobs:
   code_analysis:
     name: "Code analysis"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 60
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -193,6 +195,7 @@ jobs:
   debug_build:
     name: "Debug build"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 100
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -290,6 +293,7 @@ jobs:
   release_build:
     name: "Release build"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 100
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -462,6 +466,7 @@ jobs:
   release_jepsen_test:
     name: "Release Jepsen Test"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 80
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -534,6 +539,7 @@ jobs:
   release_benchmarks:
     name: "Release benchmarks"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
+    timeout-minutes: 60
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
