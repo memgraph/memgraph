@@ -1761,6 +1761,10 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     logging::AssertRocksDBStatus(transaction_.disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
   }
   auto commitStatus = transaction_.disk_transaction_->Commit();
+
+  if (!commitStatus.ok()) {
+    transaction_.disk_transaction_->Rollback();
+  }
   delete transaction_.disk_transaction_;
   transaction_.disk_transaction_ = nullptr;
   if (!commitStatus.ok()) {
