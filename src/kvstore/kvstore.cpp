@@ -36,6 +36,19 @@ KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>(
   pimpl_->db.reset(db);
 }
 
+KVStore::KVStore(std::filesystem::path storage, rocksdb::Options db_options) : pimpl_(std::make_unique<impl>()) {
+  pimpl_->storage = storage;
+  pimpl_->options = std::move(db_options);
+  if (!utils::EnsureDir(pimpl_->storage))
+    throw KVStoreError("Folder for the key-value store " + pimpl_->storage.string() + " couldn't be initialized!");
+  rocksdb::DB *db = nullptr;
+  auto s = rocksdb::DB::Open(pimpl_->options, storage.c_str(), &db);
+  if (!s.ok())
+    throw KVStoreError("RocksDB couldn't be initialized inside " + storage.string() + " -- " +
+                       std::string(s.ToString()));
+  pimpl_->db.reset(db);
+}
+
 KVStore::~KVStore() {
   if (pimpl_ == nullptr) return;
   spdlog::debug("Destroying KVStore at {}", pimpl_->storage.string());

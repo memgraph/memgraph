@@ -52,6 +52,9 @@ struct Edge {
   bool deleted;
   // uint8_t PAD;
   // uint16_t PAD;
+
+  bool has_prop;
+
   class HotFixMove {
    public:
     HotFixMove() {}
@@ -77,20 +80,19 @@ struct Edge {
   Gid HotFixForGID() const { return Gid::FromUint(gid.AsUint() + (1 << 31)); }
 
   PropertyValue GetProperty(PropertyId property) const {
-    if (deleted) return {};
+    if (!has_prop) return {};
     const auto prop = PDS::get()->Get(HotFixForGID(), property);
     if (prop) return *prop;
     return {};
   }
 
   bool SetProperty(PropertyId property, const PropertyValue &value) {
-    if (deleted) return {};
+    if (!has_prop) return {};
     return PDS::get()->Set(HotFixForGID(), property, value);
   }
 
   template <typename TContainer>
   bool InitProperties(const TContainer &properties) {
-    if (deleted) return {};
     auto *pds = PDS::get();
     for (const auto &[property, value] : properties) {
       if (value.IsNull()) {
@@ -99,23 +101,26 @@ struct Edge {
       if (!pds->Set(HotFixForGID(), property, value)) {
         return false;
       }
+      has_prop = true;
     }
     return true;
   }
 
   void ClearProperties() {
+    if (!has_prop) return;
+    has_prop = false;
     auto *pds = PDS::get();
     pds->Clear(HotFixForGID());
   }
 
   std::map<PropertyId, PropertyValue> Properties() {
-    if (deleted) return {};
+    if (!has_prop) return {};
     return PDS::get()->Get(HotFixForGID());
   }
 
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
       std::map<PropertyId, PropertyValue> &properties) {
-    if (deleted) return {};
+    if (!has_prop && properties.empty()) return {};
     auto old_properties = Properties();
     ClearProperties();
 
@@ -140,7 +145,7 @@ struct Edge {
   }
 
   uint64_t PropertySize(PropertyId property) const {
-    if (deleted) return {};
+    if (!has_prop) return {};
     return PDS::get()->GetSize(HotFixForGID(), property);
   }
 };

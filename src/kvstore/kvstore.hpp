@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <rocksdb/options.h>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -43,6 +44,7 @@ class KVStore final {
    *       storage directory because that will lead to undefined behaviour.
    */
   explicit KVStore(std::filesystem::path storage);
+  explicit KVStore(std::filesystem::path storage, rocksdb::Options db_options);
 
   KVStore(const KVStore &other) = delete;
   KVStore(KVStore &&other);

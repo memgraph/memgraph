@@ -11,22 +11,32 @@
 
 #include "storage/v2/property_disk_store.hpp"
 
-#include <cstdint>
-#include <cstring>
-#include <iterator>
-#include <limits>
-#include <optional>
-#include <sstream>
-#include <tuple>
-#include <type_traits>
-#include <utility>
-
-#include "storage/v2/temporal.hpp"
-#include "utils/cast.hpp"
-#include "utils/logging.hpp"
+#include <rocksdb/filter_policy.h>
+#include <rocksdb/memtablerep.h>
+#include <rocksdb/options.h>
+#include <rocksdb/slice_transform.h>
+#include <rocksdb/statistics.h>
+#include <rocksdb/table.h>
 
 namespace memgraph::storage {
 
 PDS *PDS::ptr_ = nullptr;
+
+PDS::PDS(std::filesystem::path root)
+    : kvstore_{root / "pds", std::invoke([]() {
+                 rocksdb::Options options;
+                 rocksdb::BlockBasedTableOptions table_options;
+                 table_options.block_cache = rocksdb::NewLRUCache(128 * 1024 * 1024);
+                 table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(sizeof(storage::Gid)));
+                 options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+                 options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(sizeof(storage::Gid)));
+                 options.max_background_jobs = 4;
+                 options.enable_pipelined_write = true;
+                 options.avoid_unnecessary_blocking_io = true;
+
+                 options.create_if_missing = true;
+
+                 return options;
+               })} {}
 
 }  // namespace memgraph::storage

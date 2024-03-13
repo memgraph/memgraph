@@ -130,6 +130,7 @@ struct Vertex {
 
   void ClearProperties() {
     if (!has_prop) return;
+    has_prop = false;
     auto *pds = PDS::get();
     pds->Clear(gid);
   }

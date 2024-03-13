@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <rocksdb/options.h>
 #include <cstdint>
 #include <cstring>
 #include <json/json.hpp>
@@ -33,6 +34,8 @@ class PDS {
   static void Init(std::filesystem::path root) {
     if (ptr_ == nullptr) ptr_ = new PDS(root);
   }
+
+  static void Deinit() { delete ptr_; }
 
   static PDS *get() {
     if (ptr_ == nullptr) {
@@ -126,7 +129,7 @@ class PDS {
   // kvstore::KVStore::iterator Itr() {}
 
  private:
-  PDS(std::filesystem::path root) : kvstore_{root / "pds"} {}
+  PDS(std::filesystem::path root);
   kvstore::KVStore kvstore_;
   static PDS *ptr_;
 };
