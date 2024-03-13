@@ -11,6 +11,7 @@
 
 #include "storage/v2/property_disk_store.hpp"
 
+#include <rocksdb/compression_type.h>
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/memtablerep.h>
 #include <rocksdb/options.h>
@@ -28,6 +29,8 @@ PDS::PDS(std::filesystem::path root)
                  rocksdb::BlockBasedTableOptions table_options;
                  table_options.block_cache = rocksdb::NewLRUCache(128 * 1024 * 1024);
                  table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(sizeof(storage::Gid)));
+                 table_options.optimize_filters_for_memory = false;
+                 table_options.enable_index_compression = false;
                  options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
                  options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(sizeof(storage::Gid)));
                  options.max_background_jobs = 4;
@@ -36,6 +39,10 @@ PDS::PDS(std::filesystem::path root)
 
                  options.create_if_missing = true;
 
+                 options.use_direct_io_for_flush_and_compaction = true;
+                 options.use_direct_reads = true;
+
+                 //  options.compression = rocksdb::kLZ4HCCompression;
                  return options;
                })} {}
 
