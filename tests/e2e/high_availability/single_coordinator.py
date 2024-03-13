@@ -90,9 +90,9 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         ],
         "log_file": "coordinator.log",
         "setup_queries": [
-            "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
-            "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
-            "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
+            "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+            "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+            "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
             "SET INSTANCE instance_3 TO MAIN",
         ],
     },
@@ -185,9 +185,9 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
             ],
             "log_file": "coordinator.log",
             "setup_queries": [
-                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
-                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
-                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
+                "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+                "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+                "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
                 "SET INSTANCE instance_3 TO MAIN",
             ],
         },
@@ -415,10 +415,10 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
             ],
             "log_file": "coordinator.log",
             "setup_queries": [
-                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
-                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
-                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
-                "REGISTER INSTANCE instance_4 ON '127.0.0.1:10014' WITH '127.0.0.1:10004';",
+                "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+                "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+                "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+                "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'management_server': '127.0.0.1:10014', 'replication_server': '127.0.0.1:10004'};",
                 "SET INSTANCE instance_3 TO MAIN",
             ],
         },
@@ -702,10 +702,10 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
             ],
             "log_file": "coordinator.log",
             "setup_queries": [
-                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
-                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
-                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
-                "REGISTER INSTANCE instance_4 ON '127.0.0.1:10014' WITH '127.0.0.1:10004';",
+                "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+                "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+                "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+                "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'management_server': '127.0.0.1:10014', 'replication_server': '127.0.0.1:10004'};",
                 "SET INSTANCE instance_3 TO MAIN",
             ],
         },
@@ -989,10 +989,10 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
             ],
             "log_file": "coordinator.log",
             "setup_queries": [
-                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
-                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
-                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
-                "REGISTER INSTANCE instance_4 ON '127.0.0.1:10014' WITH '127.0.0.1:10004';",
+                "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+                "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+                "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+                "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'management_server': '127.0.0.1:10014', 'replication_server': '127.0.0.1:10004'};",
                 "SET INSTANCE instance_3 TO MAIN",
             ],
         },
@@ -1559,7 +1559,7 @@ def test_registering_replica_fails_name_exists():
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(
             coord_cursor,
-            "REGISTER INSTANCE instance_1 ON '127.0.0.1:10051' WITH '127.0.0.1:10111';",
+            "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7693', 'management_server': '127.0.0.1:10051', 'replication_server': '127.0.0.1:10111'};",
         )
     assert str(e.value) == "Couldn't register replica instance since instance with such name already exists!"
     shutil.rmtree(TEMP_DIR)
@@ -1573,7 +1573,7 @@ def test_registering_replica_fails_endpoint_exists():
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(
             coord_cursor,
-            "REGISTER INSTANCE instance_5 ON '127.0.0.1:10011' WITH '127.0.0.1:10005';",
+            "REGISTER INSTANCE instance_5 WITH CONFIG {'bolt_server': '127.0.0.1:7693', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10005'};",
         )
     assert (
         str(e.value)
