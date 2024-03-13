@@ -426,6 +426,14 @@ Feature: Merge feature
             """
         Then an error should be raised
 
+    Scenario: Merge node with one null property error
+        Given an empty graph
+        When executing query:
+            """
+            MERGE ({id2: 1, id: null})
+            """
+        Then an error should be raised
+
     Scenario: Merge edge with null property error
         Given an empty graph
         When executing query:
@@ -451,3 +459,51 @@ Feature: Merge feature
             MERGE ()-[:TYPE {id:x}]->()
             """
         Then an error should be raised
+
+    Scenario: Merge node with null in on match passes
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({a: 1})
+            """
+        When executing query:
+            """
+            MERGE (n {a: 1})
+            ON MATCH SET n.prop = null
+            ON CREATE SET n.prop = null;
+            """
+        Then the result should be empty
+
+    Scenario: Merge edge with null in on match passes
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ()-[:TYPE {a: 1}]->()
+            """
+        When executing query:
+            """
+            MERGE ()-[r:TYPE {a: 1}]->()
+            ON MATCH SET r.prop = null
+            ON CREATE SET r.prop = null;
+            """
+        Then the result should be empty
+
+    Scenario: Merge node with null in on create passes
+        Given an empty graph
+        When executing query:
+            """
+            MERGE (n {a: 1})
+            ON MATCH SET n.prop = null
+            ON CREATE SET n.prop = null;
+            """
+        Then the result should be empty
+
+    Scenario: Merge edge with null in on create passes
+        Given an empty graph
+        When executing query:
+            """
+            MERGE ()-[r:TYPE {a: 1}]->()
+            ON MATCH SET r.prop = null
+            ON CREATE SET r.prop = null;
+            """
+        Then the result should be empty

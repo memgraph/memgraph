@@ -784,9 +784,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
-    if (ctx_->scope.in_merge && literal.value_.IsNull()) {
-      throw QueryRuntimeException("Can't have null literal properties inside merge!");
-    }
     return TypedValue(literal.value_, ctx_->memory);
   }
 
