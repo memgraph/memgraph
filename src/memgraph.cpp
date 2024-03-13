@@ -42,6 +42,7 @@
 #include "storage/v2/durability/durability.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
@@ -144,6 +145,8 @@ int main(int argc, char **argv) {
 
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
+
+  memgraph::utils::OnScopeExit deinit_pds([]() { memgraph::storage::PDS::Deinit(); });
 
   // Initialize Python
   auto *program_name = Py_DecodeLocale(argv[0], nullptr);
