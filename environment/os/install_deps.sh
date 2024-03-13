@@ -88,6 +88,13 @@ case "$OS" in
                     run_script "debian-11.sh"
                 fi
                 ;;
+            12) 
+                if [ "$ARCH" = "arm" ]; then
+                    run_script "debian-12-arm.sh"
+                else
+                    run_script "debian-12.sh"
+                fi
+                ;;
             *) echo "Unsupported Debian version: $VER"; exit 1 ;;
         esac
         ;;
@@ -116,6 +123,7 @@ case "$OS" in
         case "$VER" in
             36) run_script "fedora-36.sh" ;;
             38) run_script "fedora-38.sh" ;;
+            39) run_script "fedora-39.sh" ;;
             *) echo "Unsupported Fedora version: $VER"; exit 1 ;;
         esac
         ;;
