@@ -56,13 +56,13 @@ services:
         TOOLCHAIN_VERSION: "v5"
     container_name: "mgbuild_v5_fedora-39"
 
-  mgbuild_v5_rocky-9:
-    image: "memgraph/mgbuild:v5_rocky-9"
+  mgbuild_v5_rocky-9.3:
+    image: "memgraph/mgbuild:v5_rocky-9.3"
     build:
-      context: rocky-9
+      context: rocky-9.3
       args:
         TOOLCHAIN_VERSION: "v5"
-    container_name: "mgbuild_v5_rocky-9"
+    container_name: "mgbuild_v5_rocky-9.3"
 
   mgbuild_v5_ubuntu-20.04:
     image: "memgraph/mgbuild:v5_ubuntu-20.04"

@@ -16,7 +16,7 @@ SUPPORTED_OS=(
     centos-7 centos-9
     debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-36 fedora-38 fedora-39
-    rocky-9
+    rocky-9.3
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
 )
 DEFAULT_BUILD_TYPE="Release"
@@ -38,7 +38,7 @@ SUPPORTED_TESTS=(
     unit unit-coverage upload-to-bench-graph
 
 )
-DEFAULT_THREADS=$(nproc)
+DEFAULT_THREADS=0
 DEFAULT_ENTERPRISE_LICENSE=""
 DEFAULT_ORGANIZATION_NAME="memgraph"
 # TODO(deda): 
@@ -50,7 +50,7 @@ print_help () {
 
   echo -e "\nCommands:"
   echo -e "  build                         Build mgbuild image"
-  echo -e "  run                           Run mgbuild container"
+  echo -e "  run [OPTIONS]                 Run mgbuild container"
   echo -e "  stop [OPTIONS]                Stop mgbuild container"
   echo -e "  pull                          Pull mgbuild image from dockerhub"
   echo -e "  push OPTIONS                  Push mgbuild image to dockerhub"
@@ -65,7 +65,7 @@ print_help () {
   echo -e "  --build-type string           Specify build type (\"${SUPPORTED_BUILD_TYPES[*]}\") (default \"$DEFAULT_BUILD_TYPE\")"
   echo -e "  --organization-name string    Specify the organization name (default \"memgraph\")"
   echo -e "  --os string                   Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
-  echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\")"
+  echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
 
   echo -e "\nSupported tests:"
@@ -76,6 +76,9 @@ print_help () {
   echo -e "  --init-only                   Only run init script"
   echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
   echo -e "  --for-platform                Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM to cmake"
+
+  echo -e "\nrun options:"
+  echo -e "  --pull                        Pull the mgbuild image before running"
 
   echo -e "\nstop options:"
   echo -e "  --remove                      Remove the stopped mgbuild container"
@@ -235,14 +238,6 @@ build_memgraph () {
   # Change ownership of copied files so the mg user inside container can access them
   docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR" 
 
-  # TODO(gitbuda): TOOLCHAIN_RUN_DEPS should be installed during the Docker
-  # image build phase, but that is not easy at this point because the
-  # environment/os/{os}.sh does not come within the toolchain package. When
-  # migrating to the next version of toolchain do that, and remove the
-  # TOOLCHAIN_RUN_DEPS installation from here.
-  # TODO(gitbuda): On the other side, having this here allows updating deps
-  # wihout reruning the build containers.
-  # TODO(gitbuda+deda): Make a decision on this, (deda thinks we should move this to the Dockerfiles to save on time)
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || /environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || /environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
@@ -266,8 +261,13 @@ build_memgraph () {
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
   # shellcheck disable=SC2016
-  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads'
-  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads -B mgconsole'
+  if [[ "$threads" == 0 ]]; then
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc)'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc) -B mgconsole'
+  else
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads -B mgconsole'
+  fi
 }
 
 package_memgraph() {
@@ -410,7 +410,7 @@ test_memgraph() {
       # local build_container_network=$(docker inspect $build_container --format='{{ .HostConfig.NetworkMode }}')
       # docker network connect --alias $kafka_hostname $build_container_network $kafka_container  > /dev/null 2>&1 || echo "Kafka container already inside correct network or something went wrong ..."
       # docker network connect --alias $pulsar_hostname $build_container_network $pulsar_container  > /dev/null 2>&1 || echo "Kafka container already inside correct network or something went wrong ..."
-      docker exec -u mg $build_container bash -c "pip install networkx & pip3 install networkx"
+      docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
     *)
@@ -482,10 +482,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-docker_compose_cmd="docker-compose"
-if ! which "docker-compose" >/dev/null; then
-    docker_compose_cmd="docker compose"
+if docker compose version > /dev/null 2>&1; then
+  docker_compose_cmd="docker compose"
+elif which docker-compose > /dev/null 2>&1; then
+  docker_compose_cmd="docker-compose"
+else
+  echo -e "Missing command: There has to be installed either 'docker-compose' or 'docker compose'"
+  exit 1
 fi
+echo "Using $docker_compose_cmd"
 
 ##################################################
 ################# PARSE COMMAND ##################
@@ -501,9 +506,28 @@ case $command in
     ;;
     run)
       cd $SCRIPT_DIR
+      pull=false
+      if [[ "$#" -gt 0 ]]; then
+        if [[ "$1" == "--pull" ]]; then
+          pull=true
+        else
+          echo "Error: Unknown flag '$1'"
+          exit 1
+        fi
+      fi
       if [[ "$os" == "all" ]]; then
+        if [[ "$pull" == "true" ]]; then
+          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures
+        elif [[ "$docker_compose_cmd" == "docker compose" ]]; then
+            $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures --policy missing
+        fi
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d
       else
+        if [[ "$pull" == "true" ]]; then
+          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull mgbuild_${toolchain_version}_${os}
+        elif ! docker image inspect memgraph/mgbuild:${toolchain_version}_${os} > /dev/null 2>&1; then
+          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures mgbuild_${toolchain_version}_${os}
+        fi
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d mgbuild_${toolchain_version}_${os}
       fi
     ;;

@@ -23,6 +23,10 @@ on:
         type: string
         description: "Memgraph Build type. Default value is Release."
         default: 'Release'
+      artifact_name:
+        type: string
+        description: "Unique artifact name, pass it in to override the default. Default value is os name."
+        default: ''
       additional_build_args:
         type: string
         description: "Additional build flags (--for-platform, --for-docker ...). Default value is empty."
@@ -44,6 +48,9 @@ on:
       s3_dest_dir:
         type: string
         description: "Target dir path in S3 bucket."
+
+env:
+  ARTIFACT_NAME: ${{ inputs.artifact_name || inputs.os }}
 
 jobs:
   package:
@@ -92,7 +99,7 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.os }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: "build/output/${{ inputs.os }}/memgraph*"
 
       - name: "Stop mgbuild container"
@@ -112,7 +119,7 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ${{ inputs.os }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: "build/output/release"
 
       - name: Upload to S3
