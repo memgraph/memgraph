@@ -1,6 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SCRIPT_NAME=${0##*/}
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 MGBUILD_HOME_DIR="/home/mg"
 MGBUILD_ROOT_DIR="$MGBUILD_HOME_DIR/memgraph"
@@ -18,6 +19,21 @@ SUPPORTED_OS=(
     fedora-36 fedora-38 fedora-39
     rocky-9.3
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
+)
+SUPPORTED_OS_V4=(
+    amzn-2
+    centos-7 centos-9
+    debian-10 debian-11 debian-11-arm
+    fedora-36
+    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
+)
+SUPPORTED_OS_V5=(
+    amzn-2
+    centos-7 centos-9
+    debian-11 debian-11-arm debian-12 debian-12-arm
+    fedora-38 fedora-39
+    rocky-9.3
+    ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
 )
 DEFAULT_BUILD_TYPE="Release"
 SUPPORTED_BUILD_TYPES=(
@@ -41,35 +57,33 @@ SUPPORTED_TESTS=(
 DEFAULT_THREADS=0
 DEFAULT_ENTERPRISE_LICENSE=""
 DEFAULT_ORGANIZATION_NAME="memgraph"
-# TODO(deda): 
-# * create toolchain + OS combinations
-# * add option for selecting server for push and pull
+
 print_help () {
-  echo -e "\nUsage: ./run.sh [OPTIONS] COMMAND [COMMAND OPTIONS]"
+  echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
   echo -e "\nInteract with mgbuild containers"
 
   echo -e "\nCommands:"
   echo -e "  build                         Build mgbuild image"
+  echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
+  echo -e "  copy OPTIONS                  Copy an artifact from mgbuild container to host"
+  echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
+  echo -e "  pull                          Pull mgbuild image from dockerhub"
+  echo -e "  push [OPTIONS]                Push mgbuild image to dockerhub"
   echo -e "  run [OPTIONS]                 Run mgbuild container"
   echo -e "  stop [OPTIONS]                Stop mgbuild container"
-  echo -e "  pull                          Pull mgbuild image from dockerhub"
-  echo -e "  push OPTIONS                  Push mgbuild image to dockerhub"
-  echo -e "  build-memgraph [OPTIONS]      Build memgraph inside mgbuild container"
-  echo -e "  package-memgraph              Build memgraph and create deb package"
-  echo -e "  test-memgraph TEST            Run a specific test on memgraph"
-  echo -e "  copy OPTIONS                  Copy an artifact from mgbuild container"
+  echo -e "  test-memgraph TEST            Run a selected test TEST (see supported tests below) inside mgbuild container"
+
+  echo -e "\nSupported tests:"
+  echo -e "  \"${SUPPORTED_TESTS[*]}\""
 
   echo -e "\nGlobal options:"
   echo -e "  --arch string                 Specify target architecture (\"${SUPPORTED_ARCHS[*]}\") (default \"$DEFAULT_ARCH\")"
-  echo -e "  --enterprise-license string   Specify the enterprise license (default \"\")"
   echo -e "  --build-type string           Specify build type (\"${SUPPORTED_BUILD_TYPES[*]}\") (default \"$DEFAULT_BUILD_TYPE\")"
+  echo -e "  --enterprise-license string   Specify the enterprise license (default \"\")"
   echo -e "  --organization-name string    Specify the organization name (default \"memgraph\")"
   echo -e "  --os string                   Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
   echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
-
-  echo -e "\nSupported tests:"
-  echo -e "  \"${SUPPORTED_TESTS[*]}\""
 
   echo -e "\nbuild-memgraph options:"
   echo -e "  --community                   Build community version"
@@ -77,19 +91,34 @@ print_help () {
   echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
   echo -e "  --for-platform                Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER-PLATFORM to cmake"
 
+  echo -e "\ncopy options:"
+  echo -e "  --binary                      Copy memgraph binary from mgbuild container to host"
+  echo -e "  --package                     Copy memgraph package from mgbuild container to host"
+  echo -e "  --build-logs                  Copy build logs from mgbuild container to host"
+
+  echo -e "\npush options:"
+  echo -e "  -p, --password string         Specify password for docker login"
+  echo -e "  -u, --username string         Specify username for docker login"
+
   echo -e "\nrun options:"
   echo -e "  --pull                        Pull the mgbuild image before running"
 
   echo -e "\nstop options:"
   echo -e "  --remove                      Remove the stopped mgbuild container"
 
-  echo -e "\ncopy options:"
-  echo -e "  --binary                      Remove the stopped mgbuild container"
-  echo -e "  --package                     Remove the stopped mgbuild container"
+  echo -e "\nToolchain v4 supported OSs:"
+  echo -e "  \"${SUPPORTED_OS_V4[*]}\""
 
-  echo -e "\npush options:"
-  echo -e "  -p, --password string         Specify password for docker login"
-  echo -e "  -u, --username string         Specify username for docker login"
+  echo -e "\nToolchain v5 supported OSs:"
+  echo -e "  \"${SUPPORTED_OS_V5[*]}\""
+  
+  echo -e "\nExample usage:"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd run"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo build-memgraph --community"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo test-memgraph unit"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd package"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd copy --package"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd stop --remove"
 }
 
 check_support() {
@@ -103,7 +132,7 @@ check_support() {
         fi
       done
       if [[ "$is_supported" == false ]]; then
-        echo -e "Architecture $2 isn't supported, choose from  ${SUPPORTED_ARCHS[*]}"
+        echo -e "Error: Architecture $2 isn't supported!\nChoose from  ${SUPPORTED_ARCHS[*]}"
         exit 1
       fi
     ;;
@@ -115,7 +144,7 @@ check_support() {
         fi
       done
       if [[ "$is_supported" == false ]]; then
-        echo -e "Build type $2 isn't supported, choose from  ${SUPPORTED_BUILD_TYPES[*]}"
+        echo -e "Error: Build type $2 isn't supported!\nChoose from  ${SUPPORTED_BUILD_TYPES[*]}"
         exit 1
       fi
     ;;
@@ -127,7 +156,7 @@ check_support() {
         fi
       done
       if [[ "$is_supported" == false ]]; then
-        echo -e "OS $2 isn't supported, choose from  ${SUPPORTED_OS[*]}"
+        echo -e "Error: OS $2 isn't supported!\nChoose from  ${SUPPORTED_OS[*]}"
         exit 1
       fi
     ;;
@@ -139,12 +168,32 @@ check_support() {
         fi
       done
       if [[ "$is_supported" == false ]]; then
-        echo -e "Toolchain version $2 isn't supported, choose from  ${SUPPORTED_TOOLCHAINS[*]}"
+        echo -e "TError: oolchain version $2 isn't supported!\nChoose from  ${SUPPORTED_TOOLCHAINS[*]}"
+        exit 1
+      fi
+    ;;
+    os_toolchain_combo)
+      if [[ "$3" == "v4" ]]; then
+        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V4[@]}")
+      elif [[ "$3" == "v5" ]]; then
+        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V5[@]}")
+      else
+        echo -e "Error: $3 isn't a supported toolchain_version!\nChoose from ${SUPPORTED_TOOLCHAINS[*]}"
+        exit 1
+      fi
+      for e in "${SUPPORTED_OS_TOOLCHAIN[@]}"; do
+        if [[ "$e" == "$2" ]]; then
+          is_supported=true
+          break
+        fi
+      done
+      if [[ "$is_supported" == false ]]; then
+        echo -e "Error: Toolchain version $3 doesn't support OS $2!\nChoose from ${SUPPORTED_OS_TOOLCHAIN[*]}"
         exit 1
       fi
     ;;
     *)
-      echo -e "This function can only check arch, build_type, os and toolchain version"
+      echo -e "Error: This function can only check arch, build_type, os, toolchain version and os toolchain combination"
       exit 1
     ;;
   esac
@@ -301,13 +350,19 @@ copy_memgraph() {
       docker cp -L $build_container:$container_output_path $host_output_path 
       echo "Binary saved to $host_output_path"
     ;;
+    --build-logs)
+      echo "Copying memgraph build logs to host..."
+      local container_output_path="$MGBUILD_ROOT_DIR/build/logs"
+      local host_output_path="$PROJECT_ROOT/build/logs"
+      mkdir -p "$PROJECT_ROOT/build"
+      docker cp -L $build_container:$container_output_path $host_output_path 
+      echo "Build logs saved to $host_output_path"
+    ;;
     --package)
       echo "Copying memgraph package to host..."
       local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
       local host_output_dir="$PROJECT_ROOT/build/output/$os"
       local last_package_name=$(docker exec -u mg "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
-      # The operating system folder is introduced because multiple different
-      # packages could be preserved during the same build "session".
       mkdir -p "$host_output_dir"
       docker cp "$build_container:$container_output_dir/$last_package_name" "$host_output_dir/$last_package_name"
       echo "Package saved to $host_output_dir/$last_package_name"
@@ -435,6 +490,7 @@ organization_name=$DEFAULT_ORGANIZATION_NAME
 os=$DEFAULT_OS
 threads=$DEFAULT_THREADS
 toolchain_version=$DEFAULT_TOOLCHAIN
+command=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch)
@@ -481,6 +537,13 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
+check_support os_toolchain_combo $os $toolchain_version
+
+if [[ "$command" == "" ]]; then
+  echo -e "Error: Command not provided, please provide command"
+  print_help
+  exit 1
+fi
 
 if docker compose version > /dev/null 2>&1; then
   docker_compose_cmd="docker compose"
