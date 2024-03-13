@@ -188,31 +188,6 @@ class PropertyValue {
     return map_v.val_;
   }
 
-  std::string ToString() const {
-    switch (type_) {
-      case Type::Null:
-        return "null";
-      case Type::Bool:
-        return ValueBool() ? "true" : "false";
-      case Type::Int:
-        return std::to_string(ValueInt());
-      case Type::Double:
-        return std::to_string(ValueDouble());
-      case Type::String:
-        return ValueString();
-      case Type::List:
-        return fmt::format(
-            "[{}]", utils::IterableToString(ValueList(), ", ", [](const auto &item) { return item.ToString(); }));
-      case Type::Map:
-        return fmt::format("[{}]", utils::IterableToString(ValueMap(), ", ", [](const auto &pair) {
-                             return fmt::format("{}: {}", pair.first, pair.second.ToString());
-                           }));
-      case Type::TemporalData:
-        return fmt::format("type: {}, microseconds: {}", TemporalTypeTostring(ValueTemporalData().type),
-                           ValueTemporalData().microseconds);
-    }
-  }
-
  private:
   void DestroyValue() noexcept;
 
