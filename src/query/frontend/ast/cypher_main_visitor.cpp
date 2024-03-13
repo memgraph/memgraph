@@ -1939,7 +1939,7 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
     anonymous_identifiers.push_back(&node->identifier_);
   }
   if (ctx->nodeLabels()) {
-    node->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
+    node->labels_ = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
   }
   if (ctx->properties()) {
     // This can return either properties or parameters
@@ -1953,16 +1953,27 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) {
-  std::vector<LabelIx> labels;
+  std::vector<QueryLabelType> labels;
   for (auto *node_label : ctx->nodeLabel()) {
-    if (node_label->labelName()->symbolicName()) {
+    auto *label_name = node_label->labelName();
+    if (label_name->symbolicName()) {
       labels.emplace_back(AddLabel(std::any_cast<std::string>(node_label->accept(this))));
-    } else {
+    } else if (label_name->parameter()) {
       // If we have a parameter, we have to resolve it.
       const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
       const auto label_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
       labels.emplace_back(storage_->GetLabelIx(label_name));
       query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
+    } else {
+      auto variable = std::any_cast<std::string>(label_name->variable()->accept(this));
+      users_identifiers.insert(variable);
+      auto *expression = static_cast<Expression *>(storage_->Create<Identifier>(variable));
+      for (auto *lookup : label_name->propertyLookup()) {
+        auto key = std::any_cast<PropertyIx>(lookup->accept(this));
+        auto *property_lookup = storage_->Create<PropertyLookup>(expression, key);
+        expression = property_lookup;
+      }
+      labels.emplace_back(expression);
     }
   }
   return labels;
@@ -2510,7 +2521,7 @@ antlrcpp::Any CypherMainVisitor::visitListIndexingOrSlicing(MemgraphCypher::List
 antlrcpp::Any CypherMainVisitor::visitExpression2a(MemgraphCypher::Expression2aContext *ctx) {
   auto *expression = std::any_cast<Expression *>(ctx->expression2b()->accept(this));
   if (ctx->nodeLabels()) {
-    auto labels = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
+    auto labels = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
     expression = storage_->Create<LabelsTest>(expression, labels);
   }
   return expression;
@@ -2836,7 +2847,7 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(MemgraphCypher::SetItemContext *ct
   // SetLabels
   auto *set_labels = storage_->Create<SetLabels>();
   set_labels->identifier_ = storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
-  set_labels->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
+  set_labels->labels_ = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
   return static_cast<Clause *>(set_labels);
 }
 
@@ -2859,7 +2870,7 @@ antlrcpp::Any CypherMainVisitor::visitRemoveItem(MemgraphCypher::RemoveItemConte
   // RemoveLabels
   auto *remove_labels = storage_->Create<RemoveLabels>();
   remove_labels->identifier_ = storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
-  remove_labels->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
+  remove_labels->labels_ = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
   return static_cast<Clause *>(remove_labels);
 }
 

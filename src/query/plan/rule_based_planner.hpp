@@ -293,6 +293,19 @@ class RuleBasedPlanner {
 
   storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
 
+  std::vector<StorageLabelType> GetLabelIds(const std::vector<QueryLabelType> &labels) {
+    std::vector<StorageLabelType> label_ids;
+    label_ids.reserve(labels.size());
+    for (const auto &label : labels) {
+      if (const auto *label_atom = std::get_if<LabelIx>(&label)) {
+        label_ids.emplace_back(GetLabel(*label_atom));
+      } else {
+        label_ids.emplace_back(std::get<Expression *>(label));
+      }
+    }
+    return label_ids;
+  }
+
   std::unique_ptr<LogicalOperator> HandleMatching(std::unique_ptr<LogicalOperator> last_op,
                                                   const SingleQueryPart &single_query_part, SymbolTable &symbol_table,
                                                   std::unordered_set<Symbol> &bound_symbols) {
@@ -328,11 +341,6 @@ class RuleBasedPlanner {
                                                        std::unordered_set<Symbol> &bound_symbols) {
     auto node_to_creation_info = [&](const NodeAtom &node) {
       const auto &node_symbol = symbol_table.at(*node.identifier_);
-      std::vector<storage::LabelId> labels;
-      labels.reserve(node.labels_.size());
-      for (const auto &label : node.labels_) {
-        labels.push_back(GetLabel(label));
-      }
 
       auto properties = std::invoke([&]() -> std::variant<PropertiesMapList, ParameterLookup *> {
         if (const auto *node_properties =
@@ -346,7 +354,7 @@ class RuleBasedPlanner {
         }
         return std::get<ParameterLookup *>(node.properties_);
       });
-      return NodeCreationInfo{node_symbol, labels, properties};
+      return NodeCreationInfo{node_symbol, GetLabelIds(node.labels_), properties};
     };
 
     auto base = [&](NodeAtom *node) -> std::unique_ptr<LogicalOperator> {
@@ -423,23 +431,13 @@ class RuleBasedPlanner {
       return std::make_unique<plan::SetProperties>(std::move(input_op), input_symbol, set->expression_, op);
     } else if (auto *set = utils::Downcast<query::SetLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*set->identifier_);
-      std::vector<storage::LabelId> labels;
-      labels.reserve(set->labels_.size());
-      for (const auto &label : set->labels_) {
-        labels.push_back(GetLabel(label));
-      }
-      return std::make_unique<plan::SetLabels>(std::move(input_op), input_symbol, labels);
+      return std::make_unique<plan::SetLabels>(std::move(input_op), input_symbol, GetLabelIds(set->labels_));
     } else if (auto *rem = utils::Downcast<query::RemoveProperty>(clause)) {
       return std::make_unique<plan::RemoveProperty>(std::move(input_op), GetProperty(rem->property_lookup_->property_),
                                                     rem->property_lookup_);
     } else if (auto *rem = utils::Downcast<query::RemoveLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*rem->identifier_);
-      std::vector<storage::LabelId> labels;
-      labels.reserve(rem->labels_.size());
-      for (const auto &label : rem->labels_) {
-        labels.push_back(GetLabel(label));
-      }
-      return std::make_unique<plan::RemoveLabels>(std::move(input_op), input_symbol, labels);
+      return std::make_unique<plan::RemoveLabels>(std::move(input_op), input_symbol, GetLabelIds(rem->labels_));
     }
     return nullptr;
   }
