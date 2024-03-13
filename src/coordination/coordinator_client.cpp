@@ -14,7 +14,7 @@
 
 #include "coordination/coordinator_client.hpp"
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/messages.hpp"
@@ -23,14 +23,14 @@
 namespace memgraph::coordination {
 
 namespace {
-auto CreateClientContext(memgraph::coordination::CoordinatorClientConfig const &config)
+auto CreateClientContext(memgraph::coordination::CoordinatorToReplicaConfig const &config)
     -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
                       : communication::ClientContext{};
 }
 }  // namespace
 
-CoordinatorClient::CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorClientConfig config,
+CoordinatorClient::CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorToReplicaConfig config,
                                      HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb)
     : rpc_context_{CreateClientContext(config)},
       rpc_client_{config.mgt_server, &rpc_context_},

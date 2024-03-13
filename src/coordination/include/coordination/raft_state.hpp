@@ -23,7 +23,7 @@
 namespace memgraph::coordination {
 
 class CoordinatorInstance;
-struct CoordinatorClientConfig;
+struct CoordinatorToReplicaConfig;
 
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
@@ -58,7 +58,7 @@ class RaftState {
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, io::network::Endpoint const &coordinator_server) -> void;
+  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
   auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
   auto RequestLeadership() -> bool;
@@ -68,15 +68,13 @@ class RaftState {
   auto IsMain(std::string_view instance_name) const -> bool;
   auto IsReplica(std::string_view instance_name) const -> bool;
 
-  auto AppendRegisterReplicationInstanceLog(CoordinatorClientConfig const &config) -> bool;
+  auto AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool;
   auto AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool;
   auto AppendSetInstanceAsMainLog(std::string_view instance_name) -> bool;
   auto AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool;
   auto AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool;
 
-  auto GetInstances() const -> std::vector<InstanceState>;
-  auto GetReplicas() const -> std::vector<InstanceState>;
-  auto GetMains() const -> std::vector<InstanceState>;
+  auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
 
   auto GetUUID() const -> utils::UUID;
 

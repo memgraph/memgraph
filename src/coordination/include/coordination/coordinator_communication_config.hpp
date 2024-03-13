@@ -37,7 +37,7 @@ struct ReplicationClientInfo {
   friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
 };
 
-struct CoordinatorClientConfig {
+struct CoordinatorToReplicaConfig {
   auto BoltSocketAddress() const -> std::string { return bolt_server.SocketAddress(); }
   auto CoordinatorSocketAddress() const -> std::string { return mgt_server.SocketAddress(); }
   auto ReplicationSocketAddress() const -> std::string {
@@ -61,10 +61,18 @@ struct CoordinatorClientConfig {
 
   std::optional<SSL> ssl;
 
-  friend bool operator==(CoordinatorClientConfig const &, CoordinatorClientConfig const &) = default;
+  friend bool operator==(CoordinatorToReplicaConfig const &, CoordinatorToReplicaConfig const &) = default;
 };
 
-struct CoordinatorServerConfig {
+struct CoordinatorToCoordinatorConfig {
+  uint32_t coordinator_server_id{0};
+  io::network::Endpoint bolt_server;
+  io::network::Endpoint coordinator_server;
+
+  friend bool operator==(CoordinatorToCoordinatorConfig const &, CoordinatorToCoordinatorConfig const &) = default;
+};
+
+struct ManagementServerConfig {
   std::string ip_address;
   uint16_t port{};
   struct SSL {
@@ -77,11 +85,11 @@ struct CoordinatorServerConfig {
 
   std::optional<SSL> ssl;
 
-  friend bool operator==(CoordinatorServerConfig const &, CoordinatorServerConfig const &) = default;
+  friend bool operator==(ManagementServerConfig const &, ManagementServerConfig const &) = default;
 };
 
-void to_json(nlohmann::json &j, CoordinatorClientConfig const &config);
-void from_json(nlohmann::json const &j, CoordinatorClientConfig &config);
+void to_json(nlohmann::json &j, CoordinatorToReplicaConfig const &config);
+void from_json(nlohmann::json const &j, CoordinatorToReplicaConfig &config);
 
 void to_json(nlohmann::json &j, ReplicationClientInfo const &config);
 void from_json(nlohmann::json const &j, ReplicationClientInfo &config);

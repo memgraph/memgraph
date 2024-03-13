@@ -32,7 +32,7 @@ using HealthCheckInstanceCallback = void (CoordinatorInstance::*)(std::string_vi
 
 class ReplicationInstance {
  public:
-  ReplicationInstance(CoordinatorInstance *peer, CoordinatorClientConfig config, HealthCheckClientCallback succ_cb,
+  ReplicationInstance(CoordinatorInstance *peer, CoordinatorToReplicaConfig config, HealthCheckClientCallback succ_cb,
                       HealthCheckClientCallback fail_cb, HealthCheckInstanceCallback succ_instance_cb,
                       HealthCheckInstanceCallback fail_instance_cb);
 

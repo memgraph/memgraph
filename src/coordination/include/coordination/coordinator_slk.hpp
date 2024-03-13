@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"

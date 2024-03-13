@@ -20,7 +20,7 @@
 
 namespace memgraph::coordination {
 
-ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorClientConfig config,
+ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorToReplicaConfig config,
                                          HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb,
                                          HealthCheckInstanceCallback succ_instance_cb,
                                          HealthCheckInstanceCallback fail_instance_cb)

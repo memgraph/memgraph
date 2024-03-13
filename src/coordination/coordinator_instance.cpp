@@ -34,7 +34,7 @@ CoordinatorInstance::CoordinatorInstance()
     : raft_state_(RaftState::MakeRaftState(
           [this]() {
             spdlog::info("Leader changed, starting all replication instances!");
-            auto const instances = raft_state_.GetInstances();
+            auto const instances = raft_state_.GetReplicationInstances();
             auto replicas = instances | ranges::views::filter([](auto const &instance) {
                               return instance.status == ReplicationRole::REPLICA;
                             });
@@ -133,7 +133,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
               .health = "unknown"};
     };
 
-    std::ranges::transform(raft_state_.GetInstances(), std::back_inserter(instances_status),
+    std::ranges::transform(raft_state_.GetReplicationInstances(), std::back_inserter(instances_status),
                            process_repl_instance_as_follower);
   }
 
@@ -288,7 +288,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig const &config)
+auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
 
@@ -382,9 +382,8 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::AddCoordinatorInstance(uint32_t raft_server_id,
-                                                 io::network::Endpoint const &coordinator_server) -> void {
-  raft_state_.AddCoordinatorInstance(raft_server_id, coordinator_server);
+auto CoordinatorInstance::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
+  raft_state_.AddCoordinatorInstance(config);
 }
 
 void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) {
@@ -560,17 +559,41 @@ auto CoordinatorInstance::IsReplica(std::string_view instance_name) const -> boo
 auto CoordinatorInstance::GetRoutingTable() -> RoutingTable {
   auto res = RoutingTable{};
 
-  auto const is_instance_down = [&](InstanceState const &instance) {
+  // TODO: (andi) Test if there is not current main, what routig table returns... Unit test because no user involvement
+  // Also test drivers
+  // TODO: (andi) Disable this when used on replicaton instance
+  // TODO: (andi) Enterprise testing of unit test
+
+  auto const is_instance_alive = [&](ReplicationInstanceState const &instance) {
     auto const &repl_instance = FindReplicationInstance(instance.config.instance_name);
-    return !repl_instance.IsAlive();
+    return repl_instance.IsAlive();
   };
 
-  auto replicas = raft_state_.GetReplicas();
-  replicas.erase(std::remove_if(std::begin(replicas), std::end(replicas), is_instance_down), std::end(replicas));
+  auto const instance_to_bolt = [](ReplicationInstanceState const &instance) {
+    return instance.config.BoltSocketAddress();
+  };
 
-  auto mains = raft_state_.GetMains();
-  mains.erase(std::remove_if(std::begin(mains), std::end(mains), is_instance_down), std::end(mains));
-  MG_ASSERT(mains.size() <= 1, "There can be at most one main instance active!");
+  auto const is_instance_main = [&](ReplicationInstanceState const &instance) {
+    return instance.status == ReplicationRole::MAIN;
+  };
+
+  auto const is_instance_replica = [&](ReplicationInstanceState const &instance) {
+    return instance.status == ReplicationRole::REPLICA;
+  };
+
+  auto const &raft_log_repl_instances = raft_state_.GetReplicationInstances();
+
+  auto bolt_mains = raft_log_repl_instances | ranges::views::filter(is_instance_alive) |
+                    ranges::views::filter(is_instance_main) | ranges::views::transform(instance_to_bolt) |
+                    ranges::to<std::vector>();
+  MG_ASSERT(std::ranges::distance(bolt_mains) <= 1, "There can be at most one main instance active!");
+  res.emplace_back(bolt_mains, "WRITE");
+
+  auto bolt_replicas = raft_log_repl_instances | ranges::views::filter(is_instance_alive) |
+                       ranges::views::filter(is_instance_replica) | ranges::views::transform(instance_to_bolt) |
+                       ranges::to<std::vector>();
+
+  res.emplace_back(bolt_replicas, "READ");
 
   res.emplace_back(std::vector<std::string>{"localhost:7687"}, "WRITE");
   return res;

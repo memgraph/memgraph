@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
 #include "nuraft/raft_log_action.hpp"
 
@@ -48,7 +48,7 @@ class CoordinatorStateMachine : public state_machine {
   auto IsReplica(std::string_view instance_name) const -> bool;
 
   static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
-  static auto SerializeRegisterInstance(CoordinatorClientConfig const &config) -> ptr<buffer>;
+  static auto SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer>;
   static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
@@ -80,9 +80,7 @@ class CoordinatorStateMachine : public state_machine {
 
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
-  auto GetInstances() const -> std::vector<InstanceState>;
-  auto GetReplicas() const -> std::vector<InstanceState>;
-  auto GetMains() const -> std::vector<InstanceState>;
+  auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
 
   auto GetUUID() const -> utils::UUID;
 

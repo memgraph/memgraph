@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/client.hpp"
 #include "rpc_errors.hpp"
@@ -29,7 +29,7 @@ using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
 class CoordinatorClient {
  public:
-  explicit CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorClientConfig config,
+  explicit CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorToReplicaConfig config,
                              HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb);
 
   ~CoordinatorClient() = default;
@@ -83,7 +83,7 @@ class CoordinatorClient {
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 
-  CoordinatorClientConfig config_;
+  CoordinatorToReplicaConfig config_;
   CoordinatorInstance *coord_instance_;
   HealthCheckClientCallback succ_cb_;
   HealthCheckClientCallback fail_cb_;

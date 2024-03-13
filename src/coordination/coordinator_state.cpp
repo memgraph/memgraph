@@ -13,7 +13,7 @@
 
 #include "coordination/coordinator_state.hpp"
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "flags/replication.hpp"
 #include "spdlog/spdlog.h"
@@ -31,7 +31,7 @@ CoordinatorState::CoordinatorState() {
   spdlog::info("Executing coordinator constructor");
   if (FLAGS_coordinator_server_port) {
     spdlog::info("Coordinator server port set");
-    auto const config = CoordinatorServerConfig{
+    auto const config = ManagementServerConfig{
         .ip_address = kDefaultReplicationServerIp,
         .port = static_cast<uint16_t>(FLAGS_coordinator_server_port),
     };
@@ -41,7 +41,7 @@ CoordinatorState::CoordinatorState() {
   }
 }
 
-auto CoordinatorState::RegisterReplicationInstance(CoordinatorClientConfig const &config)
+auto CoordinatorState::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
@@ -98,11 +98,10 @@ auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
   return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
 }
 
-auto CoordinatorState::AddCoordinatorInstance(uint32_t raft_server_id, io::network::Endpoint const &coordinator_server)
-    -> void {
+auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
-  return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(raft_server_id, coordinator_server);
+  return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
 }
 
 auto CoordinatorState::GetRoutingTable() -> RoutingTable {

@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "nuraft/raft_log_action.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/resource_lock.hpp"
@@ -32,19 +32,29 @@ namespace memgraph::coordination {
 
 using replication_coordination_glue::ReplicationRole;
 
-struct InstanceState {
-  CoordinatorClientConfig config;
+struct ReplicationInstanceState {
+  CoordinatorToReplicaConfig config;
   ReplicationRole status;
 
-  friend auto operator==(InstanceState const &lhs, InstanceState const &rhs) -> bool {
+  friend auto operator==(ReplicationInstanceState const &lhs, ReplicationInstanceState const &rhs) -> bool {
     return lhs.config == rhs.config && lhs.status == rhs.status;
   }
 };
 
-void to_json(nlohmann::json &j, InstanceState const &instance_state);
-void from_json(nlohmann::json const &j, InstanceState &instance_state);
+// NOTE: Currently instance of coordinator doesn't change from the registration. Hence, just wrap
+// CoordinatorToCoordinatorConfig.
+struct CoordinatorInstanceState {
+  CoordinatorToCoordinatorConfig config;
 
-using TRaftLog = std::variant<CoordinatorClientConfig, std::string, utils::UUID>;
+  friend auto operator==(CoordinatorInstanceState const &lhs, CoordinatorInstanceState const &rhs) -> bool {
+    return lhs.config == rhs.config;
+  }
+};
+
+void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state);
+void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state);
+
+using TRaftLog = std::variant<CoordinatorToReplicaConfig, std::string, utils::UUID>;
 
 using nuraft::buffer;
 using nuraft::buffer_serializer;
@@ -53,7 +63,7 @@ using nuraft::ptr;
 class CoordinatorClusterState {
  public:
   CoordinatorClusterState() = default;
-  explicit CoordinatorClusterState(std::map<std::string, InstanceState, std::less<>> instances);
+  explicit CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances);
 
   CoordinatorClusterState(CoordinatorClusterState const &);
   CoordinatorClusterState &operator=(CoordinatorClusterState const &);
@@ -68,7 +78,7 @@ class CoordinatorClusterState {
 
   auto IsReplica(std::string_view instance_name) const -> bool;
 
-  auto InsertInstance(std::string instance_name, InstanceState instance_state) -> void;
+  auto InsertInstance(std::string instance_name, ReplicationInstanceState instance_state) -> void;
 
   auto DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void;
 
@@ -76,18 +86,13 @@ class CoordinatorClusterState {
 
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
 
-  auto GetInstances() const -> std::vector<InstanceState>;
-
-  auto GetReplicas() const -> std::vector<InstanceState>;
-
-  // There could be multiple mains in the cluster if the previous main is down. Caller should take care of this by
-  // checking status isAlive or uuid.
-  auto GetMains() const -> std::vector<InstanceState>;
+  auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
 
   auto GetUUID() const -> utils::UUID;
 
  private:
-  std::map<std::string, InstanceState, std::less<>> instances_{};
+  std::vector<CoordinatorInstanceState> coordinators_{};
+  std::map<std::string, ReplicationInstanceState, std::less<>> repl_instances_{};
   utils::UUID uuid_{};
   mutable utils::ResourceLock log_lock_{};
 };

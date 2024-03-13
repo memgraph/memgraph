@@ -38,7 +38,7 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
   return log_buf;
 }
 
-auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorClientConfig const &config) -> ptr<buffer> {
+auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::REGISTER_REPLICATION_INSTANCE}, {"info", config}});
 }
 
@@ -67,7 +67,7 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
 
   switch (action) {
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
-      return {info.get<CoordinatorClientConfig>(), action};
+      return {info.get<CoordinatorToReplicaConfig>(), action};
     case RaftLogAction::UPDATE_UUID:
       return {info.get<utils::UUID>(), action};
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
@@ -75,6 +75,8 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
       [[fallthrough]];
     case RaftLogAction::SET_INSTANCE_AS_REPLICA:
       return {info.get<std::string>(), action};
+    case RaftLogAction::ADD_COORDINATOR_INSTANCE:
+      throw std::runtime_error("ADD_COORDINATOR_INSTANCE is not supported");
   }
   throw std::runtime_error("Unknown action");
 }
@@ -201,13 +203,9 @@ auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -
   }
 }
 
-auto CoordinatorStateMachine::GetInstances() const -> std::vector<InstanceState> {
-  return cluster_state_.GetInstances();
+auto CoordinatorStateMachine::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
+  return cluster_state_.GetReplicationInstances();
 }
-
-auto CoordinatorStateMachine::GetReplicas() const -> std::vector<InstanceState> { return cluster_state_.GetReplicas(); }
-
-auto CoordinatorStateMachine::GetMains() const -> std::vector<InstanceState> { return cluster_state_.GetMains(); }
 
 auto CoordinatorStateMachine::GetUUID() const -> utils::UUID { return cluster_state_.GetUUID(); }
 

@@ -11,7 +11,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 
 namespace memgraph::coordination {
 
@@ -27,7 +27,7 @@ void from_json(nlohmann::json const &j, ReplicationClientInfo &config) {
   config.replication_server = j.at("replication_server").get<io::network::Endpoint>();
 }
 
-void to_json(nlohmann::json &j, CoordinatorClientConfig const &config) {
+void to_json(nlohmann::json &j, CoordinatorToReplicaConfig const &config) {
   j = nlohmann::json{{"instance_name", config.instance_name},
                      {"mgt_server", config.mgt_server},
                      {"bolt_server", config.bolt_server},
@@ -37,7 +37,7 @@ void to_json(nlohmann::json &j, CoordinatorClientConfig const &config) {
                      {"replication_client_info", config.replication_client_info}};
 }
 
-void from_json(nlohmann::json const &j, CoordinatorClientConfig &config) {
+void from_json(nlohmann::json const &j, CoordinatorToReplicaConfig &config) {
   config.instance_name = j.at("instance_name").get<std::string>();
   config.mgt_server = j.at("mgt_server").get<io::network::Endpoint>();
   config.bolt_server = j.at("bolt_server").get<io::network::Endpoint>();

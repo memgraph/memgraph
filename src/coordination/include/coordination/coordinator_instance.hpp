@@ -39,7 +39,7 @@ class CoordinatorInstance {
  public:
   CoordinatorInstance();
 
-  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorClientConfig const &config)
+  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
       -> RegisterInstanceCoordinatorStatus;
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;
@@ -50,7 +50,7 @@ class CoordinatorInstance {
 
   auto TryFailover() -> void;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, io::network::Endpoint const &coordinator_server) -> void;
+  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
 
   auto GetRoutingTable() -> RoutingTable;
 

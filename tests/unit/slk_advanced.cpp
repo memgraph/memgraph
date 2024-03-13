@@ -11,7 +11,7 @@
 
 #include <gtest/gtest.h>
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_slk.hpp"
 #include "replication/config.hpp"
 #include "replication_coordination_glue/mode.hpp"
@@ -119,7 +119,7 @@ TEST(SlkAdvanced, PropertyValueComplex) {
 }
 
 TEST(SlkAdvanced, ReplicationClientConfigs) {
-  using ReplicationClientInfo = memgraph::coordination::CoordinatorClientConfig::ReplicationClientInfo;
+  using ReplicationClientInfo = memgraph::coordination::CoordinatorToReplicaConfig::ReplicationClientInfo;
   using ReplicationClientInfoVec = std::vector<ReplicationClientInfo>;
   using ReplicationMode = memgraph::replication_coordination_glue::ReplicationMode;
 
