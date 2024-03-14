@@ -40,14 +40,12 @@ using memgraph::storage::Config;
 
 class RoutingTableTest : public ::testing::Test {
  protected:
-  std::filesystem::path main_directory{std::filesystem::temp_directory_path() /
-                                       "MG_tests_unit_coordinator_cluster_state"};
-  std::filesystem::path storage_directory{std::filesystem::temp_directory_path() /
-                                          "MG_test_unit_storage_v2_replication"};
-  std::filesystem::path repl1_directory{std::filesystem::temp_directory_path() /
-                                        "MG_test_unit_storage_v2_replication_repl"};
-  std::filesystem::path repl2_directory{std::filesystem::temp_directory_path() /
-                                        "MG_test_unit_storage_v2_replication_repl2"};
+  std::filesystem::path main_data_directory{std::filesystem::temp_directory_path() /
+                                            "MG_tests_unit_coordinator_cluster_state"};
+  std::filesystem::path repl1_data_directory{std::filesystem::temp_directory_path() /
+                                             "MG_test_unit_storage_v2_replication_repl"};
+  std::filesystem::path repl2_data_directory{std::filesystem::temp_directory_path() /
+                                             "MG_test_unit_storage_v2_replication_repl2"};
   void SetUp() override { Clear(); }
 
   void TearDown() override { Clear(); }
@@ -60,10 +58,10 @@ class RoutingTableTest : public ::testing::Test {
             },
         .salient.items = {.properties_on_edges = true},
     };
-    UpdatePaths(config, storage_directory);
+    UpdatePaths(config, main_data_directory);
     return config;
   }();
-  Config repl_conf = [&] {
+  Config repl1_conf = [&] {
     Config config{
         .durability =
             {
@@ -71,7 +69,7 @@ class RoutingTableTest : public ::testing::Test {
             },
         .salient.items = {.properties_on_edges = true},
     };
-    UpdatePaths(config, repl_storage_directory);
+    UpdatePaths(config, repl1_data_directory);
     return config;
   }();
   Config repl2_conf = [&] {
@@ -82,7 +80,7 @@ class RoutingTableTest : public ::testing::Test {
             },
         .salient.items = {.properties_on_edges = true},
     };
-    UpdatePaths(config, repl2_storage_directory);
+    UpdatePaths(config, repl2_data_directory);
     return config;
   }();
 
@@ -92,9 +90,9 @@ class RoutingTableTest : public ::testing::Test {
 
  private:
   void Clear() {
-    if (std::filesystem::exists(storage_directory)) std::filesystem::remove_all(storage_directory);
-    if (std::filesystem::exists(repl_storage_directory)) std::filesystem::remove_all(repl_storage_directory);
-    if (std::filesystem::exists(repl2_storage_directory)) std::filesystem::remove_all(repl2_storage_directory);
+    if (std::filesystem::exists(main_data_directory)) std::filesystem::remove_all(main_data_directory);
+    if (std::filesystem::exists(repl1_data_directory)) std::filesystem::remove_all(repl1_data_directory);
+    if (std::filesystem::exists(repl2_data_directory)) std::filesystem::remove_all(repl2_data_directory);
   }
 };
 

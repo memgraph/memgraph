@@ -4282,7 +4282,18 @@ void Interpreter::RollbackTransaction() {
 auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> RouteResult {
   // TODO: (andi) Test
   if (!FLAGS_raft_server_id) {
-    throw QueryException("Routing table can be fetched only from coordinator instance.");
+    auto const &address = routing.find("address");
+    if (address == routing.end()) {
+      throw QueryException("Routing table must contain address field.");
+    }
+
+    auto result = RouteResult{};
+    if (interpreter_context_->repl_state->IsMain()) {
+      result.servers.emplace_back(std::vector<std::string>{address->second}, "WRITE");
+    } else {
+      result.servers.emplace_back(std::vector<std::string>{address->second}, "READ");
+    }
+    return result;
   }
 
   return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable(routing)};
