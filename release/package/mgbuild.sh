@@ -21,7 +21,6 @@ SUPPORTED_OS=(
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
 )
 SUPPORTED_OS_V4=(
-    all
     amzn-2
     centos-7 centos-9
     debian-10 debian-11 debian-11-arm
@@ -29,7 +28,6 @@ SUPPORTED_OS_V4=(
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
 )
 SUPPORTED_OS_V5=(
-    all
     amzn-2
     centos-7 centos-9
     debian-11 debian-11-arm debian-12 debian-12-arm
@@ -554,7 +552,9 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
-check_support os_toolchain_combo $os $toolchain_version
+if [[ "$os" != "all" ]]; then
+  check_support os_toolchain_combo $os $toolchain_version
+fi
 
 if [[ "$command" == "" ]]; then
   echo -e "Error: Command not provided, please provide command"
