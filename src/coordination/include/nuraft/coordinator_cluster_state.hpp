@@ -35,6 +35,7 @@ using replication_coordination_glue::ReplicationRole;
 struct ReplicationInstanceState {
   CoordinatorToReplicaConfig config;
   ReplicationRole status;
+  utils::UUID instance_uuid;
 
   friend auto operator==(ReplicationInstanceState const &lhs, ReplicationInstanceState const &rhs) -> bool {
     return lhs.config == rhs.config && lhs.status == rhs.status;
@@ -54,7 +55,7 @@ struct CoordinatorInstanceState {
 void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state);
 void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state);
 
-using TRaftLog = std::variant<CoordinatorToReplicaConfig, CoordinatorToCoordinatorConfig, std::string, utils::UUID>;
+using TRaftLog = std::variant<CoordinatorToReplicaConfig, std::string, utils::UUID, CoordinatorToCoordinatorConfig, InstanceUUIDChange>;
 
 using nuraft::buffer;
 using nuraft::buffer_serializer;
@@ -88,15 +89,19 @@ class CoordinatorClusterState {
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
 
+  auto GetMainUUID() const -> utils::UUID;
+
+  auto IsHealthy() const -> bool;
+
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 
-  auto GetUUID() const -> utils::UUID;
 
  private:
   std::vector<CoordinatorInstanceState> coordinators_{};
   std::map<std::string, ReplicationInstanceState, std::less<>> repl_instances_{};
   utils::UUID uuid_{};
   mutable utils::ResourceLock log_lock_{};
+  bool unhealthy_state_{false};
 };
 
 }  // namespace memgraph::coordination

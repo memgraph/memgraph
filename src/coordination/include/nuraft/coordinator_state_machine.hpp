@@ -40,7 +40,7 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
-  ~CoordinatorStateMachine() override {}
+  ~CoordinatorStateMachine() override = default;
 
   // TODO: (andi) Check API of this class.
   auto MainExists() const -> bool;
@@ -48,10 +48,16 @@ class CoordinatorStateMachine : public state_machine {
   auto IsReplica(std::string_view instance_name) const -> bool;
 
   static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
+  static auto SerializeOpenLockRegister(CoordinatorToReplicaConfig const &config) -> ptr<buffer>;
+  static auto SerializeOpenLockUnregister(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeOpenLockSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeOpenLockFailover(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer>;
   static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer>;
+  static auto SerializeUpdateUUIDForInstance(InstanceUUIDChange const &instance_uuid_change) -> ptr<buffer>;
   static auto SerializeUpdateUUID(utils::UUID const &uuid) -> ptr<buffer>;
   static auto SerializeAddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> ptr<buffer>;
 
@@ -85,7 +91,9 @@ class CoordinatorStateMachine : public state_machine {
 
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 
-  auto GetUUID() const -> utils::UUID;
+  auto GetMainUUID() const -> utils::UUID;
+  auto GetInstanceUUID(std::string_view instance_name) const -> utils::UUID;
+  auto IsHealthy() const -> bool;
 
  private:
   struct SnapshotCtx {

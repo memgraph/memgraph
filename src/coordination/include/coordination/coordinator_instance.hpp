@@ -83,6 +83,10 @@ class CoordinatorInstance {
   mutable utils::ResourceLock coord_instance_lock_{};
 
   RaftState raft_state_;
+
+  utils::ThreadPool thread_pool_{1};
+  bool unhealthy_state_{false};
+  bool is_shutting_down_{false};
 };
 
 }  // namespace memgraph::coordination

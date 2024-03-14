@@ -63,13 +63,22 @@ auto RaftState::InitRaftServer() -> void {
   params.leadership_expiry_ = 200;
 
   raft_server::init_options init_opts;
+
   init_opts.raft_callback_ = [this](cb_func::Type event_type, cb_func::Param *param) -> nuraft::CbReturnCode {
     if (event_type == cb_func::BecomeLeader) {
       spdlog::info("Node {} became leader", param->leaderId);
       become_leader_cb_();
     } else if (event_type == cb_func::BecomeFollower) {
-      spdlog::info("Node {} became follower", param->myId);
+      // TODO(antoniofilipovic) What if you should become follower and you are doing failover or something else
+      // important
+      // https://github.com/eBay/NuRaft/blob/188947bcc73ce38ab1c3cf9d01015ca8a29decd9/src/raft_server.cxx#L1334-L1335
+      // There is no way to stop becoming a follower
+      // We can just safe execute action we did now
+      // In case of FAILOVER -> we can promote replica to MAIN but that MAIN will never become MAIN 100%
+      // But this can crash cluster as we will execute REPLICA callback on leader and this instance is MAIN now
+      spdlog::trace("Got request to become follower");
       become_follower_cb_();
+      spdlog::info("Node {} became follower", param->myId);
     }
     return CbReturnCode::Ok;
   };
@@ -156,6 +165,80 @@ auto RaftState::GetAllCoordinators() const -> std::vector<ptr<srv_config>> {
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 auto RaftState::RequestLeadership() -> bool { return raft_server_->is_leader() || raft_server_->request_leadership(); }
+
+auto RaftState::IsHealthy() const -> bool { return state_machine_.IsHealthy(); }
+
+auto RaftState::AppendOpenLockRegister(CoordinatorToReplicaConfig const &config) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeOpenLockRegister(config);
+  auto const res = raft_server_->append_entries({new_log});
+
+  if (!res->get_accepted()) {
+    spdlog::error("Failed to accept request to open lock to register instance {}", config.instance_name);
+    return false;
+  }
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to open lock for registering instance {} with error code {}", config.instance_name,
+                  res->get_result_code());
+    return false;
+  }
+
+  return true;
+}
+
+auto RaftState::AppendOpenLockUnregister(std::string_view instance_name) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeOpenLockUnregister(instance_name);
+  auto const res = raft_server_->append_entries({new_log});
+
+  if (!res->get_accepted()) {
+    spdlog::error("Failed to accept request to open lock to unregister instance {}.", instance_name);
+    return false;
+  }
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to enter state of distributed lock unregistering instance {} with error code {}",
+                  instance_name, res->get_result_code());
+    return false;
+  }
+
+  return true;
+}
+
+auto RaftState::AppendOpenLockFailover(std::string_view instance_name) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeOpenLockFailover(instance_name);
+  auto const res = raft_server_->append_entries({new_log});
+
+  if (!res->get_accepted()) {
+    spdlog::error("Failed to accept request to open lock for failover {}", instance_name);
+    return false;
+  }
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to open lock for failover to instance {} with error code {}", instance_name,
+                  res->get_result_code());
+    return false;
+  }
+
+  return true;
+}
+
+auto RaftState::AppendOpenLockSetInstanceToMain(std::string_view instance_name) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeOpenLockSetInstanceAsMain(instance_name);
+  auto const res = raft_server_->append_entries({new_log});
+
+  if (!res->get_accepted()) {
+    spdlog::error("Failed to accept request to open lock and set instance {} to MAIN", instance_name);
+    return false;
+  }
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to open lock to set instance {} to MAIN with error code {}", instance_name,
+                  res->get_result_code());
+    return false;
+  }
+
+  return true;
+}
 
 auto RaftState::AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeRegisterInstance(config);

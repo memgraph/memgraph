@@ -38,6 +38,23 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
   return log_buf;
 }
 
+auto CoordinatorStateMachine::SerializeOpenLockRegister(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::OPEN_LOCK_REGISTER_REPLICATION_INSTANCE}, {{"info", config}}});
+}
+
+auto CoordinatorStateMachine::SerializeOpenLockUnregister(std::string_view instance_name) -> ptr<buffer> {
+  return CreateLog(
+      {{"action", RaftLogAction::OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE}, {{"info", std::string{instance_name}}}});
+}
+
+auto CoordinatorStateMachine::SerializeOpenLockFailover(std::string_view instance_name) -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::OPEN_LOCK_FAILOVER}, {{"info", std::string(instance_name)}}});
+}
+
+auto CoordinatorStateMachine::SerializeOpenLockSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_MAIN}, {{"info", std::string(instance_name)}}});
+}
+
 auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::REGISTER_REPLICATION_INSTANCE}, {"info", config}});
 }
@@ -54,8 +71,13 @@ auto CoordinatorStateMachine::SerializeSetInstanceAsReplica(std::string_view ins
   return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_REPLICA}, {"info", instance_name}});
 }
 
-auto CoordinatorStateMachine::SerializeUpdateUUID(utils::UUID const &uuid) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::UPDATE_UUID}, {"info", uuid}});
+auto CoordinatorStateMachine::SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::UPDATE_UUID_OF_NEW_MAIN}, {"info", uuid}});
+}
+
+auto CoordinatorStateMachine::SerializeUpdateUUIDForInstance(InstanceUUIDChange const &instance_uuid_change)
+    -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::UPDATE_UUID_FOR_INSTANCE}, {"info", instance_uuid_change}});
 }
 
 auto CoordinatorStateMachine::SerializeAddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config)
@@ -71,10 +93,24 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
   auto const &info = json["info"];
 
   switch (action) {
+    case RaftLogAction::OPEN_LOCK_REGISTER_REPLICATION_INSTANCE: {
+      return {info.get<CoordinatorToReplicaConfig>(), action};
+    }
+    case RaftLogAction::OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE: {
+      [[fallthrough]];
+    }
+    case RaftLogAction::OPEN_LOCK_FAILOVER: {
+      [[fallthrough]];
+    }
+    case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_MAIN: {
+      return {info.get<std::string>(), action};
+    }
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
       return {info.get<CoordinatorToReplicaConfig>(), action};
-    case RaftLogAction::UPDATE_UUID:
+    case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN:
       return {info.get<utils::UUID>(), action};
+    case RaftLogAction::UPDATE_UUID_FOR_INSTANCE:
+      return {info.get<InstanceUUIDChange>(), action};
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
     case RaftLogAction::SET_INSTANCE_AS_MAIN:
       [[fallthrough]];
@@ -218,7 +254,13 @@ auto CoordinatorStateMachine::GetCoordinatorInstances() const -> std::vector<Coo
   return cluster_state_.GetCoordinatorInstances();
 }
 
-auto CoordinatorStateMachine::GetUUID() const -> utils::UUID { return cluster_state_.GetUUID(); }
+auto CoordinatorStateMachine::GetMainUUID() const -> utils::UUID { return cluster_state_.GetMainUUID(); }
+
+auto CoordinatorStateMachine::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
+  throw std::runtime_error("not implemented");
+}
+
+auto CoordinatorStateMachine::IsHealthy() const -> bool { return cluster_state_.IsHealthy(); }
 
 }  // namespace memgraph::coordination
 #endif
