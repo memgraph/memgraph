@@ -554,7 +554,9 @@ struct MultiPool {
 
   void *allocate(std::size_t bytes) {
     auto idx = bin_index<Bits, LB>(bytes);
-    if (!pools_) initialise_pools();
+    if (!pools_) [[unlikely]] {
+      initialise_pools();
+    }
     return pools_[idx].Allocate();
   }
 
