@@ -126,6 +126,9 @@ install() {
             fi
             continue
         fi
+        if [ "$pkg" == netcat ]; then
+          apt install -y netcat-traditional
+        fi
         apt install -y "$pkg"
     done
 }
