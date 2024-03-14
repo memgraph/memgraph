@@ -64,7 +64,7 @@ jobs:
 
       - name: "Spin up mgbuild container"
         run: |
-          ./release/package/run2.sh \
+          ./release/package/mgbuild.sh \
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
@@ -72,7 +72,7 @@ jobs:
 
       - name: "Build Memgraph binaries"
         run: |
-          ./release/package/run2.sh \
+          ./release/package/mgbuild.sh \
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
@@ -81,7 +81,7 @@ jobs:
 
       - name: "Make package"
         run: |
-          ./release/package/run2.sh \
+          ./release/package/mgbuild.sh \
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
@@ -90,7 +90,7 @@ jobs:
 
       - name: "Copy package"
         run: |
-          ./release/package/run2.sh \
+          ./release/package/mgbuild.sh \
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
@@ -105,7 +105,7 @@ jobs:
       - name: "Stop mgbuild container"
         if: always()
         run: |
-          ./release/package/run2.sh \
+          ./release/package/mgbuild.sh \
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
