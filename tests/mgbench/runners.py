@@ -416,6 +416,7 @@ class Memgraph(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext):
         super().__init__(benchmark_context=benchmark_context)
         self._memgraph_binary = benchmark_context.vendor_binary
+        self._bolt_num_workers = benchmark_context.num_workers_for_benchmark
         self._performance_tracking = benchmark_context.performance_tracking
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._vendor_args = benchmark_context.vendor_args
@@ -440,6 +441,7 @@ class Memgraph(BaseRunner):
         kwargs["bolt_port"] = self._bolt_port
         kwargs["data_directory"] = data_directory
         kwargs["storage_properties_on_edges"] = True
+        kwargs["bolt_num_workers"] = self._bolt_num_workers
         for key, value in self._vendor_args.items():
             kwargs[key] = value
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)
