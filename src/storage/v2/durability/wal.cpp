@@ -1210,6 +1210,11 @@ void WalFile::AppendOperation(StorageMetadataOperation operation, const std::opt
   UpdateStats(timestamp);
 }
 
+void WalFile::AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp) {
+  EncodeOperation(&wal_, name_id_mapper_, operation, edge_type, timestamp);
+  UpdateStats(timestamp);
+}
+
 void WalFile::Sync() { wal_.Sync(); }
 
 uint64_t WalFile::GetSize() { return wal_.GetSize(); }
