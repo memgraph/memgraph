@@ -46,7 +46,7 @@ MEMGRAPH_BUILD_DEPS=(
     libpython3-dev python3-dev # for query modules
     libssl-dev
     libseccomp-dev
-    netcat # tests are using nc to wait for memgraph
+    netcat-traditional # tests are using nc to wait for memgraph
     python3 virtualenv python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
@@ -125,9 +125,6 @@ install() {
                 apt-get install -y apt-transport-https dotnet-sdk-7.0
             fi
             continue
-        fi
-        if [ "$pkg" == netcat ]; then
-          apt install -y netcat-traditional
         fi
         apt install -y "$pkg"
     done
