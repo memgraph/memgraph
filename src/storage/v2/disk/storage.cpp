@@ -1762,15 +1762,14 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
   }
   auto commitStatus = transaction_.disk_transaction_->Commit();
   if (!commitStatus.ok()) {
-    transaction_.disk_transaction_->Rollback();
-  }
-  delete transaction_.disk_transaction_;
-  transaction_.disk_transaction_ = nullptr;
-
-  if (!commitStatus.ok()) {
+    Abort();
     spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
     return StorageManipulationError{SerializationError{}};
   }
+
+  delete transaction_.disk_transaction_;
+  transaction_.disk_transaction_ = nullptr;
+
   spdlog::trace("rocksdb: Commit successful");
 
   is_transaction_active_ = false;
