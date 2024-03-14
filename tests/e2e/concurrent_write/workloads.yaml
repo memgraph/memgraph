@@ -23,11 +23,9 @@ disk_cluster: &disk_cluster
 workloads:
   - name: "Concurrent write"
     binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/concurrent_write/test_query_modules/"
     args: ["concurrent_write/write.py"]
     <<: *in_memory_cluster
   - name: "Disk concurrent write"
     binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/concurrent_write/test_query_modules/"
     args: ["concurrent_write/write.py"]
     <<: *disk_cluster
