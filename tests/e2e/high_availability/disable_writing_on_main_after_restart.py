@@ -133,11 +133,18 @@ def test_writing_disabled_on_main_restart():
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
     execute_and_fetch_all(
-        coordinator3_cursor, "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'"
+        coordinator3_cursor,
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
-    assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 1 ON '127.0.0.1:10111'")
-    assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 2 ON '127.0.0.1:10112'")
+    assert add_coordinator(
+        coordinator3_cursor,
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+    )
+    assert add_coordinator(
+        coordinator3_cursor,
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+    )
 
     def check_coordinator3():
         return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
