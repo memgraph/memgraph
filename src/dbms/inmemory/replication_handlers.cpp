@@ -513,7 +513,6 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
     if (timestamp < storage->timestamp_) {
       continue;
     }
-
     SPDLOG_INFO("  Delta {}", applied_deltas);
     switch (delta.type) {
       case WalDeltaData::Type::VERTEX_CREATE: {
@@ -558,9 +557,10 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         break;
       }
       case WalDeltaData::Type::VERTEX_SET_PROPERTY: {
-        spdlog::trace("       Vertex {} set property {} to {}", delta.vertex_edge_set_property.gid.AsUint(),
-                      delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
+        spdlog::trace("       Vertex {} set property", delta.vertex_edge_set_property.gid.AsUint());
+        // NOLINTNEXTLINE
         auto *transaction = get_transaction(timestamp);
+        // NOLINTNEXTLINE
         auto vertex = transaction->FindVertex(delta.vertex_edge_set_property.gid, View::NEW);
         if (!vertex)
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
@@ -608,8 +608,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         break;
       }
       case WalDeltaData::Type::EDGE_SET_PROPERTY: {
-        spdlog::trace("       Edge {} set property {} to {}", delta.vertex_edge_set_property.gid.AsUint(),
-                      delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
+        spdlog::trace(" Edge {} set property", delta.vertex_edge_set_property.gid.AsUint());
         if (!storage->config_.salient.items.properties_on_edges)
           throw utils::BasicException(
               "Can't set properties on edges because properties on edges "
@@ -827,5 +826,4 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
   spdlog::debug("Applied {} deltas", applied_deltas);
   return applied_deltas;
 }
-
 }  // namespace memgraph::dbms

@@ -37,6 +37,7 @@ pip --timeout 1000 install "pulsar-client==3.1.0"
 for pkg in "${PIP_DEPS[@]}"; do
     pip --timeout 1000 install "$pkg"
 done
+pip --timeout 1000 install "networkx==2.4"
 
 # Install mgclient from source becasue of full flexibility.
 pushd "$DIR/../libs/pymgclient" > /dev/null

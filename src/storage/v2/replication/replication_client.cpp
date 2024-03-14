@@ -13,6 +13,7 @@
 
 #include "replication/replication_client.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -215,11 +216,13 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
     MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
     try {
       auto response = replica_stream_->Finalize();
-      return replica_state_.WithLock([storage, &response, db_acc = std::move(db_acc), this](auto &state) mutable {
+      // NOLINTNEXTLINE
+      return replica_state_.WithLock([storage, response, db_acc = std::move(db_acc), this](auto &state) mutable {
         replica_stream_.reset();
         if (!response.success || state == replication::ReplicaState::RECOVERY) {
           state = replication::ReplicaState::RECOVERY;
-          client_.thread_pool_.AddTask([storage, &response, db_acc = std::move(db_acc), this] {
+          // NOLINTNEXTLINE
+          client_.thread_pool_.AddTask([storage, response, db_acc = std::move(db_acc), this] {
             this->RecoverReplica(response.current_commit_timestamp, storage);
           });
           return false;
