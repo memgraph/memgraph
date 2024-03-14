@@ -370,12 +370,8 @@ class Interpreter final {
     ~QueryExecution() = default;
 
     void CleanRuntimeData() {
-      // Called from Commit/Abort once query has been fully used
-
       prepared_query.reset();
       notifications.clear();
-      // TODO: double check is summary still needed here
-      //  can we dispose of it and also execution_memory at this point?
     }
   };
 
