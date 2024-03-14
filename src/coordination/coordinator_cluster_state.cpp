@@ -108,6 +108,8 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       break;
     }
     case RaftLogAction::ADD_COORDINATOR_INSTANCE: {
+      auto const &config = std::get<CoordinatorToCoordinatorConfig>(log_entry);
+      coordinators_.emplace_back(CoordinatorInstanceState{config});
       break;
     }
   }
@@ -134,6 +136,11 @@ auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterSta
 auto CoordinatorClusterState::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
   auto lock = std::shared_lock{log_lock_};
   return repl_instances_ | ranges::views::values | ranges::to<std::vector<ReplicationInstanceState>>;
+}
+
+auto CoordinatorClusterState::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
+  auto lock = std::shared_lock{log_lock_};
+  return coordinators_;
 }
 
 auto CoordinatorClusterState::GetUUID() const -> utils::UUID { return uuid_; }

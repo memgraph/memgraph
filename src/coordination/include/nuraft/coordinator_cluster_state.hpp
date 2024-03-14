@@ -54,7 +54,7 @@ struct CoordinatorInstanceState {
 void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state);
 void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state);
 
-using TRaftLog = std::variant<CoordinatorToReplicaConfig, std::string, utils::UUID>;
+using TRaftLog = std::variant<CoordinatorToReplicaConfig, CoordinatorToCoordinatorConfig, std::string, utils::UUID>;
 
 using nuraft::buffer;
 using nuraft::buffer_serializer;
@@ -87,6 +87,8 @@ class CoordinatorClusterState {
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
+
+  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 
   auto GetUUID() const -> utils::UUID;
 

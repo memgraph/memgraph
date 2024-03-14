@@ -91,6 +91,9 @@ struct ManagementServerConfig {
 void to_json(nlohmann::json &j, CoordinatorToReplicaConfig const &config);
 void from_json(nlohmann::json const &j, CoordinatorToReplicaConfig &config);
 
+void to_json(nlohmann::json &j, CoordinatorToCoordinatorConfig const &config);
+void from_json(nlohmann::json const &j, CoordinatorToCoordinatorConfig &config);
+
 void to_json(nlohmann::json &j, ReplicationClientInfo const &config);
 void from_json(nlohmann::json const &j, ReplicationClientInfo &config);
 

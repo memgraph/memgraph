@@ -260,6 +260,28 @@ auto RaftState::AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool {
   return true;
 }
 
+auto RaftState::AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig const &config) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeAddCoordinatorInstance(config);
+  auto const res = raft_server_->append_entries({new_log});
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for adding coordinator instance {}. Most likely the reason is that the instance is "
+        "not the leader.",
+        config.coordinator_server_id);
+    return false;
+  }
+
+  spdlog::info("Request for adding coordinator instance {} accepted", config.coordinator_server_id);
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to add coordinator instance {} with error code {}", config.coordinator_server_id,
+                  res->get_result_code());
+    return false;
+  }
+
+  return true;
+}
+
 auto RaftState::MainExists() const -> bool { return state_machine_->MainExists(); }
 
 auto RaftState::IsMain(std::string_view instance_name) const -> bool { return state_machine_->IsMain(instance_name); }
@@ -270,6 +292,10 @@ auto RaftState::IsReplica(std::string_view instance_name) const -> bool {
 
 auto RaftState::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
   return state_machine_->GetReplicationInstances();
+}
+
+auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
+  return state_machine_->GetCoordinatorInstances();
 }
 
 auto RaftState::GetUUID() const -> utils::UUID { return state_machine_->GetUUID(); }

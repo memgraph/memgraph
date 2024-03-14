@@ -38,6 +38,12 @@ using InstanceNameDbHistories = std::pair<std::string, replication_coordination_
 class CoordinatorInstance {
  public:
   CoordinatorInstance();
+  CoordinatorInstance(CoordinatorInstance const &) = delete;
+  CoordinatorInstance &operator=(CoordinatorInstance const &) = delete;
+  CoordinatorInstance(CoordinatorInstance &&) noexcept = delete;
+  CoordinatorInstance &operator=(CoordinatorInstance &&) noexcept = delete;
+
+  ~CoordinatorInstance() = default;
 
   [[nodiscard]] auto RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
       -> RegisterInstanceCoordinatorStatus;
@@ -52,7 +58,7 @@ class CoordinatorInstance {
 
   auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
 
-  auto GetRoutingTable() -> RoutingTable;
+  auto GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable;
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
 

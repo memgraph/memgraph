@@ -4279,13 +4279,13 @@ void Interpreter::RollbackTransaction() {
 }
 
 #ifdef MG_ENTERPRISE
-auto Interpreter::Route(std::map<std::string, std::string> const & /*routing*/) -> RouteResult {
+auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> RouteResult {
   // TODO: (andi) Test
   if (!FLAGS_raft_server_id) {
     throw QueryException("Routing table can be fetched only from coordinator instance.");
   }
 
-  return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable()};
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable(routing)};
 }
 #endif
 

@@ -384,6 +384,10 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 
 auto CoordinatorInstance::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
   raft_state_.AddCoordinatorInstance(config);
+  // NOTE: We ignore error we added coordinator instance to networkign stuff but not in raft log.
+  if (!raft_state_.AppendAddCoordinatorInstanceLog(config)) {
+    spdlog::error("Failed to append add coordinator instance log");
+  }
 }
 
 void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) {
@@ -556,20 +560,18 @@ auto CoordinatorInstance::IsReplica(std::string_view instance_name) const -> boo
   return raft_state_.IsReplica(instance_name);
 }
 
-auto CoordinatorInstance::GetRoutingTable() -> RoutingTable {
+auto CoordinatorInstance::GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable {
   auto res = RoutingTable{};
 
   // TODO: (andi) Test if there is not current main, what routig table returns... Unit test because no user involvement
   // Also test drivers
   // TODO: (andi) Disable this when used on replicaton instance
-  // TODO: (andi) Enterprise testing of unit test
-
   auto const is_instance_alive = [&](ReplicationInstanceState const &instance) {
     auto const &repl_instance = FindReplicationInstance(instance.config.instance_name);
     return repl_instance.IsAlive();
   };
 
-  auto const instance_to_bolt = [](ReplicationInstanceState const &instance) {
+  auto const repl_instance_to_bolt = [](ReplicationInstanceState const &instance) {
     return instance.config.BoltSocketAddress();
   };
 
@@ -584,18 +586,37 @@ auto CoordinatorInstance::GetRoutingTable() -> RoutingTable {
   auto const &raft_log_repl_instances = raft_state_.GetReplicationInstances();
 
   auto bolt_mains = raft_log_repl_instances | ranges::views::filter(is_instance_alive) |
-                    ranges::views::filter(is_instance_main) | ranges::views::transform(instance_to_bolt) |
+                    ranges::views::filter(is_instance_main) | ranges::views::transform(repl_instance_to_bolt) |
                     ranges::to<std::vector>();
-  MG_ASSERT(std::ranges::distance(bolt_mains) <= 1, "There can be at most one main instance active!");
-  res.emplace_back(bolt_mains, "WRITE");
+  MG_ASSERT(bolt_mains.size() <= 1, "There can be at most one main instance active!");
+
+  if (!std::ranges::empty(bolt_mains)) {
+    res.emplace_back(bolt_mains, "WRITE");
+  }
 
   auto bolt_replicas = raft_log_repl_instances | ranges::views::filter(is_instance_alive) |
-                       ranges::views::filter(is_instance_replica) | ranges::views::transform(instance_to_bolt) |
+                       ranges::views::filter(is_instance_replica) | ranges::views::transform(repl_instance_to_bolt) |
                        ranges::to<std::vector>();
+  if (!std::ranges::empty(bolt_replicas)) {
+    res.emplace_back(bolt_replicas, "READ");
+  }
 
-  res.emplace_back(bolt_replicas, "READ");
+  auto const coord_instance_to_bolt = [](CoordinatorInstanceState const &instance) {
+    return instance.config.bolt_server.SocketAddress();
+  };
 
-  res.emplace_back(std::vector<std::string>{"localhost:7687"}, "WRITE");
+  auto const &raft_log_coord_instances = raft_state_.GetCoordinatorInstances();
+  auto bolt_coords =
+      raft_log_coord_instances | ranges::views::transform(coord_instance_to_bolt) | ranges::to<std::vector>();
+
+  auto const &local_bolt_coord = routing.find("address");
+  if (local_bolt_coord == routing.end()) {
+    throw InvalidRoutingTableException("No bolt address found in routing table for the current coordinator!");
+  }
+
+  bolt_coords.push_back(local_bolt_coord->second);
+  res.emplace_back(bolt_coords, "ROUTE");
+
   return res;
 }
 

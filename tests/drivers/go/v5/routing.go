@@ -7,7 +7,7 @@ import (
 
 func main() {
     fmt.Println("Started running routing.go test")
-    uri := "neo4j://localhost:7687"
+    uri := "neo4j://localhost:7688"
     username := ""
     password := ""
 
