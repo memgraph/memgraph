@@ -127,6 +127,7 @@ declare -A primary_urls=(
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["range-v3"]="http://$local_cache_host/git/range-v3.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
+  ["asio"]="http://$local_cache_host/git/asio.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -157,6 +158,7 @@ declare -A secondary_urls=(
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["range-v3"]="https://github.com/ericniebler/range-v3.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
+  ["asio"]="https://github.com/chriskohlhoff/asio.git"
 )
 
 # antlr
@@ -286,5 +288,7 @@ nuraft_tag="v2.1.0"
 repo_clone_try_double "${primary_urls[nuraft]}" "${secondary_urls[nuraft]}" "nuraft" "$nuraft_tag" true
 pushd nuraft
 git apply ../nuraft2.1.0.patch
+asio_tag="asio-1-29-0"
+repo_clone_try_double "${primary_urls[asio]}" "${secondary_urls[asio]}" "asio" "$asio_tag" true
 ./prepare.sh
 popd
