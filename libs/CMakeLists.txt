@@ -304,7 +304,7 @@ endif()
 ExternalProject_Add(mgcxx-proj
   PREFIX         mgcxx-proj
   GIT_REPOSITORY https://github.com/memgraph/mgcxx
-  GIT_TAG        "origin/regex-queries"
+  GIT_TAG        "origin/main"
   CMAKE_ARGS
     "-DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>"
     "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
