@@ -95,6 +95,10 @@ Marker OperationToMarker(StorageMetadataOperation operation) {
       return Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET;
     case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
       return Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR;
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
+      return Marker::DELTA_EDGE_TYPE_INDEX_CREATE;
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
+      return Marker::DELTA_EDGE_TYPE_INDEX_DROP;
     case StorageMetadataOperation::TEXT_INDEX_CREATE:
       return Marker::DELTA_TEXT_INDEX_CREATE;
     case StorageMetadataOperation::TEXT_INDEX_DROP:
@@ -180,6 +184,10 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
       return WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET;
     case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
       return WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR;
+    case Marker::DELTA_EDGE_TYPE_INDEX_CREATE:
+      return WalDeltaData::Type::EDGE_INDEX_CREATE;
+    case Marker::DELTA_EDGE_TYPE_INDEX_DROP:
+      return WalDeltaData::Type::EDGE_INDEX_DROP;
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
       return WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
@@ -206,6 +214,7 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::SECTION_CONSTRAINTS:
     case Marker::SECTION_DELTA:
     case Marker::SECTION_EPOCH_HISTORY:
+    case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
@@ -288,6 +297,7 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
     }
     case WalDeltaData::Type::TRANSACTION_END:
       break;
+    // NOLINTNEXTLINE(bugprone-branch-clone)
     case WalDeltaData::Type::LABEL_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_INDEX_DROP:
     case WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR:
@@ -298,6 +308,17 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
         auto label = decoder->ReadString();
         if (!label) throw RecoveryFailure("Invalid WAL data!");
         delta.operation_label.label = std::move(*label);
+      } else {
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
+    }
+    case WalDeltaData::Type::EDGE_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_INDEX_DROP: {
+      if constexpr (read_data) {
+        auto edge_type = decoder->ReadString();
+        if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_edge_type.edge_type = std::move(*edge_type);
       } else {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
       }
@@ -551,6 +572,9 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
       return a.operation_label_properties.label == b.operation_label_properties.label &&
              a.operation_label_properties.properties == b.operation_label_properties.properties;
+    case WalDeltaData::Type::EDGE_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_INDEX_DROP:
+      return a.operation_edge_type.edge_type == b.operation_edge_type.edge_type;
   }
 }
 bool operator!=(const WalDeltaData &a, const WalDeltaData &b) { return !(a == b); }
@@ -923,6 +947,18 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label.label));
           RemoveRecoveredIndexConstraint(&indices_constraints->indices.label, label_id,
                                          "The label index doesn't exist!");
+          break;
+        }
+        case WalDeltaData::Type::EDGE_INDEX_CREATE: {
+          auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.operation_edge_type.edge_type));
+          AddRecoveredIndexConstraint(&indices_constraints->indices.edge, edge_type_id,
+                                      "The edge-type index already exists!");
+          break;
+        }
+        case WalDeltaData::Type::EDGE_INDEX_DROP: {
+          auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.operation_edge_type.edge_type));
+          RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge, edge_type_id,
+                                         "The edge-type index doesn't exist!");
           break;
         }
         case WalDeltaData::Type::LABEL_INDEX_STATS_SET: {

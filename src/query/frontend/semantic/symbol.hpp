@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,6 +52,8 @@ class Symbol {
   Type type() const { return type_; }
   bool user_declared() const { return user_declared_; }
   int token_position() const { return token_position_; }
+
+  bool IsSymbolAnonym() const { return name_.substr(0U, 4U) == "anon"; }
 
   std::string name_;
   int64_t position_;

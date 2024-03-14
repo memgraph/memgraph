@@ -22,8 +22,10 @@ add_library(mg-storage-v2 STATIC
         indices/indices.cpp
         indices/text_index.cpp
         all_vertices_iterable.cpp
+        edges_iterable.cpp
         vertices_iterable.cpp
         inmemory/storage.cpp
+        inmemory/edge_type_index.cpp
         inmemory/label_index.cpp
         inmemory/label_property_index.cpp
         inmemory/unique_constraints.cpp
@@ -31,6 +33,7 @@ add_library(mg-storage-v2 STATIC
         disk/edge_import_mode_cache.cpp
         disk/storage.cpp
         disk/rocksdb_storage.cpp
+        disk/edge_type_index.cpp
         disk/label_index.cpp
         disk/label_property_index.cpp
         disk/unique_constraints.cpp

@@ -11,6 +11,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+# import os
 import sys
 import time
 from multiprocessing import Process, Value
@@ -20,6 +21,7 @@ import mgclient
 import pytest
 
 TRANSFORMATIONS_TO_CHECK = ["pulsar_transform.simple", "pulsar_transform.with_parameters"]
+# PULSAR_HOSTNAME=os.getenv("PULSAR_HOSTNAME", "127.0.0.1")
 
 
 def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_byte):

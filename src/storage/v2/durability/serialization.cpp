@@ -332,6 +332,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::SECTION_CONSTRAINTS:
     case Marker::SECTION_DELTA:
     case Marker::SECTION_EPOCH_HISTORY:
+    case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
@@ -350,6 +351,8 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_EDGE_TYPE_INDEX_CREATE:
+    case Marker::DELTA_EDGE_TYPE_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
@@ -437,6 +440,7 @@ bool Decoder::SkipPropertyValue() {
     case Marker::SECTION_CONSTRAINTS:
     case Marker::SECTION_DELTA:
     case Marker::SECTION_EPOCH_HISTORY:
+    case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
@@ -455,6 +459,8 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
+    case Marker::DELTA_EDGE_TYPE_INDEX_CREATE:
+    case Marker::DELTA_EDGE_TYPE_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:

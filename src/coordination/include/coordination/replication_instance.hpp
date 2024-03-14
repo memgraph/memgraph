@@ -17,10 +17,11 @@
 #include "coordination/coordinator_exceptions.hpp"
 #include "replication_coordination_glue/role.hpp"
 
-#include <libnuraft/nuraft.hxx>
 #include "utils/resource_lock.hpp"
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
+
+#include <libnuraft/nuraft.hxx>
 
 namespace memgraph::coordination {
 
@@ -50,13 +51,14 @@ class ReplicationInstance {
   auto IsAlive() const -> bool;
 
   auto InstanceName() const -> std::string;
-  auto SocketAddress() const -> std::string;
+  auto CoordinatorSocketAddress() const -> std::string;
+  auto ReplicationSocketAddress() const -> std::string;
 
-  auto IsReplica() const -> bool;
-  auto IsMain() const -> bool;
-
-  auto PromoteToMain(utils::UUID uuid, ReplicationClientsInfo repl_clients_info,
+  auto PromoteToMain(utils::UUID const &uuid, ReplicationClientsInfo repl_clients_info,
                      HealthCheckInstanceCallback main_succ_cb, HealthCheckInstanceCallback main_fail_cb) -> bool;
+
+  auto SendDemoteToReplicaRpc() -> bool;
+
   auto DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
       -> bool;
 
@@ -69,8 +71,8 @@ class ReplicationInstance {
 
   auto EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool;
 
-  auto SendSwapAndUpdateUUID(const utils::UUID &new_main_uuid) -> bool;
-  auto SendUnregisterReplicaRpc(std::string const &instance_name) -> bool;
+  auto SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool;
+  auto SendUnregisterReplicaRpc(std::string_view instance_name) -> bool;
 
   auto SendGetInstanceUUID() -> utils::BasicResult<coordination::GetInstanceUUIDError, std::optional<utils::UUID>>;
   auto GetClient() -> CoordinatorClient &;
@@ -78,14 +80,14 @@ class ReplicationInstance {
   auto EnableWritingOnMain() -> bool;
 
   auto SetNewMainUUID(utils::UUID const &main_uuid) -> void;
-  auto GetMainUUID() const -> const std::optional<utils::UUID> &;
+  auto ResetMainUUID() -> void;
+  auto GetMainUUID() const -> std::optional<utils::UUID> const &;
 
   auto GetSuccessCallback() -> HealthCheckInstanceCallback &;
   auto GetFailCallback() -> HealthCheckInstanceCallback &;
 
  private:
   CoordinatorClient client_;
-  replication_coordination_glue::ReplicationRole replication_role_;
   std::chrono::system_clock::time_point last_response_time_{};
   bool is_alive_{false};
   std::chrono::system_clock::time_point last_check_of_uuid_{};
@@ -101,7 +103,8 @@ class ReplicationInstance {
   HealthCheckInstanceCallback fail_cb_;
 
   friend bool operator==(ReplicationInstance const &first, ReplicationInstance const &second) {
-    return first.client_ == second.client_ && first.replication_role_ == second.replication_role_;
+    return first.client_ == second.client_ && first.last_response_time_ == second.last_response_time_ &&
+           first.is_alive_ == second.is_alive_ && first.main_uuid_ == second.main_uuid_;
   }
 };
 

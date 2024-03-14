@@ -10,8 +10,10 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/disk/edge_type_index.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
+#include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage.hpp"
@@ -36,6 +38,8 @@ void Indices::AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Ver
 void Indices::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const {
   static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
+      ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+  static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token));
 }
 
@@ -54,14 +58,21 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &valu
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
 }
 
+void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                                   const Transaction &tx) const {
+  edge_type_index_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
+}
+
 Indices::Indices(const Config &config, StorageMode storage_mode) {
   std::invoke([this, config, storage_mode]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>();
       label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>();
+      edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>();
     } else {
       label_index_ = std::make_unique<DiskLabelIndex>(config);
       label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(config);
+      edge_type_index_ = std::make_unique<DiskEdgeTypeIndex>();
     }
   });
 }
