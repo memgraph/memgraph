@@ -366,9 +366,9 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       transaction->manyDeltasCache.Invalidate(vertex, id);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
-          transaction->constraint_verification_info.AddedProperty(vertex);
+          transaction->constraint_verification_info->AddedProperty(vertex);
         } else {
-          transaction->constraint_verification_info.RemovedProperty(vertex);
+          transaction->constraint_verification_info->RemovedProperty(vertex);
         }
       }
     }
