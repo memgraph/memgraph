@@ -772,6 +772,35 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
   }
 }
 
+void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
+                     EdgeTypeId edge_type, uint64_t timestamp) {
+  encoder->WriteMarker(Marker::SECTION_DELTA);
+  encoder->WriteUint(timestamp);
+  switch (operation) {
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
+      encoder->WriteMarker(OperationToMarker(operation));
+      encoder->WriteString(name_id_mapper->IdToName(edge_type.AsUint()));
+      break;
+    }
+    case StorageMetadataOperation::LABEL_INDEX_CREATE:
+    case StorageMetadataOperation::LABEL_INDEX_DROP:
+    case StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
+    case StorageMetadataOperation::LABEL_INDEX_STATS_SET:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+    case StorageMetadataOperation::TEXT_INDEX_CREATE:
+    case StorageMetadataOperation::TEXT_INDEX_DROP:
+    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
+    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
+      MG_ASSERT(false, "Invalid function call!");
+  }
+}
+
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
                      const std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
