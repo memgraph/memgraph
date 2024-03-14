@@ -67,6 +67,8 @@ class ExistenceConstraints {
   std::vector<std::pair<LabelId, PropertyId>> ListConstraints() const;
 
   void LoadExistenceConstraints(const std::vector<std::string> &keys);
+
+  void DropGraphClearConstraints();
 };
 
 }  // namespace memgraph::storage

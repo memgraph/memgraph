@@ -90,6 +90,7 @@ struct TriggerStore {
                   const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner);
 
   void DropTrigger(const std::string &name);
+  void DropAll();
 
   struct TriggerInfo {
     std::string name;

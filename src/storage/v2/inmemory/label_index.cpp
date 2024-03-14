@@ -235,4 +235,13 @@ std::vector<LabelId> InMemoryLabelIndex::Analysis() const {
   }
   return res;
 }
+
+void InMemoryLabelIndex::DropGraphClearIndices() {
+  for (auto &[label, storage] : index_) {
+    storage.clear();
+  }
+  index_.clear();
+  stats_->clear();
+}
+
 }  // namespace memgraph::storage

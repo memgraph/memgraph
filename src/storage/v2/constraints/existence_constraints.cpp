@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -121,5 +121,7 @@ std::optional<ConstraintViolation> ExistenceConstraints::SingleThreadConstraintV
   }
   return std::nullopt;
 }
+
+void ExistenceConstraints::DropGraphClearConstraints() { constraints_.clear(); }
 
 }  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -61,6 +61,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   void LoadIndexInfo(const std::vector<std::string> &keys);
 
   std::set<std::pair<LabelId, PropertyId>> GetInfo() const;
+
+  void DropGraphClearIndices() override{};
 
  private:
   utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<std::pair<LabelId, PropertyId>>>>>

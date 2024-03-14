@@ -3321,6 +3321,28 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
   return callback;
 }
 
+Callback DropGraph(memgraph::dbms::DatabaseAccess &db) {
+  Callback callback;
+  callback.fn = [&db]() mutable {
+    auto storage = db->UniqueAccess();
+    auto storage_mode = db->GetStorageMode();
+    if (storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+      throw utils::BasicException("Drop graph can not be used without IN_MEMORY_ANALYTICAL storage mode!");
+    }
+    storage->DropGraph();
+
+    auto *trigger_store = db->trigger_store();
+    trigger_store->DropAll();
+
+    auto *streams = db->streams();
+    streams->DropAll();
+
+    return std::vector<std::vector<TypedValue>>();
+  };
+
+  return callback;
+}
+
 bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   bool exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
     return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
@@ -3362,6 +3384,25 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
       return [storage, requested_mode] { storage->SetStorageMode(requested_mode); };
     }();
   }
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
+PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  MG_ASSERT(current_db.db_acc_, "Drop graph query expects a current DB");
+  memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
+
+  auto *drop_graph_query = utils::Downcast<DropGraphQuery>(parsed_query.query);
+  MG_ASSERT(drop_graph_query);
+
+  std::function<void()> callback = DropGraph(db_acc).fn;
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
@@ -4545,6 +4586,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw EdgeImportModeModificationInMulticommandTxException();
       }
       prepared_query = PrepareEdgeImportModeQuery(std::move(parsed_query), current_db_);
+    } else if (utils::Downcast<DropGraphQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw DropGraphInMulticommandTxException();
+      }
+      prepared_query = PrepareDropGraphQuery(std::move(parsed_query), current_db_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
