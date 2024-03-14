@@ -24,12 +24,12 @@ on:
           - centos-9
           - debian-10
           - debian-11
-          # - debian-11-arm
+          - debian-11-arm
           - debian-11-platform
           - debian-11-docker
-          # - debian-11-arm-docker
+          - debian-11-arm-docker
           - debian-12
-          # - debian-12-arm
+          - debian-12-arm
           - fedora-36
           - fedora-38
           - fedora-39
@@ -37,7 +37,7 @@ on:
           - ubuntu-18.04
           - ubuntu-20.04
           - ubuntu-22.04
-          # - ubuntu-22.04-arm
+          - ubuntu-22.04-arm
       toolchain:
         type: choice
         description: "Toolchain version with which memgraph will be packaged. Default is v5"
@@ -135,17 +135,17 @@ jobs:
       artifact_name: "debian-11-docker"
     secrets: inherit
 
-  # Debian11-arm:
-  #   if: ${{ github.event.inputs.target_os == 'debian-11-arm' || github.event.inputs.target_os == 'all' }}
-  #   uses: ./.github/workflows/reusable_package.yaml
-  #   with:
-  #     os: "debian-11-arm"
-  #     toolchain: ${{ github.event.inputs.toolchain }}
-  #     arch: "arm"
-  #     runner_arch_label: "ARM64"
-  #     build_type: ${{ github.event.inputs.build_type }}
-  #     timeout_minutes: 120
-  #   secrets: inherit
+  Debian11-arm:
+    if: ${{ github.event.inputs.target_os == 'debian-11-arm' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-11-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "arm"
+      runner_arch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 120
+    secrets: inherit
 
   # Debian11-arm-docker:
   #   if: ${{ github.event.inputs.target_os == 'debian-11-arm-docker' || github.event.inputs.target_os == 'all' }}
@@ -173,17 +173,17 @@ jobs:
       timeout_minutes: 60
     secrets: inherit
 
-  # Debian12-arm:
-  #   if: ${{ (github.event.inputs.target_os == 'debian-12-arm' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
-  #   uses: ./.github/workflows/reusable_package.yaml
-  #   with:
-  #     os: "debian-12-arm"
-  #     toolchain: ${{ github.event.inputs.toolchain }}
-  #     arch: "arm"
-  #     runner_arch_label: "ARM64"
-  #     build_type: ${{ github.event.inputs.build_type }}
-  #     timeout_minutes: 120
-  #   secrets: inherit
+  Debian12-arm:
+    if: ${{ (github.event.inputs.target_os == 'debian-12-arm' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "debian-12-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "arm"
+      runner_arch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 120
+    secrets: inherit
 
   Fedora36:
     if: ${{ (github.event.inputs.target_os == 'fedora-36' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
@@ -269,14 +269,14 @@ jobs:
       timeout_minutes: 60
     secrets: inherit
 
-  # Ubuntu22_04-arm:
-  #   if: ${{ github.event.inputs.target_os == 'ubuntu-22.04-arm' || github.event.inputs.target_os == 'all' }}
-  #   uses: ./.github/workflows/reusable_package.yaml
-  #   with:
-  #     os: "ubuntu-22.04-arm"
-  #     toolchain: ${{ github.event.inputs.toolchain }}
-  #     arch: "arm"
-  #     runner_arch_label: "ARM64"
-  #     build_type: ${{ github.event.inputs.build_type }}
-  #     timeout_minutes: 120
-  #   secrets: inherit
+  Ubuntu22_04-arm:
+    if: ${{ github.event.inputs.target_os == 'ubuntu-22.04-arm' || github.event.inputs.target_os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-22.04-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "arm"
+      runner_arch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 120
+    secrets: inherit
