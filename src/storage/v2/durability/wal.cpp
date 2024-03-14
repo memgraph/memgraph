@@ -757,6 +757,10 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
       }
       break;
     }
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
+      MG_ASSERT(false, "Invalid function  call!");
+    }
     case StorageMetadataOperation::TEXT_INDEX_CREATE:
     case StorageMetadataOperation::TEXT_INDEX_DROP: {
       MG_ASSERT(text_index_name.has_value(), "Text indices must be named!");
@@ -765,6 +769,35 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
       encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
       break;
     }
+  }
+}
+
+void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
+                     EdgeTypeId edge_type, uint64_t timestamp) {
+  encoder->WriteMarker(Marker::SECTION_DELTA);
+  encoder->WriteUint(timestamp);
+  switch (operation) {
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
+      encoder->WriteMarker(OperationToMarker(operation));
+      encoder->WriteString(name_id_mapper->IdToName(edge_type.AsUint()));
+      break;
+    }
+    case StorageMetadataOperation::LABEL_INDEX_CREATE:
+    case StorageMetadataOperation::LABEL_INDEX_DROP:
+    case StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
+    case StorageMetadataOperation::LABEL_INDEX_STATS_SET:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+    case StorageMetadataOperation::TEXT_INDEX_CREATE:
+    case StorageMetadataOperation::TEXT_INDEX_DROP:
+    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
+    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
+      MG_ASSERT(false, "Invalid function call!");
   }
 }
 
@@ -1174,6 +1207,11 @@ void WalFile::AppendOperation(StorageMetadataOperation operation, const std::opt
                               const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
   EncodeOperation(&wal_, name_id_mapper_, operation, text_index_name, label, properties, stats, property_stats,
                   timestamp);
+  UpdateStats(timestamp);
+}
+
+void WalFile::AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp) {
+  EncodeOperation(&wal_, name_id_mapper_, operation, edge_type, timestamp);
   UpdateStats(timestamp);
 }
 
