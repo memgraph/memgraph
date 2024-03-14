@@ -186,6 +186,9 @@ constexpr utils::TypeInfo query::ProfileQuery::kType{utils::TypeId::AST_PROFILE_
 
 constexpr utils::TypeInfo query::IndexQuery::kType{utils::TypeId::AST_INDEX_QUERY, "IndexQuery", &query::Query::kType};
 
+constexpr utils::TypeInfo query::EdgeIndexQuery::kType{utils::TypeId::AST_EDGE_INDEX_QUERY, "EdgeIndexQuery",
+                                                       &query::Query::kType};
+
 constexpr utils::TypeInfo query::TextIndexQuery::kType{utils::TypeId::AST_TEXT_INDEX_QUERY, "TextIndexQuery",
                                                        &query::Query::kType};
 

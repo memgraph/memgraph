@@ -149,6 +149,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitIndexQuery(MemgraphCypher::IndexQueryContext *ctx) override;
 
   /**
+   * @return IndexQuery*
+   */
+  antlrcpp::Any visitEdgeIndexQuery(MemgraphCypher::EdgeIndexQueryContext *ctx) override;
+
+  /**
    * @return TextIndexQuery*
    */
   antlrcpp::Any visitTextIndexQuery(MemgraphCypher::TextIndexQueryContext *ctx) override;
@@ -500,14 +505,24 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCreateIndex(MemgraphCypher::CreateIndexContext *ctx) override;
 
   /**
-   * @return TextIndexQuery*
-   */
-  antlrcpp::Any visitCreateTextIndex(MemgraphCypher::CreateTextIndexContext *ctx) override;
-
-  /**
    * @return IndexQuery*
    */
   antlrcpp::Any visitDropIndex(MemgraphCypher::DropIndexContext *ctx) override;
+
+  /**
+   * @return EdgeIndexQuery*
+   */
+  antlrcpp::Any visitCreateEdgeIndex(MemgraphCypher::CreateEdgeIndexContext *ctx) override;
+
+  /**
+   * @return DropEdgeIndex*
+   */
+  antlrcpp::Any visitDropEdgeIndex(MemgraphCypher::DropEdgeIndexContext *ctx) override;
+
+  /**
+   * @return TextIndexQuery*
+   */
+  antlrcpp::Any visitCreateTextIndex(MemgraphCypher::CreateTextIndexContext *ctx) override;
 
   /**
    * @return TextIndexQuery*

@@ -3957,7 +3957,7 @@ void PrintFuncSignature(const mgp_func &func, std::ostream &stream) {
 
 bool IsValidIdentifierName(const char *name) {
   if (!name) return false;
-  std::regex regex("[_[:alpha:]][_[:alnum:]]*");
+  static std::regex regex("[_[:alpha:]][_[:alnum:]]*");
   return std::regex_match(name, regex);
 }
 

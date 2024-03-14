@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -77,6 +77,8 @@ class VertexCountCache {
   bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId property) {
     return db_->LabelPropertyIndexExists(label, property);
   }
+
+  bool EdgeTypeIndexExists(storage::EdgeTypeId edge_type) { return db_->EdgeTypeIndexExists(edge_type); }
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return db_->GetIndexStats(label);

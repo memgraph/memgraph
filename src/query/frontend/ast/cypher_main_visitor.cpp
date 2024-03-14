@@ -261,14 +261,6 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   return index_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitCreateTextIndex(MemgraphCypher::CreateTextIndexContext *ctx) {
-  auto *index_query = storage_->Create<TextIndexQuery>();
-  index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
-  index_query->action_ = TextIndexQuery::Action::CREATE;
-  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  return index_query;
-}
-
 antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::DROP;
@@ -276,6 +268,35 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
     auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
     index_query->properties_ = {key};
   }
+  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitEdgeIndexQuery(MemgraphCypher::EdgeIndexQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "EdgeIndexQuery should have exactly one child!");
+  auto *index_query = std::any_cast<EdgeIndexQuery *>(ctx->children[0]->accept(this));
+  query_ = index_query;
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateEdgeIndex(MemgraphCypher::CreateEdgeIndexContext *ctx) {
+  auto *index_query = storage_->Create<EdgeIndexQuery>();
+  index_query->action_ = EdgeIndexQuery::Action::CREATE;
+  index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropEdgeIndex(MemgraphCypher::DropEdgeIndexContext *ctx) {
+  auto *index_query = storage_->Create<EdgeIndexQuery>();
+  index_query->action_ = EdgeIndexQuery::Action::DROP;
+  index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateTextIndex(MemgraphCypher::CreateTextIndexContext *ctx) {
+  auto *index_query = storage_->Create<TextIndexQuery>();
+  index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
+  index_query->action_ = TextIndexQuery::Action::CREATE;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   return index_query;
 }
@@ -399,24 +420,17 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
 antlrcpp::Any CypherMainVisitor::visitRegisterInstanceOnCoordinator(
     MemgraphCypher::RegisterInstanceOnCoordinatorContext *ctx) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
-  if (!ctx->replicationSocketAddress()->literal()->StringLiteral()) {
-    throw SemanticException("Replication socket address should be a string literal!");
-  }
 
-  if (!ctx->coordinatorSocketAddress()->literal()->StringLiteral()) {
-    throw SemanticException("Coordinator socket address should be a string literal!");
-  }
   coordinator_query->action_ = CoordinatorQuery::Action::REGISTER_INSTANCE;
-  coordinator_query->replication_socket_address_ =
-      std::any_cast<Expression *>(ctx->replicationSocketAddress()->accept(this));
-  coordinator_query->coordinator_socket_address_ =
-      std::any_cast<Expression *>(ctx->coordinatorSocketAddress()->accept(this));
   coordinator_query->instance_name_ = std::any_cast<std::string>(ctx->instanceName()->symbolicName()->accept(this));
-  if (ctx->ASYNC()) {
-    coordinator_query->sync_mode_ = memgraph::query::CoordinatorQuery::SyncMode::ASYNC;
-  } else {
-    coordinator_query->sync_mode_ = memgraph::query::CoordinatorQuery::SyncMode::SYNC;
-  }
+  coordinator_query->configs_ =
+      std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
+  coordinator_query->sync_mode_ = [ctx]() {
+    if (ctx->ASYNC()) {
+      return CoordinatorQuery::SyncMode::ASYNC;
+    }
+    return CoordinatorQuery::SyncMode::SYNC;
+  }();
 
   return coordinator_query;
 }
@@ -432,17 +446,10 @@ antlrcpp::Any CypherMainVisitor::visitUnregisterInstanceOnCoordinator(
 antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::AddCoordinatorInstanceContext *ctx) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
 
-  if (!ctx->raftSocketAddress()->literal()->StringLiteral()) {
-    throw SemanticException("Raft socket address should be a string literal!");
-  }
-
-  if (!ctx->raftServerId()->literal()->numberLiteral()) {
-    throw SemanticException("Raft server id should be a number literal!");
-  }
-
   coordinator_query->action_ = CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE;
-  coordinator_query->raft_socket_address_ = std::any_cast<Expression *>(ctx->raftSocketAddress()->accept(this));
-  coordinator_query->raft_server_id_ = std::any_cast<Expression *>(ctx->raftServerId()->accept(this));
+  coordinator_query->coordinator_server_id_ = std::any_cast<Expression *>(ctx->coordinatorServerId()->accept(this));
+  coordinator_query->configs_ =
+      std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
 
   return coordinator_query;
 }
@@ -1934,7 +1941,7 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
     anonymous_identifiers.push_back(&node->identifier_);
   }
   if (ctx->nodeLabels()) {
-    node->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
+    node->labels_ = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
   }
   if (ctx->properties()) {
     // This can return either properties or parameters
@@ -1948,16 +1955,27 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) {
-  std::vector<LabelIx> labels;
+  std::vector<QueryLabelType> labels;
   for (auto *node_label : ctx->nodeLabel()) {
-    if (node_label->labelName()->symbolicName()) {
+    auto *label_name = node_label->labelName();
+    if (label_name->symbolicName()) {
       labels.emplace_back(AddLabel(std::any_cast<std::string>(node_label->accept(this))));
-    } else {
+    } else if (label_name->parameter()) {
       // If we have a parameter, we have to resolve it.
       const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
       const auto label_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
       labels.emplace_back(storage_->GetLabelIx(label_name));
       query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
+    } else {
+      auto variable = std::any_cast<std::string>(label_name->variable()->accept(this));
+      users_identifiers.insert(variable);
+      auto *expression = static_cast<Expression *>(storage_->Create<Identifier>(variable));
+      for (auto *lookup : label_name->propertyLookup()) {
+        auto key = std::any_cast<PropertyIx>(lookup->accept(this));
+        auto *property_lookup = storage_->Create<PropertyLookup>(expression, key);
+        expression = property_lookup;
+      }
+      labels.emplace_back(expression);
     }
   }
   return labels;
@@ -2505,7 +2523,7 @@ antlrcpp::Any CypherMainVisitor::visitListIndexingOrSlicing(MemgraphCypher::List
 antlrcpp::Any CypherMainVisitor::visitExpression2a(MemgraphCypher::Expression2aContext *ctx) {
   auto *expression = std::any_cast<Expression *>(ctx->expression2b()->accept(this));
   if (ctx->nodeLabels()) {
-    auto labels = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
+    auto labels = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
     expression = storage_->Create<LabelsTest>(expression, labels);
   }
   return expression;
@@ -2831,7 +2849,7 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(MemgraphCypher::SetItemContext *ct
   // SetLabels
   auto *set_labels = storage_->Create<SetLabels>();
   set_labels->identifier_ = storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
-  set_labels->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
+  set_labels->labels_ = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
   return static_cast<Clause *>(set_labels);
 }
 
@@ -2854,7 +2872,7 @@ antlrcpp::Any CypherMainVisitor::visitRemoveItem(MemgraphCypher::RemoveItemConte
   // RemoveLabels
   auto *remove_labels = storage_->Create<RemoveLabels>();
   remove_labels->identifier_ = storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
-  remove_labels->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
+  remove_labels->labels_ = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
   return static_cast<Clause *>(remove_labels);
 }
 

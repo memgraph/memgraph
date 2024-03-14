@@ -16,11 +16,14 @@ target_sources(mg-coordination
         include/coordination/raft_state.hpp
         include/coordination/rpc_errors.hpp
 
+        include/nuraft/raft_log_action.hpp
+        include/nuraft/coordinator_cluster_state.hpp
         include/nuraft/coordinator_log_store.hpp
         include/nuraft/coordinator_state_machine.hpp
         include/nuraft/coordinator_state_manager.hpp
 
         PRIVATE
+        coordinator_config.cpp
         coordinator_client.cpp
         coordinator_state.cpp
         coordinator_rpc.cpp
@@ -33,6 +36,7 @@ target_sources(mg-coordination
         coordinator_log_store.cpp
         coordinator_state_machine.cpp
         coordinator_state_manager.cpp
+        coordinator_cluster_state.cpp
 )
 target_include_directories(mg-coordination PUBLIC include)
 

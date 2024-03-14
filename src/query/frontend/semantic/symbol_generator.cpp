@@ -568,6 +568,44 @@ bool SymbolGenerator::PostVisit(SetProperty & /*set_property*/) {
   return true;
 }
 
+bool SymbolGenerator::PreVisit(SetLabels &set_labels) {
+  auto &scope = scopes_.back();
+  scope.in_set_labels = true;
+  for (auto &label : set_labels.labels_) {
+    if (auto *expression = std::get_if<Expression *>(&label)) {
+      (*expression)->Accept(*this);
+    }
+  }
+
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(SetLabels & /*set_labels*/) {
+  auto &scope = scopes_.back();
+  scope.in_set_labels = false;
+
+  return true;
+}
+
+bool SymbolGenerator::PreVisit(RemoveLabels &remove_labels) {
+  auto &scope = scopes_.back();
+  scope.in_remove_labels = true;
+  for (auto &label : remove_labels.labels_) {
+    if (auto *expression = std::get_if<Expression *>(&label)) {
+      (*expression)->Accept(*this);
+    }
+  }
+
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(RemoveLabels & /*remove_labels*/) {
+  auto &scope = scopes_.back();
+  scope.in_remove_labels = false;
+
+  return true;
+}
+
 // Pattern and its subparts.
 
 bool SymbolGenerator::PreVisit(Pattern &pattern) {
@@ -602,6 +640,15 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   };
 
   scope.in_node_atom = true;
+
+  if (scope.in_create) {  // you can use expressions with labels only in create
+    for (auto &label : node_atom.labels_) {
+      if (auto *expression = std::get_if<Expression *>(&label)) {
+        (*expression)->Accept(*this);
+      }
+    }
+  }
+
   if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node_atom.properties_)) {
     bool props_or_labels = !properties->empty() || !node_atom.labels_.empty();
 
@@ -720,6 +767,32 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
   scope.in_create_edge = false;
   return true;
 }
+
+bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
+  auto &scope = scopes_.back();
+
+  if (scope.in_set_property) {
+    throw utils::NotYetImplemented("Pattern Comprehension cannot be used within SET clause.!");
+  }
+
+  if (scope.in_with) {
+    throw utils::NotYetImplemented("Pattern Comprehension cannot be used within WITH!");
+  }
+
+  if (scope.in_reduce) {
+    throw utils::NotYetImplemented("Pattern Comprehension cannot be used within REDUCE!");
+  }
+
+  if (scope.num_if_operators) {
+    throw utils::NotYetImplemented("IF operator cannot be used with Pattern Comprehension!");
+  }
+
+  const auto &symbol = CreateAnonymousSymbol();
+  pc.MapTo(symbol);
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) { return true; }
 
 void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<Identifier *> &identifiers) {
   auto &scope = scopes_.back();

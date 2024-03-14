@@ -67,6 +67,8 @@ struct WalDeltaData {
     LABEL_PROPERTY_INDEX_DROP,
     LABEL_PROPERTY_INDEX_STATS_SET,
     LABEL_PROPERTY_INDEX_STATS_CLEAR,
+    EDGE_INDEX_CREATE,
+    EDGE_INDEX_DROP,
     TEXT_INDEX_CREATE,
     TEXT_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
@@ -112,6 +114,10 @@ struct WalDeltaData {
     std::string label;
     std::set<std::string, std::less<>> properties;
   } operation_label_properties;
+
+  struct {
+    std::string edge_type;
+  } operation_edge_type;
 
   struct {
     std::string label;
@@ -162,6 +168,8 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR:
+    case WalDeltaData::Type::EDGE_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_INDEX_DROP:
     case WalDeltaData::Type::TEXT_INDEX_CREATE:
     case WalDeltaData::Type::TEXT_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
@@ -173,7 +181,7 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
 }
 
 constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type, const uint64_t version = kVersion) {
-  if (version < 16U) {
+  if (version < 17U) {
     return IsWalDeltaDataTypeTransactionEndVersion15(type);
   }
   // All deltas are now handled in a transactional scope
@@ -218,6 +226,9 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
                      const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                      const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
+void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
+                     EdgeTypeId edge_type, uint64_t timestamp);
+
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
@@ -250,6 +261,8 @@ class WalFile {
   void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
                        LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                        const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
+
+  void AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp);
 
   void Sync();
 

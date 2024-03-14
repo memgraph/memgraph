@@ -196,7 +196,10 @@ nodeLabels : nodeLabel ( nodeLabel )* ;
 
 nodeLabel : ':' labelName ;
 
-labelName : symbolicName | parameter;
+labelName : symbolicName
+          | parameter
+          | variable ( propertyLookup )+
+          ;
 
 relTypeName : symbolicName ;
 
