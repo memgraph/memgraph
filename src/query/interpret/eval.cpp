@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,12 +13,12 @@
 
 namespace memgraph::query {
 
-int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std::string &what) {
+int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, std::string_view what) {
   TypedValue value = expr->Accept(*evaluator);
   try {
     return value.ValueInt();
   } catch (TypedValueException &e) {
-    throw QueryRuntimeException(what + " must be an int");
+    throw QueryRuntimeException(std::string(what) + " must be an int");
   }
 }
 
