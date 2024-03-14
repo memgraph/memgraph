@@ -757,6 +757,10 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
       }
       break;
     }
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
+      MG_ASSERT(false, "Invalid function  call!");
+    }
     case StorageMetadataOperation::TEXT_INDEX_CREATE:
     case StorageMetadataOperation::TEXT_INDEX_DROP: {
       MG_ASSERT(text_index_name.has_value(), "Text indices must be named!");
