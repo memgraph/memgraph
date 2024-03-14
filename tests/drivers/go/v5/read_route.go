@@ -6,8 +6,8 @@ import (
 )
 
 func main() {
-    fmt.Println("Started running routing.go test")
-    uri := "neo4j://localhost:7687"
+    fmt.Println("Started running read_route.go test")
+    uri := "neo4j://localhost:7688"
     username := ""
     password := ""
 
@@ -18,13 +18,12 @@ func main() {
     }
     defer driver.Close()
 
-    session := driver.NewSession(neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+    // Use AccessModeRead for read transactions
+    session := driver.NewSession(neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
     defer session.Close()
 
-    greeting, err := session.WriteTransaction(func(transaction neo4j.Transaction) (interface{}, error) {
-        result, err := transaction.Run("CREATE (n:Greeting) SET n.message = $message RETURN n.message", map[string]interface{}{
-            "message": "Hello, World!",
-        })
+    greeting, err := session.ReadTransaction(func(transaction neo4j.Transaction) (interface{}, error) {
+        result, err := transaction.Run("MATCH (n:Greeting) RETURN n.message AS message LIMIT 1", nil)
         if err != nil {
             return nil, err
         }
@@ -41,5 +40,5 @@ func main() {
     }
 
     fmt.Println(greeting)
-    fmt.Println("Successfully finished running routing.go test")
+    fmt.Println("Successfully finished running coordinator_route.go test")
 }

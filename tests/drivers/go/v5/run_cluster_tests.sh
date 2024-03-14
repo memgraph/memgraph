@@ -17,4 +17,6 @@ for i in go; do
 done
 
 go get github.com/neo4j/neo4j-go-driver/v5
-go run docs_quick_start.go
+go run main_route.go
+go run coordinator_route.go
+go run read_route.go
