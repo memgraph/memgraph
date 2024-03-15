@@ -29,6 +29,7 @@ on:
           - debian-12
           - debian-12-arm
           - docker
+          - docker-arm
           - fedora-36
           - fedora-38
           - fedora-39
@@ -130,6 +131,7 @@ jobs:
       runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 120
+      artifact_name: "debian-11-aarch64"
     secrets: inherit
 
   Debian12:
@@ -154,11 +156,12 @@ jobs:
       runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 120
+      artifact_name: "debian-12-aarch64"
     secrets: inherit
 
   Docker-v4:
     if: ${{ (github.event.inputs.target_os == 'docker' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
-    uses: ./.github/workflows/reusable_package.yaml
+    uses: ./.github/workflows/reusable_docker.yaml
     with:
       os: "debian-11"
       toolchain: ${{ github.event.inputs.toolchain }}
@@ -167,12 +170,12 @@ jobs:
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
       additional_build_args: "--for-docker"
-      artifact_name: "debian-11-docker"
+      artifact_name: "docker"
     secrets: inherit
 
   Docker-v5:
     if: ${{ (github.event.inputs.target_os == 'docker' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
-    uses: ./.github/workflows/reusable_package.yaml
+    uses: ./.github/workflows/reusable_docker.yaml
     with:
       os: "debian-12"
       toolchain: ${{ github.event.inputs.toolchain }}
@@ -181,7 +184,35 @@ jobs:
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
       additional_build_args: "--for-docker"
-      artifact_name: "debian-11-docker"
+      artifact_name: "docker"
+    secrets: inherit
+
+  Docker-v4-arm:
+    if: ${{ (github.event.inputs.target_os == 'docker-arm' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
+    uses: ./.github/workflows/reusable_docker.yaml
+    with:
+      os: "debian-11-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "arm"
+      runner_arch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+      additional_build_args: "--for-docker"
+      artifact_name: "docker-aarch64"
+    secrets: inherit
+
+  Docker-v5-arm:
+    if: ${{ (github.event.inputs.target_os == 'docker-arm' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    uses: ./.github/workflows/reusable_docker.yaml
+    with:
+      os: "debian-12-arm"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "arm"
+      runner_arch_label: "ARM64"
+      build_type: ${{ github.event.inputs.build_type }}
+      timeout_minutes: 60
+      additional_build_args: "--for-docker"
+      artifact_name: "docker-aarch64"
     secrets: inherit
 
   Fedora36:
@@ -278,4 +309,5 @@ jobs:
       runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 120
+      artifact_name: "ubuntu-22.04-aarch64"
     secrets: inherit

@@ -371,13 +371,13 @@ package_docker() {
   local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
-  ./package_docker --latest "$package_dir/$last_package_name" $toolchain_version
+  ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64"
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
-  local docker_host_folder="$PROJECT_ROOT/build/output/docker-${toolchain_version}"
+  local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
   local docker_host_image_path="$docker_host_folder/$docker_image_name"
   mkdir -p "$docker_host_folder"
-  cp "$docker_build_folder/$docker_image_name" "$docker_host_image_path"
+  cp "$docker_build_folder/$docker_image_name" "$docker_host_folder"
   echo "Docker images saved to $docker_host_image_path."
 }
 

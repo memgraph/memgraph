@@ -25,7 +25,7 @@ on:
         default: 'Release'
       artifact_name:
         type: string
-        description: "Unique artifact name, pass it in to override the default. Default value is os name."
+        description: "Unique artifact name, pass it in to override the default. Default value is docker-arch."
         default: ''
       additional_build_args:
         type: string
@@ -50,7 +50,7 @@ on:
         description: "Target dir path in S3 bucket."
 
 env:
-  ARTIFACT_NAME: ${{ inputs.artifact_name || inputs.os }}
+  ARTIFACT_NAME: "docker-${{ inputs.arch }}"
 
 jobs:
   package:
@@ -108,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: "build/output/${{ inputs.os }}/memgraph*"
+          path: "build/output/docker/${{ inputs.arch }}/${{ inputs.toolchain }}/memgraph*"
 
       - name: "Stop mgbuild container"
         if: always()
@@ -139,24 +139,3 @@ jobs:
           AWS_REGION: ${{ inputs.s3_region }}
           SOURCE_DIR: "build/output/release"
           DEST_DIR: ${{ inputs.s3_dest_dir }}
-
-  # MAKE DOCKER WORK
-  # docker:
-  #   if: ${{ inputs.target_os == 'docker' || inputs.target_os == 'all' }}
-  #   runs-on: [self-hosted, DockerMgBuild, X64]
-  #   timeout-minutes: 60
-  #   steps:
-  #     - name: "Set up repository"
-  #       uses: actions/checkout@v4
-  #       with:
-  #         fetch-depth: 0 # Required because of release/get_version.py
-  #     - name: "Build package"
-  #       run: |
-  #         cd release/package
-  #         ./run.sh package debian-11 ${{ inputs.build_type }} --for-docker
-  #         ./run.sh docker
-  #     - name: "Upload package"
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: docker
-  #         path: build/output/docker/memgraph*.tar.gz
