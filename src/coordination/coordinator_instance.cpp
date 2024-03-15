@@ -245,8 +245,7 @@ auto CoordinatorInstance::TryFailover() -> void {
   }
 
   if (!new_main->EnableWritingOnMain()) {
-  spdlog:
-    error("Failover successful but couldn't enable writing on instance.");
+    spdlog::error("Failover successful but couldn't enable writing on instance.");
   }
 
   spdlog::info("Failover successful! Instance {} promoted to main.", new_main->InstanceName());
