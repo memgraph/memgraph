@@ -4049,9 +4049,6 @@ mgp_execution_rows::mgp_execution_rows(
     memgraph::utils::pmr::vector<memgraph::utils::pmr::vector<memgraph::query::TypedValue>> &&tv_rows)
     : rows(std::move(tv_rows)) {}
 
-mgp_execution_result::mgp_execution_result(mgp_execution_headers &&headers, mgp_execution_rows &&rows)
-    : headers(std::move(headers)), rows(std::move(rows)) {}
-
 struct MgProcedureResultStream final {
   explicit MgProcedureResultStream(mgp_memory *memory) : rows(memory->impl), memory(memory) {}
   using Row = std::vector<memgraph::query::TypedValue>;
@@ -4088,28 +4085,25 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         auto query_string = std::string(query);
         auto *instance = memgraph::query::InterpreterContext::getInstance();
 
-        memgraph::query::Interpreter interpreter(instance, instance->dbms_handler->Get());
-        interpreter.SetUser(graph->ctx->user_or_role);
+        auto *interpreter = new memgraph::query::Interpreter(instance, instance->dbms_handler->Get());
+        interpreter->SetUser(graph->ctx->user_or_role);
 
-        instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.insert(&interpreter); });
-
-        memgraph::utils::OnScopeExit erase_interpreter([&] {
-          instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.erase(&interpreter); });
-        });
+        // instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.insert(&interpreter); });
+        // memgraph::utils::OnScopeExit erase_interpreter([&] {
+        //   instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.erase(&interpreter); });
+        // });
 
         const auto query_params = CreateQueryParams(params);
 
-        auto prepare_query_result = interpreter.Prepare(query_string, query_params, {});
-        MgProcedureResultStream stream(memory);
-        interpreter.Pull(&stream, {}, prepare_query_result.qid);
+        auto prepare_query_result = interpreter->Prepare(query_string, query_params, {});
 
         memgraph::utils::pmr::vector<memgraph::utils::pmr::string> headers(memory->impl);
         for (auto header : prepare_query_result.headers) {
           headers.emplace_back(header);
         }
 
-        return NewRawMgpObject<mgp_execution_result>(memory, mgp_execution_headers{std::move(headers)},
-                                                     mgp_execution_rows{std::move(stream.rows)});
+        return NewRawMgpObject<mgp_execution_result>(memory->impl, std::move(interpreter),
+                                                     mgp_execution_headers{std::move(headers)});
       },
       result);
 }
@@ -4118,23 +4112,17 @@ mgp_error mgp_fetch_execution_headers(mgp_execution_result *exec_result, mgp_exe
   return WrapExceptions([exec_result]() { return &exec_result->headers; }, result);
 }
 
-mgp_error mgp_has_more_rows(mgp_execution_result *exec_result, bool *result) {
-  return WrapExceptions([exec_result]() { return exec_result->index < exec_result->rows.rows.size(); }, result);
-}
-
 mgp_error mgp_pull_one(mgp_execution_result *exec_result, mgp_graph *graph, mgp_memory *memory, mgp_map **result) {
   return WrapExceptions(
       [exec_result, graph, memory]() {
-        if (exec_result->index >= exec_result->rows.rows.size()) {
-          throw std::out_of_range("No more rows to pull from query execution!");
-        }
+        MgProcedureResultStream stream(memory);
+        exec_result->interpreter->Pull(&stream, 1, {});
 
-        const size_t index_to_fetch = exec_result->index++;
         const size_t headers_size = exec_result->headers.headers.size();
         memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(memory->impl);
         for (size_t idx = 0; idx < headers_size; idx++) {
           items.emplace(exec_result->headers.headers[idx],
-                        mgp_value{exec_result->rows.rows[index_to_fetch][idx], graph, memory->impl});
+                        mgp_value{std::move(stream.rows[0][idx]), graph, memory->impl});
         }
 
         return NewRawMgpObject<mgp_map>(memory->impl, std::move(items));
