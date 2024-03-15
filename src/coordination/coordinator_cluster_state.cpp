@@ -89,7 +89,8 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       // end of OPEN_LOCK_REGISTER_REPLICATION_INSTANCE
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
       auto const &config = std::get<CoordinatorToReplicaConfig>(log_entry);
-      repl_instances_[config.instance_name] = ReplicationInstanceState{config, ReplicationRole::REPLICA};
+      // Setting instance uuid to random, if registration fails, we are still in random state
+      repl_instances_[config.instance_name] = ReplicationInstanceState{config, ReplicationRole::REPLICA, utils::UUID{}};
       unhealthy_state_ = false;
       break;
     }

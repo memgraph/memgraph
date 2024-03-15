@@ -177,7 +177,7 @@ auto RaftState::AppendOpenLockRegister(CoordinatorToReplicaConfig const &config)
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to open lock for registering instance {} with error code {}", config.instance_name,
-                  res->get_result_code());
+                  int(res->get_result_code()));
     return false;
   }
 
@@ -195,7 +195,7 @@ auto RaftState::AppendOpenLockUnregister(std::string_view instance_name) -> bool
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to enter state of distributed lock unregistering instance {} with error code {}",
-                  instance_name, res->get_result_code());
+                  instance_name, int(res->get_result_code()));
     return false;
   }
 
@@ -213,7 +213,7 @@ auto RaftState::AppendOpenLockFailover(std::string_view instance_name) -> bool {
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to open lock for failover to instance {} with error code {}", instance_name,
-                  res->get_result_code());
+                  int(res->get_result_code()));
     return false;
   }
 
@@ -231,7 +231,7 @@ auto RaftState::AppendOpenLockSetInstanceToMain(std::string_view instance_name) 
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to open lock to set instance {} to MAIN with error code {}", instance_name,
-                  res->get_result_code());
+                  int(res->get_result_code()));
     return false;
   }
 
@@ -322,8 +322,7 @@ auto RaftState::AppendSetInstanceAsReplicaLog(std::string_view instance_name) ->
   return true;
 }
 
-auto RaftState::AppendOpenLockSetInstanceToReplica(std::string_view instance_name, const utils::UUID &current_uuid)
-    -> bool {
+auto RaftState::AppendOpenLockSetInstanceToReplica(std::string_view instance_name) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeSetInstanceAsReplica(instance_name);
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
@@ -336,7 +335,7 @@ auto RaftState::AppendOpenLockSetInstanceToReplica(std::string_view instance_nam
   spdlog::info("Request for demoting instance {} accepted", instance_name);
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to promote instance {} with error code {}", instance_name, res->get_result_code());
+    spdlog::error("Failed to promote instance {} with error code {}", instance_name, int(res->get_result_code()));
     return false;
   }
 
@@ -395,7 +394,7 @@ auto RaftState::AppendUpdateUUIDForInstanceLog(std::string_view instance_name, c
   spdlog::trace("Request for updating UUID of instance accepted");
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to update UUID of instance with error code {}", res->get_result_code());
+    spdlog::error("Failed to update UUID of instance with error code {}", int(res->get_result_code()));
     return false;
   }
 

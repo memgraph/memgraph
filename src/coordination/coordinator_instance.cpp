@@ -447,7 +447,6 @@ void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) 
 
   auto &repl_instance = FindReplicationInstance(repl_instance_name);
   repl_instance.OnFailPing();
-  const auto &repl_instance_uuid = raft_state_.GetInstanceUUID(repl_instance_name);
 
   // NOLINTNEXTLINE
   if (!repl_instance.IsAlive() && raft_state_.IsCurrentMain(repl_instance_name)) {

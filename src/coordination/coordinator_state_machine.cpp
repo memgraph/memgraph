@@ -105,6 +105,9 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
     case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_MAIN: {
       return {info.get<std::string>(), action};
     }
+    case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_REPLICA: {
+      return {info.get<std::string>(), action};
+    }
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
       return {info.get<CoordinatorToReplicaConfig>(), action};
     case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN:
