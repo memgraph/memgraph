@@ -132,6 +132,11 @@ DEFINE_bool(storage_enable_schema_metadata, false,
             "Controls whether metadata should be collected about the resident labels and edge types.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_enable_edges_metadata, false,
+            "Controls whether additional metadata should be stored about the edges in order to do faster traversals on "
+            "certain queries.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "
             "running system (CPU and memory information) and information about "

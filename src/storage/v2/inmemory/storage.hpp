@@ -425,6 +425,7 @@ class InMemoryStorage final : public Storage {
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
   utils::SkipList<storage::Edge> edges_;
+  utils::SkipList<storage::EdgeMetadata> edges_metadata_;
 
   // Durability
   durability::Recovery recovery_;

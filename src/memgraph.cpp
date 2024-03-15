@@ -332,6 +332,7 @@ int main(int argc, char **argv) {
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
       .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
+                        .enable_edges_metadata = FLAGS_storage_enable_edges_metadata,
                         .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
       .salient.storage_mode = memgraph::flags::ParseStorageMode()};
   spdlog::info("config recover on startup {}, flags {} {}", db_config.durability.recover_on_startup,

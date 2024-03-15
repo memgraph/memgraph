@@ -339,6 +339,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     if (delta) {
       delta->prev.Set(&*it);
     }
+    if (config_.enable_edges_metadata) {
+      auto acc = mem_storage->edges_metadata_.access();
+      auto [_, inserted] = acc.insert(EdgeMetadata(gid, from->vertex_));
+      MG_ASSERT(inserted, "The edge must be inserted here!");
+    }
   }
   utils::AtomicMemoryBlock atomic_memory_block{
       [this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex]() {
@@ -440,6 +445,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     edge = EdgeRef(&*it);
     if (delta) {
       delta->prev.Set(&*it);
+    }
+    if (config_.enable_edges_metadata) {
+      auto acc = mem_storage->edges_metadata_.access();
+      auto [_, inserted] = acc.insert(EdgeMetadata(gid, from->vertex_));
+      MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
   utils::AtomicMemoryBlock atomic_memory_block{
@@ -979,8 +989,10 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
   if (!current_deleted_edges.empty()) {
     // 3.c) remove from edge skip_list
     auto edge_acc = mem_storage->edges_.access();
+    auto edge_metadata_acc = mem_storage->edges_metadata_.access();
     for (auto gid : current_deleted_edges) {
       edge_acc.remove(gid);
+      edge_metadata_acc.remove(gid);
     }
   }
 }
@@ -1222,8 +1234,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // EDGES
       {
         auto edges_acc = mem_storage->edges_.access();
+        auto edges_metadata_acc = mem_storage->edges_metadata_.access();
         for (auto gid : my_deleted_edges) {
           edges_acc.remove(gid);
+          edges_metadata_acc.remove(gid);
         }
       }
     }
@@ -1434,25 +1448,45 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   if (edge_it == edge_acc.end()) {
     return std::nullopt;
   }
+
   auto *edge_ptr = &(*edge_it);
+  auto vertices_acc = mem_storage->vertices_.access();
 
-  // TODO replace this logic once we have a proper edge struct in place.
-  // This should be only temporary, currently we have to do this whole
-  // lookup through all the vertices, since the edge struct only has a
-  // pointer to it's GID, it has no information whatsoever about the from
-  // and to vertices.
-  auto acc = mem_storage->vertices_.access();
-
-  auto maybe_edge_info = std::invoke([&]() -> std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> {
-    for (auto &vertex : acc) {
-      for (auto &edge : vertex.out_edges) {
-        if (std::get<2>(edge).ptr == edge_ptr) {
-          return std::make_tuple(std::get<2>(edge), std::get<0>(edge), &vertex, std::get<1>(edge));
-        }
+  auto extract_edge_info =
+      [&](Vertex *from_vertex) -> std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> {
+    for (auto &out_edge : from_vertex->out_edges) {
+      if (std::get<2>(out_edge).ptr == edge_ptr) {
+        return std::make_tuple(std::get<2>(out_edge), std::get<0>(out_edge), from_vertex, std::get<1>(out_edge));
       }
     }
     return std::nullopt;
-  });
+  };
+
+  if (mem_storage->config_.salient.items.enable_edges_metadata) {
+    auto edge_metadata_acc = mem_storage->edges_metadata_.access();
+    auto edge_metadata_it = edge_metadata_acc.find(gid);
+    MG_ASSERT(edge_metadata_it != edge_metadata_acc.end(), "Invalid database state!");
+
+    auto maybe_edge_info = extract_edge_info(edge_metadata_it->from_vertex);
+
+    if (!maybe_edge_info) {
+      return std::nullopt;
+    }
+
+    auto &edge_info = *maybe_edge_info;
+    return EdgeAccessor::Create(std::get<0>(edge_info), std::get<1>(edge_info), std::get<2>(edge_info),
+                                std::get<3>(edge_info), storage_, &transaction_);
+  }
+
+  // If metadata on edges is not enables we will have to do
+  // a full scan.
+  std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> maybe_edge_info;
+  for (auto &from_vertex : vertices_acc) {
+    maybe_edge_info = extract_edge_info(&from_vertex);
+    if (maybe_edge_info) {
+      break;
+    }
+  }
 
   if (!maybe_edge_info) {
     return std::nullopt;
@@ -1812,8 +1846,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
   {
     auto edge_acc = edges_.access();
+    auto edge_metadata_acc = edges_metadata_.access();
     for (auto edge : current_deleted_edges) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
+      MG_ASSERT(edge_metadata_acc.remove(edge), "Invalid database state!");
     }
   }
 
@@ -1835,10 +1871,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions
   if (need_full_scan_edges) {
     auto edge_acc = edges_.access();
+    auto edge_metadata_acc = edges_metadata_.access();
     for (auto &edge : edge_acc) {
       // a deleted edge which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
       if (edge.delta == nullptr && edge.deleted) {
         edge_acc.remove(edge);
+        edge_metadata_acc.remove(edge.gid);
       }
     }
   }
