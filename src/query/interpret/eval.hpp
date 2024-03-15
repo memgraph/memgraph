@@ -1209,7 +1209,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 /// @param what - Name of what's getting evaluated. Used for user feedback (via
 ///               exception) when the evaluated value is not an int.
 /// @throw QueryRuntimeException if expression doesn't evaluate to an int.
-int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std::string &what);
+int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, std::string_view what);
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);

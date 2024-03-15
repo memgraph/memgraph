@@ -59,12 +59,14 @@ class TypedValueResultStreamBase {
  public:
   explicit TypedValueResultStreamBase(memgraph::storage::Storage *storage);
 
-  std::vector<memgraph::communication::bolt::Value> DecodeValues(
-      const std::vector<memgraph::query::TypedValue> &values) const;
+  void DecodeValues(const std::vector<memgraph::query::TypedValue> &values);
+
+  auto AccessValues() const -> std::vector<memgraph::communication::bolt::Value> const & { return decoded_values_; }
 
  protected:
   // NOTE: Needed only for ToBoltValue conversions
   memgraph::storage::Storage *storage_;
+  std::vector<memgraph::communication::bolt::Value> decoded_values_;
 };
 
 /// Wrapper around TEncoder which converts TypedValue to Value
@@ -75,16 +77,18 @@ class TypedValueResultStream : public TypedValueResultStreamBase {
   TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage)
       : TypedValueResultStreamBase{storage}, encoder_(encoder) {}
 
-  void Result(const std::vector<memgraph::query::TypedValue> &values) { encoder_->MessageRecord(DecodeValues(values)); }
+  void Result(const std::vector<memgraph::query::TypedValue> &values) {
+    DecodeValues(values);
+    encoder_->MessageRecord(AccessValues());
+  }
 
  private:
   TEncoder *encoder_;
 };
 
-std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::DecodeValues(
-    const std::vector<memgraph::query::TypedValue> &values) const {
-  std::vector<memgraph::communication::bolt::Value> decoded_values;
-  decoded_values.reserve(values.size());
+void TypedValueResultStreamBase::DecodeValues(const std::vector<memgraph::query::TypedValue> &values) {
+  decoded_values_.reserve(values.size());
+  decoded_values_.clear();
   for (const auto &v : values) {
     auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW);
     if (maybe_value.HasError()) {
@@ -99,9 +103,8 @@ std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::De
           throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
       }
     }
-    decoded_values.emplace_back(std::move(*maybe_value));
+    decoded_values_.emplace_back(std::move(*maybe_value));
   }
-  return decoded_values;
 }
 
 TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::storage::Storage *storage) : storage_(storage) {}
