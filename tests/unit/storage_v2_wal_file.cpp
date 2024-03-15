@@ -319,6 +319,8 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
