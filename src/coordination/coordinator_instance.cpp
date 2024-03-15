@@ -563,18 +563,11 @@ auto CoordinatorInstance::IsReplica(std::string_view instance_name) const -> boo
 auto CoordinatorInstance::GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable {
   auto res = RoutingTable{};
 
-  // TODO: (andi) Test if there is not current main, what routig table returns... Unit test because no user involvement
-  // Also test drivers
-  // TODO: (andi) Disable this when used on replicaton instance
-  auto const is_instance_alive = [&](ReplicationInstanceState const &instance) {
-    auto const &repl_instance = FindReplicationInstance(instance.config.instance_name);
-    return repl_instance.IsAlive();
-  };
-
   auto const repl_instance_to_bolt = [](ReplicationInstanceState const &instance) {
     return instance.config.BoltSocketAddress();
   };
 
+  // TODO: (andi) This is wrong check, Fico will correct in #1819.
   auto const is_instance_main = [&](ReplicationInstanceState const &instance) {
     return instance.status == ReplicationRole::MAIN;
   };
@@ -585,20 +578,18 @@ auto CoordinatorInstance::GetRoutingTable(std::map<std::string, std::string> con
 
   auto const &raft_log_repl_instances = raft_state_.GetReplicationInstances();
 
-  auto bolt_mains = raft_log_repl_instances | ranges::views::filter(is_instance_alive) |
-                    ranges::views::filter(is_instance_main) | ranges::views::transform(repl_instance_to_bolt) |
-                    ranges::to<std::vector>();
+  auto bolt_mains = raft_log_repl_instances | ranges::views::filter(is_instance_main) |
+                    ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
   MG_ASSERT(bolt_mains.size() <= 1, "There can be at most one main instance active!");
 
   if (!std::ranges::empty(bolt_mains)) {
-    res.emplace_back(bolt_mains, "WRITE");
+    res.emplace_back(std::move(bolt_mains), "WRITE");
   }
 
-  auto bolt_replicas = raft_log_repl_instances | ranges::views::filter(is_instance_alive) |
-                       ranges::views::filter(is_instance_replica) | ranges::views::transform(repl_instance_to_bolt) |
-                       ranges::to<std::vector>();
+  auto bolt_replicas = raft_log_repl_instances | ranges::views::filter(is_instance_replica) |
+                       ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
   if (!std::ranges::empty(bolt_replicas)) {
-    res.emplace_back(bolt_replicas, "READ");
+    res.emplace_back(std::move(bolt_replicas), "READ");
   }
 
   auto const coord_instance_to_bolt = [](CoordinatorInstanceState const &instance) {
@@ -615,7 +606,7 @@ auto CoordinatorInstance::GetRoutingTable(std::map<std::string, std::string> con
   }
 
   bolt_coords.push_back(local_bolt_coord->second);
-  res.emplace_back(bolt_coords, "ROUTE");
+  res.emplace_back(std::move(bolt_coords), "ROUTE");
 
   return res;
 }

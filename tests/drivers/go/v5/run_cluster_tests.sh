@@ -17,6 +17,5 @@ for i in go; do
 done
 
 go get github.com/neo4j/neo4j-go-driver/v5
-go run main_route.go
-go run coordinator_route.go
-go run read_route.go
+go run write_routing.go
+go run read_routing.go

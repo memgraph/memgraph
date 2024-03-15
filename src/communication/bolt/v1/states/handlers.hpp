@@ -504,8 +504,6 @@ State HandleRoute(TSession &session, const Marker marker) {
 #ifdef MG_ENTERPRISE
   try {
     auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), {});
-    spdlog::trace("Routing result: {}", res);
-
     if (!session.encoder_.MessageSuccess(std::move(res))) {
       spdlog::trace("Couldn't send result of routing!");
       return State::Close;

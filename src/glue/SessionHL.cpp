@@ -255,12 +255,11 @@ using memgraph::communication::bolt::Value;
 auto SessionHL::Route(std::map<std::string, Value> const &routing,
                       std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
                       std::map<std::string, Value> const & /*extra*/) -> std::map<std::string, Value> {
-  auto routing_map =
-      ranges::views::transform(routing,
-                               [](auto const &pair) { return std::make_pair(pair.first, pair.second.ValueString()); }) |
-      ranges::to<std::map<std::string, std::string>>();
+  auto routing_map = ranges::views::transform(
+                         routing, [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
+                     ranges::to<std::map<std::string, std::string>>();
 
-  auto res = interpreter_.Route(routing_map);
+  auto routing_table_res = interpreter_.Route(routing_map);
 
   auto create_server = [](auto const &server_info) -> Value {
     auto const &[addresses, role] = server_info;
@@ -273,14 +272,14 @@ auto SessionHL::Route(std::map<std::string, Value> const &routing,
     return Value{std::move(server_map)};
   };
 
-  std::map<std::string, Value> temp;
-  temp["ttl"] = Value{res.ttl};
-  temp["db"] = Value{};
+  std::map<std::string, Value> communication_res;
+  communication_res["ttl"] = Value{routing_table_res.ttl};
+  communication_res["db"] = Value{};
 
-  auto servers = ranges::views::transform(res.servers, create_server) | ranges::to<std::vector<Value>>();
-  temp["servers"] = memgraph::communication::bolt::Value{std::move(servers)};
+  auto servers = ranges::views::transform(routing_table_res.servers, create_server) | ranges::to<std::vector<Value>>();
+  communication_res["servers"] = memgraph::communication::bolt::Value{std::move(servers)};
 
-  return {{"rt", memgraph::communication::bolt::Value{std::move(temp)}}};
+  return {{"rt", memgraph::communication::bolt::Value{std::move(communication_res)}}};
 }
 #endif
 

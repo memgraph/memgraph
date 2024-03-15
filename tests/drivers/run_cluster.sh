@@ -191,7 +191,6 @@ echo "Stopping instance3"
 stop_process $pid_instance_3
 
 
-
 # Check test exit code.
 if [ $code_test -ne 0 ]; then
     echo "One of the tests failed!"
