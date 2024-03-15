@@ -44,6 +44,14 @@ PDS::PDS(std::filesystem::path root)
 
                  //  options.compression = rocksdb::kLZ4HCCompression;
                  return options;
-               })} {}
+               })} {
+  // Setup read options
+  r_options.async_io = true;
+  r_options.adaptive_readahead = true;
+  r_options.prefix_same_as_start = true;
+
+  // Setup write options
+  w_options.disableWAL = true;
+}
 
 }  // namespace memgraph::storage
