@@ -54,6 +54,7 @@ class CoordinatorStateMachine : public state_machine {
   static auto SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer>;
   static auto SerializeUpdateUUIDForInstance(InstanceUUIDChange const &instance_uuid_change) -> ptr<buffer>;
   static auto SerializeAddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> ptr<buffer>;
+  static auto SerializeOpenLockSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
 
   static auto DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction>;
 

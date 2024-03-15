@@ -91,14 +91,14 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       auto const &config = std::get<CoordinatorToReplicaConfig>(log_entry);
       // Setting instance uuid to random, if registration fails, we are still in random state
       repl_instances_[config.instance_name] = ReplicationInstanceState{config, ReplicationRole::REPLICA, utils::UUID{}};
-      unhealthy_state_ = false;
+      is_healthy_ = true;
       break;
     }
       // end of OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE: {
       auto const instance_name = std::get<std::string>(log_entry);
       repl_instances_.erase(instance_name);
-      unhealthy_state_ = false;
+      is_healthy_ = true;
       break;
     }
       // end of OPEN_LOCK_SET_INSTANCE_AS_MAIN and OPEN_LOCK_FAILOVER
@@ -107,7 +107,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       auto it = repl_instances_.find(instance_name);
       MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
       it->second.status = ReplicationRole::MAIN;
-      unhealthy_state_ = false;
+      is_healthy_ = true;
       break;
     }
       // end of OPEN_LOCK_SET_INSTANCE_AS_REPLICA
@@ -116,7 +116,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       auto it = repl_instances_.find(instance_name);
       MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
       it->second.status = ReplicationRole::REPLICA;
-      unhealthy_state_ = false;
+      is_healthy_ = true;
       break;
     }
     case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN: {
@@ -136,23 +136,23 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       break;
     }
     case RaftLogAction::OPEN_LOCK_REGISTER_REPLICATION_INSTANCE: {
-      unhealthy_state_ = true;
+      is_healthy_ = false;
       // TODO(antoniofilipovic) save what we are doing to be able to undo....
     }
     case RaftLogAction::OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE: {
-      unhealthy_state_ = true;
+      is_healthy_ = false;
       // TODO(antoniofilipovic) save what we are doing
     }
     case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_MAIN: {
-      unhealthy_state_ = true;
+      is_healthy_ = false;
       // TODO(antoniofilipovic) save what we are doing
     }
     case RaftLogAction::OPEN_LOCK_FAILOVER: {
-      unhealthy_state_ = true;
+      is_healthy_ = false;
       // TODO(antoniofilipovic) save what we are doing
     }
     case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_REPLICA: {
-      unhealthy_state_ = true;
+      is_healthy_ = false;
       // TODO(antoniofilipovic) save what we need to undo
     }
   }
@@ -195,7 +195,10 @@ auto CoordinatorClusterState::GetCoordinatorInstances() const -> std::vector<Coo
   return coordinators_;
 }
 
-auto CoordinatorClusterState::GetUUID() const -> utils::UUID { return uuid_; }
+auto CoordinatorClusterState::IsHealthy() const -> bool {
+  auto lock = std::shared_lock{log_lock_};
+  return is_healthy_;
+}
 
 }  // namespace memgraph::coordination
 #endif

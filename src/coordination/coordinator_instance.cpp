@@ -291,7 +291,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
 
   auto const failed_to_swap = [this, &new_main_uuid](ReplicationInstance &instance) {
     return !instance.SendSwapAndUpdateUUID(new_main_uuid) ||
-           raft_state_.AppendUpdateUUIDForInstanceLog(instance.InstanceName(), new_main_uuid);
+           !raft_state_.AppendUpdateUUIDForInstanceLog(instance.InstanceName(), new_main_uuid);
   };
 
   if (std::ranges::any_of(repl_instances_ | ranges::views::filter(is_not_new_main), failed_to_swap)) {

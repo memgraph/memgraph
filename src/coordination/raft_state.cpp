@@ -323,7 +323,7 @@ auto RaftState::AppendSetInstanceAsReplicaLog(std::string_view instance_name) ->
 }
 
 auto RaftState::AppendOpenLockSetInstanceToReplica(std::string_view instance_name) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeSetInstanceAsReplica(instance_name);
+  auto new_log = CoordinatorStateMachine::SerializeOpenLockSetInstanceAsReplica(instance_name);
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
     spdlog::error(

@@ -66,7 +66,7 @@ void from_json(nlohmann::json const &j, InstanceUUIDChange &instance_uuid_change
 }
 
 void to_json(nlohmann::json &j, InstanceUUIDChange const &instance_uuid_change) {
-  j = nlohmann::json{{"instance_name", instance_uuid_change.instance_name, "uuid", instance_uuid_change.uuid}};
+  j = nlohmann::json{{"instance_name", instance_uuid_change.instance_name}, {"uuid", instance_uuid_change.uuid}};
 }
 
 }  // namespace memgraph::coordination

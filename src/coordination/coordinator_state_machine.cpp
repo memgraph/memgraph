@@ -39,20 +39,20 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
 }
 
 auto CoordinatorStateMachine::SerializeOpenLockRegister(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::OPEN_LOCK_REGISTER_REPLICATION_INSTANCE}, {{"info", config}}});
+  return CreateLog({{"action", RaftLogAction::OPEN_LOCK_REGISTER_REPLICATION_INSTANCE}, {"info", config}});
 }
 
 auto CoordinatorStateMachine::SerializeOpenLockUnregister(std::string_view instance_name) -> ptr<buffer> {
   return CreateLog(
-      {{"action", RaftLogAction::OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE}, {{"info", std::string{instance_name}}}});
+      {{"action", RaftLogAction::OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE}, {"info", std::string{instance_name}}});
 }
 
 auto CoordinatorStateMachine::SerializeOpenLockFailover(std::string_view instance_name) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::OPEN_LOCK_FAILOVER}, {{"info", std::string(instance_name)}}});
+  return CreateLog({{"action", RaftLogAction::OPEN_LOCK_FAILOVER}, {"info", std::string(instance_name)}});
 }
 
 auto CoordinatorStateMachine::SerializeOpenLockSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_MAIN}, {{"info", std::string(instance_name)}}});
+  return CreateLog({{"action", RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_MAIN}, {"info", std::string(instance_name)}});
 }
 
 auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
@@ -85,10 +85,14 @@ auto CoordinatorStateMachine::SerializeAddCoordinatorInstance(CoordinatorToCoord
   return CreateLog({{"action", RaftLogAction::ADD_COORDINATOR_INSTANCE}, {"info", config}});
 }
 
+auto CoordinatorStateMachine::SerializeOpenLockSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_REPLICA}, {"info", instance_name}});
+}
+
 auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction> {
   buffer_serializer bs(data);
   auto const json = nlohmann::json::parse(bs.get_str());
-
+  std::cout << "!!!!OUR JSON:" << json << std::endl;
   auto const action = json["action"].get<RaftLogAction>();
   auto const &info = json["info"];
 
@@ -265,7 +269,6 @@ auto CoordinatorStateMachine::GetCoordinatorInstances() const -> std::vector<Coo
 auto CoordinatorStateMachine::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
   return cluster_state_.GetInstanceUUID(instance_name);
 }
-
 
 auto CoordinatorStateMachine::IsHealthy() const -> bool { return cluster_state_.IsHealthy(); }
 

@@ -61,7 +61,8 @@ struct CoordinatorInstanceState {
 void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state);
 void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state);
 
-using TRaftLog = std::variant<CoordinatorToReplicaConfig, std::string, utils::UUID, CoordinatorToCoordinatorConfig, InstanceUUIDChange>;
+using TRaftLog = std::variant<CoordinatorToReplicaConfig, std::string, utils::UUID, CoordinatorToCoordinatorConfig,
+                              InstanceUUIDChange>;
 
 using nuraft::buffer;
 using nuraft::buffer_serializer;
@@ -105,13 +106,12 @@ class CoordinatorClusterState {
 
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 
-
  private:
   std::vector<CoordinatorInstanceState> coordinators_{};
   std::map<std::string, ReplicationInstanceState, std::less<>> repl_instances_{};
   utils::UUID current_main_uuid_{};
   mutable utils::ResourceLock log_lock_{};
-  bool unhealthy_state_{false};
+  bool is_healthy_{true};
 };
 
 }  // namespace memgraph::coordination
