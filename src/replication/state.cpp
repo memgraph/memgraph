@@ -254,7 +254,8 @@ bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
     return false;
   }
 
-  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, true, main_uuid};
+  // By default, writing on MAIN is disabled until cluster is in healthy state
+  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, /*is_writing enabled*/ false, main_uuid};
 
   return true;
 }
