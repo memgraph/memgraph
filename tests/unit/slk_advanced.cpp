@@ -13,12 +13,15 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_slk.hpp"
+#include "io/network/endpoint.hpp"
 #include "replication/config.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "slk_common.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/slk.hpp"
 #include "storage/v2/temporal.hpp"
+
+using memgraph::io::network::Endpoint;
 
 TEST(SlkAdvanced, PropertyValueList) {
   std::vector<memgraph::storage::PropertyValue> original{
@@ -119,24 +122,19 @@ TEST(SlkAdvanced, PropertyValueComplex) {
 }
 
 TEST(SlkAdvanced, ReplicationClientConfigs) {
-  using ReplicationClientInfo = memgraph::coordination::CoordinatorToReplicaConfig::ReplicationClientInfo;
+  using ReplicationClientInfo = memgraph::coordination::ReplicationClientInfo;
   using ReplicationClientInfoVec = std::vector<ReplicationClientInfo>;
   using ReplicationMode = memgraph::replication_coordination_glue::ReplicationMode;
 
   ReplicationClientInfoVec original{ReplicationClientInfo{.instance_name = "replica1",
                                                           .replication_mode = ReplicationMode::SYNC,
-                                                          .replication_ip_address = "127.0.0.1",
-                                                          .replication_port = 10000},
+                                                          .replication_server = Endpoint{"127.0.0.1", 10000}},
                                     ReplicationClientInfo{.instance_name = "replica2",
                                                           .replication_mode = ReplicationMode::ASYNC,
-                                                          .replication_ip_address = "127.0.1.1",
-                                                          .replication_port = 10010},
-                                    ReplicationClientInfo{
-                                        .instance_name = "replica3",
-                                        .replication_mode = ReplicationMode::ASYNC,
-                                        .replication_ip_address = "127.1.1.1",
-                                        .replication_port = 1110,
-                                    }};
+                                                          .replication_server = Endpoint{"127.0.0.1", 10010}},
+                                    ReplicationClientInfo{.instance_name = "replica3",
+                                                          .replication_mode = ReplicationMode::ASYNC,
+                                                          .replication_server = Endpoint{"127.0.0.1", 10011}}};
 
   memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();

@@ -15,7 +15,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
 # create a temporary directory.
-tmpdir=/home/andi/Memgraph/code/memgraph_drivers
+tmpdir=/tmp/memgraph_drivers
 if [ -d $tmpdir ]; then
     rm -rf $tmpdir
 fi
@@ -127,12 +127,12 @@ wait_for_server 7692
 
 sleep 5
 
-echo 'ADD COORDINATOR 2 WITH CONFIG {"bolt_server": "127.0.0.1:7691", "coordinator_server":  "127.0.0.1:10112"};' | mgconsole --port 7690
-echo 'ADD COORDINATOR 3 WITH CONFIG {"bolt_server": "127.0.0.1:7692", "coordinator_server":  "127.0.0.1:10113"};' | mgconsole --port 7690
-echo 'REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "127.0.0.1:7687", "management_server": "127.0.0.1:10011", "replication_server": "127.0.0.1:10001"};'  | mgconsole --port 7690
-echo 'REGISTER INSTANCE instance_2 WITH CONFIG {"bolt_server": "127.0.0.1:7688", "management_server": "127.0.0.1:10012", "replication_server": "127.0.0.1:10002"};'  | mgconsole --port 7690
-echo 'REGISTER INSTANCE instance_3 WITH CONFIG {"bolt_server": "127.0.0.1:7689", "management_server": "127.0.0.1:10013", "replication_server": "127.0.0.1:10003"};'  | mgconsole --port 7690
-echo 'SET INSTANCE instance_1 TO MAIN;' | mgconsole --port 7690
+echo 'ADD COORDINATOR 2 WITH CONFIG {"bolt_server": "127.0.0.1:7691", "coordinator_server":  "127.0.0.1:10112"};' | $binary_dir/bin/mgconsole --port 7690
+echo 'ADD COORDINATOR 3 WITH CONFIG {"bolt_server": "127.0.0.1:7692", "coordinator_server":  "127.0.0.1:10113"};' | $binary_dir/bin/mgconsole --port 7690
+echo 'REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "127.0.0.1:7687", "management_server": "127.0.0.1:10011", "replication_server": "127.0.0.1:10001"};'  | $binary_dir/bin/mgconsole --port 7690
+echo 'REGISTER INSTANCE instance_2 WITH CONFIG {"bolt_server": "127.0.0.1:7688", "management_server": "127.0.0.1:10012", "replication_server": "127.0.0.1:10002"};'  | $binary_dir/bin/mgconsole --port 7690
+echo 'REGISTER INSTANCE instance_3 WITH CONFIG {"bolt_server": "127.0.0.1:7689", "management_server": "127.0.0.1:10013", "replication_server": "127.0.0.1:10003"};'  | $binary_dir/bin/mgconsole --port 7690
+echo 'SET INSTANCE instance_1 TO MAIN;' | $binary_dir/bin/mgconsole --port 7690
 
 
 code_test=0

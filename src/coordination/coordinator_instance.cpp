@@ -14,7 +14,6 @@
 #include "coordination/coordinator_instance.hpp"
 
 #include "coordination/coordinator_exceptions.hpp"
-#include "coordination/fmt.hpp"
 #include "dbms/constants.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"

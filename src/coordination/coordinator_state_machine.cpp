@@ -136,6 +136,7 @@ auto CoordinatorStateMachine::read_logical_snp_obj(snapshot &snapshot, void *& /
   } else {
     // Object ID > 0: second object, put actual value.
     ctx->cluster_state_.Serialize(data_out);
+    is_last_obj = true;
   }
 
   return 0;
@@ -158,6 +159,7 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
     DMG_ASSERT(entry != snapshots_.end());
     entry->second->cluster_state_ = cluster_state;
   }
+  obj_id++;
 }
 
 auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {

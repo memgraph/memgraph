@@ -44,7 +44,6 @@ func create_message(uri string) {
 // Test checks that you can use bolt+routing for connecting to main and coordinators for writing.
 func main() {
 	fmt.Println("Started running main_route.go test")
-	create_message("neo4j://localhost:7687") // instance_1
 	create_message("neo4j://localhost:7690") // coordinator_1
 	create_message("neo4j://localhost:7691") // coordinator_2
 	create_message("neo4j://localhost:7692") // coordinator_3

@@ -33,7 +33,7 @@ CoordinatorStateManager::CoordinatorStateManager(int srv_id, std::string const &
 auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
   // Just return in-memory data in this example.
   // May require reading from disk here, if it has been written to disk.
-  spdlog::info("Loading cluster config");
+  spdlog::trace("Loading cluster config");
   return cluster_config_;
 }
 
@@ -45,7 +45,7 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
   spdlog::info("Saving cluster config.");
   auto servers = cluster_config_->get_servers();
   for (auto const &server : servers) {
-    spdlog::info("Server id: {}, endpoint: {}", server->get_id(), server->get_endpoint());
+    spdlog::trace("Server id: {}, endpoint: {}", server->get_id(), server->get_endpoint());
   }
 }
 

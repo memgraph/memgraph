@@ -275,7 +275,7 @@ auto RaftState::AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig c
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to add coordinator instance {} with error code {}", config.coordinator_server_id,
-                  res->get_result_code());
+                  static_cast<int>(res->get_result_code()));
     return false;
   }
 

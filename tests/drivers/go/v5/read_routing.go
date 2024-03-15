@@ -44,8 +44,6 @@ func read_messages(uri string) {
 // Test checks that you can use bolt+routing for connecting to main and coordinators for reading.
 func main() {
 	fmt.Println("Started running read_route.go test")
-	read_messages("neo4j://localhost:7688") // instance_2
-	read_messages("neo4j://localhost:7689") // instance_3
 	read_messages("neo4j://localhost:7690") // coordinator_1
 	read_messages("neo4j://localhost:7691") // coordinator_2
 	read_messages("neo4j://localhost:7692") // coordinator_3
