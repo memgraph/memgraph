@@ -244,6 +244,11 @@ auto CoordinatorInstance::TryFailover() -> void {
     return;
   }
 
+  if (!new_main->EnableWritingOnMain()) {
+  spdlog:
+    error("Failover successful but couldn't enable writing on instance.");
+  }
+
   spdlog::info("Failover successful! Instance {} promoted to main.", new_main->InstanceName());
 }
 
@@ -317,6 +322,10 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
   }
 
   spdlog::info("Instance {} promoted to main on leader", instance_name);
+
+  if (!new_main->EnableWritingOnMain()) {
+    return SetInstanceToMainCoordinatorStatus::ENABLE_WRITING_FAILED;
+  }
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
 }
 

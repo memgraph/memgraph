@@ -52,7 +52,8 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   SWAP_UUID_FAILED,
   SUCCESS,
   UNHEALTHY_STATE,
-  OPEN_LOCK
+  OPEN_LOCK,
+  ENABLE_WRITING_FAILED
 };
 
 }  // namespace memgraph::coordination

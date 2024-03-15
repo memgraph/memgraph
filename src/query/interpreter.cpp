@@ -407,6 +407,11 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
+      case UNHEALTHY_STATE:
+        throw QueryRuntimeException("Couldn't unregister replica because cluster is currently in unhealthy state!");
+      case OPEN_LOCK:
+        throw QueryRuntimeException(
+            "Couldn't register instance as cluster didn't accept entering unregistration state!");
       case SUCCESS:
         break;
     }
@@ -469,6 +474,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
             "find out more info!");
+      case UNHEALTHY_STATE:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance because cluster is currently in unhealthy state!");
+      case OPEN_LOCK:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance because cluster didn't accept registration query!");
       case SUCCESS:
         break;
     }
@@ -514,6 +525,14 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
       case SWAP_UUID_FAILED:
         throw QueryRuntimeException("Couldn't set replica instance to main. Replicas didn't swap uuid of new main.");
+      case OPEN_LOCK:
+        throw QueryRuntimeException(
+            "Couldn't set replica instance to main as cluster didn't accept setting instance state.");
+      case UNHEALTHY_STATE:
+        throw QueryRuntimeException(
+            "Couldn't set replica instance to main as cluster is currently in unhealthy state.");
+      case ENABLE_WRITING_FAILED:
+        throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
       case SUCCESS:
         break;
     }
