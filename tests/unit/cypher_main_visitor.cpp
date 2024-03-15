@@ -2633,15 +2633,99 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
 }
 
 #ifdef MG_ENTERPRISE
+
+TEST_P(CypherMainVisitorTest, TestRegisterSyncInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const sync_instance = R"(REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "127.0.0.1:7688",
+    "replication_server": "127.0.0.1:10001", "management_server": "127.0.0.1:10011"
+    })";
+
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(sync_instance));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REGISTER_INSTANCE);
+  EXPECT_EQ(parsed_query->sync_mode_, CoordinatorQuery::SyncMode::SYNC);
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::unordered_map<std::string, std::string> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::unordered_map<std::string, std::string>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 3);
+  EXPECT_EQ(config_map.at("bolt_server"), "127.0.0.1:7688");
+  EXPECT_EQ(config_map.at("management_server"), "127.0.0.1:10011");
+  EXPECT_EQ(config_map.at("replication_server"), "127.0.0.1:10001");
+}
+
+TEST_P(CypherMainVisitorTest, TestRegisterAsyncInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const async_instance =
+      R"(REGISTER INSTANCE instance_1 AS ASYNC WITH CONFIG {"bolt_server": "127.0.0.1:7688",
+    "replication_server": "127.0.0.1:10001",
+    "management_server": "127.0.0.1:10011"})";
+
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(async_instance));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REGISTER_INSTANCE);
+  EXPECT_EQ(parsed_query->sync_mode_, CoordinatorQuery::SyncMode::ASYNC);
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::map<std::string, std::string, std::less<>> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::map<std::string, std::string, std::less<>>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 3);
+  EXPECT_EQ(config_map.find(memgraph::query::kBoltServer)->second, "127.0.0.1:7688");
+  EXPECT_EQ(config_map.find(memgraph::query::kManagementServer)->second, "127.0.0.1:10011");
+  EXPECT_EQ(config_map.find(memgraph::query::kReplicationServer)->second, "127.0.0.1:10001");
+}
+
 TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   auto &ast_generator = *GetParam();
 
-  std::string const correct_query = R"(ADD COORDINATOR 1 ON "127.0.0.1:10111")";
+  std::string const correct_query =
+      R"(ADD COORDINATOR 1 WITH CONFIG {"bolt_server": "127.0.0.1:7688", "coordinator_server": "127.0.0.1:10111"})";
   auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
 
   EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE);
-  ast_generator.CheckLiteral(parsed_query->raft_socket_address_, TypedValue("127.0.0.1:10111"));
-  ast_generator.CheckLiteral(parsed_query->raft_server_id_, TypedValue(1));
+  ast_generator.CheckLiteral(parsed_query->coordinator_server_id_, TypedValue(1));
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::map<std::string, std::string, std::less<>> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::map<std::string, std::string, std::less<>>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 2);
+  EXPECT_EQ(config_map.find(kBoltServer)->second, "127.0.0.1:7688");
+  EXPECT_EQ(config_map.find(kCoordinatorServer)->second, "127.0.0.1:10111");
 }
 #endif
 
@@ -4622,5 +4706,103 @@ TEST_P(CypherMainVisitorTest, CallSubquery) {
 
     const auto *nested_match = dynamic_cast<Match *>(nested_cypher->single_query_->clauses_[0]);
     ASSERT_TRUE(nested_match);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, PatternComprehension) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) RETURN [(n)-->(b) | b.val] AS res;"));
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+
+    const auto *pc = dynamic_cast<PatternComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(pc);
+
+    // Check for variable_
+    EXPECT_EQ(pc->variable_, nullptr);
+
+    // Check for pattern_
+    const auto pattern = pc->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    // Check for filter_
+    EXPECT_EQ(pc->filter_, nullptr);
+
+    // Check for resultExpr_
+    const auto *result_expr = pc->resultExpr_;
+    ASSERT_TRUE(result_expr);
+  }
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) RETURN [(n)-->(b) WHERE b.id=1 | b.val] AS res;"));
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+
+    const auto *pc = dynamic_cast<PatternComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(pc);
+
+    // Check for variable_
+    EXPECT_EQ(pc->variable_, nullptr);
+
+    // Check for pattern_
+    const auto pattern = pc->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    // Check for filter_
+    const auto *filter = pc->filter_;
+    ASSERT_TRUE(filter);
+    ASSERT_TRUE(filter->expression_);
+
+    // Check for resultExpr_
+    const auto *result_expr = pc->resultExpr_;
+    ASSERT_TRUE(result_expr);
+  }
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) RETURN [p = (n)-->(b) WHERE b.id=1 | b.val] AS res;"));
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+
+    const auto *pc = dynamic_cast<PatternComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(pc);
+
+    // Check for variable_
+    ASSERT_TRUE(pc->variable_);
+
+    // Check for pattern_
+    const auto pattern = pc->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    // Check for filter_
+    const auto *filter = pc->filter_;
+    ASSERT_TRUE(filter);
+    ASSERT_TRUE(filter->expression_);
+
+    // Check for resultExpr_
+    const auto *result_expr = pc->resultExpr_;
+    ASSERT_TRUE(result_expr);
   }
 }

@@ -30,16 +30,17 @@ class CoordinatorHandler {
 
   // TODO: (andi) When moving coordinator state on same instances, rename from RegisterReplicationInstance to
   // RegisterInstance
-  auto RegisterReplicationInstance(coordination::CoordinatorClientConfig config)
+  auto RegisterReplicationInstance(coordination::CoordinatorClientConfig const &config)
       -> coordination::RegisterInstanceCoordinatorStatus;
 
-  auto UnregisterReplicationInstance(std::string instance_name) -> coordination::UnregisterInstanceCoordinatorStatus;
+  auto UnregisterReplicationInstance(std::string_view instance_name)
+      -> coordination::UnregisterInstanceCoordinatorStatus;
 
-  auto SetReplicationInstanceToMain(std::string instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
+  auto SetReplicationInstanceToMain(std::string_view instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
 
   auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
+  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
 
  private:
   coordination::CoordinatorState &coordinator_state_;

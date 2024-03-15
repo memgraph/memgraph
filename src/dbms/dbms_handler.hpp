@@ -155,6 +155,8 @@ class DbmsHandler {
     spdlog::debug("Trying to create db '{}' on replica which already exists.", config.name);
 
     auto db = Get_(config.name);
+    spdlog::debug("Aligning database with name {} which has UUID {}, where config UUID is {}", config.name,
+                  std::string(db->uuid()), std::string(config.uuid));
     if (db->uuid() == config.uuid) {  // Same db
       return db;
     }
@@ -163,18 +165,22 @@ class DbmsHandler {
 
     // TODO: Fix this hack
     if (config.name == kDefaultDB) {
+      spdlog::debug("Last commit timestamp for DB {} is {}", kDefaultDB,
+                    db->storage()->repl_storage_state_.last_commit_timestamp_);
+      // This seems correct, if database made progress
       if (db->storage()->repl_storage_state_.last_commit_timestamp_ != storage::kTimestampInitialId) {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
         return NewError::GENERIC;  // Update error
       }
-      spdlog::debug("Update default db's UUID");
+      spdlog::debug("Updated default db's UUID");
       // Default db cannot be deleted and remade, have to just update the UUID
       db->storage()->config_.salient.uuid = config.uuid;
       UpdateDurability(db->storage()->config_, ".");
       return db;
     }
 
-    spdlog::debug("Drop database and recreate with the correct UUID");
+    spdlog::debug("Dropping database {} with UUID: {} and recreating with the correct UUID: {}", config.name,
+                  std::string(db->uuid()), std::string(config.uuid));
     // Defer drop
     (void)Delete_(db->name());
     // Second attempt
@@ -265,10 +271,6 @@ class DbmsHandler {
 
   bool IsMain() const { return repl_state_.IsMain(); }
   bool IsReplica() const { return repl_state_.IsReplica(); }
-
-#ifdef MG_ENTERPRISE
-  // coordination::CoordinatorState &CoordinatorState() { return coordinator_state_; }
-#endif
 
   /**
    * @brief Return all active databases.
