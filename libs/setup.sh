@@ -268,13 +268,13 @@ repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" 
 pushd jemalloc
 
 ./autogen.sh
-MALLOC_CONF="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000" \
+MALLOC_CONF="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000" \
 ./configure \
   --disable-cxx \
   --with-lg-page=12 \
   --with-lg-hugepage=21 \
   --enable-shared=no --prefix=$working_dir \
-  --with-malloc-conf="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
+  --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
 
 make -j$CPUS install
 popd
