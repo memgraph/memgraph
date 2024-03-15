@@ -31,12 +31,12 @@ using nuraft::raft_server;
 using nuraft::srv_config;
 using raft_result = cmd_result<ptr<buffer>>;
 
-RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
+RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t coordinator_id,
                      uint32_t raft_port, std::string raft_address)
     : raft_endpoint_(raft_address, raft_port),
-      raft_server_id_(raft_server_id),
+      coordinator_id_(coordinator_id),
       state_machine_(cs_new<CoordinatorStateMachine>()),
-      state_manager_(cs_new<CoordinatorStateManager>(raft_server_id_, raft_endpoint_.SocketAddress())),
+      state_manager_(cs_new<CoordinatorStateManager>(coordinator_id_, raft_endpoint_.SocketAddress())),
       logger_(nullptr),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {}
@@ -95,11 +95,11 @@ auto RaftState::InitRaftServer() -> void {
 }
 
 auto RaftState::MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb) -> RaftState {
-  uint32_t raft_server_id = FLAGS_raft_server_id;
-  uint32_t raft_port = FLAGS_raft_server_port;
+  uint32_t coordinator_id = FLAGS_coordinator_id;
+  uint32_t raft_port = FLAGS_coordinator_port;
 
   auto raft_state =
-      RaftState(std::move(become_leader_cb), std::move(become_follower_cb), raft_server_id, raft_port, "127.0.0.1");
+      RaftState(std::move(become_leader_cb), std::move(become_follower_cb), coordinator_id, raft_port, "127.0.0.1");
 
   raft_state.InitRaftServer();
   return raft_state;
@@ -108,7 +108,7 @@ auto RaftState::MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerC
 RaftState::~RaftState() { launcher_.shutdown(); }
 
 auto RaftState::InstanceName() const -> std::string {
-  return fmt::format("coordinator_{}", std::to_string(raft_server_id_));
+  return fmt::format("coordinator_{}", std::to_string(coordinator_id_));
 }
 
 auto RaftState::RaftSocketAddress() const -> std::string { return raft_endpoint_.SocketAddress(); }
