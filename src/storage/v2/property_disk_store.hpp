@@ -89,7 +89,7 @@ class PDS {
   }
 
   std::optional<PropertyValue> Get(Gid gid, PropertyId pid) {
-    const auto element = kvstore_.Get(ToKey(gid, pid));
+    const auto element = kvstore_.Get(ToKey(gid, pid), r_options);
     if (element) {
       return ToPV(*element);
     }
@@ -97,7 +97,7 @@ class PDS {
   }
 
   size_t GetSize(Gid gid, PropertyId pid) {
-    const auto element = kvstore_.Get(ToKey(gid, pid));
+    const auto element = kvstore_.Get(ToKey(gid, pid), r_options);
     if (element) {
       return element->size();
     }
@@ -106,8 +106,8 @@ class PDS {
 
   std::map<PropertyId, PropertyValue> Get(Gid gid) {
     std::map<PropertyId, PropertyValue> res;
-    auto itr = kvstore_.begin(ToPrefix(gid));
-    auto end = kvstore_.end(ToPrefix(gid));
+    auto itr = kvstore_.begin(ToPrefix(gid), r_options);
+    auto end = kvstore_.end(ToPrefix(gid), r_options);
     for (; itr != end; ++itr) {
       if (!itr.IsValid()) continue;
       res[ToPid(itr->first)] = ToPV(itr->second);
@@ -117,20 +117,22 @@ class PDS {
 
   auto Set(Gid gid, PropertyId pid, const PropertyValue &pv) {
     if (pv.IsNull()) {
-      return kvstore_.Delete(ToKey(gid, pid));
+      return kvstore_.Delete(ToKey(gid, pid), w_options);
     }
-    return kvstore_.Put(ToKey(gid, pid), ToStr(pv));
+    return kvstore_.Put(ToKey(gid, pid), ToStr(pv), w_options);
   }
 
-  void Clear(Gid gid) { kvstore_.DeletePrefix(ToPrefix(gid)); }
+  void Clear(Gid gid) { kvstore_.DeletePrefix(ToPrefix(gid), w_options, r_options); }
 
-  bool Has(Gid gid, PropertyId pid) { return kvstore_.Size(ToKey(gid, pid)) != 0; }
+  bool Has(Gid gid, PropertyId pid) { return kvstore_.Size(ToKey(gid, pid), r_options) != 0; }
 
   // kvstore::KVStore::iterator Itr() {}
 
  private:
   PDS(std::filesystem::path root);
   kvstore::KVStore kvstore_;
+  rocksdb::ReadOptions r_options{};
+  rocksdb::WriteOptions w_options{};
   static PDS *ptr_;
 };
 
