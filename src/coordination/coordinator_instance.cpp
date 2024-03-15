@@ -125,16 +125,23 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
       std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
     }
   } else {
-    auto const stringify_inst_status = [](utils::UUID const &main_uuid,
-                                          utils::UUID const &instance_uuid) -> std::string {
-      return instance_uuid == main_uuid ? "main" : "replica";
+    auto const stringify_inst_status = [raft_state_ptr = &raft_state_](
+                                           utils::UUID const &main_uuid,
+                                           ReplicationInstanceState const &instance) -> std::string {
+      if (instance.instance_uuid == main_uuid) {
+        return "main";
+      }
+      if (raft_state_ptr->HasMainState(instance.config.instance_name)) {
+        return "unknown";
+      }
+      return "replica";
     };
 
     // TODO: (andi) Add capability that followers can also return socket addresses
     auto process_repl_instance_as_follower =
         [this, &stringify_inst_status](ReplicationInstanceState const &instance) -> InstanceStatus {
       return {.instance_name = instance.config.instance_name,
-              .cluster_role = stringify_inst_status(raft_state_.GetCurrentMainUUID(), instance.instance_uuid),
+              .cluster_role = stringify_inst_status(raft_state_.GetCurrentMainUUID(), instance),
               .health = "unknown"};
     };
 

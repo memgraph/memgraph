@@ -13,6 +13,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 import interactive_mg_runner
 import pytest
@@ -261,7 +262,7 @@ def test_old_main_comes_back_on_new_leader_as_replica():
         ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "", "unknown", "main"),
         ("instance_2", "", "", "unknown", "replica"),
-        ("instance_3", "", "", "unknown", "main"),  # TODO: (andi) Will become unknown.
+        ("instance_3", "", "", "unknown", "unknown"),
     ]
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
@@ -456,7 +457,7 @@ def test_distributed_automatic_failover_with_leadership_change():
         ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "", "unknown", "main"),
         ("instance_2", "", "", "unknown", "replica"),
-        ("instance_3", "", "", "unknown", "main"),  # TODO: (andi) Will become unknown.
+        ("instance_3", "", "", "unknown", "unknown"),
     ]
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
@@ -1092,8 +1093,8 @@ def test_multiple_failovers_in_row_no_leadership_change():
                 "",
                 "",
                 "unknown",
-                "main",
-            ),  # TODO(antoniofilipovic) change to unknown after PR with transitions
+                "unknown",
+            ),
         ]
     )
 
@@ -1120,8 +1121,8 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(
         [
             ("instance_1", "", "", "unknown", "main"),
-            ("instance_2", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
-            ("instance_3", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
+            ("instance_2", "", "", "unknown", "unknown"),
+            ("instance_3", "", "", "unknown", "unknown"),
         ]
     )
 
@@ -1149,7 +1150,7 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(coordinator_data)
     follower_data.extend(
         [
-            ("instance_1", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
+            ("instance_1", "", "", "unknown", "unknown"),
             ("instance_2", "", "", "unknown", "main"),
             ("instance_3", "", "", "unknown", "replica"),
         ]
@@ -1177,8 +1178,8 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(coordinator_data)
     follower_data.extend(
         [
-            ("instance_1", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
-            ("instance_2", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
+            ("instance_1", "", "", "unknown", "unknown"),
+            ("instance_2", "", "", "unknown", "unknown"),
             ("instance_3", "", "", "unknown", "main"),
         ]
     )
@@ -1256,6 +1257,497 @@ def test_multiple_failovers_in_row_no_leadership_change():
     mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7687, host="localhost").cursor()))
 
     mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7688, host="localhost").cursor()))
+
+
+def test_multiple_old_mains_single_failover():
+    # Goal of this test is to check when leadership changes
+    # and we have old MAIN down, that we don't start failover
+    # 1. Start all instances.
+    # 2. Kill the main instance
+    # 3. Do failover
+    # 4. Kill other main
+    # 5. Kill leader
+    # 6. Leave first main down, and start second main
+    # 7. Second main should write data to new instance all the time
+
+    # 1
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    inner_instances_description = get_instances_description_no_setup()
+
+    interactive_mg_runner.start_all(inner_instances_description)
+
+    setup_queries = [
+        "ADD COORDINATOR 1 ON '127.0.0.1:10111'",
+        "ADD COORDINATOR 2 ON '127.0.0.1:10112'",
+        "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'",
+        "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'",
+        "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'",
+        "SET INSTANCE instance_3 TO MAIN",
+    ]
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in setup_queries:
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    coord_cursor = connect(host="localhost", port=7693).cursor()
+
+    def retrieve_data_show_repl_cluster():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    coordinators = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+    ]
+
+    basic_instances = [
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+    ]
+
+    expected_data_on_coord = []
+    expected_data_on_coord.extend(coordinators)
+    expected_data_on_coord.extend(basic_instances)
+
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
+
+    # 2
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_3")
+
+    # 3
+
+    basic_instances = [
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+
+    expected_data_on_coord = []
+    expected_data_on_coord.extend(coordinators)
+    expected_data_on_coord.extend(basic_instances)
+
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
+
+    # 4
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+
+    # 5
+    interactive_mg_runner.kill(inner_instances_description, "coordinator_3")
+
+    # 6
+
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+
+    # 7
+
+    instance_1_cursor = connect(host="localhost", port=7687).cursor()
+
+    def show_replicas():
+        return sorted(list(execute_and_fetch_all(instance_1_cursor, "SHOW REPLICAS;")))
+
+    replicas = [
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "instance_3",
+            "127.0.0.1:10003",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(replicas, show_replicas)
+
+    def get_vertex_count_func(cursor):
+        def get_vertex_count():
+            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+        return get_vertex_count
+
+    mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7687, host="localhost").cursor()))
+
+    mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7688, host="localhost").cursor()))
+
+    failover_length = 6
+    vertex_count = 0
+    instance_3_cursor = connect(port=7689, host="localhost").cursor()
+
+    while failover_length:
+        failover_length -= 0.1
+        with pytest.raises(Exception) as e:
+            execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+
+        assert vertex_count == execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0]
+        assert vertex_count == execute_and_fetch_all(instance_3_cursor, "MATCH (n) RETURN count(n);")[0][0]
+        time.sleep(0.1)
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+    coord_cursor_2 = connect(host="localhost", port=7690).cursor()
+
+    leader_data = []
+    leader_data.extend(coordinators)
+    leader_data.extend(
+        [
+            ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+            ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+            ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ]
+    )
+
+    follower_data = []
+    follower_data.extend(coordinators)
+    follower_data.extend(
+        [
+            ("instance_1", "", "", "unknown", "main"),
+            ("instance_2", "", "", "unknown", "replica"),
+            ("instance_3", "", "", "unknown", "unknown"),
+        ]
+    )
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    def show_instances_coord1():
+        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+
+    def show_instances_coord2():
+        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+
+    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
+    mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
+
+
+@pytest.mark.parametrize("data_recovery", ["false"])
+def test_distributed_coordinators_work_partial_failover(data_recovery):
+    # Goal of this test is to check that correct MAIN instance is chosen
+    # if coordinator dies while failover is being done
+    # 1. We start all replicas, main and 4 coordinators manually
+    # 2. We check that main has correct state
+    # 3. Create initial data on MAIN
+    # 4. Expect data to be copied on all replicas
+    # 5. Kill MAIN: instance 3
+
+    # 6. Failover should succeed to instance 1 -> SHOW ROLE -> MAIN
+    # 7. Kill 2 coordinators (1 and 2) as soon as instance becomes MAIN
+    # 8. coord 4 become follower (2 coords dead, no leader)
+    # 8. instance_1 writes (MAIN, successfully)
+    # 9. Kill coordinator 4
+    # 10. Connect to coordinator 3
+    # 11. Start coordinator_1 and coordinator_2 (coord 3 probably leader)
+    # 12. Failover again
+    # 13. Main can't write to replicas anymore, coordinator can't progress
+
+    temp_dir = tempfile.TemporaryDirectory().name
+
+    MEMGRAPH_INNER_INSTANCES_DESCRIPTION = {
+        "instance_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10011",
+                "--replication-restore-state-on-startup",
+                "true",
+                f"--data-recovery-on-startup={data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_1.log",
+            "data_directory": f"{temp_dir}/instance_1",
+            "setup_queries": [],
+        },
+        "instance_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7689",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10012",
+                "--replication-restore-state-on-startup",
+                "true",
+                f"--data-recovery-on-startup={data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_2.log",
+            "data_directory": f"{temp_dir}/instance_2",
+            "setup_queries": [],
+        },
+        "instance_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--coordinator-server-port",
+                "10013",
+                "--replication-restore-state-on-startup",
+                "true",
+                "--data-recovery-on-startup",
+                f"{data_recovery}",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_3.log",
+            "data_directory": f"{temp_dir}/instance_3",
+            "setup_queries": [],
+        },
+        "coordinator_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--raft-server-id=1",
+                "--raft-server-port=10111",
+            ],
+            "log_file": "coordinator1.log",
+            "data_directory": f"{temp_dir}/coordinator_1",
+            "setup_queries": [],
+        },
+        "coordinator_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7691",
+                "--log-level=TRACE",
+                "--raft-server-id=2",
+                "--raft-server-port=10112",
+            ],
+            "log_file": "coordinator2.log",
+            "data_directory": f"{temp_dir}/coordinator_2",
+            "setup_queries": [],
+        },
+        "coordinator_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7692",
+                "--log-level=TRACE",
+                "--raft-server-id=3",
+                "--raft-server-port=10113",
+            ],
+            "log_file": "coordinator3.log",
+            "data_directory": f"{temp_dir}/coordinator_3",
+            "setup_queries": [],
+        },
+        "coordinator_4": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7693",
+                "--log-level=TRACE",
+                "--raft-server-id=4",
+                "--raft-server-port=10114",
+            ],
+            "log_file": "coordinator4.log",
+            "data_directory": f"{temp_dir}/coordinator_4",
+            "setup_queries": [],
+        },
+    }
+    ## Add 15 replicas to REGISTER it will take out time from failover and we can kill coordinators and enter
+    ## unhealthy state
+
+    # 1
+
+    interactive_mg_runner.start_all_except(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, {"coordinator_4"})
+
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "coordinator_4")
+
+    coord_cursor = connect(host="localhost", port=7693).cursor()
+
+    for query in [
+        "ADD COORDINATOR 1 ON '127.0.0.1:10111';",
+        "ADD COORDINATOR 2 ON '127.0.0.1:10112';",
+        "ADD COORDINATOR 3 ON '127.0.0.1:10113';",
+    ]:
+        execute_and_fetch_all(coord_cursor, query)
+
+    for query in [
+        "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';",
+        "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
+        "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
+        "SET INSTANCE instance_3 TO MAIN;",
+    ]:
+        execute_and_fetch_all(coord_cursor, query)
+
+    # 2
+
+    main_cursor = connect(host="localhost", port=7687).cursor()
+    expected_data_on_main = [
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+    ]
+
+    main_cursor = connect(host="localhost", port=7687).cursor()
+
+    def retrieve_data_show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
+    mg_sleep_and_assert_collection(expected_data_on_main, retrieve_data_show_replicas)
+
+    coord_cursor = connect(host="localhost", port=7693).cursor()
+
+    def retrieve_data_show_instances_main_coord():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_4", "127.0.0.1:10114", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances_main_coord)
+
+    # 3
+
+    execute_and_fetch_all(main_cursor, "CREATE (:Epoch1Vertex {prop:1});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Epoch1Vertex {prop:2});")
+
+    # 4
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+    instance_2_cursor = connect(host="localhost", port=7689).cursor()
+
+    assert execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+    assert execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0] == 2
+
+    # 5
+
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
+    # 6
+
+    time.sleep(4.5)
+    max_tries = 100
+    last_role = "replica"
+    while max_tries:
+        max_tries -= 1
+        last_role = execute_and_fetch_all(instance_1_cursor, "SHOW REPLICATION ROLE;")[0][0]
+        if "main" == last_role:
+            interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "coordinator_1")
+            interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "coordinator_2")
+            break
+        time.sleep(0.1)
+    assert max_tries > 0 or last_role == "main"
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_4", "127.0.0.1:10114", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "unknown", "main"),  # TODO although above we see it is MAIN
+        ("instance_2", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "unknown", "main"),
+    ]
+
+    def retrieve_data_show_instances():
+        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
+
+    # 7
+    def retrieve_role():
+        return execute_and_fetch_all(instance_1_cursor, "SHOW REPLICATION ROLE;")[0]
+
+    mg_sleep_and_assert("MAIN", retrieve_role)
+
+    # 8
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch2Vertex {prop:1});")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    def get_vertex_count_instance_2():
+        return execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(3, get_vertex_count_instance_2)
+
+    assert execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
+
+    # 9
+
+    interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "coordinator_4")
+
+    # 10
+
+    coord_3_cursor = connect(port=7692, host="localhost").cursor()
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_4", "127.0.0.1:10114", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "unknown", "replica"),  # TODO: bug this is main
+        ("instance_2", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "unknown", "replica"),
+    ]
+
+    def retrieve_data_show_instances_new_leader():
+        return sorted(list(execute_and_fetch_all(coord_3_cursor, "SHOW INSTANCES;")))
+
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances_new_leader)
+
+    # 11
+
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "coordinator_1")
+    interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "coordinator_2")
+
+    # 12
+
+    expected_data_on_coord = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_4", "127.0.0.1:10114", "", "unknown", "coordinator"),
+        (
+            "instance_1",
+            "",
+            "127.0.0.1:10011",
+            "up",
+            "replica",
+        ),  # TODO: bug this is main, this might crash instance, because we will maybe execute replica callback on MAIN, which won't work
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances_new_leader)
+
+    time.sleep(5)  # failover
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch2Vertex {prop:2});")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    def get_vertex_count_instance_2():
+        return execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(4, get_vertex_count_instance_2)  # MAIN will not be able to write to it anymore
+
+    # 13
 
 
 if __name__ == "__main__":
